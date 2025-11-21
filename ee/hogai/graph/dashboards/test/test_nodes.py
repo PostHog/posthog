@@ -6,7 +6,10 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantHogQLQuery, AssistantToolCall, AssistantToolCallMessage, TaskExecutionStatus
 
-from posthog.models import Dashboard, Insight, Team, User
+from posthog.models.dashboard import Dashboard
+from posthog.models.insight import Insight
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.graph.dashboards.nodes import DashboardCreationExecutorNode, DashboardCreationNode, QueryMetadata
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url

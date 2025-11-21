@@ -55,7 +55,6 @@ from posthog.constants import (
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Cohort, FeatureFlag, Person, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -65,11 +64,12 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
+from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import CohortPeople, CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
     FlagsMatcherCache,
@@ -79,10 +79,12 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import Insight
+from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.base import property_group_to_Q

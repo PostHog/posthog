@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models import Organization
+from posthog.models.organization import Organization
 from posthog.models.utils import UUIDTModel
 
 

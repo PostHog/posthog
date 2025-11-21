@@ -11,8 +11,9 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.test.test_oauth import generate_rsa_key
-from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from posthog.models.organization import Organization
+from posthog.models.user import User
 
 
 @override_settings(

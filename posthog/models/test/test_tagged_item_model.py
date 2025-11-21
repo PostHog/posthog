@@ -2,7 +2,12 @@ from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
 
-from posthog.models import Action, Dashboard, DashboardTile, Insight, Tag, TaggedItem
+from posthog.models.action import Action
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight
+from posthog.models.tag import Tag
+from posthog.models.tagged_item import TaggedItem
 
 
 class TestTaggedItem(BaseTest):

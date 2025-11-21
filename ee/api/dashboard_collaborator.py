@@ -8,7 +8,8 @@ from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import Dashboard, User
+from posthog.models.dashboard import Dashboard
+from posthog.models.user import User
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 from ee.models.dashboard_privilege import DashboardPrivilege

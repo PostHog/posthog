@@ -8,7 +8,7 @@ from posthog.test.base import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.element import Element
 from posthog.models.entity import Entity

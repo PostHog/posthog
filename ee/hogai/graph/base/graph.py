@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, NodePath, PartialStateType, StateType

@@ -10,7 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Action
+from posthog.models.action import Action
 
 from .conversion_goal_processor import ConversionGoalProcessor
 from .conversion_goals_aggregator import ConversionGoalsAggregator

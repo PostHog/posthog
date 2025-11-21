@@ -2,18 +2,16 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TransactionTestCase
 
-from posthog.models import (
-    Annotation,
-    Dashboard,
-    EventDefinition,
-    FeatureFlag,
-    Insight,
-    Project,
-    PropertyDefinition,
-    Team,
-    User,
-)
+from posthog.models.annotation import Annotation
+from posthog.models.dashboard import Dashboard
+from posthog.models.event_definition import EventDefinition
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.insight import Insight
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.project import Project
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.tasks.environments_rollback import environments_rollback_migration
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 

@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.data_warehouse.backend.prompts import (
     HOGQL_GENERATOR_USER_PROMPT,

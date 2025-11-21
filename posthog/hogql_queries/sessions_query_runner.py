@@ -12,7 +12,7 @@ from posthog.hogql.property import has_aggregation, map_virtual_properties, prop
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import Person
+from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.utils import relative_date_parse
 

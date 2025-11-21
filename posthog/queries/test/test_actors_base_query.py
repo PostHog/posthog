@@ -8,7 +8,8 @@ from posthog.test.base import (
     snapshot_postgres_queries,
 )
 
-from posthog.models import Group, Person
+from posthog.models.group import Group
+from posthog.models.person import Person
 from posthog.queries.actor_base_query import (
     get_groups,
     get_people,

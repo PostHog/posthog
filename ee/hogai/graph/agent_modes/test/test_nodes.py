@@ -28,8 +28,9 @@ from posthog.schema import (
     MaxBillingContextTrial,
 )
 
-from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.replay.backend.max_tools import SearchSessionRecordingsTool
 

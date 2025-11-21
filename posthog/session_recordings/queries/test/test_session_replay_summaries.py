@@ -8,8 +8,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse
 from dateutil.parser import isoparse
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Team
 from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.models.team import Team
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 

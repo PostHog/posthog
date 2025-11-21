@@ -12,8 +12,8 @@ from temporalio.service import RPCError
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.batch_exports.service import pause_batch_export, sync_batch_export
-from posthog.models import BatchExport, BatchExportDestination
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule, update_schedule
 

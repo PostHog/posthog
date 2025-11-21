@@ -4,7 +4,7 @@ import secrets
 
 from django.db import migrations, models
 
-from posthog.models import Filter
+from posthog.models.filters import Filter
 
 
 def forwards_func(apps, schema_editor):

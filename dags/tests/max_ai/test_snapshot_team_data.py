@@ -13,8 +13,11 @@ from posthog.schema import (
     TeamTaxonomyItem,
 )
 
-from posthog.models import GroupTypeMapping, Organization, Project, Team
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.organization import Organization
+from posthog.models.project import Project
 from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
 
 from dags.max_ai.snapshot_team_data import (
     SnapshotUnrecoverableError,

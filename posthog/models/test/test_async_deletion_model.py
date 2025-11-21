@@ -11,13 +11,15 @@ from posthog.test.base import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import AsyncDeletion, DeletionType, Team, User
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
 from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 from posthog.models.cohort.util import insert_static_cohort
 from posthog.models.group.util import create_group
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.plugin import PluginLogEntrySource, PluginLogEntryType
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.test.test_plugin_log_entry import create_plugin_log_entry
 
 uuid = str(UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8"))

@@ -4,8 +4,7 @@ from django.conf import settings
 
 from temporalio import activity
 
-from posthog.models import PersonalAPIKey
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.temporal.common.utils import asyncify
 

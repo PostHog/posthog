@@ -33,8 +33,7 @@ from posthog.exceptions import (
     UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
 )
-from posthog.models import Entity
-from posthog.models.entity import MathType
+from posthog.models.entity import Entity, MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.utils import load_data_from_request

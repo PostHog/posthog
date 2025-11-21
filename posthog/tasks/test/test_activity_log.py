@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.tasks.activity_log import broadcast_activity_log_to_organization
 
 

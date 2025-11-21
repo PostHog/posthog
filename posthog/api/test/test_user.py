@@ -23,11 +23,13 @@ from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.test.test_oauth import generate_rsa_key
-from posthog.models import Dashboard, Team, User
+from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
 

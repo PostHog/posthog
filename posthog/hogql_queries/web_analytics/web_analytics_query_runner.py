@@ -35,8 +35,9 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, A
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import Action, User
+from posthog.models.action import Action
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import generate_cache_key, get_safe_cache
 

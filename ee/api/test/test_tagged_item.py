@@ -7,7 +7,10 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.models import Dashboard, FeatureFlag, Insight, Tag
+from posthog.models.dashboard import Dashboard
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.insight import Insight
+from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
 
 # This serializer only tests the business logic of getting and setting of ee descriptions. It uses the dashboard model

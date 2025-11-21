@@ -8,8 +8,9 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.team import Team
 
 from ee.api.vercel.test.base import VercelTestBase
 from ee.api.vercel.types import VercelSystemClaims, VercelUser, VercelUserClaims

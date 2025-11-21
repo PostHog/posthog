@@ -4,7 +4,7 @@ from posthog.test.base import _create_event
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,

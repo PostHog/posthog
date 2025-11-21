@@ -46,9 +46,14 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_global_properties,
     filter_to_query,
 )
-from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.entity import Entity
+from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
+from posthog.models.organization import Organization
+from posthog.models.person import Person
 from posthog.models.person.util import create_person_distinct_id
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team

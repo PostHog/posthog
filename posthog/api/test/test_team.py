@@ -20,7 +20,7 @@ from temporalio.service import RPCError
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting

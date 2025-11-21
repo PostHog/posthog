@@ -15,8 +15,8 @@ from django.utils import timezone
 from flaky import flaky
 from parameterized import parameterized
 
-from posthog.models import Cohort, FeatureFlag, Person
-from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
+from posthog.models.cohort import Cohort
+from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagHashKeyOverride,
     FeatureFlagMatch,
@@ -29,6 +29,7 @@ from posthog.models.feature_flag.flag_matching import (
 )
 from posthog.models.group import Group
 from posthog.models.organization import Organization
+from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.test.test_utils import create_group_type_mapping_without_created_at

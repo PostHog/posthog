@@ -12,7 +12,9 @@ from posthog.test.base import (
 )
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
-from posthog.models import Action, Cohort, Organization
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.organization import Organization
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 

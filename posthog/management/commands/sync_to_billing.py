@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from posthog.models import Organization
+from posthog.models.organization import Organization
 from posthog.tasks.sync_billing import sync_members_to_billing
 
 

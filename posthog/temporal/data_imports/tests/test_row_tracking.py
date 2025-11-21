@@ -12,7 +12,7 @@ from django.test import override_settings
 
 from structlog.types import FilteringBoundLogger
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.tasks.usage_report import ExternalDataJob
 from posthog.temporal.data_imports.row_tracking import (
     finish_row_tracking,

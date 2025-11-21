@@ -5,7 +5,7 @@ from datetime import datetime
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 

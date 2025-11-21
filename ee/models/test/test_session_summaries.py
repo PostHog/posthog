@@ -3,7 +3,9 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
-from posthog.models import Organization, Team, User
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.models.session_summaries import (

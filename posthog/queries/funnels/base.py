@@ -19,8 +19,9 @@ from posthog.constants import (
     BreakdownAttributionType,
     FunnelOrderType,
 )
-from posthog.models import Entity, Filter, Team
 from posthog.models.action.util import format_action_filter
+from posthog.models.entity import Entity
+from posthog.models.filters import Filter
 from posthog.models.property import PropertyName
 from posthog.models.property.util import (
     box_value,
@@ -28,6 +29,7 @@ from posthog.models.property.util import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
+from posthog.models.team import Team
 from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,

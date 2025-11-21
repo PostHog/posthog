@@ -64,7 +64,6 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -83,6 +82,8 @@ from posthog.models.cohortmembership.sql import (
     DROP_COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL,
     KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
 )
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
@@ -99,8 +100,9 @@ from posthog.models.exchange_rate.sql import (
     EXCHANGE_RATE_TABLE_SQL,
 )
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
+from posthog.models.insight import Insight
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import Person
 from posthog.models.person.sql import (
     DROP_PERSON_TABLE_SQL,
@@ -158,6 +160,8 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.web_preaggregated.sql import (
     DROP_WEB_BOUNCES_DAILY_SQL,
     DROP_WEB_BOUNCES_HOURLY_SQL,

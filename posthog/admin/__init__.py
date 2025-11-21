@@ -35,37 +35,33 @@ def register_all_admin():
         TextAdmin,
         UserAdmin,
     )
-    from posthog.models import (
-        AsyncDeletion,
-        BatchImport,
-        Cohort,
-        Dashboard,
-        DashboardTemplate,
-        DataColorTheme,
-        DataWarehouseTable,
-        EventIngestionRestrictionConfig,
-        Experiment,
-        ExperimentSavedMetric,
-        FeatureFlag,
-        GroupTypeMapping,
-        HogFunction,
-        Insight,
-        InstanceSetting,
-        Link,
-        Organization,
-        OrganizationDomain,
-        PersonalAPIKey,
-        PersonDistinctId,
-        Plugin,
-        PluginConfig,
-        Project,
-        Survey,
-        Team,
-        Text,
-        User,
-    )
+    from posthog.models.async_deletion.async_deletion import AsyncDeletion
+    from posthog.models.batch_imports import BatchImport
+    from posthog.models.cohort.cohort import Cohort
+    from posthog.models.dashboard import Dashboard
+    from posthog.models.dashboard_templates import DashboardTemplate
+    from posthog.models.dashboard_tile import Text
+    from posthog.models.data_color_theme import DataColorTheme
+    from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+    from posthog.models.experiment import Experiment, ExperimentSavedMetric
+    from posthog.models.feature_flag.feature_flag import FeatureFlag
+    from posthog.models.group_type_mapping import GroupTypeMapping
+    from posthog.models.hog_functions.hog_function import HogFunction
+    from posthog.models.insight import Insight
+    from posthog.models.instance_setting import InstanceSetting
+    from posthog.models.link import Link
     from posthog.models.oauth import OAuthApplication
+    from posthog.models.organization import Organization
+    from posthog.models.organization_domain import OrganizationDomain
+    from posthog.models.person.person import PersonDistinctId
+    from posthog.models.personal_api_key import PersonalAPIKey
+    from posthog.models.plugin import Plugin, PluginConfig
+    from posthog.models.project import Project
+    from posthog.models.surveys.survey import Survey
+    from posthog.models.team.team import Team
+    from posthog.models.user import User
 
+    from products.data_warehouse.backend.models.table import DataWarehouseTable
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
     from products.tasks.backend.admin import SandboxSnapshotAdmin
@@ -105,6 +101,12 @@ def register_all_admin():
     admin.site.register(BatchImport, BatchImportAdmin)
 
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
+    # Register OAuthApplication with our custom admin
+    # If oauth2_provider already registered it, unregister it first
+    try:
+        admin.site.unregister(OAuthApplication)
+    except Exception:
+        pass  # Model might not be registered yet
     admin.site.register(OAuthApplication, OAuthApplicationAdmin)
 
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)

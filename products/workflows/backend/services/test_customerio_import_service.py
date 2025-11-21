@@ -5,9 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.models import MessageCategory, MessageRecipientPreference
-from posthog.models.message_category import MessageCategoryType
-from posthog.models.message_preferences import PreferenceStatus
+from posthog.models.message_category import MessageCategory, MessageCategoryType
+from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 
 from .customerio_import_service import CustomerIOImportService
 

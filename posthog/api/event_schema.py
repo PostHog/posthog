@@ -2,7 +2,8 @@ from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.schema_property_group import SchemaPropertyGroupSerializer
-from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup
+from posthog.models.event_definition import EventDefinition
+from posthog.models.schema import EventSchema, SchemaPropertyGroup
 
 
 class EventSchemaSerializer(serializers.ModelSerializer):

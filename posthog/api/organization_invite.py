@@ -14,8 +14,8 @@ from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.helpers.email_utils import EmailNormalizer
-from posthog.models import OrganizationInvite, OrganizationMembership
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, TimeSensitiveActionPermission, UserCanInvitePermission

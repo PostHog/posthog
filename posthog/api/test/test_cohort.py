@@ -24,14 +24,17 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Action, FeatureFlag, Person, User
+from posthog.models.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.person import Person
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,

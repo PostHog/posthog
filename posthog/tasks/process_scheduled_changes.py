@@ -9,7 +9,8 @@ from django.utils import timezone
 from celery import current_task
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag, ScheduledChange
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.scheduled_change import ScheduledChange
 
 models = {"FeatureFlag": FeatureFlag}
 

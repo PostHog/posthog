@@ -25,7 +25,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
 from posthog.event_usage import report_user_action
-from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
@@ -38,7 +37,15 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
-from posthog.models.plugin import PluginSourceFile, transpile, update_validated_data_from_url
+from posthog.models.plugin import (
+    Plugin,
+    PluginAttachment,
+    PluginConfig,
+    PluginSourceFile,
+    transpile,
+    update_validated_data_from_url,
+)
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token
 from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url

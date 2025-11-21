@@ -2,7 +2,9 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag, Organization, Team
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 
 class TestFlagValueViewSet(APIBaseTest):

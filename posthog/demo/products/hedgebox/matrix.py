@@ -46,8 +46,14 @@ from posthog.schema import (
 from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
-from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.event_definition import EventDefinition
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.insight import Insight, InsightViewed
 from posthog.models.oauth import OAuthApplication
 from posthog.models.property_definition import PropertyType
 from posthog.models.schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty

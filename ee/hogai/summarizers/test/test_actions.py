@@ -3,7 +3,7 @@ from textwrap import dedent
 
 from posthog.test.base import BaseTest
 
-from posthog.models import Action
+from posthog.models.action import Action
 
 from ee.hogai.summarizers.actions import ActionSummarizer
 

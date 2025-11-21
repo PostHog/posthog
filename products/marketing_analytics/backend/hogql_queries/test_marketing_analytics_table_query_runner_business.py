@@ -20,7 +20,7 @@ from posthog.schema import (
 from posthog.hogql.errors import QueryError
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.team.team import Team
 
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource

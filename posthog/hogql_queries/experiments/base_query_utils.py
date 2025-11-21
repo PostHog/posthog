@@ -33,8 +33,8 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 )
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Experiment
 from posthog.models.action.action import Action
+from posthog.models.experiment import Experiment
 from posthog.models.team.team import Team
 
 

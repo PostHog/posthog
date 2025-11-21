@@ -22,8 +22,8 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.query_runner import AR, QueryRunnerWithHogQLContext
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.data_warehouse.backend.models import ExternalDataSchema

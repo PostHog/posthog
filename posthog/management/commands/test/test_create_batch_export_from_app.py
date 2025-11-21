@@ -16,7 +16,7 @@ from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.management.commands.create_batch_export_from_app import map_plugin_config_to_destination
-from posthog.models import Plugin, PluginAttachment, PluginConfig
+from posthog.models.plugin import Plugin, PluginAttachment, PluginConfig
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 

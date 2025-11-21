@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.tasks.email import send_team_hog_functions_digest
 
 

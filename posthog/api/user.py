@@ -62,9 +62,11 @@ from posthog.event_usage import (
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
-from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
+from posthog.models.team import Team
+from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, User
+from posthog.models.user_scene_personalisation import UserScenePersonalisation
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify

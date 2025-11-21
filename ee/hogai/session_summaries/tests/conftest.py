@@ -9,7 +9,8 @@ from openai.types.chat.chat_completion import ChatCompletion, ChatCompletionMess
 
 from posthog.schema import CachedSessionBatchEventsQueryResponse, SessionBatchEventsQueryResponse, SessionEventsItem
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.session_summaries.session.input_data import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData

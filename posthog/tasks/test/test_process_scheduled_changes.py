@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
-from posthog.models import FeatureFlag, ScheduledChange
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.scheduled_change import ScheduledChange
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
 

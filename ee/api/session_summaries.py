@@ -24,8 +24,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session

@@ -3,7 +3,9 @@ from typing import Any, Literal, TypedDict
 
 from django.core.management.base import BaseCommand
 
-from posthog.models import Survey, Team, User
+from posthog.models.surveys.survey import Survey
+from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class MultipleChoiceTemplate(TypedDict):

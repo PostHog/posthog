@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from posthog.schema import FeatureFlagGroupType, GroupPropertyFilter, PersonPropertyFilter, PropertyOperator
 
-from posthog.models import FeatureFlag
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
 
 from products.feature_flags.backend.max_tools import CreateFeatureFlagTool, FeatureFlagCreationSchema

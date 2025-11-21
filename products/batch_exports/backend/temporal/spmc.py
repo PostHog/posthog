@@ -22,7 +22,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
 
 from posthog.batch_exports.service import BackfillDetails
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater

@@ -13,7 +13,12 @@ from dagster_pipes import PipesContext
 from fastavro import reader
 from pydantic_avro import AvroBase
 
-from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.organization import Organization
+from posthog.models.project import Project
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 

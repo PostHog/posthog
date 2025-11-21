@@ -3,7 +3,7 @@ from typing import Literal
 import posthoganalytics
 from rest_framework.request import Request
 
-from posthog.models import Team
+from posthog.models.team import Team
 
 
 def hogql_insights_replace_filters(team: Team) -> bool:

@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import UserHomeSettings
+from posthog.models.user_home_settings import UserHomeSettings
 
 
 class TestUserHomeSettingsAPI(APIBaseTest):

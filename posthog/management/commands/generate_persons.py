@@ -4,7 +4,8 @@ from typing import Any
 from django.core.management.base import BaseCommand
 from django.db import router, transaction
 
-from posthog.models import Person, PersonDistinctId, Team
+from posthog.models.person import Person, PersonDistinctId
+from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 
 

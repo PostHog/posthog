@@ -4,7 +4,6 @@ from rest_framework import request, response, serializers, viewsets
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.plugin import PluginConfig
@@ -24,6 +23,8 @@ class MetalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return MetalyticsCreateRequestSerializer if self.action == "create" else MetalyticsCreateRequestSerializer
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        from posthog.kafka_client.client import KafkaProducer
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data

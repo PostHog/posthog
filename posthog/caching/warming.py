@@ -20,7 +20,9 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import DashboardTile, Insight, Team
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight
+from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.utils import CeleryQueue

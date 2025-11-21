@@ -16,7 +16,8 @@ from django.test.client import RequestFactory
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, GroupTypeMapping
+from posthog.models.event_definition import EventDefinition
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.settings.utils import get_from_env
 from posthog.utils import (
     PotentialSecurityProblemException,

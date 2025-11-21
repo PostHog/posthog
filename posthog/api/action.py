@@ -13,7 +13,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver

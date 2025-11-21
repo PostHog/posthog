@@ -12,7 +12,7 @@ import jwt
 import requests
 import structlog
 
-from posthog.models import User
+from posthog.models.user import User
 from posthog.utils import get_ip_address, get_short_user_agent
 
 logger = structlog.get_logger(__name__)

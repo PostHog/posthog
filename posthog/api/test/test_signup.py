@@ -19,11 +19,13 @@ from rest_framework import status
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.email import is_email_available
-from posthog.models import Dashboard, Organization, Team, User
+from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.utils import get_instance_realm
 
 from ee.models.rbac.access_control import AccessControl

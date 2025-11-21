@@ -16,7 +16,9 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQuestionType, SurveyType
 
-from posthog.models import FeatureFlag, Insight, Survey
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.insight import Insight
+from posthog.models.surveys.survey import Survey
 
 from products.surveys.backend.max_tools import SurveyAnalysisOutput, ThemeWithExamples
 

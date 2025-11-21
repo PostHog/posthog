@@ -14,7 +14,7 @@ import boto3
 from google.cloud import bigquery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,

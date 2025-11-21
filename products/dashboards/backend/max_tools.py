@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from posthog.schema import AssistantToolCallMessage
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Dashboard
+from posthog.models.dashboard import Dashboard
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissions

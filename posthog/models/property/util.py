@@ -13,7 +13,6 @@ from rest_framework import exceptions
 from posthog.schema import PropertyOperator
 
 from posthog.hogql import ast
-from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
@@ -1029,6 +1028,8 @@ class S3TableVisitor(TraversingVisitor):
         self.tables = set()
 
     def visit_table_type(self, node):
+        from posthog.hogql.database.s3_table import S3Table
+
         if isinstance(node.table, S3Table):
             self.tables.add(node.table.name)
         super().visit_table_type(node)

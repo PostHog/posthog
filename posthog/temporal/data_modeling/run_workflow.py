@@ -33,7 +33,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async

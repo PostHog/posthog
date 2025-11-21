@@ -7,7 +7,7 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql_queries.legacy_compatibility.feature_flag import insight_funnels_use_udf
-from posthog.models import Team
+from posthog.models.team import Team
 
 
 def use_udf(funnelsFilter: FunnelsFilter, team: Team):

@@ -3,7 +3,7 @@ from typing import Any
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
-from posthog.models import Entity
+from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property

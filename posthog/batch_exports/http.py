@@ -25,7 +25,13 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
+from posthog.batch_exports.models import (
+    BATCH_EXPORT_INTERVALS,
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportRun,
+)
 from posthog.batch_exports.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
@@ -43,10 +49,11 @@ from posthog.batch_exports.service import (
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
-from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 

@@ -14,7 +14,10 @@ from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag, Survey, Team, User
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.surveys.survey import Survey
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent

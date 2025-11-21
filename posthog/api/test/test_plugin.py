@@ -12,9 +12,9 @@ from rest_framework import status
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import FROZEN_POSTHOG_VERSION
-from posthog.models import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.access import can_configure_plugins, can_globally_manage_plugins, can_install_plugins

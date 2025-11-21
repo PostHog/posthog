@@ -11,7 +11,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
-from posthog.models import GroupTypeMapping
+from posthog.models.group_type_mapping import GroupTypeMapping
 
 
 class TestGroupKeyFiltering(APIBaseTest):

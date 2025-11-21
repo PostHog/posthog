@@ -25,23 +25,16 @@ from posthog import redis
 from posthog.api.decide import get_decide, label_for_team_id_to_track
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import (
-    FeatureFlag,
-    GroupTypeMapping,
-    Person,
-    PersonalAPIKey,
-    Plugin,
-    PluginConfig,
-    PluginSourceFile,
-    Project,
-)
 from posthog.models.cohort.cohort import Cohort
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.group import Group
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.person import PersonDistinctId
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.plugin import sync_team_inject_web_apps
+from posthog.models.person import Person, PersonDistinctId
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile, sync_team_inject_web_apps
+from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.models.user import User

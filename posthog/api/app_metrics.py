@@ -9,7 +9,7 @@ from rest_framework import mixins, request, response, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.models import BatchExportRun
+from posthog.batch_exports.models import BatchExportRun
 from posthog.models.plugin import PluginConfig
 from posthog.queries.app_metrics.app_metrics import AppMetricsErrorDetailsQuery, AppMetricsErrorsQuery, AppMetricsQuery
 from posthog.queries.app_metrics.historical_exports import historical_export_metrics, historical_exports_activity

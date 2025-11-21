@@ -8,9 +8,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Element, Filter
+from posthog.models.element import Element
 from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
+from posthog.models.filters import Filter
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url

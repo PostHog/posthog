@@ -46,8 +46,10 @@ from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Cohort, Filter, Property, Team
-from posthog.models.property import PropertyGroup
+from posthog.models.cohort import Cohort
+from posthog.models.filters import Filter
+from posthog.models.property import Property, PropertyGroup
+from posthog.models.team import Team
 from posthog.queries.cohort_query import CohortQuery
 from posthog.queries.foss_cohort_query import (
     INTERVAL_TO_SECONDS,

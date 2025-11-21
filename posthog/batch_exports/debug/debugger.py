@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 
-from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import bigquery_default_fields

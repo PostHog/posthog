@@ -15,10 +15,10 @@ from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
-from posthog.models import User
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 

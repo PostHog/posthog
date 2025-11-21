@@ -10,14 +10,17 @@ from posthog.schema import ActorsQuery
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
 from posthog.hogql_queries.actor_strategies import PersonStrategy
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Entity, Filter, PersonDistinctId, SessionRecording, Team
+from posthog.models.entity import Entity
+from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
-from posthog.models.person import Person
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
+from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 
 class EventInfoForRecording(TypedDict):

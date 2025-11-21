@@ -4,7 +4,7 @@ import json
 import pytest
 from unittest.mock import Mock, patch
 
-from posthog.models import ExportedAsset
+from posthog.models.exported_asset import ExportedAsset
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.tasks.exports import csv_exporter

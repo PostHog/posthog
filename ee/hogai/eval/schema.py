@@ -10,7 +10,11 @@ from pydantic_avro import AvroBase
 
 from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, TeamTaxonomyItem
 
-from posthog.models import DataWarehouseTable, GroupTypeMapping, PropertyDefinition, Team
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
+
+from products.data_warehouse.backend.models import DataWarehouseTable
 
 T = TypeVar("T", bound=Model)
 

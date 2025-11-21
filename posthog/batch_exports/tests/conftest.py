@@ -2,7 +2,8 @@ import random
 
 import pytest
 
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 
 @pytest.fixture

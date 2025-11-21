@@ -10,7 +10,8 @@ from pydantic import BaseModel
 
 from posthog.schema import AssistantTool
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.base.context import get_node_path, set_node_path

@@ -16,8 +16,8 @@ from django.utils import timezone
 from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.models import Action, PropertyDefinition
-from posthog.models.property_definition import PropertyType
+from posthog.models.action import Action
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 
 
 @override_settings(IN_UNIT_TESTING=True)

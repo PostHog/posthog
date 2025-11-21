@@ -18,8 +18,10 @@ from posthog.constants import AvailableFeature, EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition, EventSchema, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.event_definition import EventDefinition
+from posthog.models.schema import EventSchema
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE

@@ -1,6 +1,6 @@
 from temporalio import activity
 
-from posthog.models import PersonalAPIKey
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.temporal.common.utils import asyncify
 
 

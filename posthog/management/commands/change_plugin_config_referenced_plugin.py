@@ -2,7 +2,7 @@ import time
 
 from django.core.management.base import BaseCommand
 
-from posthog.models import Plugin, PluginConfig
+from posthog.models.plugin import Plugin, PluginConfig
 
 
 class Command(BaseCommand):

@@ -5,7 +5,7 @@ from unittest.mock import ANY, patch
 
 from rest_framework import status
 
-from posthog.models import WebExperiment
+from posthog.models.web_experiment import WebExperiment
 
 
 class TestWebExperiment(APIBaseTest):

@@ -18,7 +18,7 @@ from langchain_core.tools import tool
 from posthog.schema import AssistantToolCallMessage, VisualizationMessage
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Insight
+from posthog.models.insight import Insight
 
 from ee.hogai.context import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.graph.base import AssistantNode

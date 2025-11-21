@@ -17,8 +17,9 @@ from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import User
 
 from ee.api.authentication import CustomGoogleOAuth2
 from ee.api.test.base import APILicensedTest

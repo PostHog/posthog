@@ -11,8 +11,14 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ServerTimingsGathered, action
-from posthog.models import ActivityLog, Cohort, FeatureFlag, HogFunction, Insight, NotificationViewed, User
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.notification_viewed import NotificationViewed
+from posthog.models.cohort import Cohort
 from posthog.models.comment import Comment
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.hog_functions import HogFunction
+from posthog.models.insight import Insight
+from posthog.models.user import User
 
 from products.notebooks.backend.models import Notebook
 

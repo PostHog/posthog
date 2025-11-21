@@ -13,7 +13,8 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.settings import CLOUD_DEPLOYMENT
 
 PROJECT_ORG_USER_CONTEXT_PROMPT = """

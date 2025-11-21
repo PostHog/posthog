@@ -8,7 +8,8 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.cloud_utils import is_cloud
-from posthog.models import Action, Tag
+from posthog.models.action import Action
+from posthog.models.tag import Tag
 
 # Testing enterprise properties of actions here (i.e., tagging).
 

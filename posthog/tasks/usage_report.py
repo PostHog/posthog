@@ -26,7 +26,7 @@ from retry import retry
 from posthog.schema import AIEventType
 
 from posthog import version_requirement
-from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
@@ -34,27 +34,22 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
-from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
-from products.data_warehouse.backend.models import (
-    DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    ExternalDataJob,
-    ExternalDataSchema,
-)
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 
 logger = structlog.get_logger(__name__)
@@ -1102,6 +1097,8 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
     if begin >= dwh_pricing_free_period_end:
         # after the free period, don't include rows reported in the free historical period
+        from products.data_warehouse.backend.models import ExternalDataJob
+
         return list(
             ExternalDataJob.objects.filter(
                 ~Q(pipeline__created_at__gte=end - timedelta(days=7)),
@@ -1113,6 +1110,8 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
             .values("team_id")
             .annotate(total=Sum("rows_synced"))
         )
+
+    from products.data_warehouse.backend.models import ExternalDataJob
 
     return list(
         ExternalDataJob.objects.filter(
@@ -1128,6 +1127,8 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     if begin >= dwh_pricing_free_period_start and begin < dwh_pricing_free_period_end:
         # during the free period, all rows get reported as free historical rows synced
+        from products.data_warehouse.backend.models import ExternalDataJob
+
         return list(
             ExternalDataJob.objects.filter(
                 finished_at__gte=begin, finished_at__lte=end, billable=True, status=ExternalDataJob.Status.COMPLETED
@@ -1135,6 +1136,8 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
             .values("team_id")
             .annotate(total=Sum("rows_synced"))
         )
+
+    from products.data_warehouse.backend.models import ExternalDataJob
 
     return list(
         ExternalDataJob.objects.filter(
@@ -1169,6 +1172,8 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_external_data_schemas_in_period() -> list:
     # get all external data schemas that are running or completed at run time
+    from products.data_warehouse.backend.models import ExternalDataSchema
+
     return list(
         ExternalDataSchema.objects.filter(
             status__in=[ExternalDataSchema.Status.RUNNING, ExternalDataSchema.Status.COMPLETED]
@@ -1188,6 +1193,8 @@ def get_teams_with_active_batch_exports_in_period() -> list:
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_dwh_tables_storage_in_s3() -> list:
+    from products.data_warehouse.backend.models import DataWarehouseTable
+
     return list(
         DataWarehouseTable.objects.filter(
             ~Q(deleted=True), size_in_s3_mib__isnull=False, external_data_source_id__isnull=False
@@ -1200,6 +1207,8 @@ def get_teams_with_dwh_tables_storage_in_s3() -> list:
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_dwh_mat_views_storage_in_s3() -> list:
+    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
     return list(
         DataWarehouseSavedQuery.objects.filter(
             ~Q(table__deleted=True),
@@ -1215,6 +1224,8 @@ def get_teams_with_dwh_mat_views_storage_in_s3() -> list:
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_dwh_total_storage_in_s3() -> list:
+    from products.data_warehouse.backend.models import DataWarehouseTable
+
     return list(
         DataWarehouseTable.objects.filter(~Q(deleted=True), size_in_s3_mib__isnull=False)
         .values("team_id")

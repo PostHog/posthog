@@ -23,15 +23,20 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.redis import get_client
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
+from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.models.session_recording_playlist import (
+    SessionRecordingPlaylist,
+    SessionRecordingPlaylistViewed,
+)
+from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.session_recordings.session_recording_api import (
     current_user_viewed,
     list_recordings_from_query,

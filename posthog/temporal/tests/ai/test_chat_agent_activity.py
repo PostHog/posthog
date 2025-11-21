@@ -4,7 +4,8 @@ from uuid import uuid4
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from posthog.models import Team, User
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.temporal.ai.chat_agent import (
     AssistantConversationRunnerWorkflowInputs,
     get_conversation_stream_key,

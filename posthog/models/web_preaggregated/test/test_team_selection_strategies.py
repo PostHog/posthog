@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import Mock
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.models.web_preaggregated.team_selection_strategies import ProjectSettingsStrategy
 
 

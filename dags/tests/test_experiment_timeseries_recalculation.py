@@ -10,9 +10,11 @@ import dagster
 
 from posthog.schema import ExperimentQueryResponse, ExperimentStatsBaseValidated, ExperimentVariantResultFrequentist
 
-from posthog.models import Organization, Team, User
 from posthog.models.experiment import Experiment, ExperimentMetricResult, ExperimentTimeseriesRecalculation
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from dags.experiment_timeseries_recalculation import experiment_timeseries_recalculation
 

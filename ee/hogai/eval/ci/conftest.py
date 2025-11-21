@@ -12,7 +12,9 @@ from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from posthog.schema import FailureMessage, HumanMessage, VisualizationMessage
 
 from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Organization, Team, User
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

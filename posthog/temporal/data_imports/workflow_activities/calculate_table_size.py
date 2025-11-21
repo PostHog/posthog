@@ -6,10 +6,9 @@ from django.db import close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.models import DataWarehouseTable
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.models import ExternalDataSchema
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.s3 import get_size_of_folder
 

@@ -19,7 +19,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import GroupTypeMapping, Organization, PropertyDefinition, Team
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.organization import Organization
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
 
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 

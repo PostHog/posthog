@@ -21,7 +21,8 @@ from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from posthoganalytics.ai.openai.openai_async import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation
 
-from posthog.models import Organization, User
+from posthog.models.organization import Organization
+from posthog.models.user import User
 from posthog.ph_client import get_client
 
 # We want the PostHog set_up_evals fixture here

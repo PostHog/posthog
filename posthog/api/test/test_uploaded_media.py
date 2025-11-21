@@ -12,7 +12,7 @@ from boto3 import resource
 from botocore.config import Config
 from rest_framework import status
 
-from posthog.models import UploadedMedia
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import UUIDT
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,

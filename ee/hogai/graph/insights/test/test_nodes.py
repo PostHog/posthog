@@ -21,7 +21,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Insight, InsightViewed
+from posthog.models.insight import Insight, InsightViewed
 
 from ee.hogai.graph.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException
 from ee.hogai.utils.types import AssistantState, PartialAssistantState

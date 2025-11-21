@@ -3,7 +3,8 @@ from typing import Any
 
 from django.db.models import ForeignKey
 
-from posthog.models import FeatureFlag, Survey
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.surveys.survey import Survey
 
 
 def _update_survey_iteration(survey: Survey) -> None:

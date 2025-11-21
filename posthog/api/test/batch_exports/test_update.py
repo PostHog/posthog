@@ -18,8 +18,8 @@ from posthog.api.test.batch_exports.operations import (
     patch_batch_export,
     put_batch_export,
 )
+from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.batch_exports.service import sync_batch_export
-from posthog.models import BatchExport, BatchExportDestination
 from posthog.models.integration import Integration
 from posthog.temporal.common.codec import EncryptionCodec
 

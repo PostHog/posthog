@@ -16,7 +16,9 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 

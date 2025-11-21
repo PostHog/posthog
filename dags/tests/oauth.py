@@ -9,8 +9,9 @@ from django.utils import timezone
 
 import dagster
 
-from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
+from posthog.models.organization import Organization
+from posthog.models.user import User
 
 from dags.oauth import (
     batch_delete_model,

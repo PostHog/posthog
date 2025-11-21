@@ -5,10 +5,10 @@ from typing import Optional, Union
 from django.utils.timezone import now
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex
+from posthog.models.team import Team
 from posthog.queries.actor_base_query import (
     SerializedActor,
     SerializedGroup,

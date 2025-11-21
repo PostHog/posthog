@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.test import override_settings
 
-from posthog.models import FeatureFlag, Team
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flags_cache import (
     _get_feature_flags_for_service,
     clear_flags_cache,
@@ -22,6 +22,7 @@ from posthog.models.feature_flag.flags_cache import (
     get_flags_from_cache,
     update_flags_cache,
 )
+from posthog.models.team import Team
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

@@ -1,4 +1,8 @@
-from posthog.models import Dashboard, DashboardTile, Insight, InsightVariable, Person
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import Insight
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.person import Person
 
 from .data_generator import DataGenerator
 

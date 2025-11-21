@@ -4,7 +4,9 @@ from typing import cast
 
 from django.core.management.base import BaseCommand
 
-from posthog.models import FeatureFlag, Project, User
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.project import Project
+from posthog.models.user import User
 
 # These flags won't be enabled when syncing feature flags
 # Turn these on for flags that heavily change the behavior and that you wouldn't like

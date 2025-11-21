@@ -6,9 +6,10 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.team import Team
 
 
 class OrganizationFeatureFlagView(

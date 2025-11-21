@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 from rest_framework.test import APIClient
 
-from posthog.models import HeatmapSnapshot, SavedHeatmap, Team
+from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
+from posthog.models.team import Team
 
 
 class TestHeatmapsAPI(APIBaseTest):

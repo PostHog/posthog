@@ -8,7 +8,7 @@ from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
 
-from posthog.models import Action
+from posthog.models.action import Action
 
 
 class TestActionToExpr(BaseTest):

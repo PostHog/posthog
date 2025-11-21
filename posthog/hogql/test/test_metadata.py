@@ -15,7 +15,8 @@ from posthog.schema import (
 
 from posthog.hogql.metadata import get_hogql_metadata
 
-from posthog.models import Cohort, PropertyDefinition
+from posthog.models.cohort import Cohort
+from posthog.models.property_definition import PropertyDefinition
 
 from products.data_warehouse.backend.models import ExternalDataSource, ExternalDataSourceType
 

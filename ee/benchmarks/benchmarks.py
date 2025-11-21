@@ -19,7 +19,10 @@ from posthog.queries.session_recordings.session_recording_list import (
     SessionRecordingList,
 )
 from posthog.queries.util import get_earliest_timestamp
-from posthog.models import Action, Cohort, Team, Organization
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.filter import Filter

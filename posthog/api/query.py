@@ -31,7 +31,6 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
-from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
@@ -191,6 +190,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         show_progress = (
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
+        from posthog.clickhouse.client.execute_async import get_query_status
+
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
         query_status_response = QueryStatusResponse(query_status=query_status)
 
@@ -218,6 +219,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=Feature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
         dequeue_only = request.query_params.get("dequeue_only", False) == "true"
+        from posthog.clickhouse.client.execute_async import cancel_query
+
         message = cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)
 
         return Response(status=200, data={"message": message})

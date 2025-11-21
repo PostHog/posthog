@@ -4,7 +4,7 @@ import pytest
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.models import Filter
+from posthog.models.filters import Filter
 from posthog.models.property import Property, PropertyGroup
 
 

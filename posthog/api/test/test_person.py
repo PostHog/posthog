@@ -28,11 +28,14 @@ from temporalio import common
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.person import PersonDistinctId
+from posthog.models.cohort import Cohort
+from posthog.models.organization import Organization
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team import Team
 from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 
 

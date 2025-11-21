@@ -12,7 +12,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.property import action_to_expr, property_to_expr
 
-from posthog.models import Action, Team
+from posthog.models.action import Action
+from posthog.models.team import Team
 
 from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig

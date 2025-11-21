@@ -18,7 +18,7 @@ import temporalio.exceptions
 from asgiref.sync import sync_to_async
 from flaky import flaky
 
-from posthog.models import Team
+from posthog.models.team import Team
 from posthog.temporal.tests.utils.datetimes import date_range
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (

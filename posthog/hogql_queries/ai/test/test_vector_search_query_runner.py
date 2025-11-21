@@ -7,8 +7,10 @@ from flaky import flaky
 from posthog.schema import VectorSearchQuery
 
 from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
-from posthog.models import Organization, Project, Team
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
+from posthog.models.organization import Organization
+from posthog.models.project import Project
+from posthog.models.team import Team
 
 
 class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):

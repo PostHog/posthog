@@ -24,8 +24,8 @@ from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import InsightVariable
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
+from posthog.models.insight_variable import InsightVariable
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.exporter import EXPORT_FAILED_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable

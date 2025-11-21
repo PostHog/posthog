@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from posthog.models import PluginAttachment
+from posthog.models.plugin import PluginAttachment
 
 ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES = 1024 * 1024
 

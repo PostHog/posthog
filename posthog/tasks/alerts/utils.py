@@ -12,7 +12,7 @@ from posthog.schema import AlertCalculationInterval, ChartDisplayType, NodeKind
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
-from posthog.models import AlertConfiguration
+from posthog.models.alert import AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 

@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 from rest_framework import status
 
-from posthog.models import User
+from posthog.models.user import User
 
 
 def _feature_flag_json_payload(key: str) -> dict:

@@ -18,7 +18,7 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
-from posthog.models import Action
+from posthog.models.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.dashboard import Dashboard

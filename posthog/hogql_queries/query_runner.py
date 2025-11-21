@@ -75,7 +75,6 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
@@ -90,8 +89,8 @@ from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
-from posthog.models import Team, User
-from posthog.models.team import WeekStartDay
+from posthog.models.team import Team, WeekStartDay
+from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
@@ -916,6 +915,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             groups=(groups(self.team.organization, self.team)),
         )
 
+        from posthog.clickhouse.client.execute_async import enqueue_process_query_task
+
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
@@ -929,6 +930,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
+        from posthog.clickhouse.client.execute_async import QueryNotFoundError, get_query_status
+
         try:
             query_status = get_query_status(team_id=self.team.pk, query_id=self.query_id or cache_key)
             if query_status.complete:

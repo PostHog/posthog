@@ -2,7 +2,7 @@
 
 from django.core.management.base import BaseCommand
 
-from posthog.models import Team
+from posthog.models.team import Team
 
 
 class Command(BaseCommand):

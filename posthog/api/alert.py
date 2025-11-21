@@ -16,7 +16,6 @@ from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import (
     AlertCheck,
@@ -26,6 +25,7 @@ from posthog.models.alert import (
     are_alerts_supported_for_insight,
 )
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
 

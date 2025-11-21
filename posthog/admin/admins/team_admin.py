@@ -6,8 +6,8 @@ from django.urls import path, reverse
 from django.utils.html import escapejs, format_html
 
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from posthog.models import Team
 from posthog.models.remote_config import cache_key_for_team_token
+from posthog.models.team import Team
 
 
 class TeamAdmin(admin.ModelAdmin):

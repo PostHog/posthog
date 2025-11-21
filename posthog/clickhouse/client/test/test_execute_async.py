@@ -21,7 +21,8 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.models import Organization, Team
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 

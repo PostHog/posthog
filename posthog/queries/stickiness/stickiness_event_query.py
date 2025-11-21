@@ -3,8 +3,8 @@ from typing import Any
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Entity
 from posthog.models.action.util import format_action_filter
+from posthog.models.entity import Entity
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.event_query import EventQuery

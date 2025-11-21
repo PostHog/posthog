@@ -4,7 +4,7 @@ from typing import Any, Optional
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
-from posthog.models import Filter
+from posthog.models.filters import Filter
 from posthog.utils import relative_date_parse
 
 

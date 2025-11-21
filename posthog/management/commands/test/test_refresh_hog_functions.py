@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
-from posthog.models import Team
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.team import Team
 
 
 class TestRefreshHogFunctions(BaseTest):

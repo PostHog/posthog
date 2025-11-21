@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import MaxExperimentSummaryContext
 
-from posthog.models import Experiment, FeatureFlag
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.llm import MaxChatOpenAI

@@ -2,7 +2,7 @@
 
 from django.db import migrations
 
-from posthog.models import Filter
+from posthog.models.filters import Filter
 
 
 def forwards_func(apps, schema_editor):

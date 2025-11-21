@@ -14,7 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
+from posthog.models.team import Team
 
 from dags.common import JobOwners, redis
 from dags.sdk_doctor.github_sdk_versions import SDK_TYPES
