@@ -199,7 +199,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
         if self.query.searchTerm:
             # negative search match if first character of search string is !
-            if self.query.searchTerm.startswith("!"):
+            if self.query.searchTerm.startswith("!") and len(self.query.searchTerm) > 1:
                 exprs.append(
                     parse_expr(
                         "body NOT LIKE {searchTerm}",
