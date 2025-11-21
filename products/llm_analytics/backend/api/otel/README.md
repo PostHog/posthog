@@ -33,7 +33,34 @@ OTLP HTTP Request
                |
                v
            event_merger.py (merge with traces for v2)
+               |
+               v
+       PostHog AI Events ($ai_generation, $ai_span, etc.)
+               |
+               v
+       capture_batch_internal (PostHog capture API)
+               |
+               v
+           Kafka (events_plugin_ingestion topic)
+               |
+               v
+       Plugin-server (ingestion-consumer)
+               |
+               +---> process-ai-event.ts (cost calculation, normalization)
+               |
+               v
+           ClickHouse (sharded_events table)
 ```
+
+**Post-transformation flow**:
+
+1. **capture_batch_internal**: OTEL-transformed events enter PostHog's standard event ingestion pipeline
+2. **Kafka**: Events are published to the `events_plugin_ingestion` topic for async processing
+3. **Plugin-server**: The ingestion consumer processes events through `process-ai-event.ts`:
+   - Calculates costs based on token counts and model pricing (`$ai_input_cost_usd`, `$ai_output_cost_usd`, `$ai_total_cost_usd`)
+   - Normalizes trace IDs to strings
+   - Extracts model parameters (temperature, max_tokens, stream) from `$ai_model_parameters`
+4. **ClickHouse**: Events are written to the sharded_events table for querying in PostHog UI
 
 ## Instrumentation Patterns
 
