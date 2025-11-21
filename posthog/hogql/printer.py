@@ -23,7 +23,6 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_l
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
-from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -530,18 +529,22 @@ class _Printer(Visitor[str]):
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
             # Skip warehouse tables and tables with an explicit skip.
-            if (
-                self.dialect == "clickhouse"
-                and not isinstance(table_type.table, DataWarehouseTable)
-                and not isinstance(table_type.table, SavedQuery)
-                and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
-            ):
-                extra_where = team_id_guard_for_table(node.type, self.context)
+            if self.dialect == "clickhouse":
+                from posthog.hogql.database.s3_table import DataWarehouseTable
+
+                if (
+                    not isinstance(table_type.table, DataWarehouseTable)
+                    and not isinstance(table_type.table, SavedQuery)
+                    and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
+                ):
+                    extra_where = team_id_guard_for_table(node.type, self.context)
 
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
 
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
+                from posthog.hogql.database.s3_table import S3Table
+
                 if isinstance(table_type.table, S3Table) and (
                     node.next_join
                     or node.join_type == "JOIN"

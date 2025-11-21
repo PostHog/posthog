@@ -52,6 +52,7 @@ PRODUCTS_APPS = [
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
+    "posthog.apps.PostHogConfig",  # Must come before django.contrib.admin to ensure OAuth models are registered before admin autodiscovery
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -59,7 +60,6 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.postgres",
     "django.contrib.staticfiles",
-    "posthog.apps.PostHogConfig",
     "rest_framework",
     "loginas",
     "corsheaders",

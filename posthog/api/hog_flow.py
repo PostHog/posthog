@@ -227,17 +227,36 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
 
-class HogFlowFilterSet(FilterSet):
-    class Meta:
-        model = HogFlow
-        fields = ["id", "created_by", "created_at", "updated_at"]
+class LazyFilterSet:
+    """Descriptor that lazily creates FilterSet only when accessed, after Django is ready."""
+
+    def __init__(self, filterset_factory):
+        self._filterset_class = None
+        self._factory = filterset_factory
+
+    def __get__(self, instance, owner):
+        if self._filterset_class is None:
+            self._filterset_class = self._factory()
+        return self._filterset_class
+
+
+def _create_hog_flow_filterset():
+    """Factory function to create HogFlowFilterSet after Django is ready."""
+
+    class HogFlowFilterSet(FilterSet):
+        class Meta:
+            model = HogFlow
+            fields = ["id", "created_at", "updated_at"]
+            # created_by excluded to avoid ForeignKey introspection during import
+
+    return HogFlowFilterSet
 
 
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_class = HogFlowFilterSet
+    filterset_class = LazyFilterSet(_create_hog_flow_filterset)
     log_source = "hog_flow"
     app_source = "hog_flow"
 

@@ -9,7 +9,6 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.utils import get_instance_region, get_machine_id, initialize_self_capture_api_token
 
 logger = structlog.get_logger(__name__)
@@ -20,6 +19,35 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        # Import models early to ensure they're registered before other code tries to access them
+        # This must happen before admin autodiscovery runs, so we do it at the very start of ready()
+        # Patch Django admin site to prevent oauth2_provider from registering OAuthApplication
+        # We register it with our custom admin instead
+        from django.contrib import admin
+
+        from posthog.models.element.element import Element  # noqa: F401
+        from posthog.models.element_group import ElementGroup  # noqa: F401
+        from posthog.models.oauth import OAuthApplication  # noqa: F401
+
+        original_register = admin.site.register
+
+        def patched_register(model, admin_class=None, **options):
+            # Skip registration if it's the OAuthApplication model and it's being registered by oauth2_provider
+            import inspect
+
+            if model == OAuthApplication:
+                # Check if the caller is oauth2_provider.admin
+                frame = inspect.currentframe()
+                try:
+                    caller_module = frame.f_back.f_globals.get("__name__", "")
+                    if caller_module == "oauth2_provider.admin":
+                        return  # Don't register, we'll register it ourselves
+                finally:
+                    del frame
+            return original_register(model, admin_class, **options)
+
+        admin.site.register = patched_register
+
         self._setup_lazy_admin()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
@@ -49,12 +77,18 @@ class PostHogConfig(AppConfig):
                 settings_debug=settings.DEBUG,
                 server_gateway_interface=settings.SERVER_GATEWAY_INTERFACE,
             )
+            # Ensure Project model is imported before calling initialize_self_capture_api_token
+            # which queries User model that has a foreign key to Project
             if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
+                from posthog.models.project import Project  # noqa: F401
+
                 async_to_sync(initialize_self_capture_api_token)()
 
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_product_features once on launch, in case plans changed
+                from posthog.tasks.tasks import sync_all_organization_available_product_features
+
                 sync_all_organization_available_product_features()
 
                 # NOTE: This has to be created as a separate client so that the "capture" call doesn't lock in the properties

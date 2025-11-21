@@ -8,7 +8,6 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField
-from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -180,12 +179,13 @@ class PropertySwapper(CloningVisitor):
                     ),
                 )
 
-            if isinstance(node.type.table_type, ast.LazyJoinType) and isinstance(
-                node.type.table_type.lazy_join.join_table, S3Table
-            ):
-                field = node.chain[-1]
-                field_type = node.type.table_type.lazy_join.join_table.fields.get(str(field), None)
-                prop_type = "String"
+            if isinstance(node.type.table_type, ast.LazyJoinType):
+                from posthog.hogql.database.s3_table import S3Table
+
+                if isinstance(node.type.table_type.lazy_join.join_table, S3Table):
+                    field = node.chain[-1]
+                    field_type = node.type.table_type.lazy_join.join_table.fields.get(str(field), None)
+                    prop_type = "String"
 
                 if isinstance(field_type, DateTimeDatabaseField):
                     prop_type = "DateTime"

@@ -34,8 +34,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
-
 from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
@@ -165,6 +163,8 @@ def process_query_model(
             metadata_response = get_hogql_metadata(query=metadata_query, team=team)
             result = metadata_response
         elif isinstance(query, DatabaseSchemaQuery):
+            from products.data_warehouse.backend.models import DataWarehouseJoin
+
             joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
             database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)

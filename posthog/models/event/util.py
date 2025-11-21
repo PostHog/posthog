@@ -10,7 +10,6 @@ from dateutil.parser import isoparse
 from rest_framework import serializers
 
 from posthog.clickhouse.client import sync_execute
-from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
@@ -82,6 +81,8 @@ def create_event(
         "group4_created_at": format_clickhouse_timestamp(group4_created_at, ZERO_DATE),
         "person_mode": person_mode,
     }
+    from posthog.kafka_client.client import ClickhouseProducer
+
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
 

@@ -51,7 +51,6 @@ from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.team import Team
 from posthog.utils import get_from_dict_or_attr
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
@@ -113,6 +112,8 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         key = expr.chain[-2]
 
         # TODO: pass id of table item being filtered on instead of searching through joins
+        from products.data_warehouse.backend.models import DataWarehouseJoin
+
         current_join: DataWarehouseJoin | None = (
             DataWarehouseJoin.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
             .filter(team=team, source_table_name="persons", field_name=key)

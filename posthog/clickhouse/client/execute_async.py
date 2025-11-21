@@ -20,7 +20,6 @@ from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
-from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -317,6 +316,8 @@ def enqueue_process_query_task(
             manager.register_cache_key_mapping(cache_key)
         except Exception as e:
             capture_exception(e, {"cache_key": cache_key})
+
+    from posthog.tasks.tasks import process_query_task
 
     task_signature = process_query_task.si(
         team.id, user_id, query_id, query_json, query_tags, is_query_service, LimitContext.QUERY_ASYNC

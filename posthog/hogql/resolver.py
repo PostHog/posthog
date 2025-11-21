@@ -8,7 +8,6 @@ from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
-from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
@@ -941,6 +940,8 @@ class Resolver(CloningVisitor):
             and node.select_from
             and isinstance(node.select_from.type, ast.BaseTableType)
         ):
+            from posthog.hogql.database.s3_table import S3Table
+
             if isinstance(node.select_from.type, ast.TableAliasType):
                 return isinstance(node.select_from.type.table_type.table, S3Table)
             elif isinstance(node.select_from.type, ast.TableType):
@@ -952,6 +953,8 @@ class Resolver(CloningVisitor):
             return self._is_s3_table(table.table_type)
 
         if isinstance(table, ast.TableType):
+            from posthog.hogql.database.s3_table import S3Table
+
             return isinstance(table.table, S3Table)
 
         return False

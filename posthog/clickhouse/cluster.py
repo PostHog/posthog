@@ -9,14 +9,16 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, NamedTuple, Optional, TypeVar
+
+if TYPE_CHECKING:
+    from posthog.clickhouse.client.connection import NodeRole, Workload
 
 import dagster
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
 from posthog import settings
-from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
@@ -80,6 +82,8 @@ class ConnectionInfo(NamedTuple):
     port: int | None
 
     def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
+        from posthog.clickhouse.client.connection import _make_ch_pool
+
         return _make_ch_pool(host=self.host, port=self.port, settings=client_settings)
 
 
@@ -109,6 +113,8 @@ class ClickhouseCluster:
 
         self.__shards: dict[int, set[HostInfo]] = defaultdict(set)
         self.__extra_hosts: set[HostInfo] = set()
+
+        from posthog.clickhouse.client.connection import NodeRole
 
         cluster_hosts = self.__get_cluster_hosts(bootstrap_client, cluster or settings.CLICKHOUSE_CLUSTER, retry_policy)
 
@@ -186,8 +192,12 @@ class ClickhouseCluster:
         return task
 
     def __hosts_by_roles(
-        self, hosts: set[HostInfo], node_roles: list[NodeRole], workload: Workload = Workload.DEFAULT
+        self, hosts: set[HostInfo], node_roles: list[NodeRole], workload: Workload | None = None
     ) -> set[HostInfo]:
+        from posthog.clickhouse.client.connection import NodeRole, Workload
+
+        if workload is None:
+            workload = Workload.DEFAULT
         return {
             host
             for host in hosts
@@ -213,16 +223,24 @@ class ClickhouseCluster:
             return executor.submit(self.__get_task_function(host, fn))
 
     def any_host_by_role(
-        self, fn: Callable[[Client], T], node_role: NodeRole, workload: Workload = Workload.DEFAULT
+        self, fn: Callable[[Client], T], node_role: NodeRole, workload: Workload | None = None
     ) -> Future[T]:
+        from posthog.clickhouse.client.connection import Workload
+
+        if workload is None:
+            workload = Workload.DEFAULT
         """
         Execute the callable once for any host with the given node role.
         """
         return self.any_host_by_roles(fn, [node_role], workload)
 
     def any_host_by_roles(
-        self, fn: Callable[[Client], T], node_roles: list[NodeRole], workload: Workload = Workload.DEFAULT
+        self, fn: Callable[[Client], T], node_roles: list[NodeRole], workload: Workload | None = None
     ) -> Future[T]:
+        from posthog.clickhouse.client.connection import Workload
+
+        if workload is None:
+            workload = Workload.DEFAULT
         """
         Execute the callable once for any host with the given node role.
         """
@@ -240,6 +258,8 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        from posthog.clickhouse.client.connection import NodeRole
+
         return self.map_hosts_by_role(fn, NodeRole.ALL, concurrency)
 
     def map_hosts_by_role(
@@ -247,8 +267,12 @@ class ClickhouseCluster:
         fn: Callable[[Client], T],
         node_role: NodeRole,
         concurrency: int | None = None,
-        workload: Workload = Workload.DEFAULT,
+        workload: Workload | None = None,
     ) -> FuturesMap[HostInfo, T]:
+        from posthog.clickhouse.client.connection import Workload
+
+        if workload is None:
+            workload = Workload.DEFAULT
         return self.map_hosts_by_roles(fn, [node_role], concurrency, workload)
 
     def map_hosts_by_roles(
@@ -256,8 +280,12 @@ class ClickhouseCluster:
         fn: Callable[[Client], T],
         node_roles: list[NodeRole],
         concurrency: int | None = None,
-        workload: Workload = Workload.DEFAULT,
+        workload: Workload | None = None,
     ) -> FuturesMap[HostInfo, T]:
+        from posthog.clickhouse.client.connection import Workload
+
+        if workload is None:
+            workload = Workload.DEFAULT
         """
         Execute the callable once for each host in the cluster with the given node role.
 
@@ -281,6 +309,8 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        from posthog.clickhouse.client.connection import NodeRole, Workload
+
         return self.map_hosts_in_shard_by_role(shard_num, fn, concurrency, NodeRole.ALL, Workload.DEFAULT)
 
     def map_hosts_in_shard_by_role(
@@ -288,9 +318,15 @@ class ClickhouseCluster:
         shard_num: int,
         fn: Callable[[Client], T],
         concurrency: int | None = None,
-        node_role: NodeRole = NodeRole.ALL,
-        workload: Workload = Workload.DEFAULT,
+        node_role: NodeRole | None = None,
+        workload: Workload | None = None,
     ) -> FuturesMap[HostInfo, T]:
+        from posthog.clickhouse.client.connection import NodeRole, Workload
+
+        if node_role is None:
+            node_role = NodeRole.ALL
+        if workload is None:
+            workload = Workload.DEFAULT
         return self.map_hosts_in_shard_by_roles(shard_num, fn, [node_role], concurrency, workload)
 
     def map_hosts_in_shard_by_roles(
@@ -299,8 +335,12 @@ class ClickhouseCluster:
         fn: Callable[[Client], T],
         node_roles: list[NodeRole],
         concurrency: int | None = None,
-        workload: Workload = Workload.DEFAULT,
+        workload: Workload | None = None,
     ) -> FuturesMap[HostInfo, T]:
+        from posthog.clickhouse.client.connection import Workload
+
+        if workload is None:
+            workload = Workload.DEFAULT
         """
         Execute the callable once for each host in the specified shard and role.
 
@@ -347,6 +387,8 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        from posthog.clickhouse.client.connection import NodeRole, Workload
+
         return self.map_any_host_in_shards_by_role(
             shard_fns,
             concurrency=concurrency,
@@ -358,9 +400,15 @@ class ClickhouseCluster:
         self,
         shard_fns: dict[int, Callable[[Client], T]],
         concurrency: int | None = None,
-        node_role: NodeRole = NodeRole.ALL,
-        workload: Workload = Workload.DEFAULT,
+        node_role: NodeRole | None = None,
+        workload: Workload | None = None,
     ) -> FuturesMap[HostInfo, T]:
+        from posthog.clickhouse.client.connection import NodeRole, Workload
+
+        if node_role is None:
+            node_role = NodeRole.ALL
+        if workload is None:
+            workload = Workload.DEFAULT
         return self.map_any_host_in_shards_by_roles(
             shard_fns, node_roles=[node_role], concurrency=concurrency, workload=workload
         )
@@ -370,8 +418,12 @@ class ClickhouseCluster:
         shard_fns: dict[int, Callable[[Client], T]],
         node_roles: list[NodeRole],
         concurrency: int | None = None,
-        workload: Workload = Workload.DEFAULT,
+        workload: Workload | None = None,
     ) -> FuturesMap[HostInfo, T]:
+        from posthog.clickhouse.client.connection import Workload
+
+        if workload is None:
+            workload = Workload.DEFAULT
         """
         Execute the callable on one host for each of the specified shards and role.
 
@@ -414,6 +466,8 @@ def get_cluster(
     retry_policy: RetryPolicy | None = None,
     host: str = settings.CLICKHOUSE_HOST,
 ) -> ClickhouseCluster:
+    from posthog.clickhouse.client.connection import default_client
+
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))

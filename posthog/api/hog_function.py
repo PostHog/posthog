@@ -379,12 +379,34 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
 
-class HogFunctionFilterSet(FilterSet):
-    type = CommaSeparatedListFilter(field_name="type", lookup_expr="in")
+class LazyFilterSet:
+    """Descriptor that lazily creates FilterSet only when accessed, after Django is ready."""
 
-    class Meta:
-        model = HogFunction
-        fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
+    def __init__(self, filterset_factory):
+        self._filterset_class = None
+        self._factory = filterset_factory
+
+    def __get__(self, instance, owner):
+        if self._filterset_class is None:
+            self._filterset_class = self._factory()
+        return self._filterset_class
+
+
+def _create_hog_function_filterset():
+    """Factory function to create HogFunctionFilterSet after Django is ready."""
+
+    class HogFunctionFilterSet(FilterSet):
+        type = CommaSeparatedListFilter(field_name="type", lookup_expr="in")
+
+        class Meta:
+            model = HogFunction
+            fields = ["type", "enabled", "id", "created_at", "updated_at"]
+            # created_by excluded to avoid ForeignKey introspection during import
+
+    return HogFunctionFilterSet
+
+
+HogFunctionFilterSet = LazyFilterSet(_create_hog_function_filterset)
 
 
 class HogFunctionViewSet(

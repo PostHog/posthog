@@ -7,7 +7,6 @@ from django.db import models, transaction
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
-from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
 from posthog.models.integration import Integration
 from posthog.models.utils import UUIDTModel
@@ -407,6 +406,8 @@ def override_error_tracking_issue_fingerprint(
     is_deleted: bool = False,
     sync: bool = False,
 ) -> None:
+    from posthog.kafka_client.client import ClickhouseProducer
+
     p = ClickhouseProducer()
     p.produce(
         topic=KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import dataclasses
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
@@ -122,13 +124,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
-from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
-
 if TYPE_CHECKING:
     from posthog.models import Team
+
+    from products.data_warehouse.backend.models.table import DataWarehouseTableColumns
 
 tracer = trace.get_tracer(__name__)
 
@@ -330,6 +329,7 @@ class Database(BaseModel):
         include_only: Optional[set[str]] = None,
     ) -> dict[str, DatabaseSchemaTable]:
         from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -372,6 +372,8 @@ class Database(BaseModel):
             tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
+        from products.data_warehouse.backend.models.table import DataWarehouseTable
+
         warehouse_table_names = self.get_warehouse_table_names()
         views = self.get_view_names()
 
@@ -547,10 +549,10 @@ class Database(BaseModel):
     def create_for(
         team_id: Optional[int] = None,
         *,
-        team: Optional["Team"] = None,
+        team: Optional[Team] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         timings: Optional[HogQLTimings] = None,
-    ) -> "Database":
+    ) -> Database:
         if timings is None:
             timings = HogQLTimings()
 
@@ -561,6 +563,7 @@ class Database(BaseModel):
         from posthog.models import Team
 
         from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery
+        from products.data_warehouse.backend.models.table import DataWarehouseTable
 
         with timings.measure("team"):
             if team_id is None and team is None:
@@ -754,6 +757,9 @@ class Database(BaseModel):
                 capture_exception(e)
 
         with timings.measure("revenue_analytics_views"):
+            from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
+            from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
+
             revenue_views: list[RevenueAnalyticsBaseView] = []
             try:
                 if not is_managed_viewset_enabled:
@@ -1101,7 +1107,7 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
-def _setup_group_key_fields(database: Database, team: "Team") -> None:
+def _setup_group_key_fields(database: Database, team: Team) -> None:
     """
     Set up group key fields as ExpressionFields that handle filtering based on GroupTypeMapping.created_at.
     For $group_N fields, this returns:

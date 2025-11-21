@@ -2,7 +2,7 @@
 
 from django.db import migrations, models
 
-import posthog.models
+from posthog.models.user import UserManager
 
 
 class Migration(migrations.Migration):
@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.AlterModelManagers(
             name="user",
             managers=[
-                ("objects", posthog.models.UserManager()),
+                ("objects", UserManager()),
             ],
         ),
         migrations.RemoveField(

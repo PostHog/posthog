@@ -28,7 +28,6 @@ from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL,
     SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
-from posthog.queries.insight import insight_sync_execute
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -504,6 +503,8 @@ def get_lazy_session_table_values_v1(key: str, search_term: Optional[str], team:
 
         if not expr:
             return []
+
+        from posthog.queries.insight import insight_sync_execute
 
         if search_term:
             return insight_sync_execute(
