@@ -1,8 +1,9 @@
-from .fragments import KV_FRAGMENT, MAILING_ADDRESS_FRAGMENT, MONEY_BAG_FRAGMENT
+from .fragments import CUSTOMER_FRAGMENT, KV_FRAGMENT, MAILING_ADDRESS_FRAGMENT, MONEY_BAG_FRAGMENT
 
 ABANDONED_CHECKOUTS_SORTKEY = "CREATED_AT"
 
 # NOTE: 250 is the max allowable query size for line items
+# NOTE lineItems in abandonedCheckouts are not the same as the LineItem object
 ABANDONED_CHECKOUTS_QUERY = f"""
 query PaginatedAbandonedCheckouts($pageSize: Int!, $cursor: String, $query: String) {{
     abandonedCheckouts(
@@ -15,55 +16,7 @@ query PaginatedAbandonedCheckouts($pageSize: Int!, $cursor: String, $query: Stri
             completedAt
             createdAt
             customAttributes {KV_FRAGMENT}
-            customer {{
-                addresses {MAILING_ADDRESS_FRAGMENT}
-                amountSpent {{
-                    amount
-                    currencyCode
-                }}
-                createdAt
-                defaultAddress {MAILING_ADDRESS_FRAGMENT}
-                defaultEmailAddress {{
-                    emailAddress
-                    marketingOptInLevel
-                    marketingState
-                    marketingUpdatedAt
-                    openTrackingLevel
-                    validFormat
-                }}
-                defaultPhoneNumber {{
-                    marketingCollectedFrom
-                    marketingOptInLevel
-                    marketingState
-                    marketingUpdatedAt
-                    phoneNumber
-                }}
-                displayName
-                firstName
-                id
-                lastName
-                lastOrder {{
-                    id
-                    name
-                }}
-                legacyResourceId
-                lifetimeDuration
-                locale
-                multipassIdentifier
-                note
-                numberOfOrders
-                productSubscriberStatus
-                state
-                statistics {{
-                    predictedSpendTier
-                    rfmGroup
-                }}
-                tags
-                taxExempt
-                taxExemptions
-                updatedAt
-                verifiedEmail
-            }}
+            customer {CUSTOMER_FRAGMENT}
             discountCodes
             id
             lineItems(first: 250) {{
