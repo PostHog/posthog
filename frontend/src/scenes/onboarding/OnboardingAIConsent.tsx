@@ -12,6 +12,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { OnboardingStepKey } from '~/types'
 
+import { FlappyHog } from './FlappyHog'
 import { OnboardingStep } from './OnboardingStep'
 
 const EXAMPLE_PROMPTS = [
@@ -27,6 +28,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
 
     const isNotAdmin = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
     const [aiEnabled, setAiEnabled] = useState(currentOrganization?.is_ai_data_processing_approved ?? false)
+    const [showFlappyHog, setShowFlappyHog] = useState(false)
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 50, duration: 2000 })
 
     const handleContinue = (): void => {
@@ -40,9 +42,14 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
             <HogfettiComponent />
             <div className="mt-6">
                 <div className="flex items-start gap-6 mb-8">
-                    <div className="hidden sm:block flex-shrink-0 w-32">
+                    <div
+                        className="hidden sm:block flex-shrink-0 w-32 cursor-pointer hover:scale-105 transition-transform"
+                        onClick={() => setShowFlappyHog(true)}
+                        title="Click me!"
+                    >
                         <ProfessorHog className="w-full h-auto" />
                     </div>
+                    <FlappyHog isOpen={showFlappyHog} onClose={() => setShowFlappyHog(false)} />
                     <div className="flex-1">
                         <div className="flex items-center gap-2 mb-3">
                             <IconSparkles className="text-2xl text-warning" />
