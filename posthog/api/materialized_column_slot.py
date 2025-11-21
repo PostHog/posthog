@@ -295,17 +295,21 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 if validation_error:
                     return response.Response({"error": validation_error}, status=400)
 
-                slot_index = self._find_available_slot_index(property_definition.property_type, existing_slots)
+                # Validation ensures property_type is set
+                property_type = property_definition.property_type
+                assert property_type is not None
+
+                slot_index = self._find_available_slot_index(property_type, existing_slots)
                 if slot_index is None:
                     return response.Response(
-                        {"error": f"No available slots for property type {property_definition.property_type}"},
+                        {"error": f"No available slots for property type {property_type}"},
                         status=400,
                     )
 
                 slot = MaterializedColumnSlot.objects.create(
                     team=self.team,
                     property_definition=property_definition,
-                    property_type=property_definition.property_type,
+                    property_type=property_type,
                     slot_index=slot_index,
                     state=MaterializedColumnSlotState.BACKFILL,
                     created_by=request.user,
@@ -323,7 +327,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         workflow_error = self._start_backfill_workflow(
             slot,
             property_name=property_definition.name,
-            property_type=property_definition.property_type,
+            property_type=property_type,
         )
         if workflow_error:
             return response.Response({"error": workflow_error}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
