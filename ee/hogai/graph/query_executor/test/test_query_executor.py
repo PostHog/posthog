@@ -38,7 +38,8 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError
 
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, QueryExecutorError
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, execute_and_format_query
+from ee.hogai.tool_errors import MaxToolRetryableError
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -162,7 +163,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(QueryExecutorError) as context:
+        with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("API error message", str(context.exception))
@@ -175,7 +176,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantHogQLQuery(query="SELECT invalid")
 
-        with self.assertRaises(QueryExecutorError) as context:
+        with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("HogQL error", str(context.exception))
@@ -188,7 +189,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(QueryExecutorError) as context:
+        with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("ClickHouse error", str(context.exception))
@@ -540,3 +541,60 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
         self.assertIsInstance(result, str)
         self.assertFalse(used_fallback)
+
+
+class TestExecuteAndFormatQuery(NonAtomicBaseTest):
+    """Tests for the execute_and_format_query function"""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    async def test_includes_insight_schema_for_trends_query(self, mock_process_query):
+        """Verify insight schema is included for TrendsQuery"""
+        mock_process_query.return_value = {
+            "results": [{"data": [1, 2, 3], "label": "test", "days": ["2025-01-01", "2025-01-02", "2025-01-03"]}]
+        }
+
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        result = await execute_and_format_query(self.team, query)
+
+        # Verify schema section is present
+        self.assertIn("```json", result)
+        # Verify it contains query configuration
+        self.assertIn("kind", result)
+
+    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    async def test_insight_schema_excludes_unset_fields(self, mock_process_query):
+        """Verify that unset fields are excluded from the schema (exclude_unset=True)"""
+        mock_process_query.return_value = {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]}
+
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        result = await execute_and_format_query(self.team, query)
+
+        self.assertIn("kind", result)
+        self.assertNotIn("breakdownFilter", result)
+
+    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    async def test_insight_schema_excludes_none_values(self, mock_process_query):
+        """Verify that None values are excluded from the schema (exclude_none=True)"""
+        mock_process_query.return_value = {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]}
+
+        # Create query with dateRange (which might have None values for date_from/date_to if not set)
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")], breakdownFilter=None)
+        result = await execute_and_format_query(self.team, query)
+
+        # The schema should not contain null values
+        self.assertNotIn("null", result)
+        self.assertNotIn("breakdownFilter", result)
+
+    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict")
+    async def test_excludes_sql_schema(self, mock_process_query):
+        """Verify that None values are excluded from the schema (exclude_none=True)"""
+        mock_process_query.return_value = {"results": []}
+
+        # Create query with dateRange (which might have None values for date_from/date_to if not set)
+        query = AssistantHogQLQuery(query="SELECT 1")
+        result = await execute_and_format_query(self.team, query)
+
+        # The schema should not be present
+        self.assertNotIn("SELECT 1", result)

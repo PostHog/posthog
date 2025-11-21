@@ -1,6 +1,5 @@
 import asyncio
 from collections.abc import Sequence
-from functools import lru_cache
 from typing import Any, Optional, cast
 from uuid import uuid4
 
@@ -9,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 
 from posthog.schema import (
+    AgentMode,
     ContextMessage,
     FunnelsQuery,
     HogQLQuery,
@@ -36,10 +36,13 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.utils.helpers import find_start_message, insert_messages_before_start
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
+from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
+from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
+    CONTEXT_MODE_PROMPT,
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
@@ -133,7 +136,6 @@ class AssistantContextManager(AssistantContextMixin):
         """
         return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
 
-    @lru_cache(maxsize=1)
     async def get_group_names(self) -> list[str]:
         """
         Returns the names of the team's groups.
@@ -384,23 +386,33 @@ class AssistantContextManager(AssistantContextMixin):
         ).to_string()
 
     async def _get_context_prompts(self, state: BaseStateWithMessages) -> list[str]:
+        are_modes_enabled = has_agent_modes_feature_flag(self._team, self._user)
+
         prompts: list[str] = []
-        if contextual_tools := self._get_contextual_tools_prompt():
+        if (
+            are_modes_enabled
+            and find_start_message_idx(state.messages, state.start_id) == 0
+            and (mode_prompt := self._get_mode_prompt(state.agent_mode))
+        ):
+            prompts.append(mode_prompt)
+        if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(contextual_tools)
         if ui_context := await self._format_ui_context(self.get_ui_context(state)):
             prompts.append(ui_context)
         return self._deduplicate_context_messages(state, prompts)
 
-    def _get_contextual_tools_prompt(self) -> str | None:
+    async def _get_contextual_tools_prompt(self) -> str | None:
         from ee.hogai.registry import get_contextual_tool_class
 
-        contextual_tools_prompt = [
-            f"<{tool_name}>\n"
-            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_context_prompt_injection(tool_context)}\n"  # type: ignore
-            f"</{tool_name}>"
-            for tool_name, tool_context in self.get_contextual_tools().items()
-            if get_contextual_tool_class(tool_name) is not None
-        ]
+        contextual_tools_prompt: list[str] = []
+        for tool_name, tool_context in self.get_contextual_tools().items():
+            tool_class = get_contextual_tool_class(tool_name)
+            if tool_class is None:
+                continue
+            tool = await tool_class.create_tool_class(team=self._team, user=self._user, context_manager=self)
+            tool_prompt = tool.format_context_prompt_injection(tool_context)
+            contextual_tools_prompt.append(f"<{tool_name}>\n" f"{tool_prompt}\n" f"</{tool_name}>")
+
         if contextual_tools_prompt:
             tools = "\n".join(contextual_tools_prompt)
             return CONTEXTUAL_TOOLS_REMINDER_PROMPT.format(tools=tools)
@@ -417,3 +429,6 @@ class AssistantContextManager(AssistantContextMixin):
         context_messages = [ContextMessage(content=prompt, id=str(uuid4())) for prompt in context_prompts]
         # Insert context messages right before the start message
         return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)
+
+    def _get_mode_prompt(self, mode: AgentMode | None) -> str:
+        return format_prompt_string(CONTEXT_MODE_PROMPT, mode=mode.value if mode else AgentMode.PRODUCT_ANALYTICS.value)

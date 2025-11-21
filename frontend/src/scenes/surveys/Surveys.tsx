@@ -22,7 +22,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_CREATED_SOURCE } from './constants'
@@ -48,9 +49,7 @@ function NewSurveyButton(): JSX.Element {
                 'Create a product-market fit survey for trial users',
                 'Create a quick satisfaction survey for support interactions',
             ]}
-            context={{
-                user_id: user?.uuid,
-            }}
+            context={{}}
             callback={(toolOutput: {
                 survey_id?: string
                 survey_name?: string

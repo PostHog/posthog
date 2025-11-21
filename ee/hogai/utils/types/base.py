@@ -13,6 +13,7 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
+    AgentMode,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -247,6 +248,10 @@ class BaseStateWithMessages(BaseState):
     """
     Messages exposed to the user.
     """
+    agent_mode: AgentMode | None = Field(default=None)
+    """
+    The mode of the agent.
+    """
 
 
 class BaseStateWithTasks(BaseState):
@@ -388,6 +393,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
+    USAGE_COMMAND_HANDLER = "usage_command_handler"
     TRENDS_GENERATOR = "trends_generator"
     TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
     FUNNEL_GENERATOR = "funnel_generator"

@@ -16,7 +16,8 @@ import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingProductV2Type, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { BillingProductV2Type } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
 import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
@@ -56,7 +57,7 @@ export function StartupProgram(): JSX.Element {
         formSubmitted,
         isCurrentlyOnStartupPlan,
         wasPreviouslyOnStartupPlan,
-        isUserOrganizationOwnerOrAdmin,
+        isAdminOrOwner,
         isYC,
         isReferralProgram,
         referrerDisplayName,
@@ -119,7 +120,7 @@ export function StartupProgram(): JSX.Element {
         )
     }
 
-    if (!isUserOrganizationOwnerOrAdmin) {
+    if (!isAdminOrOwner) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="warning">
