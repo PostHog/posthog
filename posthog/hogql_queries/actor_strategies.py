@@ -75,7 +75,13 @@ class PersonStrategy(ActorStrategy):
             AND {pdi_table}.team_id = %(team_id)s""",
                 {"people_ids": [x[0] for x in people], "team_id": self.team.pk},
             )
-            distinct_ids = cursor.fetchall()
+            distinct_ids = []
+            batch_size = 10000
+            while True:
+                batched_distinct_ids = cursor.fetchmany(batch_size)
+                if not batched_distinct_ids:
+                    break
+                distinct_ids.extend(batched_distinct_ids)
 
         person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in people}
 
