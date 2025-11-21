@@ -1,6 +1,6 @@
 import './MetricRowGroup.scss'
 
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 

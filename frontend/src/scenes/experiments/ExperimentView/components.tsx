@@ -22,7 +22,6 @@ import {
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
@@ -410,7 +409,6 @@ export function PageHeaderCustom(): JSX.Element {
         legacyPrimaryMetricsResults,
         hasMinimumExposureForResults,
         experimentLoading,
-        featureFlags,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
