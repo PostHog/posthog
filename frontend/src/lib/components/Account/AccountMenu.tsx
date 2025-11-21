@@ -21,7 +21,6 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
@@ -43,7 +42,6 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -153,7 +151,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { mobileLayout } = useValues(navigationLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
-    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     return (
         <DropdownMenu>
@@ -323,15 +320,13 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         intent="Toggle shortcut menu"
                         interaction="click"
                         asChild
-                        disabled={!useAppShortcuts}
                     >
                         <DropdownMenuItem asChild>
                             <ButtonPrimitive
-                                tooltip={useAppShortcuts ? 'Open shortcut menu' : undefined}
+                                tooltip="Open shortcut menu"
                                 tooltipPlacement="right"
                                 onClick={() => setAppShortcutMenuOpen(true)}
                                 menuItem
-                                className={cn(!useAppShortcuts && 'hidden')}
                             >
                                 <span className="size-4 flex items-center justify-center">⌘</span>
                                 Shortcuts
@@ -434,10 +429,9 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 </Link>
                             </DropdownMenuItem>
 
-                            {useAppShortcuts &&
-                            (user?.is_impersonated ||
-                                preflight?.is_debug ||
-                                preflight?.instance_preferences?.debug_queries) ? (
+                            {user?.is_impersonated ||
+                            preflight?.is_debug ||
+                            preflight?.instance_preferences?.debug_queries ? (
                                 <DropdownMenuItem asChild>
                                     <ButtonPrimitive
                                         menuItem
@@ -445,7 +439,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                             openCHQueriesDebugModal()
                                         }}
                                         data-attr="menu-item-debug-ch-queries"
-                                        className={cn(!useAppShortcuts && 'hidden')}
                                     >
                                         <IconDatabase />
                                         Debug CH queries

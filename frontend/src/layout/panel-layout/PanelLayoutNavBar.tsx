@@ -29,7 +29,6 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -106,8 +105,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { preflight } = useValues(preflightLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
-
-    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -461,7 +458,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 intent="Search"
                                 interaction="click"
                                 asChild
-                                disabled={!useAppShortcuts}
                             >
                                 {/* Button is hidden, keep to register shortcut */}
                                 <ButtonPrimitive
@@ -490,7 +486,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 intent="Toggle shortcut menu"
                                 interaction="click"
                                 asChild
-                                disabled={!useAppShortcuts}
                             >
                                 {/* Button is hidden, keep to register shortcut */}
                                 <ButtonPrimitive
