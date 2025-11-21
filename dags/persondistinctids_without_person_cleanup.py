@@ -161,13 +161,21 @@ def scan_delete_chunk_for_pdwp(
     batch_start_id = chunk_min
     failed_batch_start_id: int | None = None
 
+    # Accumulate metrics locally, publish every 100 batches
+    METRIC_PUBLISH_INTERVAL = 100
+    batch_counter = 0
+    accumulated_records_attempted = 0
+    accumulated_records_found = 0
+    accumulated_records_deleted = 0
+    accumulated_batches_scanned = 0
+    accumulated_batch_duration = 0.0
+
     try:
         with database.cursor() as cursor:
             # Set session-level settings once for the entire chunk
             cursor.execute("SET application_name = 'delete_personsdistinctids_with_no_person'")
             cursor.execute("SET lock_timeout = '5s'")
             cursor.execute("SET statement_timeout = '30min'")
-            cursor.execute("SET maintenance_work_mem = '12GB'")
             cursor.execute("SET work_mem = '512MB'")
             cursor.execute("SET temp_buffers = '512MB'")
             cursor.execute("SET max_parallel_workers_per_gather = 2")
@@ -212,54 +220,72 @@ RETURNING pd.id
                     # Commit the transaction
                     cursor.execute("COMMIT")
 
-                    try:
-                        metrics_client.increment(
-                            "distinct_ids_without_person_records_attempted_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=float(records_scanned + 1),
-                        ).result()
-                    except Exception:
-                        pass  # Don't fail on metrics error
-
-                    try:
-                        metrics_client.increment(
-                            "distinct_ids_without_person_records_found_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=float(records_found),
-                        ).result()
-                    except Exception:
-                        pass  # Don't fail on metrics error
-
-                    try:
-                        metrics_client.increment(
-                            "distinct_ids_without_person_records_deleted_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=float(records_deleted),
-                        ).result()
-                    except Exception:
-                        pass  # Don't fail on metrics error
-
-                    try:
-                        metrics_client.increment(
-                            "distinct_ids_without_person_batches_scanned_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=1.0,
-                        ).result()
-                    except Exception:
-                        pass
-
-                    # Track batch duration metric (IV)
+                    # Track batch duration
                     batch_duration_seconds = time.time() - batch_start_time
-                    try:
-                        metrics_client.increment(
-                            "distinct_ids_without_person_batch_duration_seconds_total",
-                            labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=batch_duration_seconds,
-                        ).result()
-                    except Exception:
-                        pass
 
+                    # Accumulate metrics locally
+                    accumulated_records_attempted += records_scanned + 1
+                    accumulated_records_found += records_found
+                    accumulated_records_deleted += records_deleted
+                    accumulated_batches_scanned += 1
+                    accumulated_batch_duration += batch_duration_seconds
+                    batch_counter += 1
                     total_records_deleted += records_deleted
+
+                    # Publish accumulated metrics every METRIC_PUBLISH_INTERVAL batches
+                    if batch_counter >= METRIC_PUBLISH_INTERVAL:
+                        try:
+                            metrics_client.increment(
+                                "distinct_ids_without_person_records_attempted_total",
+                                labels={"job_name": job_name, "chunk_id": chunk_id},
+                                value=float(accumulated_records_attempted),
+                            ).result()
+                        except Exception:
+                            pass
+
+                        try:
+                            metrics_client.increment(
+                                "distinct_ids_without_person_records_found_total",
+                                labels={"job_name": job_name, "chunk_id": chunk_id},
+                                value=float(accumulated_records_found),
+                            ).result()
+                        except Exception:
+                            pass
+
+                        try:
+                            metrics_client.increment(
+                                "distinct_ids_without_person_records_deleted_total",
+                                labels={"job_name": job_name, "chunk_id": chunk_id},
+                                value=float(accumulated_records_deleted),
+                            ).result()
+                        except Exception:
+                            pass
+
+                        try:
+                            metrics_client.increment(
+                                "distinct_ids_without_person_batches_scanned_total",
+                                labels={"job_name": job_name, "chunk_id": chunk_id},
+                                value=float(accumulated_batches_scanned),
+                            ).result()
+                        except Exception:
+                            pass
+
+                        try:
+                            metrics_client.increment(
+                                "distinct_ids_without_person_batch_duration_seconds_total",
+                                labels={"job_name": job_name, "chunk_id": chunk_id},
+                                value=accumulated_batch_duration,
+                            ).result()
+                        except Exception:
+                            pass
+
+                        # Reset accumulators
+                        accumulated_records_attempted = 0
+                        accumulated_records_found = 0
+                        accumulated_records_deleted = 0
+                        accumulated_batches_scanned = 0
+                        accumulated_batch_duration = 0.0
+                        batch_counter = 0
 
                     context.log.info(
                         f"Deleted batch: {records_deleted} of {records_found} records "
@@ -351,6 +377,37 @@ RETURNING pd.id
         # Re-raise Dagster failures as-is (they already have metadata and metrics)
         raise
     except Exception as e:
+        # Flush any remaining accumulated metrics before raising
+        if batch_counter > 0:
+            try:
+                metrics_client.increment(
+                    "distinct_ids_without_person_records_attempted_total",
+                    labels={"job_name": job_name, "chunk_id": chunk_id},
+                    value=float(accumulated_records_attempted),
+                ).result()
+                metrics_client.increment(
+                    "distinct_ids_without_person_records_found_total",
+                    labels={"job_name": job_name, "chunk_id": chunk_id},
+                    value=float(accumulated_records_found),
+                ).result()
+                metrics_client.increment(
+                    "distinct_ids_without_person_records_deleted_total",
+                    labels={"job_name": job_name, "chunk_id": chunk_id},
+                    value=float(accumulated_records_deleted),
+                ).result()
+                metrics_client.increment(
+                    "distinct_ids_without_person_batches_scanned_total",
+                    labels={"job_name": job_name, "chunk_id": chunk_id},
+                    value=float(accumulated_batches_scanned),
+                ).result()
+                metrics_client.increment(
+                    "distinct_ids_without_person_batch_duration_seconds_total",
+                    labels={"job_name": job_name, "chunk_id": chunk_id},
+                    value=accumulated_batch_duration,
+                ).result()
+            except Exception:
+                pass
+
         # Catch any other unexpected errors
         error_msg = f"Unexpected error scanning and deleting from chunk {chunk_min}-{chunk_max}: {str(e)}"
         context.log.exception(error_msg)
@@ -377,6 +434,37 @@ RETURNING pd.id
         ) from e
 
     context.log.info(f"Completed chunk {chunk_min}-{chunk_max}: deleted {total_records_deleted} records")
+
+    # Flush any remaining accumulated metrics at end of chunk
+    if batch_counter > 0:
+        try:
+            metrics_client.increment(
+                "distinct_ids_without_person_records_attempted_total",
+                labels={"job_name": job_name, "chunk_id": chunk_id},
+                value=float(accumulated_records_attempted),
+            ).result()
+            metrics_client.increment(
+                "distinct_ids_without_person_records_found_total",
+                labels={"job_name": job_name, "chunk_id": chunk_id},
+                value=float(accumulated_records_found),
+            ).result()
+            metrics_client.increment(
+                "distinct_ids_without_person_records_deleted_total",
+                labels={"job_name": job_name, "chunk_id": chunk_id},
+                value=float(accumulated_records_deleted),
+            ).result()
+            metrics_client.increment(
+                "distinct_ids_without_person_batches_scanned_total",
+                labels={"job_name": job_name, "chunk_id": chunk_id},
+                value=float(accumulated_batches_scanned),
+            ).result()
+            metrics_client.increment(
+                "distinct_ids_without_person_batch_duration_seconds_total",
+                labels={"job_name": job_name, "chunk_id": chunk_id},
+                value=accumulated_batch_duration,
+            ).result()
+        except Exception:
+            pass
 
     # Emit metric for chunk completion
     run_id = context.run.run_id
