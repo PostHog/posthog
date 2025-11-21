@@ -77,14 +77,12 @@ class TaxonomyAgentTool(BaseModel):
 
 PROPERTIES_EXAMPLE_PROMPT = """
 The data format is as follows:
-```
 <Data type>
 - $event – description text here
 - another_event
 </Data type>
 ...
-```
-
+---
 Results:
 {{{result}}}
 """.strip()
