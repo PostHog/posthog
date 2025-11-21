@@ -6,7 +6,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { convertBlobToPNG, createObjectMediaPreview, uploadScreenshotImage } from '~/toolbar/utils/screenshotUpload'
+import { createObjectMediaPreview, uploadScreenshotImage } from '~/toolbar/utils/screenshotUpload'
 import { EventDefinition } from '~/types'
 
 export interface ScreenshotUploadModalProps {
@@ -77,12 +77,10 @@ export const ScreenshotUploadModal = ({
         setIsUploading(true)
 
         try {
-            const pngBlob = await convertBlobToPNG(screenshot)
-
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
             const filename = `screenshot-${timestamp}.png`
 
-            const uploadResult = await uploadScreenshotImage(pngBlob, filename)
+            const uploadResult = await uploadScreenshotImage(screenshot, filename)
 
             const exactMatch = eventDefinitions.find((ed) => ed.name === eventName)
             if (!exactMatch) {

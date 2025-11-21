@@ -286,7 +286,11 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 {preview && (
                     <div className="mt-4">
                         <h5 className="mb-2">
-                            Media preview
+                            <Tooltip title="Media previews let you see a snapshot of how this event appears in your app.">
+                                <div className="flex flex-row items-center gap-1">
+                                    Media preview <IconInfo className="text-lg" />
+                                </div>
+                            </Tooltip>
                             {preview.media_type === 'exported' && (
                                 <span className="text-xs text-secondary ml-2">(Auto-captured)</span>
                             )}
