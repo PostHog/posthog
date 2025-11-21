@@ -95,7 +95,7 @@ Converts OTel log records to AI event properties. Extracts message content from 
 
 ### event_merger.py
 
-Redis-based non-blocking cache for v2 trace/log coordination. Uses atomic operations (WATCH/MULTI/EXEC) to safely merge data from concurrent arrivals. Keys expire after 60 seconds to prevent orphaned entries.
+Redis-based non-blocking cache for v2 trace/log coordination. Uses simple Redis operations (get/setex/delete) for fast caching and retrieval. Keys expire after 60 seconds to prevent orphaned entries.
 
 **Merge Logic**:
 
@@ -168,7 +168,7 @@ All events conform to the PostHog LLM Analytics schema:
 Run unit tests:
 
 ```bash
-pytest products/llm_analytics/backend/api/otel/test/
+pytest products/llm_analytics/backend/api/otel/
 ```
 
 Integration testing requires:
@@ -263,7 +263,7 @@ Extend `build_event_properties()` in `transformer.py` to map additional attribut
 - **Throughput**: Limited by Redis round-trip time for v2 merging
 - **Latency**: v1 has single-pass latency, v2 has cache lookup latency
 - **Memory**: Redis cache bounded by TTL (60s max retention)
-- **Concurrency**: Redis transactions provide safe concurrent merging
+- **Concurrency**: Simple Redis operations enable fast merging with minimal race condition risk
 
 ## References
 
