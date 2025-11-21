@@ -15,7 +15,7 @@ from langgraph.errors import NodeInterrupt
 
 from posthog.schema import AssistantMessage, ContextMessage, EventTaxonomyItem, HumanMessage
 
-from ee.hogai.graph.agent_modes import SLASH_COMMAND_INIT
+from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT
 from ee.hogai.graph.memory import prompts
 from ee.hogai.graph.memory.nodes import (
     MemoryCollectorNode,
