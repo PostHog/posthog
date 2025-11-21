@@ -2217,6 +2217,43 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert "Question shuffling and question branching cannot be used together" in response_data["detail"]
 
+    def test_validate_branching_with_shuffling_on_update_questions(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Survey",
+            type="popover",
+            appearance={
+                "shuffleQuestions": True,
+            },
+            questions=[
+                {
+                    "type": "open",
+                    "question": "What do you think?",
+                }
+            ],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "questions": [
+                    {
+                        "type": "rating",
+                        "question": "How likely are you to recommend us?",
+                        "scale": 10,
+                        "branching": {
+                            "type": "end",
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "Question shuffling and question branching cannot be used together" in response_data["detail"]
+
     def test_shuffling_without_branching_is_allowed(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

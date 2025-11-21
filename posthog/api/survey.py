@@ -491,7 +491,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             )
 
         # Validate that question shuffling and branching are not used together
-        # For PATCH requests, we need to check both incoming data and existing survey data
+        # Check both incoming data and existing survey data (existing_survey is None for POST)
         appearance = data.get("appearance")
         questions = data.get("questions")
 
