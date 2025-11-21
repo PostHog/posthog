@@ -399,9 +399,12 @@ function SceneName({
 
     return (
         <div
-            className={cn('scene-name flex-1 min-h-[var(--button-height-base)]', {
-                truncate: !isEditing,
-            })}
+            className={cn(
+                'scene-name flex-1 min-h-[var(--button-height-base)] -ml-[var(--button-padding-x-sm)] @2xl/main-content:ml-0',
+                {
+                    truncate: !isEditing,
+                }
+            )}
         >
             {Element}
         </div>
