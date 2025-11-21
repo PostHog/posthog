@@ -1943,26 +1943,12 @@ class _Printer(Visitor[str]):
         if self.context.property_swapper is None:
             return None
 
-        swapper = self.context.property_swapper
-        properties_dict = None
+        # Only event properties have dmat columns
+        if table_name != "events" or field_name != "properties":
+            return None
 
-        # Event properties
-        if table_name == "events" and field_name == "properties":
-            properties_dict = swapper.event_properties
-        # Person properties (on persons table or events PoE)
-        elif field_name == "person_properties" or (
-            table_name in ("persons", "raw_persons") and field_name == "properties"
-        ):
-            properties_dict = swapper.person_properties
-        # Group properties (keyed as "{group_id}_{property_name}")
-        elif table_name == "groups" and field_name == "properties":
-            for group_key, group_prop_info in swapper.group_properties.items():
-                if group_key.endswith(f"_{property_name}"):
-                    properties_dict = {property_name: group_prop_info}
-                    break
-
-        if properties_dict and property_name in properties_dict:
-            prop_info = properties_dict[property_name]
+        prop_info = self.context.property_swapper.event_properties.get(property_name)
+        if prop_info:
             return prop_info.get("dmat")
 
         return None

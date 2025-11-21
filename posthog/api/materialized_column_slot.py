@@ -18,7 +18,10 @@ from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.permissions import IsStaffUserOrImpersonating
 from posthog.settings import EE_AVAILABLE
-from posthog.temporal.backfill_materialized_property.activities import MATERIALIZABLE_PROPERTY_TYPES
+from posthog.temporal.backfill_materialized_property.activities import (
+    MATERIALIZABLE_PROPERTY_TYPES,
+    PROPERTY_TYPE_TO_COLUMN_NAME,
+)
 from posthog.temporal.backfill_materialized_property.workflows import BackfillMaterializedPropertyInputs
 from posthog.temporal.common.client import async_connect
 
@@ -202,8 +205,20 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 return i
         return None
 
-    def _start_backfill_workflow(self, slot: MaterializedColumnSlot, workflow_id_suffix: str = "") -> str | None:
+    def _get_mat_column_name(self, property_type: str, slot_index: int) -> str:
+        """Generate the materialized column name for a slot."""
+        type_name = PROPERTY_TYPE_TO_COLUMN_NAME[property_type]
+        return f"dmat_{type_name}_{slot_index}"
+
+    def _start_backfill_workflow(
+        self,
+        slot: MaterializedColumnSlot,
+        property_name: str,
+        property_type: str,
+        workflow_id_suffix: str = "",
+    ) -> str | None:
         """Start the Temporal backfill workflow. Returns error message on failure, None on success."""
+        mat_column_name = self._get_mat_column_name(property_type, slot.slot_index)
 
         async def _start():
             client = await async_connect()
@@ -213,6 +228,9 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 BackfillMaterializedPropertyInputs(
                     team_id=slot.team_id,
                     slot_id=str(slot.id),
+                    property_name=property_name,
+                    property_type=property_type,
+                    mat_column_name=mat_column_name,
                 ),
                 id=workflow_id,
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
@@ -302,7 +320,11 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             )
 
         # Start workflow outside transaction (idempotent, slot already committed)
-        workflow_error = self._start_backfill_workflow(slot)
+        workflow_error = self._start_backfill_workflow(
+            slot,
+            property_name=property_definition.name,
+            property_type=property_definition.property_type,
+        )
         if workflow_error:
             return response.Response({"error": workflow_error}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -357,13 +379,19 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             )
 
         property_name = slot.property_definition.name
+        property_type = slot.property_type
 
         # Update state back to BACKFILL and clear error message
         slot.state = MaterializedColumnSlotState.BACKFILL
         slot.error_message = None
         slot.save()
 
-        workflow_error = self._start_backfill_workflow(slot, workflow_id_suffix=f"-retry-{slot.updated_at.timestamp()}")
+        workflow_error = self._start_backfill_workflow(
+            slot,
+            property_name=property_name,
+            property_type=property_type,
+            workflow_id_suffix=f"-retry-{slot.updated_at.timestamp()}",
+        )
         if workflow_error:
             # Revert state back to ERROR
             slot.state = MaterializedColumnSlotState.ERROR

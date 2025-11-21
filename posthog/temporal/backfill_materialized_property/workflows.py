@@ -3,17 +3,14 @@
 import json
 import datetime as dt
 import dataclasses
-from typing import Optional
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.backfill_materialized_property.activities import (
     BackfillMaterializedColumnInputs,
-    GetSlotDetailsInputs,
     UpdateSlotStateInputs,
     backfill_materialized_column,
-    get_slot_details,
     update_slot_state,
 )
 from posthog.temporal.common.base import PostHogWorkflow
@@ -24,8 +21,10 @@ class BackfillMaterializedPropertyInputs:
     """Inputs for the backfill materialized property workflow."""
 
     team_id: int
-    slot_id: str  # UUID of MaterializedColumnSlot
-    partition_ids: Optional[list[str]] = None  # For future parallelization
+    slot_id: str
+    property_name: str
+    property_type: str
+    mat_column_name: str
 
 
 @workflow.defn(name="backfill-materialized-property")
@@ -34,11 +33,10 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
     Workflow to backfill a materialized property column.
 
     Flow:
-    1. Wait 2 minutes for plugin-server ingestion cache to refresh
+    1. Wait 3 minutes for plugin-server ingestion cache to refresh
        (ensures no gap between backfill and future new events being materialized)
-    2. Get slot details from database
-    3. Run ClickHouse ALTER TABLE UPDATE to backfill historical events
-    4. Update slot state to READY (or ERROR if failed)
+    2. Run ClickHouse ALTER TABLE UPDATE to backfill historical events
+    3. Update slot state to READY (or ERROR if failed)
     """
 
     @classmethod
@@ -64,36 +62,22 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
             )
             await workflow.sleep(dt.timedelta(seconds=180))
 
-            # Get slot details
-            workflow.logger.info("Getting slot details", slot_id=inputs.slot_id)
-            slot_details = await workflow.execute_activity(
-                get_slot_details,
-                GetSlotDetailsInputs(slot_id=inputs.slot_id),
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(minutes=1),
-                    maximum_attempts=3,
-                ),
-            )
-
             # Run backfill
             workflow.logger.info(
                 "Starting backfill",
-                team_id=slot_details.team_id,
-                property_name=slot_details.property_name,
-                mat_column_name=slot_details.mat_column_name,
+                team_id=inputs.team_id,
+                property_name=inputs.property_name,
+                mat_column_name=inputs.mat_column_name,
             )
             await workflow.execute_activity(
                 backfill_materialized_column,
                 BackfillMaterializedColumnInputs(
-                    team_id=slot_details.team_id,
-                    property_name=slot_details.property_name,
-                    property_type=slot_details.property_type,
-                    mat_column_name=slot_details.mat_column_name,
-                    partition_id=None,  # For now, backfill all partitions at once
+                    team_id=inputs.team_id,
+                    property_name=inputs.property_name,
+                    property_type=inputs.property_type,
+                    mat_column_name=inputs.mat_column_name,
                 ),
-                start_to_close_timeout=dt.timedelta(hours=2),  # Backfill can take a while
+                start_to_close_timeout=dt.timedelta(hours=2),
                 retry_policy=RetryPolicy(
                     initial_interval=dt.timedelta(minutes=1),
                     maximum_interval=dt.timedelta(minutes=10),

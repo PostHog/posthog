@@ -12,8 +12,6 @@ from temporalio.worker import Worker
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
 from posthog.temporal.backfill_materialized_property.activities import (
     BackfillMaterializedColumnInputs,
-    GetSlotDetailsInputs,
-    SlotDetails,
     UpdateSlotStateInputs,
 )
 from posthog.temporal.backfill_materialized_property.workflows import (
@@ -32,24 +30,12 @@ class TestBackfillMaterializedPropertyWorkflow:
         slot_id = str(amaterialized_slot.id)
         team_id = amaterialized_slot.team_id
 
-        # Create mock activities that succeed
-        @activity.defn(name="get_slot_details")
-        async def mock_get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
-            return SlotDetails(
-                team_id=team_id,
-                property_name="test_property",
-                property_type="String",
-                slot_index=0,
-                mat_column_name="dmat_string_0",
-            )
-
         @activity.defn(name="backfill_materialized_column")
         async def mock_backfill(inputs: BackfillMaterializedColumnInputs) -> int:
             return 0
 
         @activity.defn(name="update_slot_state")
         async def mock_update_state(inputs: UpdateSlotStateInputs) -> bool:
-            # Update the actual slot state for verification
             slot = await MaterializedColumnSlot.objects.aget(id=slot_id)
             slot.state = inputs.state
             if inputs.error_message:
@@ -63,7 +49,7 @@ class TestBackfillMaterializedPropertyWorkflow:
                 env.client,
                 task_queue=task_queue,
                 workflows=[BackfillMaterializedPropertyWorkflow],
-                activities=[mock_get_slot_details, mock_backfill, mock_update_state],
+                activities=[mock_backfill, mock_update_state],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 await env.client.execute_workflow(
@@ -71,6 +57,9 @@ class TestBackfillMaterializedPropertyWorkflow:
                     BackfillMaterializedPropertyInputs(
                         team_id=team_id,
                         slot_id=slot_id,
+                        property_name="test_property",
+                        property_type="String",
+                        mat_column_name="dmat_string_0",
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
@@ -82,69 +71,10 @@ class TestBackfillMaterializedPropertyWorkflow:
         assert slot.error_message is None
 
     @pytest.mark.asyncio
-    async def test_workflow_get_slot_details_fails(self, amaterialized_slot):
-        """Test workflow failure when get_slot_details fails: BACKFILL → ERROR."""
-        slot_id = str(amaterialized_slot.id)
-        team_id = amaterialized_slot.team_id
-
-        @activity.defn(name="get_slot_details")
-        async def mock_get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
-            raise ValueError("Slot not found")
-
-        @activity.defn(name="backfill_materialized_column")
-        async def mock_backfill(inputs: BackfillMaterializedColumnInputs) -> int:
-            return 0
-
-        @activity.defn(name="update_slot_state")
-        async def mock_update_state(inputs: UpdateSlotStateInputs) -> bool:
-            slot = await MaterializedColumnSlot.objects.aget(id=slot_id)
-            slot.state = inputs.state
-            if inputs.error_message:
-                slot.error_message = inputs.error_message
-            await slot.asave()
-            return True
-
-        task_queue = str(uuid.uuid4())
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with Worker(
-                env.client,
-                task_queue=task_queue,
-                workflows=[BackfillMaterializedPropertyWorkflow],
-                activities=[mock_get_slot_details, mock_backfill, mock_update_state],
-                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-            ):
-                with pytest.raises(Exception):  # Workflow should raise
-                    await env.client.execute_workflow(
-                        BackfillMaterializedPropertyWorkflow.run,
-                        BackfillMaterializedPropertyInputs(
-                            team_id=team_id,
-                            slot_id=slot_id,
-                        ),
-                        id=str(uuid.uuid4()),
-                        task_queue=task_queue,
-                    )
-
-        # Verify slot is in ERROR state
-        slot = await MaterializedColumnSlot.objects.aget(id=slot_id)
-        assert slot.state == MaterializedColumnSlotState.ERROR
-        assert slot.error_message is not None
-        assert "Slot not found" in slot.error_message
-
-    @pytest.mark.asyncio
     async def test_workflow_backfill_fails(self, amaterialized_slot):
         """Test workflow failure when backfill fails: BACKFILL → ERROR."""
         slot_id = str(amaterialized_slot.id)
         team_id = amaterialized_slot.team_id
-
-        @activity.defn(name="get_slot_details")
-        async def mock_get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
-            return SlotDetails(
-                team_id=team_id,
-                property_name="test_property",
-                property_type="String",
-                slot_index=0,
-                mat_column_name="dmat_string_0",
-            )
 
         @activity.defn(name="backfill_materialized_column")
         async def mock_backfill(inputs: BackfillMaterializedColumnInputs) -> int:
@@ -165,7 +95,7 @@ class TestBackfillMaterializedPropertyWorkflow:
                 env.client,
                 task_queue=task_queue,
                 workflows=[BackfillMaterializedPropertyWorkflow],
-                activities=[mock_get_slot_details, mock_backfill, mock_update_state],
+                activities=[mock_backfill, mock_update_state],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 with pytest.raises(Exception):
@@ -174,6 +104,9 @@ class TestBackfillMaterializedPropertyWorkflow:
                         BackfillMaterializedPropertyInputs(
                             team_id=team_id,
                             slot_id=slot_id,
+                            property_name="test_property",
+                            property_type="String",
+                            mat_column_name="dmat_string_0",
                         ),
                         id=str(uuid.uuid4()),
                         task_queue=task_queue,
@@ -193,16 +126,6 @@ class TestBackfillMaterializedPropertyWorkflow:
 
         # Track how many times update_slot_state is called
         call_count = {"count": 0}
-
-        @activity.defn(name="get_slot_details")
-        async def mock_get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
-            return SlotDetails(
-                team_id=team_id,
-                property_name="test_property",
-                property_type="String",
-                slot_index=0,
-                mat_column_name="dmat_string_0",
-            )
 
         @activity.defn(name="backfill_materialized_column")
         async def mock_backfill(inputs: BackfillMaterializedColumnInputs) -> int:
@@ -228,7 +151,7 @@ class TestBackfillMaterializedPropertyWorkflow:
                 env.client,
                 task_queue=task_queue,
                 workflows=[BackfillMaterializedPropertyWorkflow],
-                activities=[mock_get_slot_details, mock_backfill, mock_update_state],
+                activities=[mock_backfill, mock_update_state],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 await env.client.execute_workflow(
@@ -236,6 +159,9 @@ class TestBackfillMaterializedPropertyWorkflow:
                     BackfillMaterializedPropertyInputs(
                         team_id=team_id,
                         slot_id=slot_id,
+                        property_name="test_property",
+                        property_type="String",
+                        mat_column_name="dmat_string_0",
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
@@ -252,13 +178,9 @@ class TestBackfillMaterializedPropertyWorkflow:
         slot_id = str(amaterialized_slot.id)
         team_id = amaterialized_slot.team_id
 
-        @activity.defn(name="get_slot_details")
-        async def mock_get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
-            raise ValueError("Original error: slot not found")
-
         @activity.defn(name="backfill_materialized_column")
         async def mock_backfill(inputs: BackfillMaterializedColumnInputs) -> int:
-            return 0
+            raise RuntimeError("Original error: backfill failed")
 
         @activity.defn(name="update_slot_state")
         async def mock_update_state(inputs: UpdateSlotStateInputs) -> bool:
@@ -273,7 +195,7 @@ class TestBackfillMaterializedPropertyWorkflow:
                 env.client,
                 task_queue=task_queue,
                 workflows=[BackfillMaterializedPropertyWorkflow],
-                activities=[mock_get_slot_details, mock_backfill, mock_update_state],
+                activities=[mock_backfill, mock_update_state],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 with pytest.raises(Exception) as exc_info:
@@ -282,10 +204,13 @@ class TestBackfillMaterializedPropertyWorkflow:
                         BackfillMaterializedPropertyInputs(
                             team_id=team_id,
                             slot_id=slot_id,
+                            property_name="test_property",
+                            property_type="String",
+                            mat_column_name="dmat_string_0",
                         ),
                         id=str(uuid.uuid4()),
                         task_queue=task_queue,
                     )
 
                 # Should raise the original error, not the state update error
-                assert "slot not found" in str(exc_info.value)
+                assert "backfill failed" in str(exc_info.value)

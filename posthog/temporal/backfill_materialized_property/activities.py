@@ -25,20 +25,6 @@ MATERIALIZABLE_PROPERTY_TYPES: set[str] = set(PROPERTY_TYPE_TO_COLUMN_NAME.keys(
 
 
 @dataclasses.dataclass
-class GetSlotDetailsInputs:
-    slot_id: str
-
-
-@dataclasses.dataclass
-class SlotDetails:
-    team_id: int
-    property_name: str
-    property_type: str
-    slot_index: int
-    mat_column_name: str
-
-
-@dataclasses.dataclass
 class BackfillMaterializedColumnInputs:
     team_id: int
     property_name: str
@@ -85,49 +71,6 @@ def _generate_property_extraction_sql(property_name: str, property_type: str) ->
 
     else:
         raise ValueError(f"Unsupported property type for materialization: {property_type}")
-
-
-@activity.defn
-def get_slot_details(inputs: GetSlotDetailsInputs) -> SlotDetails:
-    """
-    Get details about a materialized column slot from the database.
-
-    Returns slot information including property name, type, and the target column name.
-    """
-    try:
-        slot = MaterializedColumnSlot.objects.select_related("property_definition", "team").get(id=inputs.slot_id)
-    except MaterializedColumnSlot.DoesNotExist:
-        raise ValueError(f"MaterializedColumnSlot {inputs.slot_id} not found")
-
-    property_definition = slot.property_definition
-    if not property_definition:
-        raise ValueError(f"MaterializedColumnSlot {inputs.slot_id} has no property_definition")
-
-    type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
-    if not type_name:
-        raise ValueError(
-            f"Unsupported property type '{slot.property_type}' for materialized column. "
-            f"Supported types: {', '.join(PROPERTY_TYPE_TO_COLUMN_NAME.keys())}"
-        )
-    mat_column_name = f"dmat_{type_name}_{slot.slot_index}"
-
-    logger.info(
-        "Retrieved slot details",
-        slot_id=inputs.slot_id,
-        team_id=slot.team_id,
-        property_name=property_definition.name,
-        property_type=slot.property_type,
-        slot_index=slot.slot_index,
-        mat_column_name=mat_column_name,
-    )
-
-    return SlotDetails(
-        team_id=slot.team_id,
-        property_name=property_definition.name,
-        property_type=slot.property_type,
-        slot_index=slot.slot_index,
-        mat_column_name=mat_column_name,
-    )
 
 
 @activity.defn
