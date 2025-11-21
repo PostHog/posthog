@@ -110,15 +110,20 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                             <div className="space-y-4">
                                 <div>
                                     <h4 className="text-sm font-medium text-muted mb-1">What confirmed the pattern</h4>
-                                    <p className="text-sm mb-0">{event.target_event.description}</p>
-                                    {event.target_event.event && (
-                                        <p className="text-xs text-muted mt-1 mb-0">
-                                            <code className="bg-fill-secondary px-1 py-0.5 rounded">
-                                                {event.target_event.event}
-                                                {event.target_event.event_type && ` (${event.target_event.event_type})`}
-                                            </code>
-                                        </p>
-                                    )}
+                                    <p className="text-sm mb-0">
+                                        {event.target_event.description}
+                                        {event.target_event.event && (
+                                            <>
+                                                {' ('}
+                                                <code className="text-xs text-muted bg-fill-secondary px-1 py-0.5 rounded">
+                                                    {event.target_event.event}
+                                                    {event.target_event.event_type &&
+                                                        ` (${event.target_event.event_type})`}
+                                                </code>
+                                                )
+                                            </>
+                                        )}
+                                    </p>
                                 </div>
                                 <div>
                                     <h4 className="text-sm font-medium text-muted mb-1">Where it happened</h4>
