@@ -7,15 +7,6 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import flappyHogSplashSrc from 'public/hedgehog/flappy-hog-splash.png'
 import robotHogSrc from 'public/hedgehog/robot-hog.png'
 
-interface GameState {
-    hogY: number
-    hogVelocity: number
-    pipes: { x: number; gapY: number }[]
-    distance: number
-    gameOver: boolean
-    started: boolean
-}
-
 const GAME_WIDTH = 450
 const GAME_HEIGHT = 450
 const HOG_SIZE = 50
@@ -24,7 +15,59 @@ const PIPE_GAP = 180
 const GRAVITY = 0.4
 const FLAP_STRENGTH = -5
 const PIPE_SPEED = 3
+const PIPE_SPAWN_DISTANCE = 200
+const HOG_X = GAME_WIDTH / 4
 const HIGH_SCORE_KEY = 'flappyHogHighScore'
+
+const COLORS = {
+    background: '#1d1f27',
+    pipe: '#f54e00',
+    titleGlow: '#f54e00',
+    titleMain: '#ffeb3b',
+    textWhite: '#ffffff',
+    textGray: '#cccccc',
+    gameOverRed: '#ff0000',
+    shadowBlack: 'rgba(0, 0, 0, 0.5)',
+    overlayBlack: 'rgba(0, 0, 0, 0.6)',
+    instructionShadow: 'rgba(0, 0, 0, 0.7)',
+    fallbackHog: '#ffc107',
+}
+
+const FONTS = {
+    title: 'bold 44px "Comic Sans MS", "Chalkboard SE", cursive',
+    tagline: 'italic 14px "Comic Sans MS", "Chalkboard SE", cursive',
+    instruction: 'bold 20px "Comic Sans MS", "Chalkboard SE", cursive',
+    gameOver: 'bold 36px "Comic Sans MS", "Chalkboard SE", cursive',
+    score: 'bold 28px "Comic Sans MS", "Chalkboard SE", cursive',
+    scoreLarge: 'bold 24px "Comic Sans MS", "Chalkboard SE", cursive',
+    scoreSmall: '14px "Comic Sans MS", "Chalkboard SE", cursive',
+    playAgain: '18px "Comic Sans MS", "Chalkboard SE", cursive',
+}
+
+interface Pipe {
+    x: number
+    gapY: number
+}
+
+interface GameState {
+    hogY: number
+    hogVelocity: number
+    pipes: Pipe[]
+    distance: number
+    gameOver: boolean
+    started: boolean
+}
+
+function createInitialState(): GameState {
+    return {
+        hogY: GAME_HEIGHT / 2,
+        hogVelocity: 0,
+        pipes: [],
+        distance: 0,
+        gameOver: false,
+        started: false,
+    }
+}
 
 function getHighScore(): number {
     try {
@@ -38,7 +81,7 @@ function saveHighScore(score: number): void {
     try {
         localStorage.setItem(HIGH_SCORE_KEY, String(score))
     } catch {
-        // ignore
+        // Storage unavailable
     }
 }
 
@@ -46,66 +89,257 @@ function clearHighScore(): void {
     try {
         localStorage.removeItem(HIGH_SCORE_KEY)
     } catch {
-        // ignore
+        // Storage unavailable
+    }
+}
+
+function calculateScore(distance: number): number {
+    return Math.floor(distance / 10)
+}
+
+function getHogBounds(hogY: number): { left: number; right: number; top: number; bottom: number } {
+    return {
+        left: HOG_X - HOG_SIZE / 2,
+        right: HOG_X + HOG_SIZE / 2,
+        top: hogY - HOG_SIZE / 2,
+        bottom: hogY + HOG_SIZE / 2,
+    }
+}
+
+function checkCollision(hogY: number, pipes: Pipe[]): boolean {
+    const hog = getHogBounds(hogY)
+
+    if (hog.top < 0 || hog.bottom > GAME_HEIGHT) {
+        return true
+    }
+
+    return pipes.some(
+        (pipe) =>
+            hog.right > pipe.x &&
+            hog.left < pipe.x + PIPE_WIDTH &&
+            (hog.top < pipe.gapY || hog.bottom > pipe.gapY + PIPE_GAP)
+    )
+}
+
+function updatePhysics(state: GameState): GameState {
+    if (!state.started || state.gameOver) {
+        return state
+    }
+
+    const newHogY = state.hogY + state.hogVelocity
+    const newVelocity = state.hogVelocity + GRAVITY
+    const newDistance = state.distance + 1
+
+    let newPipes = state.pipes
+        .map((pipe) => ({ ...pipe, x: pipe.x - PIPE_SPEED }))
+        .filter((pipe) => pipe.x > -PIPE_WIDTH)
+
+    const shouldSpawnPipe = newPipes.length === 0 || newPipes[newPipes.length - 1].x < GAME_WIDTH - PIPE_SPAWN_DISTANCE
+
+    if (shouldSpawnPipe) {
+        newPipes = [
+            ...newPipes,
+            {
+                x: GAME_WIDTH,
+                gapY: Math.random() * (GAME_HEIGHT - PIPE_GAP - 100) + 50,
+            },
+        ]
+    }
+
+    const gameOver = checkCollision(newHogY, newPipes)
+
+    return {
+        hogY: newHogY,
+        hogVelocity: newVelocity,
+        pipes: newPipes,
+        distance: newDistance,
+        gameOver,
+        started: true,
+    }
+}
+
+function drawBackground(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = COLORS.background
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
+}
+
+function drawPipes(ctx: CanvasRenderingContext2D, pipes: Pipe[]): void {
+    ctx.fillStyle = COLORS.pipe
+    for (const pipe of pipes) {
+        ctx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.gapY)
+        ctx.fillRect(pipe.x, pipe.gapY + PIPE_GAP, PIPE_WIDTH, GAME_HEIGHT - pipe.gapY - PIPE_GAP)
+    }
+}
+
+function drawHog(ctx: CanvasRenderingContext2D, hogY: number, hogImage: HTMLImageElement | null): void {
+    const x = HOG_X - HOG_SIZE / 2
+    const y = hogY - HOG_SIZE / 2
+
+    if (hogImage?.complete) {
+        ctx.drawImage(hogImage, x, y, HOG_SIZE, HOG_SIZE)
+    } else {
+        ctx.fillStyle = COLORS.fallbackHog
+        ctx.beginPath()
+        ctx.arc(HOG_X, hogY, HOG_SIZE / 2, 0, Math.PI * 2)
+        ctx.fill()
+    }
+}
+
+function drawTextWithShadow(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    color: string,
+    shadowColor: string,
+    offsetX = 2,
+    offsetY = 2
+): void {
+    ctx.fillStyle = shadowColor
+    ctx.fillText(text, x + offsetX, y + offsetY)
+    ctx.fillStyle = color
+    ctx.fillText(text, x, y)
+}
+
+function drawTitleGlow(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+    ctx.fillStyle = COLORS.titleGlow
+    ctx.fillText(text, x + 3, y)
+    ctx.fillText(text, x - 3, y)
+    ctx.fillText(text, x, y - 3)
+    ctx.fillText(text, x, y + 3)
+    ctx.fillStyle = COLORS.titleMain
+    ctx.fillText(text, x, y)
+}
+
+function drawSplashScreen(ctx: CanvasRenderingContext2D, splashImage: HTMLImageElement | null): void {
+    if (splashImage?.complete) {
+        ctx.drawImage(splashImage, 0, 0, GAME_WIDTH, GAME_HEIGHT)
+    }
+
+    ctx.textAlign = 'center'
+    ctx.font = FONTS.title
+    drawTitleGlow(ctx, 'FLAPPY HOG', GAME_WIDTH / 2, 55)
+
+    ctx.font = FONTS.tagline
+    ctx.fillStyle = COLORS.textWhite
+    ctx.fillText('★ Fly towards business-critical insights! ★', GAME_WIDTH / 2, 80)
+
+    ctx.font = FONTS.instruction
+    drawTextWithShadow(
+        ctx,
+        '~ Click or Press Space ~',
+        GAME_WIDTH / 2,
+        GAME_HEIGHT - 25,
+        COLORS.textWhite,
+        COLORS.instructionShadow
+    )
+}
+
+function drawGameOverScreen(ctx: CanvasRenderingContext2D, score: number, highScore: number): void {
+    ctx.fillStyle = COLORS.overlayBlack
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
+
+    ctx.textAlign = 'center'
+    ctx.font = FONTS.gameOver
+
+    if (score >= highScore && score > 0) {
+        drawTextWithShadow(
+            ctx,
+            'NEW HIGH SCORE!',
+            GAME_WIDTH / 2,
+            GAME_HEIGHT / 2 - 54,
+            COLORS.titleMain,
+            COLORS.titleGlow
+        )
+    }
+
+    drawTextWithShadow(ctx, 'GAME OVER', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 10, COLORS.textWhite, COLORS.gameOverRed)
+
+    ctx.font = FONTS.scoreLarge
+    ctx.fillStyle = COLORS.titleMain
+    ctx.fillText(`Score: ${score}`, GAME_WIDTH / 2, GAME_HEIGHT / 2 + 30)
+
+    ctx.font = FONTS.playAgain
+    ctx.fillStyle = COLORS.textGray
+    ctx.fillText('~ Click to Play Again ~', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 65)
+}
+
+function drawScoreHUD(ctx: CanvasRenderingContext2D, score: number, highScore: number): void {
+    ctx.textAlign = 'center'
+    ctx.font = FONTS.score
+    drawTextWithShadow(ctx, String(score), GAME_WIDTH / 2, 40, COLORS.textWhite, COLORS.shadowBlack)
+
+    if (highScore > 0) {
+        ctx.font = FONTS.scoreSmall
+        ctx.fillStyle = COLORS.textGray
+        ctx.fillText(`Best: ${highScore}`, GAME_WIDTH / 2, 60)
+    }
+}
+
+function drawGame(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    highScore: number,
+    hogImage: HTMLImageElement | null,
+    splashImage: HTMLImageElement | null
+): void {
+    drawBackground(ctx)
+    drawPipes(ctx, state.pipes)
+    drawHog(ctx, state.hogY, hogImage)
+
+    const score = calculateScore(state.distance)
+
+    if (!state.started) {
+        drawSplashScreen(ctx, splashImage)
+    } else if (state.gameOver) {
+        drawGameOverScreen(ctx, score, highScore)
+    } else {
+        drawScoreHUD(ctx, score, highScore)
     }
 }
 
 export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const gameLoopRef = useRef<number | null>(null)
+    const gameStateRef = useRef<GameState>(createInitialState())
+    const highScoreRef = useRef(getHighScore())
     const hogImageRef = useRef<HTMLImageElement | null>(null)
     const splashImageRef = useRef<HTMLImageElement | null>(null)
-    const [highScore, setHighScoreState] = useState(getHighScore)
-    const highScoreRef = useRef(highScore)
-    highScoreRef.current = highScore
-    const [gameState, setGameState] = useState<GameState>({
-        hogY: GAME_HEIGHT / 2,
-        hogVelocity: 0,
-        pipes: [],
-        distance: 0,
-        gameOver: false,
-        started: false,
-    })
-    const gameStateRef = useRef(gameState)
-    gameStateRef.current = gameState
 
-    const handleClearHighScore = useCallback(() => {
-        clearHighScore()
-        setHighScoreState(0)
+    const [highScore, setHighScore] = useState(getHighScore)
+
+    useEffect(() => {
+        const hog = new Image()
+        hog.src = robotHogSrc
+        hogImageRef.current = hog
+
+        const splash = new Image()
+        splash.src = flappyHogSplashSrc
+        splashImageRef.current = splash
     }, [])
 
     const resetGame = useCallback(() => {
-        setGameState({
-            hogY: GAME_HEIGHT / 2,
-            hogVelocity: 0,
-            pipes: [],
-            distance: 0,
-            gameOver: false,
-            started: false,
-        })
+        gameStateRef.current = createInitialState()
+    }, [])
+
+    const handleClearHighScore = useCallback(() => {
+        clearHighScore()
+        setHighScore(0)
+        highScoreRef.current = 0
     }, [])
 
     const flap = useCallback(() => {
-        if (gameStateRef.current.gameOver) {
+        const state = gameStateRef.current
+        if (state.gameOver) {
             resetGame()
             return
         }
-        setGameState((prev) => ({
-            ...prev,
+        gameStateRef.current = {
+            ...state,
             started: true,
             hogVelocity: FLAP_STRENGTH,
-        }))
+        }
     }, [resetGame])
-
-    useEffect(() => {
-        const img = new Image()
-        img.src = robotHogSrc
-        hogImageRef.current = img
-
-        const splashImg = new Image()
-        splashImg.src = flappyHogSplashSrc
-        splashImageRef.current = splashImg
-    }, [])
 
     useEffect(() => {
         if (!isOpen) {
@@ -119,11 +353,8 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
 
         const startTimeout = setTimeout(() => {
             const canvas = canvasRef.current
-            if (!canvas) {
-                return
-            }
-            const ctx = canvas.getContext('2d')
-            if (!ctx) {
+            const ctx = canvas?.getContext('2d')
+            if (!canvas || !ctx) {
                 return
             }
 
@@ -134,155 +365,20 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                     return
                 }
 
-                const state = gameStateRef.current
+                const prevState = gameStateRef.current
+                const newState = updatePhysics(prevState)
 
-                if (!state.gameOver && state.started) {
-                    let newHogY = state.hogY + state.hogVelocity
-                    let newVelocity = state.hogVelocity + GRAVITY
-                    let newPipes = [...state.pipes]
-                    let newDistance = state.distance + 1
-                    let gameOver = false
-
-                    if (newPipes.length === 0 || newPipes[newPipes.length - 1].x < GAME_WIDTH - 200) {
-                        newPipes.push({
-                            x: GAME_WIDTH,
-                            gapY: Math.random() * (GAME_HEIGHT - PIPE_GAP - 100) + 50,
-                        })
-                    }
-
-                    newPipes = newPipes
-                        .map((pipe) => ({ ...pipe, x: pipe.x - PIPE_SPEED }))
-                        .filter((pipe) => pipe.x > -PIPE_WIDTH)
-
-                    const hogLeft = GAME_WIDTH / 4 - HOG_SIZE / 2
-                    const hogRight = hogLeft + HOG_SIZE
-                    const hogTop = newHogY - HOG_SIZE / 2
-                    const hogBottom = newHogY + HOG_SIZE / 2
-
-                    if (hogTop < 0 || hogBottom > GAME_HEIGHT) {
-                        gameOver = true
-                    }
-
-                    for (const pipe of newPipes) {
-                        if (hogRight > pipe.x && hogLeft < pipe.x + PIPE_WIDTH) {
-                            if (hogTop < pipe.gapY || hogBottom > pipe.gapY + PIPE_GAP) {
-                                gameOver = true
-                            }
-                        }
-                    }
-
-                    if (gameOver) {
-                        const finalScore = Math.floor(newDistance / 10)
-                        if (finalScore > highScoreRef.current) {
-                            saveHighScore(finalScore)
-                            setHighScoreState(finalScore)
-                        }
-                    }
-
-                    setGameState({
-                        hogY: newHogY,
-                        hogVelocity: newVelocity,
-                        pipes: newPipes,
-                        distance: newDistance,
-                        gameOver,
-                        started: true,
-                    })
-                }
-
-                // Draw background
-                currentCtx.fillStyle = '#1d1f27'
-                currentCtx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
-
-                // Draw pipes
-                currentCtx.fillStyle = '#f54e00'
-                for (const pipe of gameStateRef.current.pipes) {
-                    currentCtx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.gapY)
-                    currentCtx.fillRect(pipe.x, pipe.gapY + PIPE_GAP, PIPE_WIDTH, GAME_HEIGHT - pipe.gapY - PIPE_GAP)
-                }
-
-                // Draw robot hog
-                const hogX = GAME_WIDTH / 4
-                const hogY = gameStateRef.current.hogY
-                if (hogImageRef.current && hogImageRef.current.complete) {
-                    currentCtx.drawImage(
-                        hogImageRef.current,
-                        hogX - HOG_SIZE / 2,
-                        hogY - HOG_SIZE / 2,
-                        HOG_SIZE,
-                        HOG_SIZE
-                    )
-                } else {
-                    currentCtx.fillStyle = '#ffc107'
-                    currentCtx.beginPath()
-                    currentCtx.arc(hogX, hogY, HOG_SIZE / 2, 0, Math.PI * 2)
-                    currentCtx.fill()
-                }
-
-                const displayScore = Math.floor(gameStateRef.current.distance / 10)
-                currentCtx.textAlign = 'center'
-
-                // Draw splash screen, score HUD, or game over
-                if (!gameStateRef.current.started) {
-                    if (splashImageRef.current && splashImageRef.current.complete) {
-                        currentCtx.drawImage(splashImageRef.current, 0, 0, GAME_WIDTH, GAME_HEIGHT)
-                    }
-                    // Retro title with glow effect
-                    currentCtx.font = 'bold 44px "Comic Sans MS", "Chalkboard SE", cursive'
-                    // Outer glow
-                    currentCtx.fillStyle = '#f54e00'
-                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2 + 3, 55)
-                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2 - 3, 55)
-                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2, 52)
-                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2, 58)
-                    // Main text
-                    currentCtx.fillStyle = '#ffeb3b'
-                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2, 55)
-                    // Tagline with stars
-                    currentCtx.font = 'italic 14px "Comic Sans MS", "Chalkboard SE", cursive'
-                    currentCtx.fillStyle = '#ffffff'
-                    currentCtx.fillText('★ Fly towards business-critical insights! ★', GAME_WIDTH / 2, 80)
-                    // "Click to play" at bottom with retro style
-                    currentCtx.font = 'bold 20px "Comic Sans MS", "Chalkboard SE", cursive'
-                    currentCtx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-                    currentCtx.fillText('~ Click or Press Space ~', GAME_WIDTH / 2 + 2, GAME_HEIGHT - 23)
-                    currentCtx.fillStyle = '#ffffff'
-                    currentCtx.fillText('~ Click or Press Space ~', GAME_WIDTH / 2, GAME_HEIGHT - 25)
-                } else if (gameStateRef.current.gameOver) {
-                    currentCtx.fillStyle = 'rgba(0, 0, 0, 0.6)'
-                    currentCtx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
-                    // Retro game over text
-                    currentCtx.font = 'bold 36px "Comic Sans MS", "Chalkboard SE", cursive'
-                    if (displayScore >= highScoreRef.current && displayScore > 0) {
-                        currentCtx.fillStyle = '#f54e00'
-                        currentCtx.fillText('NEW HIGH SCORE!', GAME_WIDTH / 2 + 2, GAME_HEIGHT / 2 - 52)
-                        currentCtx.fillStyle = '#ffeb3b'
-                        currentCtx.fillText('NEW HIGH SCORE!', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 54)
-                    }
-                    currentCtx.fillStyle = '#ff0000'
-                    currentCtx.fillText('GAME OVER', GAME_WIDTH / 2 + 2, GAME_HEIGHT / 2 - 8)
-                    currentCtx.fillStyle = '#ffffff'
-                    currentCtx.fillText('GAME OVER', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 10)
-                    currentCtx.font = 'bold 24px "Comic Sans MS", "Chalkboard SE", cursive'
-                    currentCtx.fillStyle = '#ffeb3b'
-                    currentCtx.fillText(`Score: ${displayScore}`, GAME_WIDTH / 2, GAME_HEIGHT / 2 + 30)
-                    currentCtx.font = '18px "Comic Sans MS", "Chalkboard SE", cursive'
-                    currentCtx.fillStyle = '#cccccc'
-                    currentCtx.fillText('~ Click to Play Again ~', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 65)
-                } else {
-                    // Game is running - show score HUD with retro style
-                    currentCtx.font = 'bold 28px "Comic Sans MS", "Chalkboard SE", cursive'
-                    // Score shadow
-                    currentCtx.fillStyle = 'rgba(0, 0, 0, 0.5)'
-                    currentCtx.fillText(String(displayScore), GAME_WIDTH / 2 + 2, 42)
-                    currentCtx.fillStyle = '#ffffff'
-                    currentCtx.fillText(String(displayScore), GAME_WIDTH / 2, 40)
-                    if (highScoreRef.current > 0) {
-                        currentCtx.font = '14px "Comic Sans MS", "Chalkboard SE", cursive'
-                        currentCtx.fillStyle = '#cccccc'
-                        currentCtx.fillText(`Best: ${highScoreRef.current}`, GAME_WIDTH / 2, 60)
+                if (newState.gameOver && !prevState.gameOver) {
+                    const finalScore = calculateScore(newState.distance)
+                    if (finalScore > highScoreRef.current) {
+                        saveHighScore(finalScore)
+                        setHighScore(finalScore)
+                        highScoreRef.current = finalScore
                     }
                 }
 
+                gameStateRef.current = newState
+                drawGame(currentCtx, newState, highScoreRef.current, hogImageRef.current, splashImageRef.current)
                 gameLoopRef.current = requestAnimationFrame(gameLoop)
             }
 
