@@ -45,6 +45,9 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # User has a similar product in their sidebar
         USED_SIMILAR_PRODUCTS = "used_similar_products", "Used Similar Products"
 
+        # User has this product on another team they belong to
+        USED_ON_SEPARATE_TEAM = "used_on_separate_team", "Used on Separate Team"
+
         # We launch a new product and want to foster adoption
         NEW_PRODUCT = "new_product", "New Product"
 
@@ -194,7 +197,10 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
                 user=user,
                 team=team,
                 product_path=product_path,
-                defaults={"enabled": True},
+                defaults={
+                    "enabled": True,
+                    "reason": UserProductList.Reason.USED_ON_SEPARATE_TEAM,
+                },
             )
 
             if created:
