@@ -62,10 +62,7 @@ class FunnelEventQuery:
 
         return [*self._extra_event_fields_and_properties, *extra_fields_from_context]
 
-    def to_query(
-        self,
-        skip_entity_filter=False,
-    ) -> ast.SelectQuery:
+    def to_query(self, skip_entity_filter=False, skip_step_filter=False) -> ast.SelectQuery:
         def _get_table_name(node: FunnelsNode):
             if isinstance(node, DataWarehouseNode):
                 return node.table_name
@@ -128,6 +125,10 @@ class FunnelEventQuery:
                 self._aggregation_target_filter(),
             ]
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
+
+            if not skip_step_filter:
+                steps_conditions = self._get_steps_conditions_for_udf(all_exclusions, length=len(entities_to_use))
+                where = ast.And(exprs=[where, steps_conditions])
 
             stmt = ast.SelectQuery(
                 select=select,

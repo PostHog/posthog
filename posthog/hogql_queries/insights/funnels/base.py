@@ -361,18 +361,13 @@ class FunnelBase(ABC):
             extra_event_fields_and_properties=self.extra_event_fields_and_properties,
         ).to_query(
             skip_entity_filter=skip_entity_filter,
+            skip_step_filter=skip_step_filter,
         )
 
         # TODO: properly handle refactoring of FunnelEventQuery
         if breakdown and breakdownType == BreakdownType.COHORT:
             assert funnel_events_query.select_from is not None
             funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
-
-        # TODO: Move inside FunnelEventQuery
-        # if not skip_step_filter:
-        #     assert isinstance(funnel_events_query.where, ast.Expr)
-        #     steps_conditions = self._get_steps_conditions_for_udf(all_exclusions, length=len(entities_to_use))
-        #     funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
 
         return funnel_events_query
 
