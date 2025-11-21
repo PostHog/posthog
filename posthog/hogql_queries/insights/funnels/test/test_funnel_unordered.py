@@ -383,72 +383,13 @@ class BaseTestFunnelUnorderedStepsBreakdown(
                 },
             ],
         }
-        people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         runner = FunnelsQueryRunner(query=query, team=self.team)
         if isinstance(runner.funnel_class, FunnelUDF):
             # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
             self.assertRaises(ValidationError, runner.calculate)
-            return
-        results = runner.calculate().results
-        results = sorted(results, key=lambda res: res[0]["breakdown"])
-
-        # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-        self.assertEqual(len(results), 4)
-        # Chrome and Mac and Safari goes away
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[0],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=[""], count=1),
-                FunnelStepResult(
-                    name="Completed 2 steps",
-                    breakdown=[""],
-                    count=1,
-                    average_conversion_time=3600,
-                    median_conversion_time=3600,
-                ),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ""), [people["person1"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[1],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
-                FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[2],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["Chrome"], count=1),
-                FunnelStepResult(name="Completed 2 steps", breakdown=["Chrome"], count=0),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Chrome"), [people["person1"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[3],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["alakazam"], count=1),
-                FunnelStepResult(
-                    name="Completed 2 steps",
-                    breakdown=["alakazam"],
-                    count=1,
-                    average_conversion_time=3600,
-                    median_conversion_time=3600,
-                ),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "alakazam"), [people["person4"].uuid])
 
     def test_funnel_step_non_array_breakdown_with_step_one_attribution_incomplete_funnel(self):
         # overridden from factory, since with no order, step one is step zero, and vice versa
@@ -502,72 +443,13 @@ class BaseTestFunnelUnorderedStepsBreakdown(
                 },
             ],
         }
-        people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
         runner = FunnelsQueryRunner(query=query, team=self.team)
         if isinstance(runner.funnel_class, FunnelUDF):
             # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
             self.assertRaises(ValidationError, runner.calculate)
-            return
-        results = runner.calculate().results
-        results = sorted(results, key=lambda res: res[0]["breakdown"])
-
-        # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-        self.assertEqual(len(results), 4)
-        # Chrome and Mac and Safari goes away
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[0],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=[""], count=1),
-                FunnelStepResult(
-                    name="Completed 2 steps",
-                    breakdown=[""],
-                    count=1,
-                    average_conversion_time=3600,
-                    median_conversion_time=3600,
-                ),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, ""), [people["person1"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[1],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["0"], count=1),
-                FunnelStepResult(name="Completed 2 steps", breakdown=["0"], count=0),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person4"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[2],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["Chrome"], count=1),
-                FunnelStepResult(name="Completed 2 steps", breakdown=["Chrome"], count=0),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Chrome"), [people["person1"].uuid])
-
-        self._assert_funnel_breakdown_result_is_correct(
-            results[3],
-            [
-                FunnelStepResult(name="Completed 1 step", breakdown=["alakazam"], count=1),
-                FunnelStepResult(
-                    name="Completed 2 steps",
-                    breakdown=["alakazam"],
-                    count=1,
-                    average_conversion_time=3600,
-                    median_conversion_time=3600,
-                ),
-            ],
-        )
-
-        self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "alakazam"), [people["person4"].uuid])
 
     @snapshot_clickhouse_queries
     def test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step(self):

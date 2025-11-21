@@ -172,6 +172,7 @@ export const maxLogic = kea<maxLogicType>([
             null as SuggestionGroup | null,
             {
                 setActiveGroup: (_, { group }) => group,
+                setQuestion: (state, { question }) => (question === '' ? null : state),
             },
         ],
 

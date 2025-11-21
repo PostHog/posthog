@@ -42,6 +42,8 @@ where
         config.get_redis_reader_url(),
         "shared reader",
         compression_config.clone(),
+        config.redis_response_timeout_ms,
+        config.redis_connection_timeout_ms,
         config.redis_client_retry_count,
     )
     .await
@@ -53,6 +55,8 @@ where
         config.get_redis_writer_url(),
         "shared writer",
         compression_config.clone(),
+        config.redis_response_timeout_ms,
+        config.redis_connection_timeout_ms,
         config.redis_client_retry_count,
     )
     .await
@@ -161,6 +165,8 @@ where
         &config.get_redis_cookieless_url(),
         "cookieless",
         compression_config.clone(),
+        config.redis_response_timeout_ms,
+        config.redis_connection_timeout_ms,
         config.redis_client_retry_count,
     )
     .await
@@ -218,6 +224,8 @@ async fn create_dedicated_redis_clients(
             url,
             "dedicated flags writer",
             compression_config.clone(),
+            config.redis_response_timeout_ms,
+            config.redis_connection_timeout_ms,
             config.redis_client_retry_count,
         )
         .await
@@ -231,6 +239,8 @@ async fn create_dedicated_redis_clients(
             url,
             "dedicated flags reader",
             compression_config.clone(),
+            config.redis_response_timeout_ms,
+            config.redis_connection_timeout_ms,
             config.redis_client_retry_count,
         )
         .await
@@ -287,6 +297,8 @@ async fn create_redis_client(
     url: &str,
     client_type: &str,
     compression_config: CompressionConfig,
+    response_timeout_ms: u64,
+    connection_timeout_ms: u64,
     retry_count: u32,
 ) -> Option<Arc<RedisClient>> {
     // Use exponential backoff with jitter: 100ms, 200ms, 400ms, etc.
@@ -303,6 +315,16 @@ async fn create_redis_client(
             url_owned.clone(),
             compression_config.clone(),
             common_redis::RedisValueFormat::default(),
+            if response_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(response_timeout_ms))
+            },
+            if connection_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(connection_timeout_ms))
+            },
         )
         .await
         {
@@ -433,6 +455,8 @@ mod tests {
                 url.to_string(),
                 CompressionConfig::disabled(),
                 common_redis::RedisValueFormat::default(),
+                Some(Duration::from_millis(100)),
+                Some(Duration::from_millis(5000)),
             )
             .await;
 

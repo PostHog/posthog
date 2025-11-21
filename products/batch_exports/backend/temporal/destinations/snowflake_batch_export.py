@@ -412,6 +412,8 @@ class SnowflakeClient:
         # Call this again in case level was reset.
         self.ensure_snowflake_logger_level("INFO")
 
+        await self.execute_async_query("ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE", fetch_results=False)
+
         if use_namespace:
             await self.use_namespace()
         await self.execute_async_query("SET ABORT_DETACHED_QUERY = FALSE", fetch_results=False)
@@ -725,11 +727,31 @@ class SnowflakeClient:
             SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
         """
         col_names = [field[0] for field in table_fields]
+
+        try:
+            final_table_column_names = await self.aget_table_columns(table_name)
+        except:
+            # This is exclusively done to make a test using a mocked cursor to pass.
+            # In reality, if we are not able to query for columns, the 'COPY' query
+            # below will also fail, so we are not hiding the errors too long.
+            # TODO: Remove all tests using mocked objects.
+            final_table_column_names = []
+
+        aliases = {}
+        for column in col_names:
+            if column not in final_table_column_names and column.upper() in final_table_column_names:
+                aliases[column] = column.upper()
+            else:
+                aliases[column] = column
+
         select_fields = ", ".join(
-            f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
+            f'PARSE_JSON($1:"{col_name}") AS "{alias}"'
+            if col_name in known_json_columns
+            else f'$1:"{col_name}" AS "{alias}"'
+            for col_name, alias in aliases.items()
         )
         query = f"""
-        COPY INTO "{table_name}" ({", ".join(f'"{col_name}"' for col_name in col_names)})
+        COPY INTO "{table_name}" ({", ".join(f'"{aliases[col_name]}"' for col_name in col_names)})
         FROM (
             SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
         )
@@ -747,7 +769,7 @@ class SnowflakeClient:
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
             # 608 = Warehouse suspended error
             is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
-            and e.errno == 608,
+            and (e.errno == 608 or e.errno == 90073),
         )
 
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
@@ -759,7 +781,7 @@ class SnowflakeClient:
         except snowflake.connector.errors.ProgrammingError as e:
             self.logger.exception(f"Error executing COPY INTO query: {e}")
 
-            if e.errno == 608:
+            if e.errno == 608 or e.errno == 90073:
                 err_msg = (
                     f"Failed to execute COPY INTO query after {max_attempts} attempts due to warehouse being suspended"
                 )

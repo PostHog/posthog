@@ -1,5 +1,6 @@
 import json
 import asyncio
+from dataclasses import asdict
 from math import ceil
 from typing import cast
 
@@ -9,6 +10,7 @@ from redis import asyncio as aioredis
 from temporalio.client import WorkflowHandle
 from temporalio.exceptions import ApplicationError
 
+from posthog.models import User
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.state import (
@@ -47,7 +49,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     combine_patterns_ids_with_events_context,
     combine_patterns_with_events_context,
     create_event_ids_mapping_from_ready_summaries,
-    session_summary_to_serializer,
+    get_persons_for_sessions_from_distinct_ids,
 )
 from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
@@ -56,6 +58,7 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
     remove_excessive_content_from_session_summary_for_llm,
 )
 from ee.hogai.session_summaries.utils import estimate_tokens_from_strings, logging_session_ids
+from ee.models.session_summaries import SessionGroupSummary, SessionSummaryRunMeta
 
 logger = structlog.get_logger(__name__)
 
@@ -330,31 +333,30 @@ async def _generate_patterns_assignments(
 @temporalio.activity.defn
 async def assign_events_to_patterns_activity(
     inputs: SessionGroupSummaryOfSummariesInputs,
-) -> EnrichedSessionGroupSummaryPatternsList:
-    """Summarize a group of sessions in one call"""
+) -> tuple[EnrichedSessionGroupSummaryPatternsList, str]:
+    """Summarize a group of sessions in one call. Returns tuple of (patterns, session_group_summary_id)."""
     session_ids = _get_session_ids_from_inputs(inputs)
-    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
+    # Not checking for existing summary in the DB, as the input of `~300 exactly the same ids + context` seems highly unlikely
+    redis_client, redis_input_key, _ = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         output_label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
         state_id=generate_state_id_from_session_ids(session_ids),
     )
-    # Check if patterns assignments are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
-    patterns_with_events_context = await get_data_class_from_redis(
-        redis_client=redis_client,
-        redis_key=redis_output_key,
-        label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
-        target_class=EnrichedSessionGroupSummaryPatternsList,
-    )
-    # Return if it's processed already
-    if patterns_with_events_context:
-        return patterns_with_events_context
     # Get ready session summaries from DB
     # Disable thread-sensitive as the call is heavy (N summaries through pagination)
     ready_summaries = await database_sync_to_async(get_ready_summaries_from_db, thread_sensitive=False)(
         team_id=inputs.team_id,
         session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
+    )
+    session_id_to_ready_summaries_mapping = {summary.session_id: summary for summary in ready_summaries}
+    # Get persons for sessions to be able to display in the UI
+    session_id_to_person_mapping = await database_sync_to_async(
+        get_persons_for_sessions_from_distinct_ids, thread_sensitive=False
+    )(
+        session_id_to_ready_summaries_mapping=session_id_to_ready_summaries_mapping,
+        team_id=inputs.team_id,
     )
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
     intermediate_session_summaries_str = [
@@ -395,10 +397,10 @@ async def assign_events_to_patterns_activity(
         extra_summary_context=inputs.extra_summary_context,
         trace_id=temporalio.activity.info().workflow_id,
     )
-    # Convert session summaries strings to objects to extract event-related data
-    session_summaries = [session_summary_to_serializer(summary.summary) for summary in ready_summaries]
     # Create event ids mappings from ready summaries to identify events and sessions assigned to patterns
-    combined_event_ids_mappings = create_event_ids_mapping_from_ready_summaries(session_summaries=session_summaries)
+    combined_event_ids_mappings = create_event_ids_mapping_from_ready_summaries(
+        session_id_to_ready_summaries_mapping=session_id_to_ready_summaries_mapping
+    )
     # Combine patterns assignments to have a single pattern-to-events list
     combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
         patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
@@ -407,7 +409,8 @@ async def assign_events_to_patterns_activity(
     pattern_id_to_event_context_mapping = combine_patterns_ids_with_events_context(
         combined_event_ids_mappings=combined_event_ids_mappings,
         combined_patterns_assignments=combined_patterns_assignments,
-        session_summaries=session_summaries,
+        session_id_to_ready_summaries_mapping=session_id_to_ready_summaries_mapping,
+        session_id_to_person_mapping=session_id_to_person_mapping,
     )
     # Combine patterns info (name, description, etc.) with enriched events context
     patterns_with_events_context = combine_patterns_with_events_context(
@@ -416,14 +419,22 @@ async def assign_events_to_patterns_activity(
         session_ids=session_ids,
         user_id=inputs.user_id,
     )
-    patterns_with_events_context_str = patterns_with_events_context.model_dump_json(exclude_none=True)
-    await store_data_in_redis(
-        redis_client=redis_client,
-        redis_key=redis_output_key,
-        data=patterns_with_events_context_str,
-        label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
+    # Store data in DB to be able to display in the UI
+    try:
+        user = await database_sync_to_async(User.objects.get, thread_sensitive=False)(id=inputs.user_id)
+    except User.DoesNotExist:
+        raise ValueError(f"User with id {inputs.user_id} not found, when trying to store session group summary in DB")
+    session_group_summary = await SessionGroupSummary.objects.acreate(
+        team_id=inputs.team_id,
+        title=inputs.summary_title or "Group summary",
+        session_ids=session_ids,
+        summary=patterns_with_events_context.model_dump_json(exclude_none=True),
+        extra_summary_context=inputs.extra_summary_context,
+        # We don't do visual confirmation on the patterns assignments level, only on single session level
+        run_metadata=asdict(SessionSummaryRunMeta(model_used=inputs.model_to_use, visual_confirmation=False)),
+        created_by=user,
     )
-    return patterns_with_events_context
+    return patterns_with_events_context, str(session_group_summary.id)
 
 
 @temporalio.activity.defn
