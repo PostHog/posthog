@@ -10,10 +10,11 @@ from products.signals.backend.embedding_table import (
     KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL,
 )
 
-ADD_CONTENT_COLUMN_SQL = """
+ADD_METADATA_COLUMN_SQL = """
 ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS content String DEFAULT ''
+ADD COLUMN IF NOT EXISTS metadata String DEFAULT '{}'
 """
+
 
 operations = [
     run_sql_with_exceptions(
@@ -25,13 +26,13 @@ operations = [
         node_roles=[NodeRole.INGESTION_SMALL],
     ),
     run_sql_with_exceptions(
-        ADD_CONTENT_COLUMN_SQL.format(table_name=DOCUMENT_EMBEDDINGS),
+        ADD_METADATA_COLUMN_SQL.format(table_name=DOCUMENT_EMBEDDINGS),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
-        ADD_CONTENT_COLUMN_SQL.format(table_name=DOCUMENT_EMBEDDING_WRITABLE),
+        ADD_METADATA_COLUMN_SQL.format(table_name=DOCUMENT_EMBEDDING_WRITABLE),
         node_roles=[NodeRole.INGESTION_SMALL],
         sharded=False,
         is_alter_on_replicated_table=False,
