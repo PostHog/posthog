@@ -4778,7 +4778,7 @@ dev = [
     { name = "dagster-dg-cli", specifier = ">=1.10.18" },
     { name = "datamodel-code-generator", specifier = "==0.28.5" },
     { name = "debugpy", specifier = ">=1.8.0" },
-    { name = "deepdiff", specifier = ">=8.5.0" },
+    { name = "deepdiff", specifier = ">=8.6.1" },
     { name = "django-linear-migrations", specifier = "~=2.17.0" },
     { name = "django-stubs", specifier = "~=5.2.0" },
     { name = "djangorestframework-stubs", specifier = "~=3.16.0" },
