@@ -7,11 +7,11 @@ import { LemonButton, LemonMenu, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { GroupTypeIndex } from '~/types'
 
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'

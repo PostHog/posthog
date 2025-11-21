@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from pydantic import BaseModel
 
-from ee.hogai.graph.base.context import set_node_path
+from ee.hogai.core.context import set_node_path
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.types.base import NodePath

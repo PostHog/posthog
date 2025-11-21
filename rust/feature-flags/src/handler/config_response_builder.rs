@@ -32,7 +32,7 @@ impl ConfigContext {
         Self {
             config: context.state.config.clone(),
             database_pools: context.state.database_pools.clone(),
-            redis: context.state.redis_reader.clone(),
+            redis: context.state.redis_client.clone(),
             session_replay_billing_limiter: context.state.session_replay_billing_limiter.clone(),
             headers: context.headers.clone(),
         }

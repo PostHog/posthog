@@ -83,8 +83,8 @@ export const urls = {
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
-    max: (chat?: string, ask?: string): string => combineUrl('/max', { ask, chat }).url,
-    maxHistory: (): string => '/max/history',
+    ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
+    aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',

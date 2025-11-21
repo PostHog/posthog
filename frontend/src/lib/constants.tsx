@@ -231,6 +231,7 @@ export const FEATURE_FLAGS = {
     SDK_DOCTOR_BETA: 'sdk-doctor-beta', // owner: @slshults
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny
     ONBOARDING_USE_CASE_SELECTION: 'onboarding-use-case-selection', // owner: @mattbro
+    ONBOARDING_AI_CONSENT_STEP: 'onboarding-ai-consent-step', // owner: @mattbro
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
@@ -337,8 +338,8 @@ export const FEATURE_FLAGS = {
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
     REPLAY_NEW_DETECTED_URL_COLLECTIONS: 'replay-new-detected-url-collections', // owner: @ksvat #team-replay multivariate
     EXPERIMENTS_USE_NEW_CREATE_FORM: 'experiments-use-new-create-form', // owner: @rodrigoi #team-experiments
+    EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     AGENT_MODES: 'phai-agent-modes', // owner: @skoob13 #team-posthog-ai
-    APP_SHORTCUTS: 'app-shortcuts', // owner: @adamleithp #team-platform-ux
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
