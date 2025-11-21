@@ -393,6 +393,9 @@ def transform_spans_to_ai_events(parsed_request: dict[str, Any], baggage: dict[s
     Uses waterfall pattern for attribute extraction:
     1. PostHog native (posthog.ai.*)
     2. GenAI semantic conventions (gen_ai.*)
+
+    Note: Returns only events ready to send. Events that are first arrivals
+    (cached, waiting for logs) are filtered out.
     """
     spans = parsed_request.get("spans", [])
     resource = parsed_request.get("resource", {})
@@ -401,7 +404,8 @@ def transform_spans_to_ai_events(parsed_request: dict[str, Any], baggage: dict[s
     events = []
     for span in spans:
         event = transform_span_to_ai_event(span, resource, scope, baggage)
-        events.append(event)
+        if event is not None:  # Filter out first arrivals (cached, waiting for logs)
+            events.append(event)
 
     return events
 
@@ -562,7 +566,7 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Transform logs to AI events
+        # Transform logs to AI events (also caches properties for merging with traces)
         events = transform_logs_to_ai_events(parsed_request)
 
         logger.info(
@@ -571,7 +575,12 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
             events_created=len(events),
         )
 
-        # Route to capture pipeline
+        # True bidirectional merge with Redis:
+        # - First arrivals (logs before traces): Cached in Redis, no events to send
+        # - Second arrivals (logs after traces): Merged and sent to capture
+        # The transform function filters out first arrivals, so events only contains second arrivals
+
+        # Route merged events to capture pipeline
         capture_events(events, team)
 
         logger.info(
@@ -678,6 +687,9 @@ def validate_otlp_logs_request(parsed_request: dict[str, Any]) -> list[dict[str,
 def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Transform OTel log records to PostHog AI events.
+
+    Note: Returns only events ready to send. Events that are first arrivals
+    (cached, waiting for traces) are filtered out.
     """
     logs = parsed_request.get("logs", [])
     resource = parsed_request.get("resource", {})
@@ -686,6 +698,7 @@ def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str
     events = []
     for log_record in logs:
         event = transform_log_to_ai_event(log_record, resource, scope)
-        events.append(event)
+        if event is not None:  # Filter out first arrivals (cached, waiting for trace)
+            events.append(event)
 
     return events

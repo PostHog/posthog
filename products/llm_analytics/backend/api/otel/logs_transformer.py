@@ -10,6 +10,8 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from .event_merger import cache_and_merge_properties
+
 OTEL_TRANSFORMER_VERSION = "1.0.0"
 
 
@@ -17,7 +19,7 @@ def transform_log_to_ai_event(
     log_record: dict[str, Any],
     resource: dict[str, Any],
     scope: dict[str, Any],
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """
     Transform a single OTel log record to PostHog AI event.
 
@@ -27,16 +29,30 @@ def transform_log_to_ai_event(
         scope: Instrumentation scope info
 
     Returns:
-        PostHog AI event dict with:
+        PostHog AI event dict OR None if this is first arrival (cached, waiting for trace):
         - event: Event type ($ai_generation, $ai_span, etc.)
         - distinct_id: User identifier
         - timestamp: ISO 8601 timestamp
         - properties: AI event properties
+        - uuid: Event UUID (for deduplication with trace events)
     """
     attributes = log_record.get("attributes", {})
 
     # Build AI event properties
     properties = build_event_properties(log_record, attributes, resource, scope)
+
+    # True bidirectional merge with Redis (no blocking)
+    # First arrival caches, second arrival merges and sends
+    trace_id = log_record.get("trace_id", "")
+    span_id = log_record.get("span_id", "")
+    if trace_id and span_id:
+        merged = cache_and_merge_properties(trace_id, span_id, properties, is_trace=False)
+        if merged is None:
+            # This is first arrival - log cached, waiting for trace
+            # Don't send this event yet
+            return None
+        # Second arrival - trace already cached, merged contains complete event
+        properties = merged
 
     # Determine event type
     event_type = determine_event_type(log_record, attributes)
@@ -47,12 +63,27 @@ def transform_log_to_ai_event(
     # Get distinct_id
     distinct_id = extract_distinct_id(resource, attributes)
 
-    return {
+    # Generate consistent UUID from trace_id + span_id for deduplication
+    # This allows log events and trace events for the same span to merge
+    import uuid
+
+    event_uuid = None
+    if trace_id and span_id:
+        # Create deterministic UUID from trace_id + span_id
+        namespace = uuid.UUID("00000000-0000-0000-0000-000000000000")
+        event_uuid = str(uuid.uuid5(namespace, f"{trace_id}:{span_id}"))
+
+    result = {
         "event": event_type,
         "distinct_id": distinct_id,
         "timestamp": timestamp,
         "properties": properties,
     }
+
+    if event_uuid:
+        result["uuid"] = event_uuid
+
+    return result
 
 
 def build_event_properties(
@@ -103,46 +134,78 @@ def build_event_properties(
     if attributes.get("gen_ai.usage.output_tokens") is not None:
         properties["$ai_output_tokens"] = attributes["gen_ai.usage.output_tokens"]
 
-    # Message content - handle v2 structured log events
+    # Handle v2 structured log events (message content from body)
     # v2 instrumentation sends logs with event names like:
     # - gen_ai.user.message (body: {"content": "..."})
+    # - gen_ai.system.message (body: {"content": "..."})
     # - gen_ai.assistant.message (body: {"content": "..."} or {"tool_calls": [...]})
     # - gen_ai.choice (body: {"index": 0, "finish_reason": "stop", "message": {...}})
+    event_name = attributes.get("event.name", "").lower()
 
-    # Handle v2 message events
-    # v2 uses LogRecord.event_name (in attributes) and structured body
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "v2_log_event_debug",
+        extra={"event_name": event_name, "body_keys": list(body.keys()) if isinstance(body, dict) else None},
+    )
+
     if isinstance(body, dict):
-        # v2 user/system messages: {"content": "..."}
-        if "content" in body and isinstance(body["content"], str):
-            content_text = body["content"]
-            # Determine if input or output based on context
-            # For now, store as generic message - the span will have role info
-            properties["$ai_message_content"] = content_text
+        # User/system messages: {"content": "..."}
+        if "gen_ai.user.message" in event_name or "gen_ai.system.message" in event_name:
+            if "content" in body:
+                role = "system" if "system" in event_name else "user"
+                properties["$ai_input"] = [{"role": role, "content": body["content"]}]
 
-        # v2 assistant messages with tool calls: {"tool_calls": [...]}
-        if "tool_calls" in body and isinstance(body["tool_calls"], list):
-            properties["$ai_tool_calls"] = body["tool_calls"]
+        # Assistant messages: {"content": "..."} or {"tool_calls": [...]}
+        elif "gen_ai.assistant.message" in event_name:
+            message = {"role": "assistant"}
+            if "content" in body:
+                message["content"] = body["content"]
+            if "tool_calls" in body:
+                message["tool_calls"] = body["tool_calls"]
+            properties["$ai_output_choices"] = [message]
 
-        # v2 choice events: {"index": 0, "finish_reason": "stop", "message": {...}}
-        if "message" in body and isinstance(body["message"], dict):
+        # Choice events: {"index": 0, "finish_reason": "stop", "message": {...}}
+        elif "gen_ai.choice" in event_name and "message" in body:
             message_obj = body["message"]
+            choice = {"role": message_obj.get("role", "assistant")}
             if "content" in message_obj:
-                properties["$ai_output_content"] = message_obj["content"]
+                choice["content"] = message_obj["content"]
             if "tool_calls" in message_obj:
-                properties["$ai_tool_calls"] = message_obj["tool_calls"]
-            if "role" in message_obj:
-                properties["$ai_message_role"] = message_obj["role"]
+                choice["tool_calls"] = message_obj["tool_calls"]
             if "finish_reason" in body:
-                properties["$ai_finish_reason"] = body["finish_reason"]
+                choice["finish_reason"] = body["finish_reason"]
+            properties["$ai_output_choices"] = [choice]
 
-    # Fallback: legacy v1-style attributes
-    if attributes.get("gen_ai.prompt"):
-        properties["$ai_input"] = stringify_content(attributes["gen_ai.prompt"])
-    elif attributes.get("message.content"):
-        properties["$ai_input"] = stringify_content(attributes["message.content"])
+    # Fallback: Handle gen_ai.prompt/completion from span attributes (v1-style)
+    if "$ai_input" not in properties and attributes.get("gen_ai.prompt"):
+        prompt = attributes["gen_ai.prompt"]
+        if isinstance(prompt, str):
+            try:
+                parsed = json.loads(prompt)
+                properties["$ai_input"] = parsed if isinstance(parsed, list) else [{"role": "user", "content": prompt}]
+            except (json.JSONDecodeError, TypeError):
+                properties["$ai_input"] = [{"role": "user", "content": prompt}]
+        elif isinstance(prompt, list):
+            properties["$ai_input"] = prompt
+        elif isinstance(prompt, dict):
+            properties["$ai_input"] = [prompt]
 
-    if attributes.get("gen_ai.completion"):
-        properties["$ai_output_choices"] = stringify_content(attributes["gen_ai.completion"])
+    if "$ai_output_choices" not in properties and attributes.get("gen_ai.completion"):
+        completion = attributes["gen_ai.completion"]
+        if isinstance(completion, str):
+            try:
+                parsed = json.loads(completion)
+                properties["$ai_output_choices"] = (
+                    parsed if isinstance(parsed, list) else [{"role": "assistant", "content": completion}]
+                )
+            except (json.JSONDecodeError, TypeError):
+                properties["$ai_output_choices"] = [{"role": "assistant", "content": completion}]
+        elif isinstance(completion, list):
+            properties["$ai_output_choices"] = completion
+        elif isinstance(completion, dict):
+            properties["$ai_output_choices"] = [completion]
 
     # Severity
     if log_record.get("severity_number"):
@@ -192,6 +255,11 @@ def build_event_properties(
 def determine_event_type(log_record: dict[str, Any], attributes: dict[str, Any]) -> str:
     """Determine AI event type from log record."""
     event_name = attributes.get("event.name", "").lower()
+
+    # v2 instrumentation events (gen_ai.user.message, gen_ai.assistant.message, gen_ai.choice)
+    # These should be $ai_generation events to merge with trace span data
+    if "gen_ai." in event_name and ("message" in event_name or "choice" in event_name):
+        return "$ai_generation"
 
     # Check event name for GenAI events
     if "prompt" in event_name or "input" in event_name:

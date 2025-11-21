@@ -14,6 +14,7 @@ from typing import Any
 
 from .conventions.genai import extract_genai_attributes, has_genai_attributes
 from .conventions.posthog_native import extract_posthog_native_attributes, has_posthog_attributes
+from .event_merger import cache_and_merge_properties
 
 OTEL_TRANSFORMER_VERSION = "1.0.0"
 
@@ -28,7 +29,7 @@ def transform_span_to_ai_event(
     resource: dict[str, Any],
     scope: dict[str, Any],
     baggage: dict[str, str] | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """
     Transform a single OTel span to PostHog AI event.
 
@@ -39,11 +40,12 @@ def transform_span_to_ai_event(
         baggage: Baggage context (session_id, etc.)
 
     Returns:
-        PostHog AI event dict with:
+        PostHog AI event dict OR None if this is first arrival (cached, waiting for logs):
         - event: Event type ($ai_generation, $ai_span, etc.)
         - distinct_id: User identifier
         - timestamp: ISO 8601 timestamp
         - properties: AI event properties
+        - uuid: Event UUID (for deduplication with log events)
     """
     baggage = baggage or {}
 
@@ -57,6 +59,19 @@ def transform_span_to_ai_event(
     # Build AI event properties
     properties = build_event_properties(span, merged_attrs, resource, scope, baggage)
 
+    # True bidirectional merge with Redis (no blocking)
+    # First arrival caches, second arrival merges and sends
+    trace_id = span.get("trace_id", "")
+    span_id = span.get("span_id", "")
+    if trace_id and span_id:
+        merged = cache_and_merge_properties(trace_id, span_id, properties, is_trace=True)
+        if merged is None:
+            # This is first arrival - trace cached, waiting for logs
+            # Don't send this event yet
+            return None
+        # Second arrival - logs already cached, merged contains complete event
+        properties = merged
+
     # Determine event type
     event_type = determine_event_type(span, merged_attrs)
 
@@ -66,12 +81,29 @@ def transform_span_to_ai_event(
     # Get distinct_id
     distinct_id = extract_distinct_id(resource, baggage)
 
-    return {
+    # Generate consistent UUID from trace_id + span_id for deduplication
+    # This allows log events and trace events for the same span to merge
+    import uuid
+
+    trace_id = span.get("trace_id", "")
+    span_id = span.get("span_id", "")
+    event_uuid = None
+    if trace_id and span_id:
+        # Create deterministic UUID from trace_id + span_id
+        namespace = uuid.UUID("00000000-0000-0000-0000-000000000000")
+        event_uuid = str(uuid.uuid5(namespace, f"{trace_id}:{span_id}"))
+
+    result = {
         "event": event_type,
         "distinct_id": distinct_id,
         "timestamp": timestamp,
         "properties": properties,
     }
+
+    if event_uuid:
+        result["uuid"] = event_uuid
+
+    return result
 
 
 def build_event_properties(
@@ -131,9 +163,9 @@ def build_event_properties(
     if attrs.get("output_tokens") is not None:
         properties["$ai_output_tokens"] = attrs["output_tokens"]
     if attrs.get("cache_read_tokens") is not None:
-        properties["$ai_cache_read_tokens"] = attrs["cache_read_tokens"]
+        properties["$ai_cache_read_input_tokens"] = attrs["cache_read_tokens"]
     if attrs.get("cache_write_tokens") is not None:
-        properties["$ai_cache_write_tokens"] = attrs["cache_write_tokens"]
+        properties["$ai_cache_creation_input_tokens"] = attrs["cache_write_tokens"]
 
     # Cost
     if attrs.get("input_cost_usd") is not None:
@@ -151,7 +183,7 @@ def build_event_properties(
     if is_error:
         properties["$ai_is_error"] = is_error
     if error_message:
-        properties["$ai_error_message"] = error_message
+        properties["$ai_error"] = error_message
 
     # Model parameters
     if attrs.get("temperature") is not None:
@@ -162,13 +194,41 @@ def build_event_properties(
         properties["$ai_stream"] = attrs["stream"]
 
     # Content (handle both direct input/output and prompt/completion)
+    # Ensure $ai_input is array of messages
     content_input = attrs.get("input") or attrs.get("prompt")
     if content_input:
-        properties["$ai_input"] = stringify_content(content_input)
+        if isinstance(content_input, list):
+            properties["$ai_input"] = content_input
+        elif isinstance(content_input, dict):
+            properties["$ai_input"] = [content_input]
+        elif isinstance(content_input, str):
+            try:
+                parsed = json.loads(content_input)
+                properties["$ai_input"] = (
+                    parsed if isinstance(parsed, list) else [{"role": "user", "content": content_input}]
+                )
+            except (json.JSONDecodeError, TypeError):
+                properties["$ai_input"] = [{"role": "user", "content": content_input}]
+        else:
+            properties["$ai_input"] = [{"role": "user", "content": str(content_input)}]
 
+    # Ensure $ai_output_choices is array of choices
     content_output = attrs.get("output") or attrs.get("completion")
     if content_output:
-        properties["$ai_output_choices"] = stringify_content(content_output)
+        if isinstance(content_output, list):
+            properties["$ai_output_choices"] = content_output
+        elif isinstance(content_output, dict):
+            properties["$ai_output_choices"] = [content_output]
+        elif isinstance(content_output, str):
+            try:
+                parsed = json.loads(content_output)
+                properties["$ai_output_choices"] = (
+                    parsed if isinstance(parsed, list) else [{"role": "assistant", "content": content_output}]
+                )
+            except (json.JSONDecodeError, TypeError):
+                properties["$ai_output_choices"] = [{"role": "assistant", "content": content_output}]
+        else:
+            properties["$ai_output_choices"] = [{"role": "assistant", "content": str(content_output)}]
 
     # Span name
     if span.get("name"):
