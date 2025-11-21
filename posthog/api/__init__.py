@@ -57,6 +57,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
+from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
@@ -703,34 +704,25 @@ projects_router.register(
     ["project_id"],
 )
 
-## This viewset is duplicated (env and project) for retro compatibility with CLI
-environments_router.register(
-    r"error_tracking/releases",
-    ErrorTrackingReleaseViewSet,
-    "environment_error_tracking_release_environment",
-    ["team_id"],
-)
-
 projects_router.register(
-    r"error_tracking/releases",
-    ErrorTrackingReleaseViewSet,
-    "project_error_tracking_release_project",
+    r"session_group_summaries",
+    SessionGroupSummaryViewSet,
+    "project_session_group_summaries",
     ["project_id"],
 )
 
-## This viewset is duplicated (env and project) for retro compatibility with CLI
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
+    r"error_tracking/releases",
+    ErrorTrackingReleaseViewSet,
+    "environment_error_tracking_release",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
     r"error_tracking/symbol_sets",
     ErrorTrackingSymbolSetViewSet,
     "environment_error_tracking_symbol_set",
     ["team_id"],
-)
-
-projects_router.register(
-    r"error_tracking/symbol_sets",
-    ErrorTrackingSymbolSetViewSet,
-    "project_error_tracking_symbol_set",
-    ["project_id"],
 )
 
 environments_router.register(
