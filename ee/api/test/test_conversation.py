@@ -651,7 +651,7 @@ class TestConversation(APIBaseTest):
         mock_is_team_limited.return_value = False
 
         with patch(
-            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            "ee.hogai.agent.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
