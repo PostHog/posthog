@@ -83,7 +83,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
-            to={combineUrl(urls.max(conversation.id), { from: 'history' }).url}
+            to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
             onClick={(e) => {
                 if (sidePanel) {
                     e.preventDefault()
