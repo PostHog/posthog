@@ -2,7 +2,10 @@ from django.db import models
 
 
 class Group(models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    # DO_NOTHING: Team deletion handled manually via Group.objects.filter(team_id=...).delete()
+    # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
+    # db_constraint=False: No database FK constraint - Group may live in separate database from Team
+    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_constraint=False)
     group_key = models.CharField(max_length=400, null=False, blank=False)
     group_type_index = models.IntegerField(null=False, blank=False)
 
