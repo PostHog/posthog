@@ -273,7 +273,7 @@ function SceneName({
     const readOnly = !canEdit || !onChange
 
     const textClasses =
-        'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
+        'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4]'
 
     useEffect(() => {
         if (!isLoading) {
@@ -369,13 +369,17 @@ function SceneName({
                     <ButtonPrimitive
                         className={cn(
                             buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                            'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)] focus-visible:z-50'
+                            'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)] focus-visible:z-50',
+                            {
+                                'select-text': readOnly,
+                            }
                         )}
                         onClick={() => !readOnly && setIsEditing(true)}
                         fullWidth
                         truncate
                         inert={readOnly}
                         role="heading"
+                        aria-level={1}
                     >
                         <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
                         {canEdit && !forceEdit && <IconPencil />}

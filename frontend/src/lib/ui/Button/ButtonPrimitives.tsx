@@ -304,7 +304,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
             ref,
             disabled: effectiveDisabled,
             ...rest,
-            'aria-disabled': effectiveDisabled || !inert,
+            'aria-disabled': effectiveDisabled,
             'data-active': active,
             style: {
                 '--button-height': `var(--button-icon-size-${effectiveSize})`,
