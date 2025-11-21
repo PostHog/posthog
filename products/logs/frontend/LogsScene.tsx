@@ -64,8 +64,9 @@ export function LogsScene(): JSX.Element {
         sparklineLoading,
         timestampFormat,
         isPinned,
+        logsCanLoadMore,
     } = useValues(logsLogic)
-    const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
+    const { runQuery, setDateRangeFromSparkline, loadMoreLogs } = useActions(logsLogic)
 
     useEffect(() => {
         runQuery()
@@ -159,6 +160,21 @@ export function LogsScene(): JSX.Element {
                         tzLabelFormat={tzLabelFormat}
                         showPinnedWithOpacity
                     />
+                    {parsedLogs.length > 0 && (
+                        <div className="m-2 flex items-center">
+                            <LemonButton
+                                onClick={() => loadMoreLogs()}
+                                loading={logsLoading}
+                                fullWidth
+                                center
+                                disabled={!logsCanLoadMore || logsLoading}
+                            >
+                                {logsCanLoadMore
+                                    ? `Showing first ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'} – click to load more`
+                                    : `Showing all ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'}`}
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
             </div>
         </SceneContent>
