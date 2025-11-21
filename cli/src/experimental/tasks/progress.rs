@@ -59,7 +59,7 @@ fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
 
     let path = format!("tasks/{task_id}/progress/");
     let response = client
-        .get(&path)?
+        .get(client.project_url(&path)?)
         .send()
         .context("Failed to send request")?;
     let response = raise_for_err(response)?;

@@ -35,8 +35,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -412,6 +413,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             merged_data, self.team, client_query_id, request.user
         )
         self._tag_client_query_id(client_query_id)
+        tag_queries(product=Product.ENDPOINTS)
 
         if execution_mode not in BLOCKING_EXECUTION_MODES:
             raise ValidationError("Only sync modes are supported (refresh param)")
@@ -465,6 +467,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "_materialized": True,
             "_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
         }
+        tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
         return self._execute_query_and_respond(
             query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
