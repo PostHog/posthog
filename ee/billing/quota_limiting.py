@@ -201,14 +201,7 @@ def org_quota_limited_until(
     # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)
     # - The billing service stores trust scores by product_key, but billing_manager.py translates them to usage_key
     #   when syncing billing_customer to posthog_organization
-    # - Negative score = resource is fully trust-exempt
-    trust_score = (
-        -1
-        if resource in GRACE_PERIOD_EXEMPT_RESOURCES
-        else organization.customer_trust_scores.get(resource.value)
-        if organization.customer_trust_scores
-        else 0
-    )
+    trust_score = organization.customer_trust_scores.get(resource.value) if organization.customer_trust_scores else 0
 
     # Flow for checking quota limits:
     # 1. ignore the limits
@@ -242,7 +235,7 @@ def org_quota_limited_until(
         return None
 
     # 1b. never drop
-    if trust_score >= 0 and organization.never_drop_data:
+    if resource not in GRACE_PERIOD_EXEMPT_RESOURCES and organization.never_drop_data:
         report_organization_action(
             organization,
             "org_quota_limited_until",
@@ -320,7 +313,7 @@ def org_quota_limited_until(
     # Please keep the logic and levels in sync with what is defined in billing.
 
     # 2b. no trust score
-    if (trust_score is None or trust_score <= 0) and minimum_grace_period == 0:
+    if (not trust_score or resource in GRACE_PERIOD_EXEMPT_RESOURCES) and minimum_grace_period == 0:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
