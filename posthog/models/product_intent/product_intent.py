@@ -57,8 +57,8 @@ class ProductIntentSerializer(serializers.Serializer):
     """
 
     metadata = serializers.DictField(required=False, default=dict)
-    product_type = serializers.ChoiceField(required=True, choices=ProductKey)
-    intent_context = serializers.ChoiceField(required=True, choices=ProductIntentContext)
+    product_type = serializers.ChoiceField(required=True, choices=list(ProductKey))
+    intent_context = serializers.ChoiceField(required=False, choices=list(ProductIntentContext))
 
 
 class ProductIntent(UUIDTModel, RootTeamMixin):
@@ -219,7 +219,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
     def register(
         team: Team,
         product_type: ProductKey,
-        context: ProductIntentContext,
+        context: Optional[ProductIntentContext],
         user: User,
         metadata: Optional[dict] = None,
         is_onboarding: bool = False,

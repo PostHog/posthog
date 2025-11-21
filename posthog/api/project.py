@@ -679,7 +679,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         ProductIntent.register(
             team=team,
             product_type=serializer.validated_data["product_type"],
-            context=serializer.validated_data["intent_context"],
+            context=serializer.validated_data.get("intent_context"),
             user=cast(User, user),
             metadata={**serializer.validated_data["metadata"], "$current_url": current_url, "$session_id": session_id},
             is_onboarding=False,
@@ -708,11 +708,12 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         product_intent_serializer = ProductIntentSerializer(data=request.data)
         product_intent_serializer.is_valid(raise_exception=True)
         intent_data = product_intent_serializer.validated_data
+        intent_context = intent_data.get("intent_context")
 
         product_intent = ProductIntent.register(
             team=team,
             product_type=product_type,
-            context=intent_data["intent_context"],
+            context=intent_context,
             user=cast(User, user),
             metadata={**intent_data["metadata"], "$current_url": current_url, "$session_id": session_id},
             is_onboarding=True,
@@ -726,7 +727,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
-                    "intent_context": intent_data["intent_context"],
+                    "intent_context": intent_context,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),

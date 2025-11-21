@@ -1,9 +1,9 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.db import models
 from django.db.models.expressions import F
 
-from posthog.schema import ProductIntentContext
+from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -77,7 +77,7 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         if user.allow_sidebar_suggestions is False:
             return []
 
-        products = Products.get_products_by_intent(product_intent.product_type)
+        products = Products.get_products_by_intent(cast(ProductKey, product_intent.product_type))
         if not products:
             return []
 
