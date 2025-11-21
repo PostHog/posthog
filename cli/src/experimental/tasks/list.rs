@@ -31,7 +31,7 @@ impl TaskIterator {
         }
 
         let response = client
-            .send_get(client.env_url("tasks")?, |req| req.query(&params))
+            .send_get(client.project_url("tasks")?, |req| req.query(&params))
             .context("Failed to get tasks")?;
 
         let task_response: TaskListResponse = response
