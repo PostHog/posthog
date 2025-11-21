@@ -14,7 +14,7 @@ services:
             file: docker-compose.base.yml
             service: proxy
         ports:
-            - 8010:8000
+            - 127.0.0.1:8010:8000
         extra_hosts:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
@@ -76,7 +76,7 @@ services:
             file: docker-compose.base.yml
             service: db
         ports:
-            - '5432:5432'
+            - '127.0.0.1:5432:5432'
         # something in the django app when running in dev mode
         # (maybe only in Pycharm) keeps many idle transactions open
         # and eventually kills postgres, these settings aim to stop that happening.
@@ -87,13 +87,13 @@ services:
             file: docker-compose.base.yml
             service: redis
         ports:
-            - '6379:6379'
+            - '127.0.0.1:6379:6379'
     redis7:
         extends:
             file: docker-compose.base.yml
             service: redis7
         ports:
-            - '6479:6379'
+            - '127.0.0.1:6479:6379'
     clickhouse:
         extends:
             file: docker-compose.base.yml
@@ -103,11 +103,11 @@ services:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
             - AWS_SECRET_ACCESS_KEY=object_storage_root_password
         ports:
-            - '8123:8123'
-            - '8443:8443'
-            - '9000:9000'
-            - '9440:9440'
-            - '9009:9009'
+            - '127.0.0.1:8123:8123'
+            - '127.0.0.1:8443:8443'
+            - '127.0.0.1:9000:9000'
+            - '127.0.0.1:9440:9440'
+            - '127.0.0.1:9009:9009'
         volumes:
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -127,14 +127,14 @@ services:
             file: docker-compose.base.yml
             service: zookeeper
         ports:
-            - '2181:2181'
+            - '127.0.0.1:2181:2181'
 
     kafka:
         extends:
             file: docker-compose.base.yml
             service: kafka
         ports:
-            - '9092:9092'
+            - '127.0.0.1:9092:9092'
         depends_on:
             - zookeeper
 
@@ -143,8 +143,8 @@ services:
             file: docker-compose.base.yml
             service: objectstorage
         ports:
-            - '19000:19000'
-            - '19001:19001'
+            - '127.0.0.1:19000:19000'
+            - '127.0.0.1:19001:19001'
 
     # capture-rs
     capture:

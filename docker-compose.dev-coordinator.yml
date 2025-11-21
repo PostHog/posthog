@@ -13,7 +13,7 @@ services:
             file: docker-compose.base.yml
             service: proxy
         ports:
-            - 8010:8000
+            - 127.0.0.1:8010:8000
         depends_on:
             - replay-capture
             - capture
@@ -25,7 +25,7 @@ services:
             file: docker-compose.base.yml
             service: db
         ports:
-            - '5432:5432'
+            - '127.0.0.1:5432:5432'
         # something in the django app when running in dev mode
         # (maybe only in Pycharm) keeps many idle transactions open
         # and eventually kills postgres, these settings aim to stop that happening.
@@ -36,20 +36,20 @@ services:
             file: docker-compose.base.yml
             service: redis
         ports:
-            - '6379:6379'
+            - '127.0.0.1:6379:6379'
     redis7:
         extends:
             file: docker-compose.base.yml
             service: redis7
         ports:
-            - '6479:6379'
+            - '127.0.0.1:6479:6379'
 
     flower:
         extends:
             file: docker-compose.base.yml
             service: flower
         ports:
-            - '5555:5555'
+            - '127.0.0.1:5555:5555'
 
     clickhouse: &clickhouse
         extends:
@@ -57,11 +57,11 @@ services:
             service: clickhouse
         hostname: clickhouse
         ports:
-            - '8123:8123'
-            - '8443:8443'
-            - '9000:9000'
-            - '9440:9440'
-            - '9009:9009'
+            - '127.0.0.1:8123:8123'
+            - '127.0.0.1:8443:8443'
+            - '127.0.0.1:9000:9000'
+            - '127.0.0.1:9440:9440'
+            - '127.0.0.1:9009:9009'
         volumes:
             # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
             # revert this when we upgrade clickhouse
@@ -94,21 +94,21 @@ services:
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         ports:
-            - '9001:9001'
+            - '127.0.0.1:9001:9001'
 
     zookeeper:
         extends:
             file: docker-compose.base.yml
             service: zookeeper
         ports:
-            - '2181:2181'
+            - '127.0.0.1:2181:2181'
 
     kafka:
         extends:
             file: docker-compose.base.yml
             service: kafka
         ports:
-            - '9092:9092'
+            - '127.0.0.1:9092:9092'
         depends_on:
             - zookeeper
 
@@ -117,7 +117,7 @@ services:
             file: docker-compose.base.yml
             service: kafka_ui
         ports:
-            - '9093:8080'
+            - '127.0.0.1:9093:8080'
         depends_on:
             - kafka
 
@@ -126,22 +126,22 @@ services:
             file: docker-compose.base.yml
             service: objectstorage
         ports:
-            - '19000:19000'
-            - '19001:19001'
+            - '127.0.0.1:19000:19000'
+            - '127.0.0.1:19001:19001'
 
     maildev:
         extends:
             file: docker-compose.base.yml
             service: maildev
         ports:
-            - '1080:1080'
-            - '1025:1025'
+            - '127.0.0.1:1080:1080'
+            - '127.0.0.1:1025:1025'
 
     webhook-tester:
         image: tarampampam/webhook-tester:1.1.0
         restart: on-failure
         ports:
-            - '2080:2080'
+            - '127.0.0.1:2080:2080'
         environment:
             - LISTEN_PORT=2080
 
@@ -187,7 +187,7 @@ services:
         environment:
             - JWT.TOKEN=${SECRET_KEY}
         ports:
-            - '8666:8080'
+            - '127.0.0.1:8666:8080'
         volumes:
             - ./docker/livestream/configs-dev.yml:/configs/configs.yml
 
