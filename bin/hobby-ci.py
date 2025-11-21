@@ -505,12 +505,15 @@ ssh_authorized_keys:
             env_file.write(f"HOBBY_DNS_RECORD_NAME={record_name}\n")
             env_file.write(f"HOBBY_NAME={self.name}\n")
 
-        # Export SSH private key as multiline env var (do not print - would expose in logs)
+        # Write SSH private key to a file (safer than env var which could be logged)
         if self.ssh_private_key:
+            ssh_key_path = "/tmp/hobby_ci_ssh_key"
+            with open(ssh_key_path, "w") as f:
+                f.write(self.ssh_private_key)
+            os.chmod(ssh_key_path, 0o600)
+            # Tell test step where to find it
             with open(env_file_name, "a") as env_file:
-                env_file.write("HOBBY_SSH_PRIVATE_KEY<<EOFKEY\n")
-                env_file.write(self.ssh_private_key)
-                env_file.write("\nEOFKEY\n")
+                env_file.write(f"HOBBY_SSH_KEY_PATH={ssh_key_path}\n")
 
     def ensure_droplet(self, ssh_enabled=True):
         self.create_droplet(ssh_enabled=ssh_enabled)
@@ -557,7 +560,14 @@ def main():
         name = os.environ.get("HOBBY_NAME")
         record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
-        ssh_private_key = os.environ.get("HOBBY_SSH_PRIVATE_KEY")
+        ssh_key_path = os.environ.get("HOBBY_SSH_KEY_PATH")
+
+        # Read SSH private key from file if available
+        ssh_private_key = None
+        if ssh_key_path and os.path.exists(ssh_key_path):
+            with open(ssh_key_path) as f:
+                ssh_private_key = f.read()
+
         print("Waiting for deployment to become healthy", flush=True)
         print(f"Record ID: {record_id}", flush=True)
         print(f"Droplet ID: {droplet_id}", flush=True)
