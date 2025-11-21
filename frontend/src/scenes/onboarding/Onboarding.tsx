@@ -113,11 +113,9 @@ const OnboardingWrapper = ({
             steps = [...steps, inviteTeammatesStep]
         }
 
-        // Add AI consent step at the end if AI is not already enabled
-        if (!currentOrganization?.is_ai_data_processing_approved) {
-            const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
-            steps = [...steps, aiConsentStep]
-        }
+        // Add AI consent step at the end
+        const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
+        steps = [...steps, aiConsentStep]
 
         steps = steps.filter(Boolean)
 

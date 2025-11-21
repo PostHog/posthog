@@ -4,6 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
+import flappyHogSplashSrc from 'public/hedgehog/flappy-hog-splash.png'
 import robotHogSrc from 'public/hedgehog/robot-hog.png'
 
 interface GameState {
@@ -15,8 +16,8 @@ interface GameState {
     started: boolean
 }
 
-const GAME_WIDTH = 400
-const GAME_HEIGHT = 500
+const GAME_WIDTH = 450
+const GAME_HEIGHT = 450
 const HOG_SIZE = 50
 const PIPE_WIDTH = 50
 const PIPE_GAP = 180
@@ -53,6 +54,7 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const gameLoopRef = useRef<number | null>(null)
     const hogImageRef = useRef<HTMLImageElement | null>(null)
+    const splashImageRef = useRef<HTMLImageElement | null>(null)
     const [highScore, setHighScoreState] = useState(getHighScore)
     const highScoreRef = useRef(highScore)
     highScoreRef.current = highScore
@@ -99,6 +101,10 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
         const img = new Image()
         img.src = robotHogSrc
         hogImageRef.current = img
+
+        const splashImg = new Image()
+        splashImg.src = flappyHogSplashSrc
+        splashImageRef.current = splashImg
     }, [])
 
     useEffect(() => {
@@ -212,38 +218,69 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                     currentCtx.fill()
                 }
 
-                // Draw distance score and high score
                 const displayScore = Math.floor(gameStateRef.current.distance / 10)
-                currentCtx.fillStyle = '#ffffff'
-                currentCtx.font = 'bold 24px sans-serif'
                 currentCtx.textAlign = 'center'
-                currentCtx.fillText(String(displayScore), GAME_WIDTH / 2, 40)
 
-                if (highScoreRef.current > 0) {
-                    currentCtx.font = '14px sans-serif'
-                    currentCtx.fillStyle = '#cccccc'
-                    currentCtx.fillText(`Best: ${highScoreRef.current}`, GAME_WIDTH / 2, 60)
-                }
-
-                // Draw instructions or game over
+                // Draw splash screen, score HUD, or game over
                 if (!gameStateRef.current.started) {
-                    currentCtx.fillStyle = 'rgba(0, 0, 0, 0.5)'
-                    currentCtx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
-                    currentCtx.fillStyle = '#ffffff'
-                    currentCtx.font = 'bold 20px sans-serif'
-                    currentCtx.fillText('Click to start!', GAME_WIDTH / 2, GAME_HEIGHT / 2)
-                } else if (gameStateRef.current.gameOver) {
-                    currentCtx.fillStyle = 'rgba(0, 0, 0, 0.5)'
-                    currentCtx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
-                    currentCtx.fillStyle = '#ffffff'
-                    currentCtx.font = 'bold 24px sans-serif'
-                    if (displayScore >= highScoreRef.current && displayScore > 0) {
-                        currentCtx.fillText('New High Score!', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40)
+                    if (splashImageRef.current && splashImageRef.current.complete) {
+                        currentCtx.drawImage(splashImageRef.current, 0, 0, GAME_WIDTH, GAME_HEIGHT)
                     }
-                    currentCtx.fillText('Game Over!', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 10)
-                    currentCtx.font = '18px sans-serif'
-                    currentCtx.fillText(`Score: ${displayScore}`, GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20)
-                    currentCtx.fillText('Click to play again', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 50)
+                    // Retro title with glow effect
+                    currentCtx.font = 'bold 44px "Comic Sans MS", "Chalkboard SE", cursive'
+                    // Outer glow
+                    currentCtx.fillStyle = '#f54e00'
+                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2 + 3, 55)
+                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2 - 3, 55)
+                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2, 52)
+                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2, 58)
+                    // Main text
+                    currentCtx.fillStyle = '#ffeb3b'
+                    currentCtx.fillText('FLAPPY HOG', GAME_WIDTH / 2, 55)
+                    // Tagline with stars
+                    currentCtx.font = 'italic 14px "Comic Sans MS", "Chalkboard SE", cursive'
+                    currentCtx.fillStyle = '#ffffff'
+                    currentCtx.fillText('★ Fly towards business-critical insights! ★', GAME_WIDTH / 2, 80)
+                    // "Click to play" at bottom with retro style
+                    currentCtx.font = 'bold 20px "Comic Sans MS", "Chalkboard SE", cursive'
+                    currentCtx.fillStyle = 'rgba(0, 0, 0, 0.7)'
+                    currentCtx.fillText('~ Click or Press Space ~', GAME_WIDTH / 2 + 2, GAME_HEIGHT - 23)
+                    currentCtx.fillStyle = '#ffffff'
+                    currentCtx.fillText('~ Click or Press Space ~', GAME_WIDTH / 2, GAME_HEIGHT - 25)
+                } else if (gameStateRef.current.gameOver) {
+                    currentCtx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+                    currentCtx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT)
+                    // Retro game over text
+                    currentCtx.font = 'bold 36px "Comic Sans MS", "Chalkboard SE", cursive'
+                    if (displayScore >= highScoreRef.current && displayScore > 0) {
+                        currentCtx.fillStyle = '#f54e00'
+                        currentCtx.fillText('NEW HIGH SCORE!', GAME_WIDTH / 2 + 2, GAME_HEIGHT / 2 - 52)
+                        currentCtx.fillStyle = '#ffeb3b'
+                        currentCtx.fillText('NEW HIGH SCORE!', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 54)
+                    }
+                    currentCtx.fillStyle = '#ff0000'
+                    currentCtx.fillText('GAME OVER', GAME_WIDTH / 2 + 2, GAME_HEIGHT / 2 - 8)
+                    currentCtx.fillStyle = '#ffffff'
+                    currentCtx.fillText('GAME OVER', GAME_WIDTH / 2, GAME_HEIGHT / 2 - 10)
+                    currentCtx.font = 'bold 24px "Comic Sans MS", "Chalkboard SE", cursive'
+                    currentCtx.fillStyle = '#ffeb3b'
+                    currentCtx.fillText(`Score: ${displayScore}`, GAME_WIDTH / 2, GAME_HEIGHT / 2 + 30)
+                    currentCtx.font = '18px "Comic Sans MS", "Chalkboard SE", cursive'
+                    currentCtx.fillStyle = '#cccccc'
+                    currentCtx.fillText('~ Click to Play Again ~', GAME_WIDTH / 2, GAME_HEIGHT / 2 + 65)
+                } else {
+                    // Game is running - show score HUD with retro style
+                    currentCtx.font = 'bold 28px "Comic Sans MS", "Chalkboard SE", cursive'
+                    // Score shadow
+                    currentCtx.fillStyle = 'rgba(0, 0, 0, 0.5)'
+                    currentCtx.fillText(String(displayScore), GAME_WIDTH / 2 + 2, 42)
+                    currentCtx.fillStyle = '#ffffff'
+                    currentCtx.fillText(String(displayScore), GAME_WIDTH / 2, 40)
+                    if (highScoreRef.current > 0) {
+                        currentCtx.font = '14px "Comic Sans MS", "Chalkboard SE", cursive'
+                        currentCtx.fillStyle = '#cccccc'
+                        currentCtx.fillText(`Best: ${highScoreRef.current}`, GAME_WIDTH / 2, 60)
+                    }
                 }
 
                 gameLoopRef.current = requestAnimationFrame(gameLoop)
@@ -281,9 +318,6 @@ export function FlappyHog({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                     onClick={flap}
                     className="cursor-pointer rounded border border-border"
                 />
-                <p className="text-muted text-sm mt-2">
-                    Click or press Space to fly towards business-critical insights
-                </p>
                 <div className="flex gap-2 mt-4">
                     <LemonButton onClick={onClose}>Close</LemonButton>
                     {highScore > 0 && (
