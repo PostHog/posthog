@@ -10,13 +10,13 @@ from temporalio.client import WorkflowExecutionStatus
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
-from posthog.temporal.ai.conversation import (
+from posthog.temporal.ai.chat_agent import (
     AssistantConversationRunnerWorkflow,
     AssistantConversationRunnerWorkflowInputs,
 )
 
-from ee.hogai.stream.conversation_stream import ConversationStreamManager
-from ee.hogai.stream.redis_stream import (
+from ee.hogai.agent.executor import AgentExecutor
+from ee.hogai.agent.redis_stream import (
     ConversationEvent,
     ConversationRedisStream,
     MessageEvent,
@@ -30,22 +30,22 @@ from ee.hogai.utils.types.base import AssistantOutput
 from ee.models.assistant import Conversation
 
 
-class TestConversationStreamManager(BaseTest):
+class TestAgentExecutor(BaseTest):
     def setUp(self):
         super().setUp()
         self.conversation = Conversation.objects.create(team=self.team, user=self.user)
         self.team_id = self.team.pk
         self.user_id = self.user.pk
-        self.manager = ConversationStreamManager(self.conversation)
+        self.manager = AgentExecutor(self.conversation)
 
     def test_init(self):
         """Test ConversationStreamManager initialization."""
-        manager = ConversationStreamManager(self.conversation)
+        manager = AgentExecutor(self.conversation)
 
         self.assertEqual(manager._conversation.id, self.conversation.id)
         self.assertIsInstance(manager._redis_stream, ConversationRedisStream)
 
-    @patch("ee.hogai.stream.conversation_stream.async_connect")
+    @patch("ee.hogai.agent.executor.async_connect")
     async def test_start_workflow_and_stream_success(self, mock_connect):
         """Test successful workflow start and streaming."""
         # Setup mocks
@@ -74,7 +74,7 @@ class TestConversationStreamManager(BaseTest):
 
             # Call the method
             results = []
-            async for chunk in self.manager.astream(workflow_inputs):
+            async for chunk in self.manager.astream(AssistantConversationRunnerWorkflow, workflow_inputs):
                 results.append(chunk)
 
             # Verify results
@@ -94,7 +94,7 @@ class TestConversationStreamManager(BaseTest):
             self.assertEqual(call_args[1]["task_queue"], settings.MAX_AI_TASK_QUEUE)
             self.assertIn("conversation-", call_args[1]["id"])
 
-    @patch("ee.hogai.stream.conversation_stream.async_connect")
+    @patch("ee.hogai.agent.executor.async_connect")
     async def test_start_workflow_and_stream_connection_error(self, mock_connect):
         """Test error handling when connection fails."""
         # Setup mock to raise exception
@@ -110,7 +110,7 @@ class TestConversationStreamManager(BaseTest):
 
         # Call the method
         results = []
-        async for chunk in self.manager.astream(workflow_inputs):
+        async for chunk in self.manager.astream(AssistantConversationRunnerWorkflow, workflow_inputs):
             results.append(chunk)
 
         # Verify failure message is returned
@@ -275,7 +275,7 @@ class TestConversationStreamManager(BaseTest):
         """Test successful conversation cancellation."""
         # Mock all external dependencies
         with (
-            patch("ee.hogai.stream.conversation_stream.async_connect") as mock_connect,
+            patch("ee.hogai.agent.executor.async_connect") as mock_connect,
             patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
             patch.object(self.conversation, "asave") as mock_save,
         ):
@@ -293,7 +293,7 @@ class TestConversationStreamManager(BaseTest):
             mock_delete.return_value = True
 
             # Call the method - should not raise exception
-            await self.manager.cancel_conversation()
+            await self.manager.cancel_workflow()
 
             # Verify workflow cancellation
             mock_client.get_workflow_handle.assert_called_once_with(workflow_id=f"conversation-{self.conversation.id}")
@@ -305,7 +305,7 @@ class TestConversationStreamManager(BaseTest):
             self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
             mock_save.assert_called()
 
-    @patch("ee.hogai.stream.conversation_stream.async_connect")
+    @patch("ee.hogai.agent.executor.async_connect")
     async def test_cancel_conversation_temporal_error(self, mock_connect):
         """Test conversation cancellation when Temporal client fails."""
         # Setup mock to raise exception
@@ -313,11 +313,11 @@ class TestConversationStreamManager(BaseTest):
 
         # Call the method - should raise exception
         with self.assertRaises(Exception):
-            await self.manager.cancel_conversation()
+            await self.manager.cancel_workflow()
 
     async def test_cancel_conversation_workflow_cancel_error(self):
         """Test conversation cancellation when workflow cancel fails."""
-        with patch("ee.hogai.stream.conversation_stream.async_connect") as mock_connect:
+        with patch("ee.hogai.agent.executor.async_connect") as mock_connect:
             # Setup mocks
             mock_client = Mock()
             mock_handle = Mock()
@@ -332,12 +332,12 @@ class TestConversationStreamManager(BaseTest):
 
             # Call the method - should raise exception
             with self.assertRaises(Exception):
-                await self.manager.cancel_conversation()
+                await self.manager.cancel_workflow()
 
     async def test_cancel_conversation_redis_cleanup_error(self):
         """Test conversation cancellation when Redis cleanup fails."""
         with (
-            patch("ee.hogai.stream.conversation_stream.async_connect") as mock_connect,
+            patch("ee.hogai.agent.executor.async_connect") as mock_connect,
             patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
         ):
             # Setup mocks
@@ -354,7 +354,7 @@ class TestConversationStreamManager(BaseTest):
 
             # Call the method - should raise exception
             with self.assertRaises(Exception):
-                await self.manager.cancel_conversation()
+                await self.manager.cancel_workflow()
 
     async def test_cancel_conversation_save_error(self):
         """Test conversation cancellation when conversation save fails."""
@@ -362,7 +362,7 @@ class TestConversationStreamManager(BaseTest):
         with (
             patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
             patch.object(self.conversation, "asave") as mock_save,
-            patch("ee.hogai.stream.conversation_stream.async_connect") as mock_connect,
+            patch("ee.hogai.agent.executor.async_connect") as mock_connect,
         ):
             mock_delete.return_value = True
             mock_save.side_effect = Exception("Save failed")
@@ -378,7 +378,7 @@ class TestConversationStreamManager(BaseTest):
 
             # Call the method - should raise exception
             with self.assertRaises(Exception):
-                await self.manager.cancel_conversation()
+                await self.manager.cancel_workflow()
 
     async def test_wait_for_workflow_to_start_success(self):
         """Test successful workflow start waiting."""

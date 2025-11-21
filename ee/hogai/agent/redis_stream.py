@@ -160,11 +160,18 @@ class StreamError(Exception):
 class ConversationRedisStream:
     """Manages conversation streaming from Redis streams."""
 
-    def __init__(self, stream_key: str):
+    def __init__(
+        self,
+        stream_key: str,
+        timeout: int = CONVERSATION_STREAM_TIMEOUT,
+        max_length: int = CONVERSATION_STREAM_MAX_LENGTH,
+    ):
         self._stream_key = stream_key
         self._redis_client = get_async_client(settings.REDIS_URL)
         self._deletion_lock = asyncio.Lock()
         self._serializer = ConversationStreamSerializer()
+        self._timeout = timeout
+        self._max_length = max_length
 
     async def wait_for_stream(self) -> bool:
         """Wait for stream to be created using linear backoff.
@@ -220,7 +227,7 @@ class ConversationRedisStream:
         start_time = asyncio.get_event_loop().time()
 
         while True:
-            if asyncio.get_event_loop().time() - start_time > CONVERSATION_STREAM_TIMEOUT:
+            if asyncio.get_event_loop().time() - start_time > self._timeout:
                 raise StreamError("Stream timeout - conversation took too long to complete")
 
             try:
@@ -283,7 +290,7 @@ class ConversationRedisStream:
             callback: Callback to trigger after each message is written to the stream
         """
         try:
-            await self._redis_client.expire(self._stream_key, CONVERSATION_STREAM_TIMEOUT)
+            await self._redis_client.expire(self._stream_key, self._timeout)
 
             async for chunk in generator:
                 message = self._serializer.dumps(chunk)
@@ -291,7 +298,7 @@ class ConversationRedisStream:
                     await self._redis_client.xadd(
                         self._stream_key,
                         message,
-                        maxlen=CONVERSATION_STREAM_MAX_LENGTH,
+                        maxlen=self._max_length,
                         approximate=True,
                     )
                 if callback:
@@ -303,7 +310,7 @@ class ConversationRedisStream:
             await self._redis_client.xadd(
                 self._stream_key,
                 completion_message,
-                maxlen=CONVERSATION_STREAM_MAX_LENGTH,
+                maxlen=self._max_length,
                 approximate=True,
             )
 
@@ -314,7 +321,7 @@ class ConversationRedisStream:
             await self._redis_client.xadd(
                 self._stream_key,
                 message,
-                maxlen=CONVERSATION_STREAM_MAX_LENGTH,
+                maxlen=self._max_length,
                 approximate=True,
             )
             raise StreamError("Failed to write to stream")
