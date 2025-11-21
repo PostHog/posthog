@@ -5,18 +5,34 @@ import { useEffect, useState } from 'react'
 import { IconCloud } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { SidePanelDocsSkeleton } from './SidePanelDocs'
-import { INCIDENT_IO_STATUS_PAGE_BASE, STATUS_PAGE_BASE, sidePanelStatusLogic } from './sidePanelStatusLogic'
+import { INCIDENT_IO_STATUS_PAGE_BASE, sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
+import { STATUS_PAGE_BASE, sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element => {
-    const { status, statusDescription } = useValues(sidePanelStatusLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
+
+    const { status: atlassianStatus, statusPage } = useValues(sidePanelStatusLogic)
+    const { status: incidentIoStatus, statusDescription: incidentIoDescription } =
+        useValues(sidePanelStatusIncidentIoLogic)
+
+    const status = useIncidentIo ? incidentIoStatus : atlassianStatus
+    const title = useIncidentIo
+        ? incidentIoDescription
+        : statusPage?.status.description
+          ? capitalizeFirstLetter(statusPage.status.description.toLowerCase())
+          : null
 
     return (
-        <Tooltip title={statusDescription} placement="left">
+        <Tooltip title={title} placement="left">
             <span {...props}>
                 <IconWithBadge
                     content={status !== 'operational' ? '!' : '✓'}
@@ -37,7 +53,8 @@ export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element 
 
 export const SidePanelStatus = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelLogic)
-    const { useIncidentIo } = useValues(sidePanelStatusLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
     const [ready, setReady] = useState(false)
 
     useEffect(() => {
