@@ -37,7 +37,7 @@ else
 fi
 
 if [[ "$*" == *"--skip-typegen"* ]]; then
-    export SKIP_TYPEGEN="exit 0"
+    export SKIP_TYPEGEN="1"
 fi
 
 if [ -f .env ]; then

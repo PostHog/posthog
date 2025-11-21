@@ -1,5 +1,3 @@
-import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
-
 import { ReadableStream } from 'node:stream/web'
 
 import api from 'lib/api'
@@ -27,7 +25,6 @@ export const MOCK_CONVERSATION: Conversation = {
     title: 'Testing',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    user: MOCK_DEFAULT_BASIC_USER,
     type: ConversationType.Assistant,
 }
 
@@ -51,7 +48,6 @@ export function mockStream(): jest.SpyInstance {
                     title: '',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
-                    user: MOCK_DEFAULT_BASIC_USER,
                     type: ConversationType.Assistant,
                 }
                 enqueue({
