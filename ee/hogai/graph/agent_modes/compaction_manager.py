@@ -109,7 +109,7 @@ class ConversationCompactionManager(ABC):
         summary_message: ContextMessage,
         agent_mode: AgentMode,
         start_id: str | None = None,
-        # Delete when modes are rolled out
+        # TODO: Delete when modes are rolled out
         is_modes_feature_flag_enabled: bool = False,
     ) -> InsertionResult:
         """Finds the optimal position to insert the summary message in the conversation window."""
