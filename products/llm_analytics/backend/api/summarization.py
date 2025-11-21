@@ -109,13 +109,12 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         if settings.DEBUG:
             return
 
-        # Check feature flag at team level in production
+        # Check feature flag using user's distinct_id to match against person-based cohorts
         if not posthoganalytics.feature_enabled(
             SUMMARIZATION_FEATURE_FLAG,
-            str(self.team.uuid),
-            groups={"team": str(self.team.uuid)},
+            str(request.user.distinct_id),
         ):
-            raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this team")
+            raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this user")
 
     def _get_cache_key(self, summarize_type: str, entity_id: str, mode: str) -> str:
         """Generate cache key for summary results.

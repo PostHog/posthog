@@ -12,29 +12,27 @@ from temporalio.common import RetryPolicy
 from posthog.schema import HumanMessage, MaxBillingContext
 
 from posthog.models import Team, User
-from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.ai.base import AgentBaseWorkflow
 
+from ee.hogai.agent.redis_stream import ConversationRedisStream, get_conversation_stream_key
 from ee.hogai.assistant import Assistant
-from ee.hogai.stream.redis_stream import (
-    CONVERSATION_STREAM_TIMEOUT,
-    ConversationRedisStream,
-    get_conversation_stream_key,
-)
 from ee.hogai.utils.types import AssistantMode
 from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
 
 
-CONVERSATION_STREAM_ACTIVITY_RETRY_INTERVAL = 1  # 1 second
-CONVERSATION_STREAM_ACTIVITY_RETRY_MAX_INTERVAL = 30 * 60  # 30 minutes
-CONVERSATION_STREAM_ACTIVITY_RETRY_MAX_ATTEMPTS = 3
-CONVERSATION_STREAM_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
+CHAT_AGENT_WORKFLOW_TIMEOUT = 30 * 60  # 30 minutes
+CHAT_AGENT_STREAM_MAX_LENGTH = 1000  # 1000 messages
+CHAT_AGENT_ACTIVITY_RETRY_INTERVAL = 1  # 1 second
+CHAT_AGENT_ACTIVITY_RETRY_MAX_INTERVAL = 30 * 60  # 30 minutes
+CHAT_AGENT_ACTIVITY_RETRY_MAX_ATTEMPTS = 3
+CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 
 
 @dataclass
 class AssistantConversationRunnerWorkflowInputs:
-    """Inputs for the conversation processing workflow."""
+    """Inputs for the chat agent workflow."""
 
     team_id: int
     user_id: int
@@ -49,8 +47,8 @@ class AssistantConversationRunnerWorkflowInputs:
 
 
 @workflow.defn(name="conversation-processing")
-class AssistantConversationRunnerWorkflow(PostHogWorkflow):
-    """Temporal workflow for processing AI conversations asynchronously."""
+class AssistantConversationRunnerWorkflow(AgentBaseWorkflow):
+    """Temporal workflow for processing chat agent activities asynchronously."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> AssistantConversationRunnerWorkflowInputs:
@@ -60,23 +58,23 @@ class AssistantConversationRunnerWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AssistantConversationRunnerWorkflowInputs) -> None:
-        """Execute the conversation processing workflow."""
+        """Execute the chat agent workflow."""
         await workflow.execute_activity(
             process_conversation_activity,
             inputs,
-            start_to_close_timeout=timedelta(seconds=CONVERSATION_STREAM_TIMEOUT),
+            start_to_close_timeout=timedelta(seconds=CHAT_AGENT_WORKFLOW_TIMEOUT),
             retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=CONVERSATION_STREAM_ACTIVITY_RETRY_INTERVAL),
-                maximum_interval=timedelta(seconds=CONVERSATION_STREAM_ACTIVITY_RETRY_MAX_INTERVAL),
-                maximum_attempts=CONVERSATION_STREAM_ACTIVITY_RETRY_MAX_ATTEMPTS,
+                initial_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_INTERVAL),
+                maximum_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_MAX_INTERVAL),
+                maximum_attempts=CHAT_AGENT_ACTIVITY_RETRY_MAX_ATTEMPTS,
             ),
-            heartbeat_timeout=timedelta(seconds=CONVERSATION_STREAM_ACTIVITY_HEARTBEAT_TIMEOUT),
+            heartbeat_timeout=timedelta(seconds=CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT),
         )
 
 
 @activity.defn
 async def process_conversation_activity(inputs: AssistantConversationRunnerWorkflowInputs) -> None:
-    """Asynchronous conversation processing function that streams chunks immediately.
+    """Asynchronous chat agent processing function that streams chunks immediately.
 
     Args:
         inputs: Temporal workflow inputs

@@ -8,7 +8,7 @@ import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/pr
 import { urls } from 'scenes/urls'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebPropertyFilters } from './WebPropertyFilters'

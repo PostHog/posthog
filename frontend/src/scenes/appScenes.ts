@@ -54,6 +54,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
+    [Scene.Coupons]: () => import('./coupons/Coupons'),
     [Scene.LiveEvents]: () => import('./activity/live/LiveEventsTable'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
     [Scene.EmailMFAVerify]: () => import('./authentication/EmailMFAVerify'),
