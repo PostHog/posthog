@@ -59,18 +59,24 @@ def transform_span_to_ai_event(
     # Build AI event properties
     properties = build_event_properties(span, merged_attrs, resource, scope, baggage)
 
-    # True bidirectional merge with Redis (no blocking)
-    # First arrival caches, second arrival merges and sends
-    trace_id = span.get("trace_id", "")
-    span_id = span.get("span_id", "")
-    if trace_id and span_id:
-        merged = cache_and_merge_properties(trace_id, span_id, properties, is_trace=True)
-        if merged is None:
-            # This is first arrival - trace cached, waiting for logs
-            # Don't send this event yet
-            return None
-        # Second arrival - logs already cached, merged contains complete event
-        properties = merged
+    # Detect v1 vs v2 instrumentation:
+    # v1: Everything in span attributes (gen_ai.prompt, gen_ai.completion) - send immediately
+    # v2: Metadata in span, content in logs - use event merger
+    is_v1_span = bool(merged_attrs.get("gen_ai.prompt") or merged_attrs.get("gen_ai.completion"))
+
+    if not is_v1_span:
+        # v2 instrumentation - use event merger for bidirectional merge with logs
+        trace_id = span.get("trace_id", "")
+        span_id = span.get("span_id", "")
+        if trace_id and span_id:
+            merged = cache_and_merge_properties(trace_id, span_id, properties, is_trace=True)
+            if merged is None:
+                # This is first arrival - trace cached, waiting for logs
+                # Don't send this event yet
+                return None
+            # Second arrival - logs already cached, merged contains complete event
+            properties = merged
+    # else: v1 span has everything - send immediately without merging
 
     # Determine event type
     event_type = determine_event_type(span, merged_attrs)
