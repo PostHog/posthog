@@ -1955,9 +1955,7 @@ def test_get_persons_for_sessions_from_distinct_ids_handles_db_failure():
 
     mock_summary = MagicMock(spec=SingleSessionSummary)
     mock_summary.distinct_id = "test-distinct-id"
-
-    session_id_to_summaries = {"session-1": mock_summary}
-
+    session_id_to_summaries: dict[str, SingleSessionSummary] = {"session-1": mock_summary}
     with patch(
         "ee.hogai.session_summaries.session_group.patterns.get_persons_by_distinct_ids",
         side_effect=Exception('relation "posthog_person" does not exist'),
@@ -1966,5 +1964,4 @@ def test_get_persons_for_sessions_from_distinct_ids_handles_db_failure():
             session_id_to_ready_summaries_mapping=session_id_to_summaries,
             team_id=1,
         )
-
     assert result == {}
