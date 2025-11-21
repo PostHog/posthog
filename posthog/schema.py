@@ -1917,6 +1917,14 @@ class OrderBy3(StrEnum):
     EARLIEST = "earliest"
 
 
+class MarkdownBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["markdown"] = "markdown"
+
+
 class MarketingAnalyticsBaseColumns(StrEnum):
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
@@ -2789,6 +2797,16 @@ class Storage(StrEnum):
     OBJECT_STORAGE = "object_storage"
 
 
+class SessionReplayBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: str
+    timestamp_ms: float
+    title: Optional[str] = None
+    type: Literal["session_replay"] = "session_replay"
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3176,6 +3194,14 @@ class VectorSearchResponseItem(BaseModel):
     )
     distance: float
     id: str
+
+
+class VisualizationBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str
+    type: Literal["visualization"] = "visualization"
 
 
 class ActionsPie(BaseModel):
@@ -8952,6 +8978,13 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     url_pattern: str
 
 
+class DocumentArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[Union[MarkdownBlock, VisualizationBlock, SessionReplayBlock]]
+
+
 class DocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12254,6 +12287,15 @@ class VectorSearchQueryResponse(BaseModel):
     )
 
 
+class VisualizationArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    name: Optional[str] = None
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+
+
 class WebAnalyticsAssistantFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12590,6 +12632,10 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     response: Optional[ActorsPropertyTaxonomyQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class AgentArtifactContent(RootModel[Union[DocumentArtifactContent, VisualizationArtifactContent]]):
+    root: Union[DocumentArtifactContent, VisualizationArtifactContent]
 
 
 class AnyResponseType(

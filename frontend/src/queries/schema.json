@@ -343,6 +343,16 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
+        "AgentArtifactContent": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DocumentArtifactContent"
+                },
+                {
+                    "$ref": "#/definitions/VisualizationArtifactContent"
+                }
+            ]
+        },
         "AgentMode": {
             "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
@@ -10731,6 +10741,32 @@
             ],
             "type": "string"
         },
+        "DocumentArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "blocks": {
+                    "items": {
+                        "$ref": "#/definitions/DocumentBlock"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["blocks"],
+            "type": "object"
+        },
+        "DocumentBlock": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/MarkdownBlock"
+                },
+                {
+                    "$ref": "#/definitions/VisualizationBlock"
+                },
+                {
+                    "$ref": "#/definitions/SessionReplayBlock"
+                }
+            ]
+        },
         "DocumentSimilarityQuery": {
             "additionalProperties": false,
             "properties": {
@@ -17488,6 +17524,20 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "MarkdownBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "markdown",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
             "type": "object"
         },
         "MarketingAnalyticsAggregatedQuery": {
@@ -26265,6 +26315,26 @@
             "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
+        "SessionReplayBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "session_id": {
+                    "type": "string"
+                },
+                "timestamp_ms": {
+                    "type": "number"
+                },
+                "title": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "session_replay",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "session_id", "timestamp_ms"],
+            "type": "object"
+        },
         "SessionsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -28811,6 +28881,49 @@
                 }
             },
             "required": ["id", "distance"],
+            "type": "object"
+        },
+        "VisualizationArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AssistantTrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantFunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantRetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantHogQLQuery"
+                        }
+                    ]
+                }
+            },
+            "required": ["query"],
+            "type": "object"
+        },
+        "VisualizationBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "visualization",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id"],
             "type": "object"
         },
         "VisualizationItem": {
