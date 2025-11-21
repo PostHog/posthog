@@ -95,8 +95,10 @@ export function calculateRecommendedSampleSize(
 ): number | null {
     const minimumDetectableEffectDecimal = minimumDetectableEffect / 100
 
-    let d // Represents the absolute effect size (difference we want to detect)
-    let sampleSizeFormula
+    if (minimumDetectableEffectDecimal === 0) {
+        lemonToast.error('Minimum detectable effect cannot be 0')
+        return null
+    }
 
     if (isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.Sum) {
         /**
