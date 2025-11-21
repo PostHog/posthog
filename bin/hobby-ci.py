@@ -71,13 +71,15 @@ class HobbyTester:
     def _generate_ssh_key(self):
         """Generate ephemeral SSH keypair for droplet access"""
         try:
-            with tempfile.NamedTemporaryFile(delete=False) as f:
-                key_path = f.name
+            # Create temp directory for keys
+            temp_dir = tempfile.mkdtemp()
+            key_path = os.path.join(temp_dir, "ci_key")
 
             subprocess.run(
                 ["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", ""],
                 check=True,
                 capture_output=True,
+                text=True,
             )
 
             with open(key_path) as f:
@@ -88,8 +90,11 @@ class HobbyTester:
             # Cleanup
             os.unlink(key_path)
             os.unlink(key_path + ".pub")
+            os.rmdir(temp_dir)
 
             print(f"✅ Generated ephemeral SSH key for droplet access", flush=True)
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  Failed to generate SSH key: {e.stderr}", flush=True)
         except Exception as e:
             print(f"⚠️  Failed to generate SSH key: {e}", flush=True)
 
