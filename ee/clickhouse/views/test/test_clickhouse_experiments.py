@@ -8,9 +8,8 @@ from django.core.cache import cache
 
 from dateutil import parser
 from rest_framework import status
-from posthog.models import Team
 
-from posthog.models import WebExperiment
+from posthog.models import Team, WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
@@ -665,7 +664,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
-        self.assertEqual(response.json()["detail"], "Saved metric does not exist")
+        self.assertEqual(response.json()["detail"], "Saved metric does not exist or does not belong to this project")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
