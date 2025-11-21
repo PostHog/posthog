@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
@@ -269,11 +269,42 @@ function SceneName({
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
     const [isNameMultiline, setIsNameMultiline] = useState(false)
+    const lastHeightRef = useRef<number>(0)
+    const updateTimeoutRef = useRef<number | null>(null)
 
     const readOnly = !canEdit || !onChange
 
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4]'
+
+    const handleHeightChange = useCallback((height: number) => {
+        // Avoid processing the same height multiple times
+        if (lastHeightRef.current === height) {
+            return
+        }
+        lastHeightRef.current = height
+
+        // Clear any pending updates
+        if (updateTimeoutRef.current) {
+            clearTimeout(updateTimeoutRef.current)
+        }
+
+        // Defer the state update to avoid synchronous re-renders during layout
+        updateTimeoutRef.current = window.setTimeout(() => {
+            const shouldBeMultiline = height > 28
+            setIsNameMultiline((prev) => (prev !== shouldBeMultiline ? shouldBeMultiline : prev))
+            updateTimeoutRef.current = null
+        }, 0)
+    }, [])
+
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (updateTimeoutRef.current) {
+                clearTimeout(updateTimeoutRef.current)
+            }
+        }
+    }, [])
 
     useEffect(() => {
         if (!isLoading) {
@@ -351,14 +382,7 @@ function SceneName({
                         }
                     }}
                     readOnly={readOnly}
-                    onHeightChange={(height) => {
-                        // TRICKY: 27 is the height of the textarea when it is a single line, but it's based on 0% zoom
-                        if (height > 28) {
-                            setIsNameMultiline(true)
-                        } else {
-                            setIsNameMultiline(false)
-                        }
-                    }}
+                    onHeightChange={handleHeightChange}
                 />
             ) : (
                 <Tooltip
