@@ -34,26 +34,17 @@ else:
     GenerateContentConfig = Any
     Schema = Any
 
-_GenerateContentConfig: type[GenerateContentConfig] | None = None
-_Schema: type[Schema] | None = None
-
 
 def _get_GenerateContentConfig():
-    global _GenerateContentConfig
-    if _GenerateContentConfig is None:
-        from google.genai.types import GenerateContentConfig
+    from posthog.api.wizard.genai_types import get_genai_type
 
-        _GenerateContentConfig = GenerateContentConfig
-    return _GenerateContentConfig
+    return get_genai_type("GenerateContentConfig")
 
 
 def _get_Schema():
-    global _Schema
-    if _Schema is None:
-        from google.genai.types import Schema
+    from posthog.api.wizard.genai_types import get_genai_type
 
-        _Schema = Schema
-    return _Schema
+    return get_genai_type("Schema")
 
 
 # Lazy import to avoid loading openai dependencies on startup

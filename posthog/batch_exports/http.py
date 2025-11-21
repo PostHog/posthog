@@ -51,7 +51,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
 
 logger = structlog.get_logger(__name__)
 
@@ -426,6 +425,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             config = destination_attrs["config"]
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = config.get("file_format", "JSONLines")
+            from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
+
             supported_file_formats = SUPPORTED_COMPRESSIONS.keys()
             if file_format not in supported_file_formats:
                 raise serializers.ValidationError(

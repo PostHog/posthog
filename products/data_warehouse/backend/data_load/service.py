@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 
-import s3fs
-import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import (
     Client as TemporalClient,
@@ -19,6 +17,7 @@ from temporalio.client import (
     ScheduleState,
 )
 from temporalio.common import RetryPolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
@@ -210,9 +209,9 @@ def delete_external_data_schedule(schedule_id: str):
     temporal = sync_connect()
     try:
         delete_schedule(temporal, schedule_id=schedule_id)
-    except temporalio.service.RPCError as e:
+    except RPCError as e:
         # Swallow error if schedule does not exist already
-        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+        if e.status == RPCStatusCode.NOT_FOUND:
             return
         raise
 
@@ -221,9 +220,9 @@ async def a_delete_external_data_schedule(external_data_source: "ExternalDataSou
     temporal = await async_connect()
     try:
         await a_delete_schedule(temporal, schedule_id=str(external_data_source.id))
-    except temporalio.service.RPCError as e:
+    except RPCError as e:
         # Swallow error if schedule does not exist already
-        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+        if e.status == RPCStatusCode.NOT_FOUND:
             return
         raise
 
@@ -240,6 +239,8 @@ async def cancel_workflow(temporal: TemporalClient, workflow_id: str):
 
 
 def delete_data_import_folder(folder_path: str):
+    import s3fs
+
     s3 = s3fs.S3FileSystem(
         key=settings.AIRBYTE_BUCKET_KEY,
         secret=settings.AIRBYTE_BUCKET_SECRET,

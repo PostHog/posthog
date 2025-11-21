@@ -3,13 +3,10 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 
-import s3fs
-import boto3
-import botocore
-import botocore.exceptions
-
 
 def get_s3_client():
+    import s3fs
+
     # Defaults for localhost dev and test suites
     if settings.USE_LOCAL_SETUP:
         return s3fs.S3FileSystem(
@@ -37,6 +34,9 @@ def get_size_of_folder(path: str) -> float:
 
 
 def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: Optional[str] = None) -> None:
+    import boto3
+    from botocore.exceptions import ClientError
+
     s3_client = boto3.client("s3", aws_access_key_id=s3_key, aws_secret_access_key=s3_secret, endpoint_url=s3_endpoint)
 
     parsed = urlparse(s3_url)
@@ -47,7 +47,7 @@ def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: 
 
     try:
         s3_client.head_bucket(Bucket=bucket_name)
-    except botocore.exceptions.ClientError as e:
+    except ClientError as e:
         error = e.response.get("Error")
         if not error:
             raise

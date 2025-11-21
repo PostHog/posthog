@@ -2,7 +2,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 import structlog
@@ -14,10 +14,11 @@ from posthog.schema import HumanMessage, MaxBillingContext
 from posthog.models import Team, User
 from posthog.temporal.ai.base import AgentBaseWorkflow
 
-from ee.hogai.agent.redis_stream import ConversationRedisStream, get_conversation_stream_key
-from ee.hogai.assistant import Assistant
-from ee.hogai.utils.types import AssistantMode
-from ee.models import Conversation
+if TYPE_CHECKING:
+    from ee.hogai.utils.types import AssistantMode
+else:
+    # Import AssistantMode at module level for dataclass default value
+    from ee.hogai.utils.types import AssistantMode
 
 logger = structlog.get_logger(__name__)
 
@@ -79,6 +80,9 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
     Args:
         inputs: Temporal workflow inputs
     """
+    from ee.hogai.agent.redis_stream import ConversationRedisStream, get_conversation_stream_key
+    from ee.hogai.assistant import Assistant
+    from ee.models import Conversation
 
     team, user, conversation = await asyncio.gather(
         Team.objects.aget(id=inputs.team_id),

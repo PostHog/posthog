@@ -3,7 +3,6 @@ import structlog
 from langchain.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
 from langchain_core.output_parsers import BaseOutputParser
-from langchain_openai import ChatOpenAI
 
 logger = structlog.get_logger(__name__)
 
@@ -36,6 +35,8 @@ def load_yaml_from_raw_llm_content(raw_content: str, final_validation: bool = Fa
             # In-the-middle-of-stream chunks could be invalid, no need to fix them
             raise
         # Try to fix with OutputFixingParser
+        from langchain_openai import ChatOpenAI
+
         llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.1)
         fixing_parser = OutputFixingParser.from_llm(parser=yaml_parser, llm=llm, max_retries=1)
         # Allow to raise if the format is still not valid

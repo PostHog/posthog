@@ -5,7 +5,8 @@ from typing import Any
 
 import structlog
 from google import genai
-from google.genai.types import GenerateContentConfig
+
+from posthog.api.wizard.genai_types import get_genai_type
 
 logger = structlog.get_logger(__name__)
 
@@ -86,6 +87,7 @@ class ClusterExplainer:
         return named_clusters
 
     def _generate_cluster_name(self, summaries: list[str]) -> str:
+        GenerateContentConfig = get_genai_type("GenerateContentConfig")
         message = CLUSTER_NAME_PROMPT.format(summaries=json.dumps(summaries))
         config_kwargs = {"temperature": 0}  # Not using any system prompt for saving tokens, as should be good enough
         response = self.client.models.generate_content(

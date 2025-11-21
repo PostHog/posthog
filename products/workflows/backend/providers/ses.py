@@ -3,8 +3,6 @@ import logging
 
 from django.conf import settings
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
 
 logger = logging.getLogger(__name__)
@@ -12,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 class SESProvider:
     def __init__(self):
+        import boto3
+
         # Initialize the boto3 clients
         self.sts_client = boto3.client(
             "sts",
@@ -33,6 +33,8 @@ class SESProvider:
         )
 
     def create_email_domain(self, domain: str, team_id: int):
+        from botocore.exceptions import ClientError
+
         # NOTE: For sesv1, domain Identity creation is done through verification
         self.verify_email_domain(domain, team_id)
 
@@ -55,6 +57,8 @@ class SESProvider:
                 raise
 
     def verify_email_domain(self, domain: str, team_id: int):
+        from botocore.exceptions import ClientError
+
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
@@ -159,6 +163,8 @@ class SESProvider:
         """
         Delete an identity from SES
         """
+        from botocore.exceptions import BotoCoreError, ClientError
+
         try:
             self.ses_client.delete_identity(Identity=identity)
             logger.info(f"Identity {identity} deleted from SES")

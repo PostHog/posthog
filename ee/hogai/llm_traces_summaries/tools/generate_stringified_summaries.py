@@ -4,10 +4,9 @@ import difflib
 from copy import copy
 
 import structlog
-from google import genai
-from google.genai.types import GenerateContentConfig
 from rich.console import Console
 
+from posthog.api.wizard.genai_types import get_genai_type
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -45,7 +44,9 @@ class LLMTraceSummarizerGenerator:
         self._model_id = model_id
         self._provider = GeminiProvider(model_id=model_id)
         # # Using default Google client as posthog wrapper doesn't support `aio` yet for async calls
-        self._client = genai.Client(api_key=self._provider.get_api_key())
+        from google.genai import Client
+
+        self._client = Client(api_key=self._provider.get_api_key())
         # Remove excessive summary parts that add no value to concentrate the summary meaning programmatically
         # Parts that add no value and can't be safely removed
         self._no_value_parts = [
@@ -114,6 +115,7 @@ class LLMTraceSummarizerGenerator:
         try:
             self._provider.validate_model(self._model_id)
             config_kwargs = self._provider.prepare_config_kwargs(system="")
+            GenerateContentConfig = get_genai_type("GenerateContentConfig")
             response = await self._client.aio.models.generate_content(
                 model=self._model_id,
                 contents=prompt,

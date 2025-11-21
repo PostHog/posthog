@@ -9,9 +9,6 @@ from django.conf import settings
 from django.utils.timezone import now
 
 import structlog
-from google.genai import Client
-from google.genai.errors import APIError
-from google.genai.types import Blob, Content, Part, VideoMetadata
 from pymediainfo import MediaInfo
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
@@ -330,6 +327,8 @@ class GeminiVideoUnderstandingProvider:
         # Using PostHog Gemini provider to avoid logic duplication
         self._base_provider = GeminiProvider(model_id=model_id)
         # Using default Gemini client as workaround, as PostHog wrapper doesn't support async yet
+        from google.genai import Client
+
         self.client = Client(api_key=self._base_provider.get_api_key())
 
     async def understand_video(
@@ -345,6 +344,14 @@ class GeminiVideoUnderstandingProvider:
         Understand a video and return a summary using the provided prompt
         https://ai.google.dev/gemini-api/docs/video-understanding
         """
+        from typing import Any
+
+        from google.genai.errors import APIError
+
+        from posthog.api.wizard.genai_types import get_genai_types
+
+        Blob, Content, Part, VideoMetadata = get_genai_types("Blob", "Content", "Part", "VideoMetadata")
+
         self._base_provider.validate_model(self.model_id)
         if mime_type not in self.SUPPORTED_VIDEO_MIME_TYPES:
             logger.exception(
@@ -358,9 +365,7 @@ class GeminiVideoUnderstandingProvider:
             logger.exception(f"Video bytes for understanding video are too large (trace_id: {trace_id})")
             return None
         try:
-            video_part_config: dict[str, str | Blob | VideoMetadata] = {
-                "inline_data": Blob(data=video_bytes, mime_type=mime_type)
-            }
+            video_part_config: dict[str, Any] = {"inline_data": Blob(data=video_bytes, mime_type=mime_type)}
             video_metadata_config = {}
             if start_offset_s:
                 video_metadata_config["start_offset"] = f"{start_offset_s}s"

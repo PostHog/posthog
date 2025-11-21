@@ -4,7 +4,6 @@ from uuid import UUID
 
 from django.conf import settings
 
-import boto3
 import dagster
 from dagster._core.definitions.metadata import RawMetadataMapping
 from dagster_docker import PipesDockerClient
@@ -108,6 +107,8 @@ def get_registry_credentials():
     # We use the local Docker image in debug mode
     if settings.DEBUG:
         return None
+
+    import boto3
 
     client = boto3.client("ecr")
     # https://boto3.amazonaws.com/v1/documentation/api/1.29.2/reference/services/ecr/client/get_authorization_token.html

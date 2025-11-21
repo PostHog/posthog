@@ -9,9 +9,6 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.table import DataWarehouseTable
-
 
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
@@ -64,6 +61,10 @@ def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]
 
 
 def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
+    # avoid loading at startup as they're heavy
+    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_warehouse.backend.models.table import DataWarehouseTable
+
     dag: dict[str, list[Any]] = {"nodes": [], "edges": []}
     seen_nodes: set[str] = set()
     node_data: dict[str, dict] = {}

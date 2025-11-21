@@ -1,10 +1,22 @@
 import numpy as np
-from scipy import stats
 
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.utils import get_mean, get_sample_size, get_variance
 
 from ..shared.statistics import AnyStatistic, ProportionStatistic, StatisticError
+
+# Global cache for scipy.stats to avoid loading heavy dependencies at module import time
+_stats: object | None = None
+
+
+def _get_stats():
+    """Load scipy.stats once per server process"""
+    global _stats
+    if _stats is None:
+        from scipy import stats
+
+        _stats = stats
+    return _stats
 
 
 def calculate_point_estimate(
@@ -153,6 +165,7 @@ def calculate_p_value(t_statistic: float, degrees_of_freedom: float, test_type: 
     Returns:
         P-value
     """
+    stats = _get_stats()
     if test_type == "two_sided":
         return float(2 * (1 - stats.t.cdf(abs(t_statistic), degrees_of_freedom)))
     elif test_type == "greater":
@@ -189,6 +202,7 @@ def calculate_confidence_interval(
     standard_error = np.sqrt(pooled_variance)
 
     if test_type == "two_sided":
+        stats = _get_stats()
         t_critical = stats.t.ppf(1 - alpha / 2, degrees_of_freedom)
         margin = t_critical * standard_error
         return (float(point_estimate - margin), float(point_estimate + margin))

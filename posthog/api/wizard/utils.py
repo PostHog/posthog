@@ -1,25 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from google.genai.types import Type as _TypeEnum
 else:
     _TypeEnum = Any
 
-_Type: type[_TypeEnum] | None = None
-
 
 def get_type_enum(json_type: str) -> _TypeEnum:
-    global _Type
-    if _Type is None:
-        # google.genai takes ~1 sec to load, so we lazy load it
-        from google.genai.types import Type as TypeEnum
+    from posthog.api.wizard.genai_types import get_genai_type
 
-        _Type = TypeEnum
-
-    # At this point _Type is guaranteed to be set
-    type_class = cast(type[_TypeEnum], _Type)
+    type_class = get_genai_type("TypeEnum")
 
     """Convert JSON Schema type to Gemini Type enum"""
     type_mapping = {
