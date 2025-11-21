@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -10,8 +11,9 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { AddEventButton } from 'scenes/surveys/AddEventButton'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
-import { SurveySettings } from 'scenes/surveys/SurveySettings'
+import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
 import { NewSurvey, SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -30,6 +32,7 @@ export function QuickSurveyForm({ flag, onCancel }: QuickSurveyFormProps): JSX.E
     const [question, setQuestion] = useState(`You're trying our latest new feature. What do you think?`)
     const [targetVariant, setTargetVariant] = useState<string | null>(null)
     const [targetUrl, setTargetUrl] = useState<string>('')
+    const [selectedEvents, setSelectedEvents] = useState<string[]>([])
     const [isCreating, setIsCreating] = useState(false)
 
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
@@ -37,6 +40,8 @@ export function QuickSurveyForm({ flag, onCancel }: QuickSurveyFormProps): JSX.E
     const { reportSurveyCreated } = useActions(eventUsageLogic)
     const { options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
+
+    const shouldShowSurveyToggle = useRef(!!showSurveysDisabledBanner).current
 
     const variants = flag.filters?.multivariate?.variants || []
     const isMultivariate = variants.length > 1
@@ -55,41 +60,34 @@ export function QuickSurveyForm({ flag, onCancel }: QuickSurveyFormProps): JSX.E
         }
     }, [urlOptions?.status, loadPropertyValues])
 
-    const buildSurveyData = (launch: boolean): Partial<Survey> => {
-        const randomId = Math.random().toString(36).substring(2, 8)
-        return {
-            name: `${flagName} - Quick feedback #${randomId}`,
-            type: SurveyType.Popover,
-            questions: [
-                {
-                    type: SurveyQuestionType.Open,
-                    question: question.trim(),
-                    optional: false,
+    const buildSurveyData = useCallback(
+        (launch: boolean): Partial<Survey> => {
+            const randomId = Math.random().toString(36).substring(2, 8)
+            return {
+                name: `${flagName}${targetVariant ? ` (${targetVariant})` : ''} - Quick feedback #${randomId}`,
+                type: SurveyType.Popover,
+                questions: [
+                    {
+                        type: SurveyQuestionType.Open,
+                        question: question.trim(),
+                        optional: false,
+                    },
+                ],
+                conditions: {
+                    actions: null,
+                    events: {
+                        values: selectedEvents.map((name) => ({ name })),
+                    },
+                    ...(targetVariant ? { linkedFlagVariant: targetVariant } : {}),
+                    ...(targetUrl ? { url: targetUrl } : {}),
                 },
-            ],
-            conditions: {
-                actions: null,
-                events: {
-                    values: [
-                        {
-                            name: '$feature_flag_called',
-                            propertyFilters: {
-                                $feature_flag: {
-                                    values: [flag.key],
-                                    operator: 'exact' as const,
-                                },
-                            },
-                        },
-                    ],
-                },
-                ...(targetVariant ? { linkedFlagVariant: targetVariant } : {}),
-                ...(targetUrl ? { url: targetUrl } : {}),
-            },
-            linked_flag_id: flag.id,
-            appearance: defaultSurveyAppearance,
-            ...(launch ? { start_date: dayjs().toISOString() } : {}),
-        }
-    }
+                linked_flag_id: flag.id,
+                appearance: defaultSurveyAppearance,
+                ...(launch ? { start_date: dayjs().toISOString() } : {}),
+            }
+        },
+        [flagName, question, targetVariant, targetUrl, selectedEvents, flag.id]
+    )
 
     const previewSurvey: NewSurvey = useMemo(
         () =>
@@ -99,7 +97,7 @@ export function QuickSurveyForm({ flag, onCancel }: QuickSurveyFormProps): JSX.E
                 created_at: '',
                 created_by: null,
             }) as NewSurvey,
-        [question, targetVariant, targetUrl, buildSurveyData]
+        [buildSurveyData]
     )
 
     const handleCreate = async ({ createType }: { createType: 'launch' | 'edit' | 'draft' }): Promise<void> => {
@@ -122,6 +120,7 @@ export function QuickSurveyForm({ flag, onCancel }: QuickSurveyFormProps): JSX.E
                     source: SURVEY_CREATED_SOURCE.FEATURE_FLAGS,
                     created_successfully: true,
                     quick_survey: true,
+                    create_mode: createType,
                 },
             })
 
@@ -211,6 +210,35 @@ export function QuickSurveyForm({ flag, onCancel }: QuickSurveyFormProps): JSX.E
                             data-attr="quick-survey-url-input"
                         />
                     </div>
+
+                    <div>
+                        <LemonLabel className="mb-2">Trigger on events (optional)</LemonLabel>
+                        {selectedEvents.length > 0 && (
+                            <div className="space-y-2 mb-2">
+                                {selectedEvents.map((eventName) => (
+                                    <div
+                                        key={eventName}
+                                        className="flex items-center justify-between p-2 border rounded bg-bg-light"
+                                    >
+                                        <span className="text-sm font-medium">{eventName}</span>
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconX />}
+                                            onClick={() =>
+                                                setSelectedEvents(selectedEvents.filter((e) => e !== eventName))
+                                            }
+                                            type="tertiary"
+                                            status="alt"
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <AddEventButton
+                            onEventSelect={(eventName) => setSelectedEvents([...selectedEvents, eventName])}
+                            excludedEvents={selectedEvents}
+                        />
+                    </div>
                 </div>
 
                 <div>
@@ -221,9 +249,9 @@ export function QuickSurveyForm({ flag, onCancel }: QuickSurveyFormProps): JSX.E
             </div>
 
             <div className="mt-6">
-                {showSurveysDisabledBanner && (
+                {shouldShowSurveyToggle && (
                     <div className="mb-4 p-4 border rounded bg-warning-highlight">
-                        <SurveySettings isModal />
+                        <SurveyPopupToggle />
                     </div>
                 )}
 

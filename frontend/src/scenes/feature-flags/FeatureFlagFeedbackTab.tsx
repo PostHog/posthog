@@ -35,8 +35,6 @@ export function FeedbackTab({ featureFlag }: { featureFlag: FeatureFlagType }): 
                         <QuickSurveyForm flag={featureFlag} />
                     </div>
                 </div>
-                {/* <pre>{JSON.stringify(featureFlag, null, 2)}</pre> */}
-                {/* <pre>{JSON.stringify(surveys, null, 2)}</pre> */}
             </div>
         )
     }
