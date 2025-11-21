@@ -7,11 +7,8 @@ from urllib.parse import parse_qs, urlparse
 from django.conf import settings
 
 import snappy
-import aioboto3
 import structlog
 import posthoganalytics
-from boto3 import client as boto3_client
-from botocore.client import Config
 
 logger = structlog.get_logger(__name__)
 
@@ -665,6 +662,9 @@ def client() -> SessionRecordingV2ObjectStorageBase:
     if not all(required_settings):
         _client = UnavailableSessionRecordingV2ObjectStorage()
     elif isinstance(_client, UnavailableSessionRecordingV2ObjectStorage):
+        from boto3 import client as boto3_client
+        from botocore.client import Config
+
         _client = SessionRecordingV2ObjectStorage(
             boto3_client(
                 "s3",
@@ -695,6 +695,9 @@ async def async_client() -> AsyncIterator[AsyncSessionRecordingV2ObjectStorage]:
     if not all(required_settings):
         raise RuntimeError("Missing required settings for object storage client")
     else:
+        import aioboto3
+        from botocore.client import Config
+
         session = aioboto3.Session()
         async with session.client(  # type: ignore[call-overload]
             "s3",

@@ -5,13 +5,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from posthog.models import Team, User
-from posthog.temporal.ai.chat_agent import (
-    AssistantConversationRunnerWorkflowInputs,
-    get_conversation_stream_key,
-    process_conversation_activity,
-)
+from posthog.temporal.ai.chat_agent import AssistantConversationRunnerWorkflowInputs, process_conversation_activity
 
-from ee.hogai.agent.redis_stream import CONVERSATION_STREAM_PREFIX
+from ee.hogai.agent.redis_stream import CONVERSATION_STREAM_PREFIX, get_conversation_stream_key
 from ee.hogai.utils.types import AssistantMode
 from ee.models import Conversation
 

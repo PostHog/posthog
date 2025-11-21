@@ -8,9 +8,6 @@ from django.conf import settings
 
 import posthoganalytics
 from anthropic.types import MessageParam
-from google.genai.errors import APIError
-from google.genai.types import GenerateContentConfig
-from posthoganalytics.ai.gemini import genai
 
 from products.llm_analytics.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
 
@@ -39,6 +36,13 @@ class GeminiProvider:
         if not posthog_client:
             raise ValueError("PostHog client not found")
 
+        from google.genai.errors import APIError
+        from posthoganalytics.ai.gemini import genai
+
+        from posthog.api.wizard.genai_types import get_genai_type
+
+        self.APIError = APIError
+        self.GenerateContentConfig = get_genai_type("GenerateContentConfig")
         self.client = genai.Client(api_key=self.get_api_key(), posthog_client=posthog_client)
         self.validate_model(model_id)
         self.model_id = model_id
@@ -132,7 +136,7 @@ class GeminiProvider:
             response = self.client.models.generate_content_stream(
                 model=self.model_id,
                 contents=convert_anthropic_messages_to_gemini(messages),
-                config=GenerateContentConfig(**config_kwargs),
+                config=self.GenerateContentConfig(**config_kwargs),
                 posthog_distinct_id=distinct_id,
                 posthog_trace_id=trace_id or str(uuid.uuid4()),
                 posthog_properties={**(properties or {}), "ai_product": "playground"},
@@ -149,7 +153,7 @@ class GeminiProvider:
                     output_tokens = chunk.usage_metadata.candidates_token_count
                     yield f"data: {json.dumps({'type': 'usage', 'input_tokens': input_tokens, 'output_tokens': output_tokens})}\n\n"
 
-        except APIError as e:
+        except self.APIError as e:
             logger.exception(f"Gemini API error when streaming response: {e}")
             yield f"data: {json.dumps({'type': 'error', 'error': f'Gemini API error'})}\n\n"
             return
@@ -181,14 +185,14 @@ class GeminiProvider:
             response = self.client.models.generate_content(
                 model=self.model_id,
                 contents=prompt,
-                config=GenerateContentConfig(**config_kwargs),
+                config=self.GenerateContentConfig(**config_kwargs),
                 posthog_distinct_id=distinct_id,
                 posthog_trace_id=trace_id or str(uuid.uuid4()),
                 posthog_properties={**(properties or {}), "ai_product": "playground"},
                 posthog_groups=groups or {},
             )
             return response.text
-        except APIError as err:
+        except self.APIError as err:
             logger.exception(f"Gemini API error when getting response: {err}")
             raise
         except Exception as err:

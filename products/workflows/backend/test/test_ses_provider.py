@@ -18,7 +18,7 @@ class TestSESProvider(TestCase):
     @classmethod
     def setUpClass(cls):
         # Patch boto3.client for all tests in this class
-        patcher = patch("products.workflows.backend.providers.ses.boto3.client")
+        patcher = patch("boto3.client")
         cls.boto3_client_patcher = patcher
         cls.mock_boto3_client = patcher.start()
 
@@ -84,7 +84,7 @@ class TestSESProvider(TestCase):
 
             provider.create_email_domain(TEST_DOMAIN, team_id=1)
 
-    @patch("products.workflows.backend.providers.ses.boto3.client")
+    @patch("boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
         with override_settings(
             SES_ACCESS_KEY_ID="test_access_key", SES_SECRET_ACCESS_KEY="test_secret_key", SES_REGION="us-east-1"

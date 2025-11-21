@@ -1,21 +1,28 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from google.genai.types import Type
+if TYPE_CHECKING:
+    from google.genai.types import Type as _TypeEnum
+else:
+    _TypeEnum = Any
 
 
-def get_type_enum(json_type: str) -> Type:
+def get_type_enum(json_type: str) -> _TypeEnum:
+    from posthog.api.wizard.genai_types import get_genai_type
+
+    type_class = get_genai_type("TypeEnum")
+
     """Convert JSON Schema type to Gemini Type enum"""
     type_mapping = {
-        "string": Type.STRING,
-        "number": Type.NUMBER,
-        "integer": Type.INTEGER,
-        "boolean": Type.BOOLEAN,
-        "array": Type.ARRAY,
-        "object": Type.OBJECT,
+        "string": type_class.STRING,
+        "number": type_class.NUMBER,
+        "integer": type_class.INTEGER,
+        "boolean": type_class.BOOLEAN,
+        "array": type_class.ARRAY,
+        "object": type_class.OBJECT,
     }
-    return type_mapping.get(json_type, Type.STRING)
+    return type_mapping.get(json_type, type_class.STRING)
 
 
 def get_field_mappings() -> dict[str, str]:

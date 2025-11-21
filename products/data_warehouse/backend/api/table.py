@@ -3,7 +3,6 @@ from typing import Any
 
 from django.conf import settings
 
-import boto3
 import posthoganalytics
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
@@ -360,6 +359,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             # Generate URL pattern and store file in object storage
             if credential and settings.DATAWAREHOUSE_BUCKET:
+                import boto3
+
                 s3 = boto3.client(
                     "s3",
                     aws_access_key_id=credential.access_key,

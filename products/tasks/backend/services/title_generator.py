@@ -1,11 +1,22 @@
 import json
 import logging
+from typing import TYPE_CHECKING, Any
 
-from anthropic.types import MessageParam
-
-from products.llm_analytics.backend.providers.anthropic import AnthropicProvider
+if TYPE_CHECKING:
+    from anthropic.types import MessageParam as _MessageParamType
+else:
+    _MessageParamType = Any
 
 logger = logging.getLogger(__name__)
+
+provider: Any | None = None
+MessageParam: type[_MessageParamType] | None = None
+
+# Type alias for use in annotations
+if TYPE_CHECKING:
+    MessageParamType = _MessageParamType
+else:
+    MessageParamType = Any
 
 
 def generate_task_title(description: str) -> str:
@@ -18,7 +29,17 @@ def generate_task_title(description: str) -> str:
         return "Untitled Task"
 
     try:
-        provider = AnthropicProvider(model_id="claude-haiku-4-5-20251001")
+        global provider
+        if provider is None:
+            from products.llm_analytics.backend.providers.anthropic import AnthropicProvider
+
+            provider = AnthropicProvider(model_id="claude-haiku-4-5-20251001")
+
+        global MessageParam
+        if MessageParam is None:
+            from anthropic.types import MessageParam as _MessageParam
+
+            MessageParam = _MessageParam
 
         system_prompt = """You are a title generator. You output ONLY a task title. Nothing else.
 
@@ -47,7 +68,7 @@ Output: Single line, ≤60 chars, no explanations.
 "why is the payment flow failing" → Analyze payment flow failure
 </examples>"""
 
-        messages: list[MessageParam] = [
+        messages: list[MessageParamType] = [
             MessageParam(
                 role="user",
                 content=f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.

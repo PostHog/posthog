@@ -1,6 +1,7 @@
 import re
 import json
 from functools import cached_property
+from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
@@ -8,7 +9,6 @@ from django.core.files import File
 
 import posthoganalytics
 import posthoganalytics.ai.openai
-from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import serializers, viewsets
 from rest_framework.parsers import JSONParser, MultiPartParser
@@ -18,7 +18,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from .models import UserInterview
 
-elevenlabs_client = ElevenLabs()
+elevenlabs_client: Any | None = None
 
 
 class UserInterviewSerializer(serializers.ModelSerializer):
@@ -48,6 +48,12 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def _transcribe_audio(self, audio: File, interviewee_emails: list[str]):
+        global elevenlabs_client
+        if not elevenlabs_client:
+            from elevenlabs import ElevenLabs
+
+            elevenlabs_client = ElevenLabs()
+
         transcript = elevenlabs_client.speech_to_text.convert(
             model_id="scribe_v1",
             file=audio,

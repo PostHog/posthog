@@ -3,7 +3,6 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, cast
 
-import boto3
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
@@ -30,6 +29,8 @@ class SQSConsumer(ABC):
         self.wait_time_seconds = wait_time_seconds
 
         # Initialize SQS client
+        import boto3
+
         self.sqs = boto3.client(
             "sqs",
             region_name=region_name,

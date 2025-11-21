@@ -1,40 +1,12 @@
-from .bigquery.source import BigQuerySource
-from .bing_ads.source import BingAdsSource
-from .braze.source import BrazeSource
-from .chargebee.source import ChargebeeSource
 from .common.registry import SourceRegistry
-from .customer_io.source import CustomerIOSource
-from .doit.source import DoItSource
-from .github.source import GithubSource
-from .google_ads.source import GoogleAdsSource
-from .google_sheets.source import GoogleSheetsSource
-from .hubspot.source import HubspotSource
-from .klaviyo.source import KlaviyoSource
-from .linkedin_ads.source import LinkedInAdsSource
-from .mailchimp.source import MailchimpSource
-from .mailjet.source import MailJetSource
-from .meta_ads.source import MetaAdsSource
-from .mongodb.source import MongoDBSource
-from .mssql.source import MSSQLSource
-from .mysql.source import MySQLSource
-from .polar.source import PolarSource
-from .postgres.source import PostgresSource
-from .reddit_ads.source import RedditAdsSource
-from .redshift.source import RedshiftSource
-from .revenuecat.source import RevenueCatSource
-from .salesforce.source import SalesforceSource
-from .shopify.source import ShopifySource
-from .snowflake.source import SnowflakeSource
-from .stripe.source import StripeSource
-from .temporalio.source import TemporalIOSource
-from .tiktok_ads.source import TikTokAdsSource
-from .vitally.source import VitallySource
-from .zendesk.source import ZendeskSource
+
+# A lot of these sources use heavy packages, so load them dynamically instead of at startup time
 
 __all__ = [
+    "SourceRegistry",
+    # Keep these for backwards compatibility, but they'll trigger dynamic imports
     "CustomerIOSource",
     "GithubSource",
-    "SourceRegistry",
     "BigQuerySource",
     "BingAdsSource",
     "BrazeSource",
@@ -65,3 +37,58 @@ __all__ = [
     "VitallySource",
     "ZendeskSource",
 ]
+
+
+def __getattr__(name: str):
+    """Dynamically import source classes when accessed"""
+    if name not in __all__:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    # Map class names to ExternalDataSourceType values
+    from products.data_warehouse.backend.types import ExternalDataSourceType
+
+    # Remove "Source" suffix and convert to enum
+    source_name = name[:-6] if name.endswith("Source") else name
+
+    # Map class names to enum values
+    name_to_enum = {
+        "CustomerIO": ExternalDataSourceType.CUSTOMERIO,
+        "Github": ExternalDataSourceType.GITHUB,
+        "BigQuery": ExternalDataSourceType.BIGQUERY,
+        "BingAds": ExternalDataSourceType.BINGADS,
+        "Braze": ExternalDataSourceType.BRAZE,
+        "Chargebee": ExternalDataSourceType.CHARGEBEE,
+        "DoIt": ExternalDataSourceType.DOIT,
+        "GoogleAds": ExternalDataSourceType.GOOGLEADS,
+        "GoogleSheets": ExternalDataSourceType.GOOGLESHEETS,
+        "Hubspot": ExternalDataSourceType.HUBSPOT,
+        "Klaviyo": ExternalDataSourceType.KLAVIYO,
+        "LinkedInAds": ExternalDataSourceType.LINKEDINADS,
+        "Mailchimp": ExternalDataSourceType.MAILCHIMP,
+        "MailJet": ExternalDataSourceType.MAILJET,
+        "MetaAds": ExternalDataSourceType.METAADS,
+        "MongoDB": ExternalDataSourceType.MONGODB,
+        "RedditAds": ExternalDataSourceType.REDDITADS,
+        "MSSQL": ExternalDataSourceType.MSSQL,
+        "MySQL": ExternalDataSourceType.MYSQL,
+        "Polar": ExternalDataSourceType.POLAR,
+        "Postgres": ExternalDataSourceType.POSTGRES,
+        "Redshift": ExternalDataSourceType.REDSHIFT,
+        "TikTokAds": ExternalDataSourceType.TIKTOKADS,
+        "RevenueCat": ExternalDataSourceType.REVENUECAT,
+        "Salesforce": ExternalDataSourceType.SALESFORCE,
+        "Shopify": ExternalDataSourceType.SHOPIFY,
+        "Snowflake": ExternalDataSourceType.SNOWFLAKE,
+        "Stripe": ExternalDataSourceType.STRIPE,
+        "TemporalIO": ExternalDataSourceType.TEMPORALIO,
+        "Vitally": ExternalDataSourceType.VITALLY,
+        "Zendesk": ExternalDataSourceType.ZENDESK,
+    }
+
+    source_type = name_to_enum.get(source_name)
+    if source_type is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    # Get the source instance and return its class
+    source_instance = SourceRegistry.get_source(source_type)
+    return type(source_instance)

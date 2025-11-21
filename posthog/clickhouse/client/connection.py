@@ -4,19 +4,18 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from enum import StrEnum
 from functools import cache
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
-from clickhouse_connect import get_client
-from clickhouse_connect.driver import (
-    Client as HttpClient,
-    httputil,
-)
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
 from posthog.settings import data_stores
 from posthog.utils import patchable
+
+if TYPE_CHECKING:
+    from clickhouse_connect.driver import HttpClient
 
 
 class Workload(StrEnum):
@@ -96,7 +95,7 @@ def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
 
 
 class ProxyClient:
-    def __init__(self, client: HttpClient):
+    def __init__(self, client: "HttpClient"):
         self._client = client
 
     def execute(
@@ -131,17 +130,23 @@ class ProxyClient:
         pass
 
 
-_clickhouse_http_pool_mgr = httputil.get_pool_manager(
-    maxsize=settings.CLICKHOUSE_CONN_POOL_MAX,  # max number of open connection per pool
-    block=True,  # makes the maxsize limit per pool, keeps connections
-    num_pools=12,  # number of pools
-    ca_cert=settings.CLICKHOUSE_CA,
-    verify=settings.QUERYSERVICE_VERIFY,
-)
+_clickhouse_http_pool_mgr: Any | None = None
+_get_client: Any | None = None
 
 
 @contextmanager
 def get_http_client(**overrides):
+    global _clickhouse_http_pool_mgr
+    if _clickhouse_http_pool_mgr is None:
+        from clickhouse_connect.driver import httputil
+
+        _clickhouse_http_pool_mgr = httputil.get_pool_manager(
+            maxsize=settings.CLICKHOUSE_CONN_POOL_MAX,  # max number of open connection per pool
+            block=True,  # makes the maxsize limit per pool, keeps connections
+            num_pools=12,  # number of pools
+            ca_cert=settings.CLICKHOUSE_CA,
+            verify=settings.QUERYSERVICE_VERIFY,
+        )
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -156,7 +161,16 @@ def get_http_client(**overrides):
         "pool_mgr": _clickhouse_http_pool_mgr,
         **overrides,
     }
-    yield ProxyClient(get_client(**kwargs))
+    global _get_client
+    if _get_client is None:
+        # clickhouse_connect always imports pandas _and_ numpy even though we don't use that functionality, so lazy load to avoid long startup times
+        from clickhouse_connect import get_client
+
+        _get_client = get_client
+    # At this point _get_client is guaranteed to be set
+    assert _get_client is not None
+    client = _get_client(**kwargs)
+    yield ProxyClient(client)  # type: ignore[arg-type]
 
 
 def get_kwargs_for_client(
