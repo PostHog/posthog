@@ -4487,7 +4487,6 @@ export type OnlineExportContext = {
 export type QueryExportContext = {
     source: Record<string, any>
     filename?: string
-    show_legend?: boolean
 }
 
 export interface ReplayExportContext {

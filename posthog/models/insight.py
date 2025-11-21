@@ -289,6 +289,22 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def url(self):
         return absolute_uri(f"/insights/{self.short_id}")
 
+    @property
+    def show_legend(self) -> bool:
+        """Extract show_legend display setting from insight configuration"""
+        try:
+            if self.query:
+                source = self.query.get("source", {})
+
+                # Check any filter which might contain `showLegend`
+                for value in source.values():
+                    if isinstance(value, dict) and "showLegend" in value:
+                        return bool(value.get("showLegend", False))
+
+            return bool(self.filters.get("show_legend", False) if self.filters else False)
+        except (AttributeError, TypeError, KeyError):
+            return False
+
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata
 
