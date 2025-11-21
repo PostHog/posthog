@@ -298,7 +298,6 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-posthog-ai
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
-    EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-workflows
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
@@ -317,7 +316,6 @@ export const FEATURE_FLAGS = {
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
-    EXPERIMENT_TIMESERIES: 'experiment-timeseries', // owner: @jurajmajerik #team-experiments
     DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE: 'schedule-feature-flag-variants-update', // owner: @gustavo #team-feature-flags
@@ -327,7 +325,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_BREAKDOWN_FILTER: 'experiments-breakdown-filter', // owner: @rodrigoi #team-experiments
     TARGETED_PRODUCT_UPSELL: 'targeted-product-upsell', // owner: @raquelmsmith
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
-    EXPERIMENTS_HIDE_STOP_BUTTON: 'experiments-hide-stop-button', // owner: @jurajmajerik #team-experiments
     REPLAY_CLIENT_SIDE_DECOMPRESSION: 'replay-client-side-decompression', // owner: @pauldambra #team-replay
     REPLAY_DECOMPRESSION_WORKER: 'replay-decompression-worker', // owner: @pauldambra #team-replay
     EXPERIMENTS_USE_NEW_QUERY_BUILDER: 'experiments-use-new-query-builder', // owner: @andehen #team-experiments
