@@ -5,7 +5,6 @@ import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { hasInAppFrames } from 'lib/components/Errors/utils'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -44,7 +43,7 @@ export function StacktraceTab({
 }: StacktraceTabProps): JSX.Element {
     const { loading, issueId } = useValues(exceptionCardLogic)
     const { setShowAllFrames } = useActions(exceptionCardLogic)
-    const { exceptionAttributes, exceptionList, hasStacktrace } = useValues(errorPropertiesLogic)
+    const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
     const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId)
@@ -55,7 +54,7 @@ export function StacktraceTab({
                 setShowAllFrames(true)
             }
         }
-    }, [loading])
+    }, [loading, hasStacktrace, hasInAppFrames, setShowAllFrames])
 
     return (
         <TabsPrimitiveContent {...props}>

@@ -38,6 +38,19 @@ export function ExceptionCardBase(): JSX.Element {
     )
 }
 
+export function ExceptionCardNoInApp(): JSX.Element {
+    return (
+        <div className="w-[800px]">
+            <ExceptionCard
+                issue={issue}
+                issueLoading={false}
+                event={TEST_EVENTS['javascript_no_in_app'] as any}
+                eventLoading={false}
+            />
+        </div>
+    )
+}
+
 export function ExceptionCardIssueLoading(): JSX.Element {
     return (
         <div className="w-[800px]">
