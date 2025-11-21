@@ -1,7 +1,8 @@
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconArrowLeft, IconChevronLeft, IconOpenSidebar, IconPlus, IconSidePanel } from '@posthog/icons'
+import { IconArrowLeft, IconChevronLeft, IconExpand45, IconOpenSidebar, IconPlus, IconSidePanel } from '@posthog/icons'
 import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -48,19 +49,14 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         return <NotFound object="page" caption="You don't have access to AI features yet." />
     }
 
-    if (
-        sidePanelOpen &&
-        selectedTab === SidePanelTab.Max &&
-        sidepanelConversationId &&
-        sidepanelConversationId === tabConversationId
-    ) {
+    if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
-            <SceneContent className="px-4 py-4">
+            <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
-                    <h3 className="text-xl font-bold mb-1">This chat is currently in the sidebar</h3>
-                    <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
+                    <h3 className="text-xl font-bold mb-1">The chat is currently in the sidebar</h3>
+                    <p className="text-sm text-muted mb-2">You can navigate freely around the app with it, or…</p>
                     <LemonButton
                         type="secondary"
                         size="xsmall"
@@ -120,11 +116,10 @@ export const MaxInstance = React.memo(function MaxInstance({
                     // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                     // This makes the transition from one view into another just that bit smoother visually.
                     <div
-                        className={
-                            sidePanel
-                                ? '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow'
-                                : '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
-                        }
+                        className={clsx(
+                            '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow',
+                            !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
+                        )}
                     >
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
                             <Intro />
@@ -203,7 +198,8 @@ export const MaxInstance = React.memo(function MaxInstance({
                     {!isAIOnlyMode && (
                         <LemonButton
                             size="small"
-                            to={urls.max(conversationId ?? undefined)}
+                            sideIcon={<IconExpand45 />}
+                            to={urls.ai(conversationId ?? undefined)}
                             onClick={() => {
                                 closeSidePanel()
                                 startNewConversation()

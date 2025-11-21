@@ -588,7 +588,7 @@ describe('maxThreadLogic', () => {
 
     describe('processNotebookUpdate', () => {
         it('navigates to notebook when not already on notebook page', async () => {
-            router.actions.push(urls.max())
+            router.actions.push(urls.ai())
 
             // Mock openNotebook to track its calls
             const openNotebookSpy = jest.spyOn(notebooksModel, 'openNotebook')
