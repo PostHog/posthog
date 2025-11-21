@@ -30,8 +30,8 @@ from posthog.temporal.ai.chat_agent import (
 )
 from posthog.utils import get_instance_region
 
-from ee.hogai.agent.executor import AgentExecutor
 from ee.hogai.api.serializers import ConversationSerializer
+from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types.base import AssistantMode

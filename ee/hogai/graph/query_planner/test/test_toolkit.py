@@ -79,10 +79,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="test", property_type="String"
         )
-        self.assertEqual(
-            toolkit.retrieve_entity_properties("person"),
-            "<properties><String><prop><name>test</name></prop></String></properties>",
-        )
+        result = toolkit.retrieve_entity_properties("person")
+        self.assertIn("The data format is as follows:", result)
+        self.assertIn("<String>", result)
+        self.assertIn("- test", result)
+        self.assertIn("</String>", result)
 
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
@@ -90,18 +91,17 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
-        self.assertEqual(
-            toolkit.retrieve_entity_properties("group"),
-            "<properties><Numeric><prop><name>test</name></prop></Numeric></properties>",
-        )
+        result = toolkit.retrieve_entity_properties("group")
+        self.assertIn("The data format is as follows:", result)
+        self.assertIn("<Numeric>", result)
+        self.assertIn("- test", result)
+        self.assertIn("</Numeric>", result)
 
-        self.assertNotEqual(
-            toolkit.retrieve_entity_properties("session"),
-            "<properties />",
-        )
+        result = toolkit.retrieve_entity_properties("session")
+        self.assertIn("The data format is as follows:", result)
         self.assertIn(
             "$session_duration",
-            toolkit.retrieve_entity_properties("session"),
+            result,
         )
 
     def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
@@ -237,22 +237,19 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         toolkit = DummyToolkit(self.team)
         for item in ("event1", self.action.id):
             prompt = toolkit.retrieve_event_or_action_properties(item)
-            self.assertIn(
-                "<Numeric><prop><name>id</name></prop></Numeric>",
-                prompt,
-            )
-            self.assertIn(
-                "<String><prop><name>$browser</name><description>Name of the browser the user has used.</description></prop></String>",
-                prompt,
-            )
-            self.assertIn(
-                "<DateTime><prop><name>date</name></prop></DateTime>",
-                prompt,
-            )
-            self.assertIn(
-                "<Boolean><prop><name>bool</name></prop></Boolean>",
-                prompt,
-            )
+            self.assertIn("The data format is as follows:", prompt)
+            self.assertIn("<Numeric>", prompt)
+            self.assertIn("- id", prompt)
+            self.assertIn("</Numeric>", prompt)
+            self.assertIn("<String>", prompt)
+            self.assertIn("- $browser – Name of the browser the user has used.", prompt)
+            self.assertIn("</String>", prompt)
+            self.assertIn("<DateTime>", prompt)
+            self.assertIn("- date", prompt)
+            self.assertIn("</DateTime>", prompt)
+            self.assertIn("<Boolean>", prompt)
+            self.assertIn("- bool", prompt)
+            self.assertIn("</Boolean>", prompt)
 
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()
@@ -297,6 +294,15 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(prop, "$geoip_city_name")
         self.assertEqual(type, "String")
         self.assertIsNotNone(description)
+
+    def test_generate_properties_output_replaces_newlines_in_descriptions(self):
+        toolkit = DummyToolkit(self.team)
+        props: list[tuple[str, str | None, str | None]] = [
+            ("test_prop", "String", "This is a description\nwith multiple\nlines")
+        ]
+        output = toolkit._generate_properties_output(props)
+        self.assertIn("- test_prop – This is a description with multiple lines", output)
+        self.assertNotIn("description\nwith", output)
 
 
 class TestFinalAnswerTool(BaseTest):

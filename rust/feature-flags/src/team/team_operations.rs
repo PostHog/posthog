@@ -18,14 +18,12 @@ use tracing::{debug, warn};
 /// 4. Return the team
 ///
 /// # Arguments
-/// * `redis_reader` - Redis client for cache reads
-/// * `redis_writer` - Redis client for cache writes
+/// * `redis_client` - Redis client (ReadWriteClient automatically routes reads to replica, writes to primary)
 /// * `token` - Token to use for cache key lookup
 /// * `db_lookup` - Async function to fetch team from PostgreSQL on cache miss
 /// * `cache_ttl_seconds` - Optional TTL for Redis cache entries in seconds
 pub async fn fetch_team_from_redis_with_fallback<F, Fut>(
-    redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    redis_client: Arc<dyn RedisClient + Send + Sync>,
     token: &str,
     cache_ttl_seconds: Option<u64>,
     db_lookup: F,
@@ -34,8 +32,8 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Team, FlagError>>,
 {
-    // Try to get team from cache first
-    match Team::from_redis(redis_reader.clone(), token).await {
+    // Try to get team from cache first (ReadWriteClient routes reads to replica)
+    match Team::from_redis(redis_client.clone(), token).await {
         Ok(team) => {
             debug!(team_id = team.id, "Found team in Redis cache");
             Ok(team)
@@ -46,9 +44,9 @@ where
             match db_lookup().await {
                 Ok(team) => {
                     debug!(team_id = team.id, "Found team in PostgreSQL");
-                    // Update Redis cache for next time
+                    // Update Redis cache for next time (ReadWriteClient routes writes to primary)
                     if let Err(e) =
-                        Team::update_redis_cache(redis_writer, &team, cache_ttl_seconds).await
+                        Team::update_redis_cache(redis_client, &team, cache_ttl_seconds).await
                     {
                         warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
                     }
@@ -450,24 +448,18 @@ mod tests {
             ..Default::default()
         };
 
-        // Set up mock redis_reader to return NotFound (which maps to TokenValidationError)
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
+        // Set up mock redis client to return NotFound (which maps to TokenValidationError)
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_ret(
             &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
             Err(CustomRedisError::NotFound),
         );
 
-        // Set up mock redis_writer to track SET calls
-        // Note: We don't need to set up exists/set return values - the mock
-        // will track calls and we just check if SET was invoked
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
 
         // Call the function with a DB lookup that returns the team
         let result =
-            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
+            fetch_team_from_redis_with_fallback(redis_client, &token, Some(3600), || async {
                 Ok(test_team.clone())
             })
             .await;
@@ -477,9 +469,9 @@ mod tests {
         assert_eq!(result.unwrap().id, team_id);
 
         // Verify SETEX was called (cache write happened with TTL)
-        let writer_calls = mock_writer.get_calls();
+        let client_calls = mock_client.get_calls();
         assert!(
-            writer_calls.iter().any(|call| call.op == "setex"),
+            client_calls.iter().any(|call| call.op == "setex"),
             "Expected SETEX to be called for NotFound error, but it wasn't"
         );
     }
@@ -499,22 +491,18 @@ mod tests {
             ..Default::default()
         };
 
-        // Set up mock redis_reader to return Timeout
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
+        // Set up mock redis client to return Timeout
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_ret(
             &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
             Err(CustomRedisError::Timeout),
         );
 
-        // Set up mock redis_writer to track SET calls
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
 
         // Call the function with a DB lookup that returns the team
         let result =
-            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
+            fetch_team_from_redis_with_fallback(redis_client, &token, Some(3600), || async {
                 Ok(test_team.clone())
             })
             .await;
@@ -524,9 +512,9 @@ mod tests {
         assert_eq!(result.unwrap().id, team_id);
 
         // Verify SET was NOT called (cache write was skipped)
-        let writer_calls = mock_writer.get_calls();
+        let client_calls = mock_client.get_calls();
         assert!(
-            !writer_calls.iter().any(|call| call.op == "set"),
+            !client_calls.iter().any(|call| call.op == "set"),
             "Expected SET to NOT be called for Timeout error, but it was"
         );
     }
@@ -546,9 +534,9 @@ mod tests {
             ..Default::default()
         };
 
-        // Set up mock redis_reader to return Redis error (unavailable)
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
+        // Set up mock redis client to return Redis error (unavailable)
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_ret(
             &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
             Err(CustomRedisError::from_redis_kind(
                 RedisErrorKind::IoError,
@@ -556,15 +544,11 @@ mod tests {
             )),
         );
 
-        // Set up mock redis_writer to track SET calls
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
 
         // Call the function with a DB lookup that returns the team
         let result =
-            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
+            fetch_team_from_redis_with_fallback(redis_client, &token, Some(3600), || async {
                 Ok(test_team.clone())
             })
             .await;
@@ -574,9 +558,9 @@ mod tests {
         assert_eq!(result.unwrap().id, team_id);
 
         // Verify SET was NOT called (cache write was skipped)
-        let writer_calls = mock_writer.get_calls();
+        let client_calls = mock_client.get_calls();
         assert!(
-            !writer_calls.iter().any(|call| call.op == "set"),
+            !client_calls.iter().any(|call| call.op == "set"),
             "Expected SET to NOT be called for Redis unavailable error, but it was"
         );
     }

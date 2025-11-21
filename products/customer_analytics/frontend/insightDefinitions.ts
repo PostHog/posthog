@@ -2,13 +2,11 @@ import { FunnelLayout } from 'lib/constants'
 
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
-    BaseMathType,
     BreakdownAttributionType,
     ChartDisplayType,
     FunnelConversionWindowTimeUnit,
     FunnelStepReference,
     FunnelVizType,
-    PropertyMathType,
     StepOrderValue,
 } from '~/types'
 
@@ -116,137 +114,6 @@ export const CUSTOMER_ANALYTICS_ENGAGEMENT_AND_CONVERSION_INSIGHTS: InsightDefin
                     funnelWindowInterval: 6,
                     breakdownAttributionType: BreakdownAttributionType.FirstTouch,
                     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
-                },
-                breakdownFilter: {
-                    breakdown_type: 'event',
-                },
-                filterTestAccounts: true,
-            },
-        },
-    },
-]
-
-export const CUSTOMER_ANALYTICS_SESSION_INSIGHTS: InsightDefinition[] = [
-    {
-        name: 'Unique sessions (last 1h)',
-        description: 'Events without session IDs are excluded.',
-        needsConfig: false,
-        className: 'h-[284px]',
-        query: {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        math: BaseMathType.UniqueSessions,
-                        name: 'All events',
-                        event: null,
-                    },
-                ],
-                interval: 'minute',
-                dateRange: {
-                    date_to: '',
-                    date_from: '-1h',
-                    explicitDate: false,
-                },
-                properties: [],
-                trendsFilter: {
-                    display: ChartDisplayType.BoldNumber,
-                    showLegend: false,
-                    yAxisScaleType: 'linear',
-                    showValuesOnSeries: false,
-                    showPercentStackView: false,
-                    aggregationAxisFormat: 'numeric',
-                    showAlertThresholdLines: false,
-                },
-                compareFilter: {
-                    compare: true,
-                },
-                breakdownFilter: undefined,
-                filterTestAccounts: true,
-            },
-        },
-    },
-    {
-        name: 'Unique users (last 1h)',
-        description: 'Number of unique users recently.',
-        needsConfig: false,
-        className: 'h-[284px]',
-        query: {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        math: BaseMathType.UniqueUsers,
-                        name: 'All events',
-                        event: null,
-                    },
-                ],
-                interval: 'hour',
-                dateRange: {
-                    date_to: '',
-                    date_from: '-1h',
-                    explicitDate: false,
-                },
-                properties: [],
-                trendsFilter: {
-                    display: ChartDisplayType.BoldNumber,
-                    showLegend: false,
-                    yAxisScaleType: 'linear',
-                    showValuesOnSeries: false,
-                    showPercentStackView: false,
-                    aggregationAxisFormat: 'numeric',
-                    showAlertThresholdLines: false,
-                },
-                compareFilter: {
-                    compare: true,
-                },
-                breakdownFilter: {
-                    breakdown_type: 'event',
-                },
-                filterTestAccounts: true,
-            },
-        },
-    },
-    {
-        name: 'Average session duration (last 1h)',
-        description: 'Average session duration for recent sessions.',
-        needsConfig: false,
-        className: 'h-[284px]',
-        query: {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        math: PropertyMathType.Average,
-                        name: '$pageview',
-                        event: '$pageview',
-                        math_property: '$session_duration',
-                    },
-                ],
-                interval: 'minute',
-                dateRange: {
-                    date_to: '',
-                    date_from: '-1h',
-                    explicitDate: false,
-                },
-                properties: [],
-                trendsFilter: {
-                    display: ChartDisplayType.BoldNumber,
-                    showLegend: false,
-                    yAxisScaleType: 'linear',
-                    showValuesOnSeries: false,
-                    showPercentStackView: false,
-                    aggregationAxisFormat: 'duration',
-                    showAlertThresholdLines: false,
-                },
-                compareFilter: {
-                    compare: true,
                 },
                 breakdownFilter: {
                     breakdown_type: 'event',

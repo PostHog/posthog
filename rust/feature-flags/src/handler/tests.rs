@@ -1145,14 +1145,11 @@ fn test_decode_request_content_types() {
 
 #[tokio::test]
 async fn test_fetch_and_filter_flags() {
-    let redis_reader_client = setup_redis_client(None).await;
-    let redis_writer_client = setup_redis_client(None).await;
+    let redis_client = setup_redis_client(None).await;
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let flag_service = FlagService::new(
-        redis_reader_client.clone(),
-        redis_writer_client.clone(),
+        redis_client.clone(),
         None, // No dedicated flags Redis in tests
-        None,
         reader.clone(),
         432000, // team_cache_ttl_seconds
         432000, // flags_cache_ttl_seconds
@@ -1220,7 +1217,7 @@ async fn test_fetch_and_filter_flags() {
     // Insert flags into redis
     let flags_json = serde_json::to_string(&flags).unwrap();
     insert_flags_for_team_in_redis(
-        redis_reader_client.clone(),
+        redis_client.clone(),
         team.id,
         team.project_id(),
         Some(flags_json),

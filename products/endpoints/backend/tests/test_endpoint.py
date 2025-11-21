@@ -1,14 +1,15 @@
 from datetime import datetime
 from time import sleep
 from typing import Any
+from uuid import uuid4
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import EndpointLastExecutionTimesRequest
+from posthog.schema import EndpointLastExecutionTimesRequest, EventsNode, TrendsQuery
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight_variable import InsightVariable
@@ -23,7 +24,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        self.sample_query = {
+        self.sample_hogql_query = {
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
@@ -36,13 +37,17 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "variables": None,
             "version": None,
         }
+        self.sample_insight_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode"}],
+        }
 
-    def test_create_endpoint(self):
+    def test_create_hogql_endpoint(self):
         """Test creating a endpoint successfully."""
         data = {
             "name": "test_query",
             "description": "Test query description",
-            "query": self.sample_query,
+            "query": self.sample_hogql_query,
         }
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
@@ -51,7 +56,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response_data = response.json()
 
         self.assertEqual("test_query", response_data["name"])
-        self.assertEqual(self.sample_query, response_data["query"])
+        self.assertEqual(self.sample_hogql_query, response_data["query"])
         self.assertEqual("Test query description", response_data["description"])
         self.assertTrue(response_data["is_active"])
         self.assertIn("id", response_data)
@@ -63,7 +68,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Verify it was saved to database
         endpoint = Endpoint.objects.get(name="test_query", team=self.team)
-        self.assertEqual(endpoint.query, self.sample_query)
+        self.assertEqual(endpoint.query, self.sample_hogql_query)
         self.assertEqual(endpoint.created_by, self.user)
         self.assertIsNone(endpoint.derived_from_insight)
 
@@ -75,12 +80,23 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "test_query")
 
+    def test_create_insight_endpoint(self):
+        data = {
+            "name": "test_insight_query",
+            "description": "Test query description",
+            "query": self.sample_insight_query,
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+
     def test_update_endpoint(self):
         """Test updating an existing endpoint."""
         endpoint = Endpoint.objects.create(
             name="update_test",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             description="Original description",
             created_by=self.user,
         )
@@ -143,7 +159,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         Endpoint.objects.create(
             name="delete_test",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
         )
 
@@ -175,7 +191,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         Endpoint.objects.create(
             name="inactive_test",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
             is_active=False,
         )
@@ -188,7 +204,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         """Test validation of invalid query names."""
         data = {
             "name": "invalid@name!",
-            "query": self.sample_query,
+            "query": self.sample_hogql_query,
         }
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
@@ -197,7 +213,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
     def test_missing_required_fields(self):
         """Test validation when required fields are missing."""
-        data: dict[str, Any] = {"query": self.sample_query}
+        data: dict[str, Any] = {"query": self.sample_hogql_query}
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
 
@@ -214,7 +230,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         Endpoint.objects.create(
             name="duplicate_test",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
         )
 
@@ -235,7 +251,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         Endpoint.objects.create(
             name="other_team_query",
             team=other_team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=other_user,
         )
 
@@ -270,7 +286,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         query_with_variables = {
             "kind": "HogQLQuery",
-            "query": "select * from events where toDate(timestamp) > {variables.from_date} limit 1",
+            "query": "select * from events where toDate(timestamp) > {variables.from_date}",
             "variables": {
                 str(variable.id): {"variableId": str(variable.id), "code_name": "from_date", "value": "2025-01-01"}
             },
@@ -284,7 +300,28 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        request_data = {"variables_values": {"from_date": "2025-09-18"}}
+        distinct_id = str(uuid4())
+
+        # add 3 events before 2025-09-18
+        for _ in range(0, 3):
+            _create_event(
+                distinct_id=distinct_id,
+                team=self.team,
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=datetime(2025, 9, 10),
+            )
+        # add 3 events after 2025-09-18
+        for _ in range(0, 3):
+            _create_event(
+                distinct_id=distinct_id,
+                team=self.team,
+                event="$event2",
+                properties={"$lib": "$web"},
+                timestamp=datetime(2025, 9, 21),
+            )
+
+        request_data = {"variables": {"from_date": "2025-09-18"}}
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/endpoints/query_with_variables/run/", request_data, format="json"
@@ -292,21 +329,47 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         response_data = response.json()
         self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
-        self.assertIn("results", response_data)
+        self.assertEqual(len(response_data["results"]), 3)
+
+    def test_execute_insight_endpoint_with_filters_override(self):
+        Endpoint.objects.create(
+            name="trends_query",
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode()]).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+        request_data = {
+            "filters_override": {
+                "date_from": "2025-09-18",
+                "date_to": "2025-09-21",
+                "properties": [{"type": "event", "operator": "exact", "key": "event", "value": "$pageview"}],
+            }
+        }
+        expected_filters = [{"key": "event", "label": None, "operator": "exact", "type": "event", "value": "$pageview"}]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/trends_query/run/", request_data, format="json"
+        )
+        response_data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+        self.assertEqual(response_data["resolved_date_range"]["date_from"], "2025-09-18T00:00:00Z")
+        self.assertEqual(response_data["resolved_date_range"]["date_to"], "2025-09-21T23:59:59.999999Z")
+        self.assertEqual(response_data["results"][0]["filter"]["properties"], expected_filters)
 
     def test_list_filter_by_is_active(self):
         """Test filtering endpoints by is_active status."""
         Endpoint.objects.create(
             name="active_query",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
         )
         Endpoint.objects.create(
             name="inactive_query",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
             is_active=False,
         )
@@ -332,13 +395,13 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         Endpoint.objects.create(
             name="query_by_user1",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
         )
         Endpoint.objects.create(
             name="query_by_user2",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=other_user,
         )
 
@@ -363,21 +426,21 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         Endpoint.objects.create(
             name="active_query_user1",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
         )
         Endpoint.objects.create(
             name="inactive_query_user1",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
             is_active=False,
         )
         Endpoint.objects.create(
             name="active_query_user2",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=other_user,
             is_active=True,
         )
@@ -396,14 +459,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         Endpoint.objects.create(
             name="query1",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
         )
         Endpoint.objects.create(
             name="query2",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
             is_active=False,
         )
@@ -608,9 +671,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/endpoints/hogql_validation_test/run/", override_payload, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         response_data = response.json()
-        self.assertIn("Query override is not supported for HogQL queries", response_data["detail"])
+        self.assertEqual("validation_error", response_data["type"])
 
     def test_get_last_execution_times_empty_names(self):
         """Test getting last execution times with empty names list."""
@@ -742,7 +805,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         """Test validation of cache_age_seconds field with various inputs."""
         data = {
             "name": f"cache_test_{name}",
-            "query": self.sample_query,
+            "query": self.sample_hogql_query,
             "cache_age_seconds": cache_age_seconds,
         }
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
@@ -859,7 +922,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         endpoint = Endpoint.objects.create(
             name="update_cache_test",
             team=self.team,
-            query=self.sample_query,
+            query=self.sample_hogql_query,
             created_by=self.user,
             cache_age_seconds=300,
         )
@@ -891,7 +954,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         data = {
             "name": "test_with_insight",
             "description": "Endpoint created from insight",
-            "query": self.sample_query,
+            "query": self.sample_hogql_query,
             "derived_from_insight": "abc123xyz",
         }
 

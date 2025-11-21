@@ -833,6 +833,14 @@ export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
+    /** Filter sessions by event name - sessions that contain this event */
+    event?: string | null
+    /**
+     * Filter sessions by action - sessions that contain events matching this action
+     */
+    actionId?: integer
+    /** Event property filters - only applies when event or actionId is set */
+    eventProperties?: AnyPropertyFilter[]
 }
 
 /**
@@ -1645,22 +1653,32 @@ export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
-    // Sync the `refresh` description here with the two instances in posthog/api/insight.py
     /**
      * Whether results should be calculated sync or async, and how much to rely on the cache:
      * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
-     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
      * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
-     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
-     * Background calculation can be tracked using the `query_status` response field.
      * @default 'blocking'
      */
     refresh?: RefreshType
+    /**
+     * A map for overriding insight query filters.
+     *
+     * Tip: Use to get data for a specific customer or user.
+     */
     filters_override?: DashboardFilter
-    variables_override?: Record<string, Record<string, any>>
-    variables_values?: Record<string, any>
+    /**
+     * A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value.
+     * Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date})
+     * For example: {"from_date": "1970-01-01"}
+     */
+    variables?: Record<string, any>
+    /**
+     * Map of Insight query keys to be overridden at execution time.
+     * For example:
+     *   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}
+     *   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}
+     *   The query executed will return the count of $identify events, instead of $pageview's
+     */
     query_override?: Record<string, any>
 }
 

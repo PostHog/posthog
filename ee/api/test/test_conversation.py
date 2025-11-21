@@ -102,7 +102,7 @@ class TestConversation(APIBaseTest):
         conversation_id = str(uuid.uuid4())
 
         with patch(
-            "ee.hogai.agent.executor.AgentExecutor.astream",
+            "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -129,7 +129,7 @@ class TestConversation(APIBaseTest):
 
     def test_add_message_to_existing_conversation(self):
         with patch(
-            "ee.hogai.agent.executor.AgentExecutor.astream",
+            "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -195,7 +195,7 @@ class TestConversation(APIBaseTest):
     def test_rate_limit_burst(self):
         # Create multiple requests to trigger burst rate limit
         with patch(
-            "ee.hogai.agent.executor.AgentExecutor.astream",
+            "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -227,7 +227,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
         )
         with patch(
-            "ee.hogai.agent.executor.AgentExecutor.astream",
+            "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -263,7 +263,7 @@ class TestConversation(APIBaseTest):
 
     def test_nonexistent_conversation(self):
         with patch(
-            "ee.hogai.agent.executor.AgentExecutor.astream",
+            "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -296,7 +296,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch("ee.hogai.agent.executor.AgentExecutor.cancel_workflow")
+    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation(self, mock_cancel):
         conversation = Conversation.objects.create(
             user=self.user,
@@ -340,7 +340,7 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("ee.hogai.agent.executor.AgentExecutor.cancel_workflow")
+    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_with_async_cleanup(self, mock_cancel):
         """Test that cancel endpoint properly handles async cleanup."""
         conversation = Conversation.objects.create(
@@ -360,7 +360,7 @@ class TestConversation(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    @patch("ee.hogai.agent.executor.AgentExecutor.cancel_workflow")
+    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
     def test_cancel_conversation_async_cleanup_failure(self, mock_cancel):
         """Test cancel endpoint behavior when async cleanup fails."""
         conversation = Conversation.objects.create(
@@ -428,7 +428,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
         )
         with patch(
-            "ee.hogai.agent.executor.AgentExecutor.astream",
+            "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_stream_conversation:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -606,7 +606,7 @@ class TestConversation(APIBaseTest):
         conversation = Conversation.objects.create(user=self.user, team=self.team)
 
         with patch(
-            "ee.hogai.agent.executor.AgentExecutor.astream",
+            "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
@@ -630,7 +630,7 @@ class TestConversation(APIBaseTest):
         conversation = Conversation.objects.create(user=self.user, team=self.team)
 
         with patch(
-            "ee.hogai.agent.executor.AgentExecutor.astream",
+            "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ) as mock_start_workflow_and_stream:
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
