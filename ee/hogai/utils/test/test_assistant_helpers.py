@@ -1,5 +1,5 @@
-from typing import Sequence
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from collections.abc import Sequence
+
 from posthog.test.base import BaseTest
 
 from langchain_core.messages import AIMessage
@@ -15,13 +15,12 @@ from posthog.schema import (
 
 from ee.hogai.utils.helpers import (
     convert_tool_messages_to_dict,
-    filter_and_merge_messages,
     find_start_message,
     find_start_message_idx,
-    insert_messages_before_start,
     normalize_ai_message,
     should_output_assistant_message,
 )
+from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
 class TestAssistantHelpers(BaseTest):
@@ -404,13 +403,12 @@ class TestExtractThinkingFromAIMessage(BaseTest):
         self.assertEqual(thinking[1]["content"], "Thought 2")
 
 
-
 class TestConvertToolMessagesToDict(BaseTest):
     """Test convert_tool_messages_to_dict function."""
 
     def test_convert_single_tool_message(self):
         """Test converting a single tool message to dictionary"""
-        messages :  Sequence[AssistantMessageUnion]= [
+        messages: Sequence[AssistantMessageUnion] = [
             AssistantToolCallMessage(content="Result 1", tool_call_id="tc1", type="tool"),
         ]
 
@@ -422,7 +420,7 @@ class TestConvertToolMessagesToDict(BaseTest):
 
     def test_convert_multiple_tool_messages(self):
         """Test converting multiple tool messages"""
-        messages:  Sequence[AssistantMessageUnion] = [
+        messages: Sequence[AssistantMessageUnion] = [
             AssistantToolCallMessage(content="Result 1", tool_call_id="tc1", type="tool"),
             AssistantToolCallMessage(content="Result 2", tool_call_id="tc2", type="tool"),
             AssistantToolCallMessage(content="Result 3", tool_call_id="tc3", type="tool"),
@@ -437,7 +435,7 @@ class TestConvertToolMessagesToDict(BaseTest):
 
     def test_convert_ignores_non_tool_messages(self):
         """Test that non-tool messages are ignored"""
-        messages:  Sequence[AssistantMessageUnion]= [
+        messages: Sequence[AssistantMessageUnion] = [
             HumanMessage(content="Hello", id="h1"),
             AssistantMessage(content="Response", type="ai", id="a1"),
             AssistantToolCallMessage(content="Result 1", tool_call_id="tc1", type="tool"),
@@ -456,7 +454,7 @@ class TestConvertToolMessagesToDict(BaseTest):
 
     def test_convert_preserves_tool_call_metadata(self):
         """Test that tool message metadata is preserved"""
-        messages:  Sequence[AssistantMessageUnion] = [
+        messages: Sequence[AssistantMessageUnion] = [
             AssistantToolCallMessage(
                 content="Result with UI", tool_call_id="tc1", type="tool", ui_payload={"data": "value"}
             ),

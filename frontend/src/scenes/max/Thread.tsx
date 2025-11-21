@@ -263,6 +263,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                                     : [],
                                             },
                                         ]}
+                                        registeredToolMap={registeredToolMap}
                                     />
                                 ) : (
                                     <ReasoningAnswer

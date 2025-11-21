@@ -82,7 +82,7 @@ export interface ModeDefinition {
     name: string
 }
 
-export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write' | 'web_search'>, ToolDefinition> = {
+export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'web_search', ToolDefinition> = {
     web_search: {
         name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one
         description: 'Search the web for up-to-date information',
