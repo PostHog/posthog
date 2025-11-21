@@ -94,7 +94,12 @@ class HobbyTester:
 
             print(f"✅ Generated ephemeral SSH key for droplet access", flush=True)
         except subprocess.CalledProcessError as e:
-            print(f"⚠️  Failed to generate SSH key: {e.stderr}", flush=True)
+            error_details = f"exit code {e.returncode}"
+            if e.stderr:
+                error_details += f": {e.stderr}"
+            print(f"⚠️  Failed to generate SSH key ({error_details})", flush=True)
+        except FileNotFoundError:
+            print("⚠️  ssh-keygen not found - SSH log fetching unavailable", flush=True)
         except Exception as e:
             print(f"⚠️  Failed to generate SSH key: {e}", flush=True)
 
