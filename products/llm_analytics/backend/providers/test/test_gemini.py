@@ -35,7 +35,7 @@ class TestGeminiConfig(BaseTest):
 
 class TestGeminiProvider(BaseTest):
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_provider_initialization(self, mock_posthog_client, mock_genai_client):
         mock_posthog_client.return_value = MagicMock()
@@ -57,7 +57,7 @@ class TestGeminiProvider(BaseTest):
             GeminiProvider("gemini-2.0-flash")
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_invalid_model_raises_error(self, mock_posthog_client, mock_genai_client):
         mock_posthog_client.return_value = MagicMock()
@@ -74,7 +74,7 @@ class TestGeminiStreamResponse(BaseTest):
         self.messages = cast(list[MessageParam], [{"role": "user", "content": "Test message"}])
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_basic_text_streaming(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -106,7 +106,7 @@ class TestGeminiStreamResponse(BaseTest):
         assert json.loads(responses[1].replace("data: ", "").strip()) == {"type": "text", "text": "world!"}
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_streaming_with_none_parts(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -136,7 +136,7 @@ class TestGeminiStreamResponse(BaseTest):
         assert json.loads(responses[0].replace("data: ", "").strip()) == {"type": "text", "text": "Test text"}
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_streaming_with_empty_parts(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -165,7 +165,7 @@ class TestGeminiStreamResponse(BaseTest):
         assert len(responses) == 0
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_streaming_with_function_calls(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -216,7 +216,7 @@ class TestGeminiStreamResponse(BaseTest):
         assert json.loads(tool_response["function"]["arguments"]) == {"location": "San Francisco"}
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_streaming_with_text_in_parts(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -252,7 +252,7 @@ class TestGeminiStreamResponse(BaseTest):
         assert json.loads(responses[0].replace("data: ", "").strip()) == {"type": "text", "text": "Text from parts"}
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_streaming_with_mixed_parts(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -305,7 +305,7 @@ class TestGeminiStreamResponse(BaseTest):
         assert tool_response["function"]["name"] == "get_weather"
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_streaming_with_usage_metadata(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -345,7 +345,7 @@ class TestGeminiErrorHandling(BaseTest):
         self.messages = cast(list[MessageParam], [{"role": "user", "content": "Test message"}])
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_api_error_handling(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -366,7 +366,7 @@ class TestGeminiErrorHandling(BaseTest):
         assert error_response["error"] == "Gemini API error"
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_generic_exception_handling(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -385,7 +385,7 @@ class TestGeminiErrorHandling(BaseTest):
         assert error_response["error"] == "Unexpected error"
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_missing_candidates_attribute(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -409,7 +409,7 @@ class TestGeminiErrorHandling(BaseTest):
         assert json.loads(responses[0].replace("data: ", "").strip()) == {"type": "text", "text": "Text response"}
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_candidate_without_content(self, mock_posthog, mock_genai):
         mock_posthog.return_value = self.mock_posthog_client
@@ -438,7 +438,7 @@ class TestGeminiErrorHandling(BaseTest):
 
 class TestGeminiIntegration(BaseTest):
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     @patch("products.llm_analytics.backend.providers.gemini.uuid.uuid4")
     def test_trace_id_generation(self, mock_uuid, mock_posthog, mock_genai):
@@ -471,7 +471,7 @@ class TestGeminiIntegration(BaseTest):
         assert call_kwargs["posthog_trace_id"] == test_uuid
 
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_properties_include_ai_product(self, mock_posthog, mock_genai):
         mock_posthog.return_value = MagicMock()
@@ -508,7 +508,7 @@ class TestGeminiIntegration(BaseTest):
         ]
     )
     @override_settings(GEMINI_API_KEY="test-api-key")
-    @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
+    @patch("posthoganalytics.ai.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
     def test_temperature_and_max_tokens_handling(
         self, input_temp, input_max_tokens, expected_temp, expected_max_tokens, mock_posthog, mock_genai

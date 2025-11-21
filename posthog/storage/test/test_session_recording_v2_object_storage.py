@@ -30,7 +30,7 @@ class TestSessionRecordingV2Storage(APIBaseTest):
     def teardown_method(self, method) -> None:
         pass
 
-    @patch("posthog.storage.session_recording_v2_object_storage.boto3_client")
+    @patch("boto3.client")
     def test_client_constructor_uses_correct_settings(self, patched_boto3_client) -> None:
         # Reset the global client to ensure we test client creation
         import posthog.storage.session_recording_v2_object_storage as storage_module
@@ -78,7 +78,7 @@ class TestSessionRecordingV2Storage(APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.storage.session_recording_v2_object_storage.boto3_client")
+    @patch("boto3.client")
     def test_does_not_create_client_if_required_settings_missing(self, settings_override, patched_s3_client) -> None:
         with self.settings(**settings_override):
             storage_client = client()
@@ -285,16 +285,16 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
     def teardown_method(self, method) -> None:
         pass
 
-    @patch("posthog.storage.session_recording_v2_object_storage.aioboto3")
-    async def test_client_constructor_uses_correct_settings(self, patched_aioboto3) -> None:
+    @patch("aioboto3.Session")
+    async def test_client_constructor_uses_correct_settings(self, patched_aioboto3_session) -> None:
         # Reset the global client to ensure we test client creation
         import posthog.storage.session_recording_v2_object_storage as storage_module
 
         client_mock = MagicMock(AsyncContextManager)
-        patched_aioboto3.Session.return_value.client = client_mock
+        patched_aioboto3_session.return_value.client = client_mock
 
         async with storage_module.async_client() as client:
-            assert patched_aioboto3.Session.call_count == 1
+            assert patched_aioboto3_session.call_count == 1
             assert client_mock.call_count == 1
 
             call_args = client_mock.call_args[0]
@@ -329,11 +329,13 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.storage.session_recording_v2_object_storage.aioboto3")
-    async def test_throws_runtimeerror_if_required_settings_missing(self, settings_override, patched_aioboto3) -> None:
+    @patch("aioboto3.Session")
+    async def test_throws_runtimeerror_if_required_settings_missing(
+        self, settings_override, patched_aioboto3_session
+    ) -> None:
         with self.settings(**settings_override):
             client_mock = MagicMock(AsyncContextManager)
-            patched_aioboto3.Session.return_value.client = client_mock
+            patched_aioboto3_session.return_value.client = client_mock
 
             with self.assertRaises(RuntimeError) as _:
                 async with async_client() as _:

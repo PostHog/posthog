@@ -40,7 +40,7 @@ class TestStorage(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
-    @patch("posthog.storage.object_storage.client")
+    @patch("boto3.client")
     def test_does_not_create_client_if_storage_is_disabled(self, patched_s3_client) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             assert not health_check()
