@@ -299,7 +299,7 @@ ORDER BY p.id DESC
                         context.log.warning(error_msg)
                         if retry_attempt < MAX_RETRY_ATTEMPTS:
                             retry_attempt += 1
-                            context.log.warning(f"Retrying batch {retry_attempt} of 3...")
+                            context.log.warning(f"Retrying batch {retry_attempt} of {MAX_RETRY_ATTEMPTS}...")
                             time.sleep(1)
                             continue
 
@@ -317,7 +317,7 @@ ORDER BY p.id DESC
                         context.log.warning(error_msg)
                         if retry_attempt < MAX_RETRY_ATTEMPTS:
                             retry_attempt += 1
-                            context.log.warning(f"Retrying batch {retry_attempt} of 3...")
+                            context.log.warning(f"Retrying batch {retry_attempt} of {MAX_RETRY_ATTEMPTS}...")
                             time.sleep(1)
                             continue
 
@@ -357,7 +357,7 @@ ORDER BY p.id DESC
 
     except Exception as e:
         # Catch any other unexpected errors
-        error_msg = f"Unexpected error scanning and deleteting from chunk {chunk_min}-{chunk_max}: {str(e)}"
+        error_msg = f"Unexpected error scanning and deleting from chunk {chunk_min}-{chunk_max}: {str(e)}"
         context.log.exception(error_msg)
         # Report fatal error metric before raising
         try:
