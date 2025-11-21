@@ -68,19 +68,19 @@ class PersonStrategy(ActorStrategy):
                 {"uuids": list(actor_ids), "team_id": self.team.pk},
             )
             people = cursor.fetchall()
-            cursor.execute(
-                f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
-            FROM {pdi_table}
-            WHERE {pdi_table}.person_id = ANY(%(people_ids)s)
-            AND {pdi_table}.team_id = %(team_id)s""",
-                {"people_ids": [x[0] for x in people], "team_id": self.team.pk},
-            )
+            people_ids = [x[0] for x in people]
             distinct_ids = []
             batch_size = 10000
-            while True:
-                batched_distinct_ids = cursor.fetchmany(batch_size)
-                if not batched_distinct_ids:
-                    break
+            for i in range(0, len(people_ids), batch_size):
+                batch = people_ids[i : i + batch_size]
+                cursor.execute(
+                    f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
+                FROM {pdi_table}
+                WHERE {pdi_table}.person_id = ANY(%(people_ids)s)
+                AND {pdi_table}.team_id = %(team_id)s""",
+                    {"people_ids": batch, "team_id": self.team.pk},
+                )
+                batched_distinct_ids = cursor.fetchall()
                 distinct_ids.extend(batched_distinct_ids)
 
         person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in people}
