@@ -7,14 +7,6 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_DATA_TABLE,
 )
 
-DETACH_KAFKA = """
-    DETACH TABLE IF EXISTS kafka_events_json;
-"""
-
-ATTACH_KAFKA = """
-    ATTACH TABLE IF EXISTS kafka_events_json;
-"""
-
 DROP_EVENTS_TABLE_JSON_MV = """
     DROP TABLE IF EXISTS events_json_mv SYNC;
 """
