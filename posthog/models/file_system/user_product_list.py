@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, cast
 
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Count
 from django.db.models.expressions import F
@@ -213,6 +214,15 @@ def access_control_created(sender, instance, created, **kwargs):
     if created and instance.organization_member and instance.resource == "project":
         user = instance.organization_member.user
         team = instance.team
+
+        def create_user_product_lists():
+            UserProductList.backfill_from_other_teams(user, team)
+            UserProductList.sync_from_team_colleagues(user, team, count=3)
+
+        if settings.TEST:
+            create_user_product_lists()
+        else:
+            transaction.on_commit(lambda: create_user_product_lists())
 
         transaction.on_commit(lambda: UserProductList.backfill_from_other_teams(user, team))
         transaction.on_commit(lambda: UserProductList.sync_from_team_colleagues(user, team, count=3))
