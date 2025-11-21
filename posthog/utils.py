@@ -731,7 +731,7 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
-def generate_cache_key(team_pk: str, stringified: str) -> str:
+def generate_cache_key(team_pk: int, stringified: str) -> str:
     return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
