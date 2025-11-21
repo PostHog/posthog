@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 PROPERTY_TYPE_TO_COLUMN_NAME = {
     "String": "string",
-    "Numeric": "float",
+    "Numeric": "numeric",
     "Boolean": "bool",
     "DateTime": "datetime",
 }

@@ -49,7 +49,7 @@ class TestDmatIntegration(BaseTest):
         )
 
         # Should use dmat column
-        assert "dmat_float_3" in query, f"Expected dmat_float_3 in query but got: {query}"
+        assert "dmat_numeric_3" in query, f"Expected dmat_numeric_3 in query but got: {query}"
         assert "JSONExtractRaw" not in query
 
     def test_falls_back_to_json_when_no_slot(self):
@@ -96,7 +96,7 @@ class TestDmatIntegration(BaseTest):
         )
 
         # Should NOT use dmat (slot is in BACKFILL state)
-        assert "dmat_float_0" not in query
+        assert "dmat_numeric_0" not in query
         # Should use JSON extraction or properties access
         assert "properties" in query or "JSONExtractRaw" in query
 

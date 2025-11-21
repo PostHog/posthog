@@ -62,7 +62,7 @@ export function MaterializedColumns(): JSX.Element {
             // Map property types to their column name prefixes
             const typeToColumnName: Record<string, string> = {
                 String: 'string',
-                Numeric: 'float',
+                Numeric: 'numeric',
                 Boolean: 'bool',
                 DateTime: 'datetime',
             }

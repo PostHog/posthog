@@ -1937,7 +1937,7 @@ class _Printer(Visitor[str]):
         """
         Get the dmat column name for a property if available.
 
-        Returns the column name (e.g., 'dmat_float_3') if a materialized slot exists,
+        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
         otherwise None.
         """
         if self.context.property_swapper is None:
