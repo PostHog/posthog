@@ -8934,24 +8934,38 @@ class EndpointRunRequest(BaseModel):
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
-    filters_override: Optional[DashboardFilter] = None
-    query_override: Optional[dict[str, Any]] = None
+    filters_override: Optional[DashboardFilter] = Field(
+        default=None,
+        description=(
+            "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
+        ),
+    )
+    query_override: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            'Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {"kind":'
+            ' "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math":'
+            ' "total"}]}   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event":'
+            ' "$identify","math": "total"}]}   The query executed will return the count of $identify events, instead of'
+            " $pageview's"
+        ),
+    )
     refresh: Optional[RefreshType] = Field(
         default=RefreshType.BLOCKING,
         description=(
             "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
             " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
-            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
-            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
-            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
-            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
-            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
-            " completes immediately as it never calculates Background calculation can be tracked using the"
-            " `query_status` response field."
+            " the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached"
         ),
     )
-    variables_override: Optional[dict[str, dict[str, Any]]] = None
-    variables_values: Optional[dict[str, Any]] = None
+    variables: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "A map for overriding HogQL query variables, where the key is the variable name and the value is the"
+            " variable value. Variable must be set on the endpoint's query between curly braces (i.e."
+            ' {variable.from_date}) For example: {"from_date": "1970-01-01"}'
+        ),
+    )
 
 
 class EntityNode(BaseModel):
