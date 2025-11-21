@@ -33,6 +33,7 @@ class HobbyTester:
         record=None,
         sha=None,
         pr_number=None,
+        ssh_private_key=None,
     ):
         if not token:
             token = os.getenv("DIGITALOCEAN_TOKEN")
@@ -60,13 +61,17 @@ class HobbyTester:
         if record_id:
             self.record = digitalocean.Record(token=self.token, id=record_id)
 
-        # Generate ephemeral SSH keypair for CI log access
-        self.ssh_private_key = None
+        # Use provided SSH private key, or generate a new one for droplet creation
+        self.ssh_private_key = ssh_private_key
         self.ssh_public_key = None
-        self._generate_ssh_key()
+        if not ssh_private_key:
+            self._generate_ssh_key()
 
-        # Build user_data with SSH pubkey included
-        self.user_data = self._build_user_data()
+        # Build user_data with SSH pubkey included (only needed for droplet creation)
+        if not ssh_private_key:
+            self.user_data = self._build_user_data()
+        else:
+            self.user_data = None
 
     def _generate_ssh_key(self):
         """Generate ephemeral SSH keypair for droplet access"""
@@ -552,6 +557,7 @@ def main():
         name = os.environ.get("HOBBY_NAME")
         record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+        ssh_private_key = os.environ.get("HOBBY_SSH_PRIVATE_KEY")
         print("Waiting for deployment to become healthy", flush=True)
         print(f"Record ID: {record_id}", flush=True)
         print(f"Droplet ID: {droplet_id}", flush=True)
@@ -560,6 +566,7 @@ def main():
             name=name,
             record_id=record_id,
             droplet_id=droplet_id,
+            ssh_private_key=ssh_private_key,
         )
         health_success = ht.test_deployment()
         if health_success:
