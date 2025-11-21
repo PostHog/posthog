@@ -1,9 +1,8 @@
-import { useActions } from 'kea'
-import { router } from 'kea-router'
+import { useState } from 'react'
 
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { urls } from 'scenes/urls'
+import { IconChevronRight } from '@posthog/icons'
 
+import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 
 import { QUERY_TYPES_METADATA } from '../saved-insights/SavedInsights'
@@ -13,29 +12,37 @@ export interface InsightDiveDeeperSectionProps {
     query: InsightQueryNode
 }
 
-const columns: LemonTableColumns<FollowUpSuggestion> = [
-    {
-        title: 'Suggested insight',
-        key: 'title',
-        render: (_, suggestion) => {
-            const InsightIcon = QUERY_TYPES_METADATA[suggestion.targetQuery.source.kind]?.icon
-            return (
-                <div className="flex items-start gap-2 py-1">
-                    {InsightIcon && <InsightIcon />}
-                    <div className="flex flex-col">
-                        <span className="font-semibold">{suggestion.title}</span>
-                        {suggestion.description && (
-                            <span className="text-muted text-xs mt-0.5">{suggestion.description}</span>
-                        )}
-                    </div>
+function DiveDeeperRow({ suggestion }: { suggestion: FollowUpSuggestion }): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(false)
+    const InsightIcon = QUERY_TYPES_METADATA[suggestion.targetQuery.source.kind]?.icon
+
+    return (
+        <div className="border border-border rounded bg-surface-primary">
+            <div
+                className="flex items-center gap-3 p-3 cursor-pointer hover:bg-surface-secondary rounded-t"
+                onClick={() => setIsExpanded(!isExpanded)}
+            >
+                <div className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                    <IconChevronRight className="text-xl" />
                 </div>
-            )
-        },
-    },
-]
+                {InsightIcon && <InsightIcon className="text-secondary text-3xl" />}
+                <div className="flex flex-col flex-1">
+                    <span className="font-semibold">{suggestion.title}</span>
+                    {suggestion.description && (
+                        <span className="text-muted text-xs mt-0.5">{suggestion.description}</span>
+                    )}
+                </div>
+            </div>
+            {isExpanded && (
+                <div className="border-t border-border p-4 bg-surface-primary">
+                    <Query query={suggestion.targetQuery} readOnly embedded />
+                </div>
+            )}
+        </div>
+    )
+}
 
 export function InsightDiveDeeperSection({ query }: InsightDiveDeeperSectionProps): JSX.Element | null {
-    const { push } = useActions(router)
     const suggestions = getSuggestedFollowUps(query)
 
     if (suggestions.length === 0) {
@@ -47,14 +54,11 @@ export function InsightDiveDeeperSection({ query }: InsightDiveDeeperSectionProp
             <h2 className="font-semibold text-lg m-0 mb-2">Dive deeper</h2>
             <p className="text-muted mb-4">Explore related insights to understand your data better</p>
 
-            <LemonTable
-                showHeader={false}
-                columns={columns}
-                dataSource={suggestions}
-                onRow={(suggestion) => ({
-                    onClick: () => push(urls.insightNew({ query: suggestion.targetQuery })),
-                })}
-            />
+            <div className="space-y-2">
+                {suggestions.map((suggestion, index) => (
+                    <DiveDeeperRow key={index} suggestion={suggestion} />
+                ))}
+            </div>
         </div>
     )
 }
