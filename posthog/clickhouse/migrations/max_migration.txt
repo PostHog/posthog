@@ -1,1 +1,1 @@
-0180_add_metadata_column_to_document_embeddings.
+0180_add_metadata_column_to_document_embeddings
