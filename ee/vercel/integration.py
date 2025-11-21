@@ -396,11 +396,11 @@ class VercelIntegration:
             initiating_user=installation.created_by or None,
             organization=organization,
             name=config.name,
-            has_completed_onboarding_for={
-                "product_analytics": True
-            },  # Mark one product as onboarded to show quick start sidebar
+            # Mark one product as onboarded to skip onboarding flow and show quick start sidebar instead
+            has_completed_onboarding_for={"product_analytics": True},
         )
 
+        # Populate intent, this will add to the sidebar and also to the quick start section
         if installation.created_by:
             ProductIntent.register(
                 team=team,
