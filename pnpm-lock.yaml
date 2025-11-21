@@ -513,6 +513,9 @@ importers:
       '@posthog/products-revenue-analytics':
         specifier: workspace:*
         version: link:../products/revenue_analytics
+      '@posthog/products-session-summaries':
+        specifier: workspace:*
+        version: link:../products/session_summaries
       '@posthog/products-surveys':
         specifier: workspace:*
         version: link:../products/surveys
@@ -2361,6 +2364,27 @@ importers:
       kea-forms:
         specifier: ^3.2.0
         version: 3.2.0(kea@3.1.7(react@18.2.0))
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/session_summaries:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.35.2
+        version: 0.35.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
       kea-loaders:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.7(react@18.2.0))

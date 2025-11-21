@@ -72,6 +72,7 @@ class SingleSessionSummaryLlmInputs:
     window_mapping_reversed: dict[str, str]
     session_start_time_str: str
     session_duration: int
+    distinct_id: str | None
     model_to_use: str
 
 
@@ -237,6 +238,7 @@ def prepare_single_session_summary_input(
         window_mapping_reversed=summary_data.prompt_data.window_mapping_reversed,
         session_start_time_str=summary_data.prompt_data.prompt_data.metadata.start_time.isoformat(),
         session_duration=summary_data.prompt_data.prompt_data.metadata.duration,
+        distinct_id=summary_data.prompt_data.prompt_data.metadata.distinct_id,
         model_to_use=model_to_use,
     )
     return input_data
