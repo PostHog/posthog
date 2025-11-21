@@ -3056,8 +3056,13 @@ export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseVali
  * For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.
  */
 export interface ExperimentBreakdownResult {
-    /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) */
-    breakdown_value: BreakdownKeyType[]
+    /**
+     * The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single)
+     * Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value.
+     * The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow
+     * for the types using it to define if it's and array or an optional value.
+     */
+    breakdown_value: (integer | string | number)[]
     /** Control variant stats for this breakdown */
     baseline: ExperimentStatsBaseValidated
     /** Test variant results with statistical comparisons for this breakdown */
