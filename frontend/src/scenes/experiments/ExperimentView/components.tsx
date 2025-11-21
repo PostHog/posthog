@@ -8,6 +8,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonDialog,
+    LemonDivider,
     LemonLabel,
     LemonModal,
     LemonSelect,
@@ -604,10 +605,13 @@ export function PageHeaderCustom(): JSX.Element {
                             </ButtonPrimitive>
                         )}
 
+                        <LemonDivider />
+
                         <ResetButton />
 
                         {!experiment.end_date && (
                             <ButtonPrimitive
+                                variant="danger"
                                 menuItem
                                 data-attr="stop-experiment"
                                 onClick={() => openStopExperimentModal()}
@@ -761,9 +765,15 @@ export function StopExperimentModal(): JSX.Element {
                 </div>
             }
         >
-            <div>
-                <div className="mb-2">
-                    Stopping the experiment will end data collection. You can restart it later if needed.
+            <div className="space-y-4">
+                <div>
+                    Stopping the experiment will mark when to stop counting events in the results. Your feature flag
+                    will continue working normally and events will still be tracked. You can restart the experiment
+                    later if needed.
+                </div>
+                <div>
+                    To roll out a specific variant to all users, use the 'Ship a variant' button or adjust the feature
+                    flag settings.
                 </div>
                 <ConclusionForm />
             </div>
@@ -909,7 +919,7 @@ export const ResetButton = (): JSX.Element => {
     }
 
     return (
-        <ButtonPrimitive menuItem onClick={onClickReset} data-attr="reset-experiment">
+        <ButtonPrimitive variant="danger" menuItem onClick={onClickReset} data-attr="reset-experiment">
             <IconRefresh /> Reset experiment
         </ButtonPrimitive>
     )
