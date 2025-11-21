@@ -15,10 +15,13 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, HumanMessage
+from posthog.schema import AgentMode, AssistantMessage, AssistantToolCallMessage, ContextMessage, HumanMessage
 
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.context.prompts import CONTEXT_INITIAL_MODE_PROMPT
+from ee.hogai.graph.agent_modes.prompts import ROOT_AGENT_MODE_REMINDER_PROMPT
+from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.types import AssistantMessageUnion
 
@@ -101,7 +104,13 @@ class ConversationCompactionManager(ABC):
         return await self._get_token_count(model, messages, tools, **kwargs)
 
     def update_window(
-        self, messages: Sequence[T], summary_message: ContextMessage, start_id: str | None = None
+        self,
+        messages: Sequence[T],
+        summary_message: ContextMessage,
+        agent_mode: AgentMode,
+        start_id: str | None = None,
+        # Delete when modes are rolled out
+        is_modes_feature_flag_enabled: bool = False,
     ) -> InsertionResult:
         """Finds the optimal position to insert the summary message in the conversation window."""
         window_start_id_candidate = self.find_window_boundary(messages, max_messages=16, max_tokens=2048)
@@ -114,8 +123,15 @@ class ConversationCompactionManager(ABC):
 
         # The last messages were too large to fit into the window. Copy the last human message to the start of the window.
         if not window_start_id_candidate:
+            result_messages = [*messages, summary_message, start_message_copy]
+            # Check if we need to add a mode reminder
+            if is_modes_feature_flag_enabled and (
+                context_message := self._get_mode_message(result_messages, agent_mode)
+            ):
+                # Insert mode reminder right after summary message
+                result_messages = [*messages, summary_message, context_message, start_message_copy]
             return InsertionResult(
-                messages=[*messages, summary_message, start_message_copy],
+                messages=result_messages,
                 updated_start_id=start_message_copy.id,
                 updated_window_start_id=summary_message.id,
             )
@@ -128,6 +144,17 @@ class ConversationCompactionManager(ABC):
         # and update the window start.
         if next((m for m in new_window if m.id == start_id), None):
             updated_messages = insert_messages_before_start(messages, [summary_message], start_id=start_id)
+            # Check if we need to add a mode reminder
+            if is_modes_feature_flag_enabled and (
+                context_message := self._get_mode_message(updated_messages, agent_mode)
+            ):
+                # Insert mode reminder right after summary message
+                summary_idx = next(i for i, msg in enumerate(updated_messages) if msg.id == summary_message.id)
+                updated_messages = [
+                    *updated_messages[: summary_idx + 1],
+                    context_message,
+                    *updated_messages[summary_idx + 1 :],
+                ]
             return InsertionResult(
                 messages=updated_messages,
                 updated_start_id=start_id,
@@ -138,6 +165,15 @@ class ConversationCompactionManager(ABC):
         updated_messages = insert_messages_before_start(
             new_window, [summary_message, start_message_copy], start_id=window_start_id_candidate
         )
+        # Check if we need to add a mode reminder
+        if is_modes_feature_flag_enabled and (context_message := self._get_mode_message(updated_messages, agent_mode)):
+            # Insert mode reminder right after summary message
+            summary_idx = next(i for i, msg in enumerate(updated_messages) if msg.id == summary_message.id)
+            updated_messages = [
+                *updated_messages[: summary_idx + 1],
+                context_message,
+                *updated_messages[summary_idx + 1 :],
+            ]
         return InsertionResult(
             messages=updated_messages,
             updated_start_id=start_message_copy.id,
@@ -212,6 +248,52 @@ class ConversationCompactionManager(ABC):
         **kwargs,
     ) -> int:
         raise NotImplementedError
+
+    def _get_mode_message(
+        self, updated_messages: Sequence[AssistantMessageUnion], agent_mode: AgentMode
+    ) -> ContextMessage | None:
+        if not self._should_add_mode_reminder(updated_messages):
+            return None
+        return ContextMessage(
+            content=ROOT_AGENT_MODE_REMINDER_PROMPT.format(mode=agent_mode.value),
+            id=str(uuid4()),
+        )
+
+    def _should_add_mode_reminder(self, messages: Sequence[AssistantMessageUnion]) -> bool:
+        """
+        Determine if a mode reminder should be added to the messages.
+        Returns True if:
+        - agent_mode is set
+        - mode is not evident in the messages (no switch_mode call for current mode)
+        - initial mode message is not present in the messages
+        """
+        if self._has_initial_mode_message(messages):
+            return False
+        if self._is_mode_evident_in_window(messages):
+            return False
+        return True
+
+    def _is_mode_evident_in_window(self, messages: Sequence[AssistantMessageUnion]) -> bool:
+        """
+        Check if the current agent mode is evident in the conversation window.
+        Returns True if there's a switch_mode tool call for the current mode in the messages.
+        """
+
+        for message in messages:
+            if isinstance(message, AssistantMessage) and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    if tool_call.name == SWITCH_MODE_TOOL_NAME:
+                        return True
+        return False
+
+    def _has_initial_mode_message(self, messages: Sequence[AssistantMessageUnion]) -> bool:
+        """
+        Check if the initial mode message from the context manager is present in the messages.
+        """
+        for message in messages:
+            if isinstance(message, ContextMessage) and CONTEXT_INITIAL_MODE_PROMPT in message.content:
+                return True
+        return False
 
 
 class AnthropicConversationCompactionManager(ConversationCompactionManager):
