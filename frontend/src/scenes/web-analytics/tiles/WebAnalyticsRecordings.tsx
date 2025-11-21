@@ -19,7 +19,8 @@ import { urls } from 'scenes/urls'
 import { ReplayTile } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { ProductKey, ReplayTabs, SessionRecordingType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { ReplayTabs, SessionRecordingType } from '~/types'
 
 export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.Element {
     const { layout } = tile

@@ -40,6 +40,13 @@ pub struct Config {
     pub address: SocketAddr,
 
     pub redis_url: String,
+
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
+
     pub otel_url: Option<String>,
 
     #[envconfig(default = "false")]
