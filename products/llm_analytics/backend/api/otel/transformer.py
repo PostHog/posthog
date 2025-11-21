@@ -51,7 +51,7 @@ def transform_span_to_ai_event(
 
     # Extract attributes using waterfall pattern
     posthog_attrs = extract_posthog_native_attributes(span)
-    genai_attrs = extract_genai_attributes(span)
+    genai_attrs = extract_genai_attributes(span, scope)
 
     # Merge with precedence: PostHog > GenAI
     merged_attrs = {**genai_attrs, **posthog_attrs}
@@ -62,7 +62,11 @@ def transform_span_to_ai_event(
     # Detect v1 vs v2 instrumentation:
     # v1: Everything in span attributes (extracted as "prompt", "completion") - send immediately
     # v2: Metadata in span, content in logs - use event merger
-    is_v1_span = bool(merged_attrs.get("prompt") or merged_attrs.get("completion"))
+    # Some frameworks (e.g., Mastra) are v1 but may have spans without prompt/completion (parent spans)
+    # Detect these by instrumentation scope name
+    scope_name = scope.get("name", "")
+    is_v1_framework = scope_name == "@mastra/otel"  # Mastra uses v1 (attributes in spans)
+    is_v1_span = bool(merged_attrs.get("prompt") or merged_attrs.get("completion")) or is_v1_framework
 
     if not is_v1_span:
         # v2 instrumentation - use event merger for bidirectional merge with logs
@@ -79,7 +83,7 @@ def transform_span_to_ai_event(
     # else: v1 span has everything - send immediately without merging
 
     # Determine event type
-    event_type = determine_event_type(span, merged_attrs)
+    event_type = determine_event_type(span, merged_attrs, scope)
 
     # Calculate timestamp
     timestamp = calculate_timestamp(span)
@@ -272,6 +276,8 @@ def build_event_properties(
         "gen_ai.prompt",
         "gen_ai.completion",
         "service.name",
+        "input",  # Generic input (e.g., Mastra for Laminar compatibility)
+        "output",  # Generic output (e.g., Mastra for Laminar compatibility)
     }
 
     for key, value in attributes.items():
@@ -333,8 +339,9 @@ def _extract_tools_from_attributes(attributes: dict[str, Any]) -> list[dict[str,
     return [tools_by_index[i] for i in sorted(tools_by_index.keys())]
 
 
-def determine_event_type(span: dict[str, Any], attrs: dict[str, Any]) -> str:
+def determine_event_type(span: dict[str, Any], attrs: dict[str, Any], scope: dict[str, Any] | None = None) -> str:
     """Determine AI event type from span."""
+    scope = scope or {}
     op_name = attrs.get("operation_name", "").lower()
 
     # Check operation name first (highest priority)
@@ -352,8 +359,17 @@ def determine_event_type(span: dict[str, Any], attrs: dict[str, Any]) -> str:
         return "$ai_generation"
 
     # Check if span is root (no parent)
+    # For v1 frameworks (like Mastra), root spans should be $ai_span, not $ai_trace
+    # $ai_trace events get filtered out by TraceQueryRunner, breaking tree hierarchy
     if not span.get("parent_span_id"):
-        return "$ai_trace"
+        scope_name = scope.get("name", "")
+        is_v1_framework = scope_name == "@mastra/otel"
+        if is_v1_framework:
+            # v1 frameworks: root span should be $ai_span (will be included in tree)
+            return "$ai_span"
+        else:
+            # v2 frameworks: root is $ai_trace (separate from event tree)
+            return "$ai_trace"
 
     # Default to generic span
     return "$ai_span"

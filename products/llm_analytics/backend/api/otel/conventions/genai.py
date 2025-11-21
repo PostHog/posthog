@@ -4,11 +4,16 @@ GenAI semantic conventions for OpenTelemetry.
 Implements the GenAI semantic conventions (gen_ai.*) as fallback
 when PostHog-native attributes are not present.
 
+Supports provider-specific transformations for frameworks like Mastra
+that use custom OTEL formats.
+
 Reference: https://opentelemetry.io/docs/specs/semconv/gen-ai/
 """
 
 from collections import defaultdict
 from typing import Any
+
+from .providers import PROVIDER_TRANSFORMERS
 
 
 def has_genai_attributes(span: dict[str, Any]) -> bool:
@@ -60,15 +65,43 @@ def _extract_indexed_messages(attributes: dict[str, Any], prefix: str) -> list[d
     return messages if messages else None
 
 
-def extract_genai_attributes(span: dict[str, Any]) -> dict[str, Any]:
+def extract_genai_attributes(span: dict[str, Any], scope: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Extract GenAI semantic convention attributes from span.
 
     GenAI conventions use `gen_ai.*` prefix and are fallback
     when PostHog-native attributes are not present.
+
+    Supports provider-specific transformations for frameworks that use
+    custom OTEL formats (e.g., Mastra).
+
+    Args:
+        span: Parsed OTEL span
+        scope: Instrumentation scope info (for provider detection)
+
+    Returns:
+        Extracted attributes dict
     """
+    import structlog
+
+    logger = structlog.get_logger(__name__)
     attributes = span.get("attributes", {})
+    scope = scope or {}
     result: dict[str, Any] = {}
+
+    # Detect provider-specific transformer
+    provider_transformer = None
+    for transformer_class in PROVIDER_TRANSFORMERS:
+        transformer = transformer_class()
+        if transformer.can_handle(span, scope):
+            provider_transformer = transformer
+            logger.info(
+                "provider_transformer_detected",
+                provider=transformer.get_provider_name(),
+                scope_name=scope.get("name"),
+                span_name=span.get("name"),
+            )
+            break
 
     # Model (prefer request, fallback to response, then system)
     model = (
@@ -100,14 +133,62 @@ def extract_genai_attributes(span: dict[str, Any]) -> dict[str, Any]:
         result["prompt"] = prompts
     # Fallback to direct gen_ai.prompt attribute
     elif (prompt := attributes.get("gen_ai.prompt")) is not None:
-        result["prompt"] = prompt
+        # Try provider-specific transformation
+        if provider_transformer:
+            logger.info(
+                "provider_transform_prompt_attempt",
+                provider=provider_transformer.get_provider_name(),
+                prompt_type=type(prompt).__name__,
+                prompt_length=len(str(prompt)) if prompt else 0,
+            )
+            transformed = provider_transformer.transform_prompt(prompt)
+            if transformed is not None:
+                logger.info(
+                    "provider_transform_prompt_success",
+                    provider=provider_transformer.get_provider_name(),
+                    result_type=type(transformed).__name__,
+                    result_length=len(transformed) if isinstance(transformed, list) else 0,
+                )
+                result["prompt"] = transformed
+            else:
+                logger.info(
+                    "provider_transform_prompt_none",
+                    provider=provider_transformer.get_provider_name(),
+                )
+                result["prompt"] = prompt
+        else:
+            result["prompt"] = prompt
 
     completions = _extract_indexed_messages(attributes, "gen_ai.completion")
     if completions:
         result["completion"] = completions
     # Fallback to direct gen_ai.completion attribute
     elif (completion := attributes.get("gen_ai.completion")) is not None:
-        result["completion"] = completion
+        # Try provider-specific transformation
+        if provider_transformer:
+            logger.info(
+                "provider_transform_completion_attempt",
+                provider=provider_transformer.get_provider_name(),
+                completion_type=type(completion).__name__,
+                completion_length=len(str(completion)) if completion else 0,
+            )
+            transformed = provider_transformer.transform_completion(completion)
+            if transformed is not None:
+                logger.info(
+                    "provider_transform_completion_success",
+                    provider=provider_transformer.get_provider_name(),
+                    result_type=type(transformed).__name__,
+                    result_length=len(transformed) if isinstance(transformed, list) else 0,
+                )
+                result["completion"] = transformed
+            else:
+                logger.info(
+                    "provider_transform_completion_none",
+                    provider=provider_transformer.get_provider_name(),
+                )
+                result["completion"] = completion
+        else:
+            result["completion"] = completion
 
     # Model parameters
     if (temperature := attributes.get("gen_ai.request.temperature")) is not None:
