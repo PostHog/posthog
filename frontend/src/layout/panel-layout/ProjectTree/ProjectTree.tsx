@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
 import {
@@ -15,6 +15,7 @@ import {
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
@@ -26,6 +27,7 @@ import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -106,6 +108,7 @@ export function ProjectTree({
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
+    const newTabProjectExplorerEnabled = useFeatureFlag('NEW_TAB_PROJECT_EXPLORER')
 
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
@@ -234,8 +237,31 @@ export function ProjectTree({
                 // False, because we handle focus of content in LemonTree with mainContentRef prop
                 resetPanelLayout(false)
             }}
-            onFolderClick={(folder, isExpanded) => {
-                if (folder) {
+            onFolderRowClick={(folder, event) => {
+                if (!newTabProjectExplorerEnabled) {
+                    return
+                }
+
+                const expandToggle = (event.target as HTMLElement | null)?.closest('[data-lemon-tree-expand-toggle]')
+
+                if (expandToggle) {
+                    return
+                }
+
+                const folderPath = folder.record?.path
+
+                if (folderPath === undefined) {
+                    return
+                }
+
+                event.preventDefault()
+                event.stopPropagation()
+
+                const searchUrl = combineUrl(urls.newTab(), { folder: folderPath }).url
+                router.actions.push(searchUrl)
+            }}
+            onFolderClick={(folder, isExpanded, event) => {
+                if (folder && !event.isPropagationStopped()) {
                     toggleFolderOpen(folder?.id || '', isExpanded)
                 }
             }}
