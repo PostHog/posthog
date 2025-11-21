@@ -219,8 +219,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                     onDescriptionChange={(value) => {
                         setActionValue('description', value)
                     }}
-                    canEdit={canEdit}
-                    forceEdit={!id}
+                    canEdit={false}
+                    // forceEdit={!id}
                     actions={
                         <>
                             {!id && cancelButton()}

@@ -13,10 +13,11 @@ type TextareaPrimitiveProps = TextareaAutosizeProps &
         error?: boolean
         markdown?: boolean
         wrapperClassName?: string
+        readOnly?: boolean
     }
 
 export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimitiveProps>(
-    ({ className, variant, error, markdown = false, wrapperClassName, ...rest }, ref): JSX.Element => {
+    ({ className, variant, error, markdown = false, wrapperClassName, readOnly, ...rest }, ref): JSX.Element => {
         // Ensure cursor is at the end of the textarea when it is focused
         function onFocus(e: React.FocusEvent<HTMLTextAreaElement>): void {
             e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)
@@ -30,10 +31,11 @@ export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimiti
                     aria-label={markdown ? 'Markdown supported' : undefined}
                     {...rest}
                     className={cn(
-                        textInputVariants({ variant, error: !!error, size: 'auto' }),
+                        textInputVariants({ variant, error: !!error, size: 'auto', className }),
                         'resize-y show-scrollbar-on-hover px-[var(--button-padding-x-base)] py-[var(--button-padding-y-base)]',
                         className
                     )}
+                    readOnly={readOnly}
                 />
                 {markdown && (
                     <ButtonPrimitive
