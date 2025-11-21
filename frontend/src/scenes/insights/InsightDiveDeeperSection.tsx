@@ -1,6 +1,9 @@
 import { useState } from 'react'
 
-import { IconChevronRight } from '@posthog/icons'
+import { IconChevronRight, IconExternal } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightQueryNode } from '~/queries/schema/schema-general'
@@ -34,8 +37,20 @@ function DiveDeeperRow({ suggestion }: { suggestion: FollowUpSuggestion }): JSX.
                 </div>
             </div>
             {isExpanded && (
-                <div className="border-t border-border p-4 bg-surface-primary">
-                    <Query query={suggestion.targetQuery} readOnly embedded />
+                <div className="border-t border-border bg-surface-primary">
+                    <div className="p-4">
+                        <Query query={suggestion.targetQuery} readOnly embedded />
+                    </div>
+                    <div className="flex justify-end p-3 border-t border-border">
+                        <LemonButton
+                            type="primary"
+                            icon={<IconExternal />}
+                            to={urls.insightNew({ query: suggestion.targetQuery })}
+                            targetBlank
+                        >
+                            Open in new tab
+                        </LemonButton>
+                    </div>
                 </div>
             )}
         </div>
