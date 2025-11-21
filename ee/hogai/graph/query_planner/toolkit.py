@@ -1,5 +1,4 @@
 import re
-import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
@@ -33,6 +32,7 @@ from ee.hogai.graph.taxonomy.tools import (
     retrieve_event_properties,
     retrieve_event_property_values,
 )
+from ee.hogai.utils.prompt import format_prompt_string
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
@@ -75,6 +75,19 @@ class TaxonomyAgentTool(BaseModel):
     arguments: TaxonomyAgentToolUnion
 
 
+PROPERTIES_EXAMPLE_PROMPT = """
+The data format is as follows:
+<Data type>
+- $event – description text here
+- another_event
+</Data type>
+...
+---
+Results:
+{{{result}}}
+""".strip()
+
+
 class TaxonomyAgentToolkit:
     _team: Team
 
@@ -100,31 +113,33 @@ class TaxonomyAgentToolkit:
         ]
         return entities
 
-    def _generate_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
-        root = ET.Element("properties")
-        property_type_to_tag = {}
-
-        for name, property_type, description in children:
-            # Do not include properties that are ambiguous.
-            if property_type is None:
-                continue
-            if property_type not in property_type_to_tag:
-                property_type_to_tag[property_type] = ET.SubElement(root, property_type)
-
-            type_tag = property_type_to_tag[property_type]
-            prop = ET.SubElement(type_tag, "prop")
-            ET.SubElement(prop, "name").text = name
-            if description:
-                ET.SubElement(prop, "description").text = description
-
-        return ET.tostring(root, encoding="unicode")
-
     def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
         """
         Generate the output format for properties. Can be overridden by subclasses.
-        Default implementation uses XML format.
+        Default implementation uses YAML-like format with bullet points.
         """
-        return self._generate_properties_xml(props)
+        property_type_to_props: dict[str, list[tuple[str, str | None]]] = {}
+
+        for name, property_type, description in props:
+            # Do not include properties that are ambiguous.
+            if property_type is None:
+                continue
+            if property_type not in property_type_to_props:
+                property_type_to_props[property_type] = []
+
+            property_type_to_props[property_type].append((name, description))
+
+        output_parts = []
+        for property_type, prop_list in property_type_to_props.items():
+            output_parts.append(f"<{property_type}>")
+            for name, description in prop_list:
+                if description:
+                    output_parts.append(f"- {name} – {description.replace('\n', ' ')}")
+                else:
+                    output_parts.append(f"- {name}")
+            output_parts.append(f"</{property_type}>")
+
+        return "\n".join(output_parts)
 
     def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
         enriched_props = []
@@ -180,7 +195,7 @@ class TaxonomyAgentToolkit:
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
 
-        return self._generate_properties_output(props)
+        return format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
 
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
@@ -227,7 +242,10 @@ class TaxonomyAgentToolkit:
         if not props:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
-        return self._generate_properties_output(self._enrich_props_with_descriptions("event", props))
+        return format_prompt_string(
+            PROPERTIES_EXAMPLE_PROMPT,
+            result=self._generate_properties_output(self._enrich_props_with_descriptions("event", props)),
+        )
 
     def _format_property_values(
         self, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
