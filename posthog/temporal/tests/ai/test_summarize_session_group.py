@@ -1965,3 +1965,45 @@ def test_get_persons_for_sessions_from_distinct_ids_handles_db_failure():
             team_id=1,
         )
     assert result == {}
+
+
+def test_combine_patterns_assignments_deduplicates_events_per_session_per_pattern():
+    """Test that combine_patterns_assignments_from_single_session_summaries keeps only one event per session per pattern."""
+    from ee.hogai.session_summaries.session_group.patterns import (
+        RawSessionGroupPatternAssignment,
+        RawSessionGroupPatternAssignmentsList,
+        combine_patterns_assignments_from_single_session_summaries,
+    )
+    # event_id -> (event_uuid, session_id)
+    event_id_to_session_id_mapping = {
+        "event-1": ("uuid-1", "session-A"),
+        "event-2": ("uuid-2", "session-A"),  # Same session as event-1
+        "event-3": ("uuid-3", "session-A"),  # Same session as event-1
+        "event-4": ("uuid-4", "session-B"),
+        "event-5": ("uuid-5", "session-B"),  # Same session as event-4
+        "event-6": ("uuid-6", "session-C"),
+        "event-7": ("uuid-7", "session-B"),  # Same session as event-4
+        "event-8": ("uuid-8", "session-C"),  # Same session as event-6
+    }
+    # LLM returned multiple events from same session for pattern 1
+    assignments_chunk_1 = RawSessionGroupPatternAssignmentsList(
+        patterns=[
+            RawSessionGroupPatternAssignment(pattern_id=1, event_ids=["event-1", "event-2", "event-3"]),  # All session-A
+            RawSessionGroupPatternAssignment(pattern_id=2, event_ids=["event-4"]),
+        ]
+    )
+    assignments_chunk_2 = RawSessionGroupPatternAssignmentsList(
+        patterns=[
+            RawSessionGroupPatternAssignment(pattern_id=1, event_ids=["event-5", "event-6"]),  # session-B and session-C
+            RawSessionGroupPatternAssignment(pattern_id=2, event_ids=["event-7", "event-8"]),  # session-B and session-C
+        ]
+    )
+    result = combine_patterns_assignments_from_single_session_summaries(
+        patterns_assignments_list_of_lists=[assignments_chunk_1, assignments_chunk_2],
+        event_id_to_session_id_mapping=event_id_to_session_id_mapping,
+    )
+    # Pattern 1: should have event-1 (first from session-A), event-5 (first from session-B), event-6 (first from session-C)
+    assert set(result[1]) == {"event-1", "event-5", "event-6"}
+    # Pattern 2: should have event-4 (first from session-B), event-8 (first from session-C)
+    # event-7 is skipped because session-B already contributed event-4
+    assert set(result[2]) == {"event-4", "event-8"}
