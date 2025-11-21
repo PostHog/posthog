@@ -24,12 +24,10 @@ class DeletePersonsFromTriggerLogConfig(dagster.Config):
     persons_table: str = "posthog_person_new"
     chunk_size: int = 10_000  # ID range per chunk
     batch_size: int = 100  # Work in small batches since each person ID will cascade a delete to many distinct ID rows
-    max_id: int | None = None  # Optional override for max ID to resume from partial state
-    min_id: int | None = None  # Optional override for min ID to resume from partial state
 
 
 @dagster.op
-def get_id_range_for_dpft(
+def get_scan_range_for_dpft(
     context: dagster.OpExecutionContext,
     config: DeletePersonsFromTriggerLogConfig,
     database: dagster.ResourceParam[psycopg2.extensions.connection],
@@ -40,59 +38,40 @@ def get_id_range_for_dpft(
     Returns tuple (min_id, max_id).
     """
     with database.cursor() as cursor:
-        # Use config min_id if provided, otherwise query database
-        if config.min_id is not None:
-            min_id = config.min_id
-            context.log.info(f"Using configured min_id override: {min_id}")
-        else:
-            min_query = f"SELECT MIN(id) as min_id FROM posthog_person_deletes_log"
-            context.log.info(f"Querying min ID: {min_query}")
-            cursor.execute(min_query)
-            min_result = cursor.fetchone()
+        # Job will run over the entire table, but can't use ID space as it
+        # is borrowed from the posthog_persons_new table and isn't contiguous!
+        min_row = 0
 
-            if min_result is None or min_result["min_id"] is None:
-                context.log.exception("Source table has no valid min ID")
-                # Note: No metrics client here as this is get_id_range op, not copy_chunk
-                raise dagster.Failure("Source table has no valid min ID")
+        row_count_query = f"SELECT count(*) AS row_count FROM posthog_person_deletes_log"
+        context.log.info(f"Querying table row cardinality: {row_count_query}")
+        cursor.execute(row_count_query)
+        row_count_result = cursor.fetchone()
 
-            min_id = int(min_result["min_id"])
+        if row_count_result is None or row_count_result["row_count"] is None:
+            context.log.exception(f"{config.persons_table} table has no valid row count")
+            raise dagster.Failure(f"{config.persons_table} table has no valid row count")
 
-        # Use config max_id if provided, otherwise query database
-        if config.max_id is not None:
-            max_id = config.max_id
-            context.log.info(f"Using configured max_id override: {max_id}")
-        else:
-            max_query = f"SELECT MAX(id) as max_id FROM posthog_person_deletes_log"
-            context.log.info(f"Querying max ID: {max_query}")
-            cursor.execute(max_query)
-            max_result = cursor.fetchone()
+        row_count = int(row_count_result["row_count"])
+        # Convert count to last 0-indexed row: if COUNT(*) = 5000, rows are 0-4999
+        max_row = row_count - 1 if row_count > 0 else 0
 
-            if max_result is None or max_result["max_id"] is None:
-                context.log.exception(f"{config.persons_table} table has no valid max ID")
-                # Note: No metrics client here as this is get_id_range op, not copy_chunk
-                raise dagster.Failure(f"{config.persons_table} table has no valid max ID")
-
-            max_id = int(max_result["max_id"])
-
-        # Validate that max_id >= min_id
-        if max_id < min_id:
-            error_msg = f"Invalid ID range: max_id ({max_id}) < min_id ({min_id})"
+        # Validate that max_row >= min_row
+        if max_row < min_row:
+            error_msg = f"Invalid scan range: max_row ({max_row}) < min_row ({min_row})"
             context.log.error(error_msg)
             # Note: No metrics client here as this is get_id_range op, not copy_chunk
             raise dagster.Failure(error_msg)
 
-        context.log.info(f"ID range: min={min_id}, max={max_id}, total_ids={max_id - min_id + 1}")
+        context.log.info(f"Table scan range: min={min_row}, max={max_row}, total_rows={row_count}")
         context.add_output_metadata(
             {
-                "min_id": dagster.MetadataValue.int(min_id),
-                "min_id_source": dagster.MetadataValue.text("config" if config.min_id is not None else "database"),
-                "max_id": dagster.MetadataValue.int(max_id),
-                "max_id_source": dagster.MetadataValue.text("config" if config.max_id is not None else "database"),
-                "total_ids": dagster.MetadataValue.int(max_id - min_id + 1),
+                "min_row": dagster.MetadataValue.int(min_row),
+                "max_row": dagster.MetadataValue.int(max_row),
+                "total_rows": dagster.MetadataValue.int(row_count),
             }
         )
 
-        return (min_id, max_id)
+        return (min_row, max_row)
 
 
 @dagster.op(out=dagster.DynamicOut(tuple[int, int]))
@@ -146,19 +125,19 @@ def scan_delete_chunk_for_dpft(
     and deletes the corresponding posthog_person_new row. Processes in batches of batch_size person IDs,
     and deletes the corresponding posthog_person_new rows in batches of delete_batch_size person IDs.
     """
-    chunk_min, chunk_max = chunk
+    chunk_min_row, chunk_max_row = chunk
     batch_size = config.batch_size
-    chunk_id = f"chunk_{chunk_min}_{chunk_max}"
+    chunk_id = f"chunk_{chunk_min_row}_{chunk_max_row}"
     job_name = context.run.job_name
 
     # Initialize metrics client
     metrics_client = MetricsClient(cluster)
 
-    context.log.info(f"Starting chunk scan and delete for ID range: {chunk_min} to {chunk_max}")
+    context.log.info(f"Starting chunk scan and delete for row range: {chunk_min_row} to {chunk_max_row}")
 
     total_records_deleted = 0
-    batch_start_id = chunk_min
-    failed_batch_start_id: int | None = None
+    batch_start_row = chunk_min_row
+    failed_batch_start_row: int | None = None
 
     try:
         with database.cursor() as cursor:
@@ -174,16 +153,16 @@ def scan_delete_chunk_for_dpft(
             cursor.execute("SET synchronous_commit = off")
 
             retry_attempt = 0
-            while batch_start_id <= chunk_max:
+            while batch_start_row <= chunk_max_row:
                 try:
                     # Track batch start time for duration metric
                     batch_start_time = time.time()
 
                     # Calculate batch end ID
-                    batch_end_id = min(batch_start_id + batch_size, chunk_max)
+                    batch_end_row = min(batch_start_row + batch_size, chunk_max_row)
 
                     # Track records attempted - this is also our exit condition
-                    records_scanned = batch_end_id - batch_start_id
+                    records_scanned = batch_end_row - batch_start_row
                     if records_scanned <= 0:
                         break
 
@@ -194,16 +173,17 @@ def scan_delete_chunk_for_dpft(
                     scan_query = f"""
 SELECT pdl.id, pdl.team_id
 FROM posthog_person_deletes_log AS pdl
-WHERE pdl.id >= %s AND pdl.id <= %s
-  AND EXISTS (
+WHERE EXISTS (
     SELECT 1
     FROM {config.persons_table} AS p
     WHERE pdl.id = p.id
       AND pdl.team_id = p.team_id
   )
 ORDER BY pdl.id
+LIMIT %s
+OFFSET %s
 """
-                    cursor.execute(scan_query, (batch_start_id, batch_end_id))
+                    cursor.execute(scan_query, (batch_size, batch_start_row))
                     rows = cursor.fetchall()
                     ids_to_delete = set[tuple[int, int]]({(int(row["team_id"]), int(row["id"])) for row in rows})
 
@@ -241,9 +221,9 @@ ORDER BY pdl.id
 
                     try:
                         metrics_client.increment(
-                            "delete_persons_from_trigger_log_batches_scanned_total",
+                            "delete_persons_from_trigger_log_records_scanned_total",
                             labels={"job_name": job_name, "chunk_id": chunk_id},
-                            value=records_scanned,
+                            value=float(batch_size),
                         ).result()
                     except Exception:
                         pass
@@ -263,11 +243,11 @@ ORDER BY pdl.id
 
                     context.log.info(
                         f"Deleted batch: {records_deleted} of {records_scanned} records "
-                        f"(chunk {chunk_min}-{chunk_max}, batch ID range {batch_start_id} to {batch_end_id})"
+                        f"(chunk {chunk_min_row}-{chunk_max_row}, batch row range {batch_start_row} to {batch_end_row})"
                     )
 
                     # Update batch_start_id for next iteration
-                    batch_start_id = batch_end_id + 1
+                    batch_start_row = batch_end_row + 1
                     retry_attempt = 0
 
                 except Exception as batch_error:
@@ -276,8 +256,8 @@ ORDER BY pdl.id
                         cursor.execute("ROLLBACK")
                     except Exception as rollback_error:
                         context.log.exception(
-                            f"Failed to rollback transaction for batch starting at ID {batch_start_id}"
-                            f"in chunk {chunk_min}-{chunk_max}: {str(rollback_error)}"
+                            f"Failed to rollback transaction for batch starting at OFFSET {batch_start_row}"
+                            f"in chunk {chunk_min_row}-{chunk_max_row}: {str(rollback_error)}"
                         )
                         pass  # Ignore rollback errors
 
@@ -288,8 +268,8 @@ ORDER BY pdl.id
                     ) or (isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "40001")
                     if is_serialization_failure:
                         error_msg = (
-                            f"Serialization failure detected for batch starting at ID {batch_start_id} "
-                            f"in chunk {chunk_min}-{chunk_max}. Error is: {batch_error}. "
+                            f"Serialization failure detected for batch starting at OFFSET {batch_start_row} "
+                            f"in chunk {chunk_min_row}-{chunk_max_row}. Error is: {batch_error}. "
                             "This is expected due to concurrent transactions. "
                         )
                         context.log.warning(error_msg)
@@ -306,8 +286,8 @@ ORDER BY pdl.id
                     ) or (isinstance(batch_error, psycopg2.Error) and getattr(batch_error, "pgcode", None) == "40P01")
                     if is_deadlock:
                         error_msg = (
-                            f"Deadlock detected for batch starting at ID {batch_start_id} "
-                            f"in chunk {chunk_min}-{chunk_max}. Error is: {batch_error}. "
+                            f"Deadlock detected for batch starting at OFFSET {batch_start_row} "
+                            f"in chunk {chunk_min_row}-{chunk_max_row}. Error is: {batch_error}. "
                             "This is expected due to concurrent transactions. "
                         )
                         context.log.warning(error_msg)
@@ -318,10 +298,10 @@ ORDER BY pdl.id
                             continue
 
                     # Handle unexpected errors by bubbling up to dagster.Failure
-                    failed_batch_start_id = batch_start_id
+                    failed_batch_start_row = batch_start_row
                     error_msg = (
-                        f"Failed to scan and delete rows in batch starting at ID {batch_start_id} "
-                        f"in chunk {chunk_min}-{chunk_max}: {str(batch_error)}"
+                        f"Failed to scan and delete rows in batch starting at OFFSET {batch_start_row} "
+                        f"in chunk {chunk_min_row}-{chunk_max_row}: {str(batch_error)}"
                     )
                     context.log.exception(error_msg)
                     # Report fatal error metric before raising
@@ -337,10 +317,10 @@ ORDER BY pdl.id
                     raise dagster.Failure(
                         description=error_msg,
                         metadata={
-                            "chunk_min_id": dagster.MetadataValue.int(chunk_min),
-                            "chunk_max_id": dagster.MetadataValue.int(chunk_max),
-                            "failed_batch_start_id": dagster.MetadataValue.int(failed_batch_start_id)
-                            if failed_batch_start_id
+                            "chunk_min_row": dagster.MetadataValue.int(chunk_min_row),
+                            "chunk_max_row": dagster.MetadataValue.int(chunk_max_row),
+                            "failed_batch_start_row": dagster.MetadataValue.int(failed_batch_start_row)
+                            if failed_batch_start_row
                             else dagster.MetadataValue.text("N/A"),
                             "error_message": dagster.MetadataValue.text(str(batch_error)),
                             "records_deleted_before_failure": dagster.MetadataValue.int(total_records_deleted),
@@ -352,7 +332,7 @@ ORDER BY pdl.id
         raise
     except Exception as e:
         # Catch any other unexpected errors
-        error_msg = f"Unexpected error scanning and deleting from chunk {chunk_min}-{chunk_max}: {str(e)}"
+        error_msg = f"Unexpected error scanning and deleting from chunk {chunk_min_row}-{chunk_max_row}: {str(e)}"
         context.log.exception(error_msg)
         # Report fatal error metric before raising
         try:
@@ -366,17 +346,17 @@ ORDER BY pdl.id
         raise dagster.Failure(
             description=error_msg,
             metadata={
-                "chunk_min_id": dagster.MetadataValue.int(chunk_min),
-                "chunk_max_id": dagster.MetadataValue.int(chunk_max),
-                "failed_batch_start_id": dagster.MetadataValue.int(failed_batch_start_id)
-                if failed_batch_start_id
-                else dagster.MetadataValue.int(batch_start_id),
+                "chunk_min_row": dagster.MetadataValue.int(chunk_min_row),
+                "chunk_max_row": dagster.MetadataValue.int(chunk_max_row),
+                "failed_batch_start_row": dagster.MetadataValue.int(failed_batch_start_row)
+                if failed_batch_start_row
+                else dagster.MetadataValue.int(batch_start_row),
                 "error_message": dagster.MetadataValue.text(str(e)),
                 "records_deleted_before_failure": dagster.MetadataValue.int(total_records_deleted),
             },
         ) from e
 
-    context.log.info(f"Completed chunk {chunk_min}-{chunk_max}: deleted {total_records_deleted} records")
+    context.log.info(f"Completed chunk {chunk_min_row}-{chunk_max_row}: deleted {total_records_deleted} records")
 
     # Emit metric for chunk completion
     run_id = context.run.run_id
@@ -391,15 +371,15 @@ ORDER BY pdl.id
 
     context.add_output_metadata(
         {
-            "chunk_min": dagster.MetadataValue.int(chunk_min),
-            "chunk_max": dagster.MetadataValue.int(chunk_max),
+            "chunk_min_row": dagster.MetadataValue.int(chunk_min_row),
+            "chunk_max_row": dagster.MetadataValue.int(chunk_max_row),
             "records_deleted": dagster.MetadataValue.int(total_records_deleted),
         }
     )
 
     return {
-        "chunk_min": chunk_min,
-        "chunk_max": chunk_max,
+        "chunk_min_row": chunk_min_row,
+        "chunk_max_row": chunk_max_row,
         "records_deleted": total_records_deleted,
     }
 
@@ -412,6 +392,6 @@ def delete_persons_from_trigger_log_job():
     """
     Scan posthog_person_deletes_log table, and deletes the corresponding posthog_person_new rows.
     """
-    id_range = get_id_range_for_dpft()
+    id_range = get_scan_range_for_dpft()
     chunks = create_chunks_for_dpft(id_range)
     chunks.map(scan_delete_chunk_for_dpft)

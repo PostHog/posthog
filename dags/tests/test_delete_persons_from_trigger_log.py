@@ -8,7 +8,7 @@ from dagster import build_op_context
 from dags.delete_persons_from_trigger_log import (
     DeletePersonsFromTriggerLogConfig,
     create_chunks_for_dpft,
-    get_id_range_for_dpft,
+    get_scan_range_for_dpft,
     scan_delete_chunk_for_dpft,
 )
 
@@ -38,7 +38,7 @@ class TestCreateChunksForDpft:
     def test_create_chunks_produces_non_overlapping_ranges(self):
         """Test that chunks produce non-overlapping ranges."""
         config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
-        id_range = (1, 5000)  # min_id=1, max_id=5000
+        id_range = (0, 5000)  # min_row=0, max_row=5000 (row count)
 
         context = build_op_context()
         chunks = list(create_chunks_for_dpft(context, config, id_range))
@@ -55,11 +55,11 @@ class TestCreateChunksForDpft:
                         min1 <= min2 <= max1 or min1 <= max2 <= max1 or min2 <= min1 <= max2
                     ), f"Chunks overlap: ({min1}, {max1}) and ({min2}, {max2})"
 
-    def test_create_chunks_covers_entire_id_space(self):
-        """Test that chunks cover the entire ID space from min to max."""
+    def test_create_chunks_covers_entire_row_space(self):
+        """Test that chunks cover the entire row space from min to max without gaps."""
         config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
-        min_id, max_id = 1, 5000
-        id_range = (min_id, max_id)
+        min_row, max_row = 0, 4999  # Realistic: if COUNT(*) = 5000, max_row = 4999
+        id_range = (min_row, max_row)
 
         context = build_op_context()
         chunks = list(create_chunks_for_dpft(context, config, id_range))
@@ -68,60 +68,107 @@ class TestCreateChunksForDpft:
         chunk_ranges = [chunk.value for chunk in chunks]
 
         # Find the overall min and max covered
-        all_ids_covered: set[int] = set()
+        all_rows_covered: set[int] = set()
         for chunk_min, chunk_max in chunk_ranges:
-            all_ids_covered.update(range(chunk_min, chunk_max + 1))
+            all_rows_covered.update(range(chunk_min, chunk_max + 1))
 
-        # Verify all IDs from min_id to max_id are covered
-        expected_ids = set(range(min_id, max_id + 1))
-        assert all_ids_covered == expected_ids, (
-            f"Missing IDs: {expected_ids - all_ids_covered}, " f"Extra IDs: {all_ids_covered - expected_ids}"
+        # Verify all rows from min_row to max_row are covered (inclusive)
+        expected_rows = set(range(min_row, max_row + 1))
+        assert all_rows_covered == expected_rows, (
+            f"Missing rows: {expected_rows - all_rows_covered}, " f"Extra rows: {all_rows_covered - expected_rows}"
         )
 
-    def test_create_chunks_first_chunk_includes_max_id(self):
-        """Test that the first chunk (in yielded order) includes the source table max_id."""
+    def test_create_chunks_non_overlapping_inclusive_coverage(self):
+        """Test that chunks are non-overlapping and cover all offsets from 0 to max_row inclusively."""
         config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
-        min_id, max_id = 1, 5000
-        id_range = (min_id, max_id)
+        # Simulate COUNT(*) = 5000, so max_row = 4999 (0-indexed)
+        min_row, max_row = 0, 4999
+        id_range = (min_row, max_row)
 
         context = build_op_context()
         chunks = list(create_chunks_for_dpft(context, config, id_range))
 
-        # First chunk in the list (yielded first, highest IDs)
+        chunk_ranges = [chunk.value for chunk in chunks]
+
+        # Verify chunks are non-overlapping
+        for i, (min1, max1) in enumerate(chunk_ranges):
+            for j, (min2, max2) in enumerate(chunk_ranges):
+                if i != j:
+                    # Chunks should not overlap
+                    assert not (
+                        min1 <= min2 <= max1 or min1 <= max2 <= max1 or min2 <= min1 <= max2
+                    ), f"Chunks overlap: ({min1}, {max1}) and ({min2}, {max2})"
+
+        # Verify all offsets from 0 to max_row are covered (inclusive)
+        all_offsets_covered: set[int] = set()
+        for chunk_min, chunk_max in chunk_ranges:
+            # Verify chunk is inclusive on both ends
+            assert chunk_min <= chunk_max, f"Invalid chunk: min ({chunk_min}) > max ({chunk_max})"
+            all_offsets_covered.update(range(chunk_min, chunk_max + 1))
+
+        expected_offsets = set(range(0, max_row + 1))
+        assert all_offsets_covered == expected_offsets, (
+            f"Missing offsets: {sorted(expected_offsets - all_offsets_covered)}, "
+            f"Extra offsets: {sorted(all_offsets_covered - expected_offsets)}"
+        )
+
+        # Verify no gaps: each chunk should start where the previous one ended + 1
+        sorted_chunks = sorted(chunk_ranges, key=lambda x: x[0])
+        for i in range(len(sorted_chunks) - 1):
+            current_max = sorted_chunks[i][1]
+            next_min = sorted_chunks[i + 1][0]
+            assert (
+                next_min == current_max + 1
+            ), f"Gap detected: chunk {i} ends at {current_max}, chunk {i+1} starts at {next_min}"
+
+    def test_create_chunks_first_chunk_includes_max_row(self):
+        """Test that the first chunk (in yielded order) includes the source table max_row."""
+        config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
+        min_row, max_row = 0, 4999  # Realistic: if COUNT(*) = 5000, max_row = 4999
+        id_range = (min_row, max_row)
+
+        context = build_op_context()
+        chunks = list(create_chunks_for_dpft(context, config, id_range))
+
+        # First chunk in the list (yielded first, highest rows)
         first_chunk_min, first_chunk_max = chunks[0].value
 
-        assert first_chunk_max == max_id, f"First chunk max ({first_chunk_max}) should equal source max_id ({max_id})"
         assert (
-            first_chunk_min <= max_id <= first_chunk_max
-        ), f"First chunk ({first_chunk_min}, {first_chunk_max}) should include max_id ({max_id})"
+            first_chunk_max == max_row
+        ), f"First chunk max ({first_chunk_max}) should equal source max_row ({max_row})"
+        assert (
+            first_chunk_min <= max_row <= first_chunk_max
+        ), f"First chunk ({first_chunk_min}, {first_chunk_max}) should include max_row ({max_row})"
 
-    def test_create_chunks_final_chunk_includes_min_id(self):
-        """Test that the final chunk (in yielded order) includes the source table min_id."""
+    def test_create_chunks_final_chunk_includes_min_row(self):
+        """Test that the final chunk (in yielded order) includes the source table min_row."""
         config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
-        min_id, max_id = 1, 5000
-        id_range = (min_id, max_id)
+        min_row, max_row = 0, 5000
+        id_range = (min_row, max_row)
 
         context = build_op_context()
         chunks = list(create_chunks_for_dpft(context, config, id_range))
 
-        # Last chunk in the list (yielded last, lowest IDs)
+        # Last chunk in the list (yielded last, lowest rows)
         final_chunk_min, final_chunk_max = chunks[-1].value
 
-        assert final_chunk_min == min_id, f"Final chunk min ({final_chunk_min}) should equal source min_id ({min_id})"
         assert (
-            final_chunk_min <= min_id <= final_chunk_max
-        ), f"Final chunk ({final_chunk_min}, {final_chunk_max}) should include min_id ({min_id})"
+            final_chunk_min == min_row
+        ), f"Final chunk min ({final_chunk_min}) should equal source min_row ({min_row})"
+        assert (
+            final_chunk_min <= min_row <= final_chunk_max
+        ), f"Final chunk ({final_chunk_min}, {final_chunk_max}) should include min_row ({min_row})"
 
     def test_create_chunks_reverse_order(self):
-        """Test that chunks are yielded in reverse order (highest IDs first)."""
+        """Test that chunks are yielded in reverse order (highest rows first)."""
         config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
-        min_id, max_id = 1, 5000
-        id_range = (min_id, max_id)
+        min_row, max_row = 0, 5000
+        id_range = (min_row, max_row)
 
         context = build_op_context()
         chunks = list(create_chunks_for_dpft(context, config, id_range))
 
-        # Verify chunks are in descending order by max_id
+        # Verify chunks are in descending order by max_row
         for i in range(len(chunks) - 1):
             current_max = chunks[i].value[1]
             next_max = chunks[i + 1].value[1]
@@ -130,51 +177,54 @@ class TestCreateChunksForDpft:
             ), f"Chunks not in reverse order: chunk {i} max ({current_max}) should be > chunk {i+1} max ({next_max})"
 
     def test_create_chunks_exact_multiple(self):
-        """Test chunk creation when ID range is an exact multiple of chunk_size."""
+        """Test chunk creation when row range is an exact multiple of chunk_size."""
         config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
-        min_id, max_id = 1, 5000  # Exactly 5 chunks of 1000
-        id_range = (min_id, max_id)
+        min_row, max_row = (
+            0,
+            4999,
+        )  # Exactly 5 chunks of 1000 rows each (0-999, 1000-1999, 2000-2999, 3000-3999, 4000-4999)
+        id_range = (min_row, max_row)
 
         context = build_op_context()
         chunks = list(create_chunks_for_dpft(context, config, id_range))
 
         assert len(chunks) == 5, f"Expected 5 chunks, got {len(chunks)}"
 
-        # Verify first chunk (highest IDs)
-        assert chunks[0].value == (4001, 5000), f"First chunk should be (4001, 5000), got {chunks[0].value}"
+        # Verify first chunk (highest rows, yielded first in reverse order)
+        assert chunks[0].value == (4000, 4999), f"First chunk should be (4000, 4999), got {chunks[0].value}"
 
-        # Verify last chunk (lowest IDs)
-        assert chunks[-1].value == (1, 1000), f"Last chunk should be (1, 1000), got {chunks[-1].value}"
+        # Verify last chunk (lowest rows, yielded last in reverse order)
+        assert chunks[-1].value == (0, 999), f"Last chunk should be (0, 999), got {chunks[-1].value}"
 
     def test_create_chunks_non_exact_multiple(self):
-        """Test chunk creation when ID range is not an exact multiple of chunk_size."""
+        """Test chunk creation when row range is not an exact multiple of chunk_size."""
         config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
-        min_id, max_id = 1, 3750  # 3 full chunks + 1 partial chunk
-        id_range = (min_id, max_id)
+        min_row, max_row = 0, 3750  # 3 full chunks + 1 partial chunk (0-999, 1000-1999, 2000-2999, 3000-3750)
+        id_range = (min_row, max_row)
 
         context = build_op_context()
         chunks = list(create_chunks_for_dpft(context, config, id_range))
 
         assert len(chunks) == 4, f"Expected 4 chunks, got {len(chunks)}"
 
-        # Verify first chunk (highest IDs) - should be the partial chunk
-        assert chunks[0].value == (3001, 3750), f"First chunk should be (3001, 3750), got {chunks[0].value}"
+        # Verify first chunk (highest rows) - should be the partial chunk
+        assert chunks[0].value == (3000, 3750), f"First chunk should be (3000, 3750), got {chunks[0].value}"
 
-        # Verify last chunk (lowest IDs)
-        assert chunks[-1].value == (1, 1000), f"Last chunk should be (1, 1000), got {chunks[-1].value}"
+        # Verify last chunk (lowest rows)
+        assert chunks[-1].value == (0, 999), f"Last chunk should be (0, 999), got {chunks[-1].value}"
 
     def test_create_chunks_single_chunk(self):
-        """Test chunk creation when ID range fits in a single chunk."""
+        """Test chunk creation when row range fits in a single chunk."""
         config = DeletePersonsFromTriggerLogConfig(chunk_size=1000)
-        min_id, max_id = 100, 500
-        id_range = (min_id, max_id)
+        min_row, max_row = 0, 500
+        id_range = (min_row, max_row)
 
         context = build_op_context()
         chunks = list(create_chunks_for_dpft(context, config, id_range))
 
         assert len(chunks) == 1, f"Expected 1 chunk, got {len(chunks)}"
-        assert chunks[0].value == (100, 500), f"Chunk should be (100, 500), got {chunks[0].value}"
-        assert chunks[0].value[0] == min_id and chunks[0].value[1] == max_id
+        assert chunks[0].value == (0, 500), f"Chunk should be (0, 500), got {chunks[0].value}"
+        assert chunks[0].value[0] == min_row and chunks[0].value[1] == max_row
 
 
 def create_mock_database_resource(rowcount_values=None, fetchall_results=None):
@@ -248,7 +298,7 @@ class TestScanDeleteChunkForDpft:
             chunk_size=1000,
             batch_size=100,
         )
-        chunk = (1, 100)  # Single batch covers entire chunk
+        chunk = (0, 100)  # Single batch covers entire chunk (row range)
 
         # Create 50 person records to delete - each has id and team_id
         # The scan query returns records from posthog_person_deletes_log that don't exist in posthog_person_new
@@ -271,8 +321,8 @@ class TestScanDeleteChunkForDpft:
             result = scan_delete_chunk_for_dpft(context, config, chunk)
 
         # Verify result
-        assert result["chunk_min"] == 1
-        assert result["chunk_max"] == 100
+        assert result["chunk_min_row"] == 0
+        assert result["chunk_max_row"] == 100
         assert result["records_deleted"] == 50  # 50 deletes, each with rowcount=1
 
         # Verify SET statements called once (session-level, before loop)
@@ -306,8 +356,9 @@ class TestScanDeleteChunkForDpft:
         scan_query = scan_calls[0]
         assert "SELECT" in scan_query
         assert "FROM posthog_person_deletes_log" in scan_query
-        assert "WHERE pdl.id >=" in scan_query
-        assert "AND pdl.id <=" in scan_query
+        assert "ORDER BY pdl.id" in scan_query
+        assert "LIMIT" in scan_query
+        assert "OFFSET" in scan_query
         assert "EXISTS" in scan_query
 
         # Verify DELETE queries were called (one per person)
@@ -320,7 +371,7 @@ class TestScanDeleteChunkForDpft:
             chunk_size=1000,
             batch_size=100,
         )
-        chunk = (1, 250)  # 3 scan batches: (1,100), (101,200), (201,250)
+        chunk = (0, 250)  # 3 scan batches: (0,100), (101,200), (201,250)
 
         # Create IDs to delete for each scan batch - each needs id and team_id
         # Batch 1: 50 IDs (1-50), Batch 2: 75 IDs (101-175), Batch 3: 25 IDs (201-225)
@@ -346,8 +397,8 @@ class TestScanDeleteChunkForDpft:
             result = scan_delete_chunk_for_dpft(context, config, chunk)
 
         # Verify result
-        assert result["chunk_min"] == 1
-        assert result["chunk_max"] == 250
+        assert result["chunk_min_row"] == 0
+        assert result["chunk_max_row"] == 250
         assert result["records_deleted"] == 150  # 50 + 75 + 25 = 150
 
         # Verify SET statements called once (before loop)
@@ -375,7 +426,7 @@ class TestScanDeleteChunkForDpft:
             chunk_size=1000,
             batch_size=100,
         )
-        chunk = (1, 100)
+        chunk = (0, 100)
 
         # Create IDs to delete - each needs id and team_id
         ids_to_delete = [{"id": i, "team_id": 1} for i in range(1, 51)]
@@ -431,7 +482,7 @@ class TestScanDeleteChunkForDpft:
             chunk_size=1000,
             batch_size=100,
         )
-        chunk = (1, 100)
+        chunk = (0, 100)
 
         # Create IDs to delete - each needs id and team_id
         ids_to_delete = [{"id": i, "team_id": 1} for i in range(1, 51)]
@@ -487,7 +538,7 @@ class TestScanDeleteChunkForDpft:
             chunk_size=1000,
             batch_size=100,
         )
-        chunk = (1, 100)
+        chunk = (0, 100)
 
         # Create IDs to delete - each needs id and team_id
         ids_to_delete = [{"id": i, "team_id": 1} for i in range(1, 51)]
@@ -533,7 +584,7 @@ class TestScanDeleteChunkForDpft:
             chunk_size=1000,
             batch_size=100,
         )
-        chunk = (1, 100)
+        chunk = (0, 100)
 
         # Create IDs to delete - each needs id and team_id
         ids_to_delete = [{"id": i, "team_id": 1} for i in range(1, 11)]  # 10 IDs
@@ -573,8 +624,9 @@ class TestScanDeleteChunkForDpft:
 
         # Verify SELECT query components
         assert "FROM posthog_person_deletes_log" in scan_query
-        assert "WHERE pdl.id >=" in scan_query
-        assert "AND pdl.id <=" in scan_query
+        assert "ORDER BY pdl.id" in scan_query
+        assert "LIMIT" in scan_query
+        assert "OFFSET" in scan_query
         assert "EXISTS" in scan_query
         assert "SELECT" in scan_query
 
@@ -584,7 +636,7 @@ class TestScanDeleteChunkForDpft:
             chunk_size=1000,
             batch_size=50,
         )
-        chunk = (1, 150)  # 3 scan batches
+        chunk = (0, 150)  # 3 scan batches
 
         # Create IDs to delete for each scan batch - each needs id and team_id
         fetchall_results = [
@@ -635,158 +687,80 @@ class TestScanDeleteChunkForDpft:
             assert max(set_indices) < min(begin_indices), "SET statements should come before BEGIN statements"
 
 
-class TestGetIdRangeForDpft:
-    """Test the get_id_range_for_dpft function."""
+class TestGetScanRangeForDpft:
+    """Test the get_scan_range_for_dpft function."""
 
-    def test_get_id_range_uses_min_id_override(self):
-        """Test that min_id override is honored when provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=100, max_id=None)
+    def test_get_scan_range_queries_row_count(self):
+        """Test that database is queried for row count and converts to 0-indexed max_row."""
+        config = DeletePersonsFromTriggerLogConfig()
         mock_db = create_mock_database_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
-        cursor.fetchone.return_value = {"max_id": 5000}
+        cursor.fetchone.return_value = {"row_count": 5000}
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range_for_dpft(context, config)
+        result = get_scan_range_for_dpft(context, config)
 
-        assert result == (100, 5000)
-        assert result[0] == 100  # min_id override used
+        # If COUNT(*) = 5000, rows are 0-indexed 0-4999, so max_row should be 4999
+        assert result == (0, 4999)
+        assert result[0] == 0  # min_row is always 0
+        assert result[1] == 4999  # max_row is last 0-indexed row (row_count - 1)
 
-        # Verify min_id query was NOT executed (override used)
+        # Verify row count query was executed
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        min_queries = [call for call in execute_calls if "MIN(id)" in call]
-        assert len(min_queries) == 0, "Should not query for min_id when override is provided"
+        row_count_queries = [
+            call for call in execute_calls if "count(*)" in call.lower() and "posthog_person_deletes_log" in call
+        ]
+        assert len(row_count_queries) == 1, "Should query for row count from posthog_person_deletes_log"
 
-        # Verify max_id query WAS executed (queries posthog_person_deletes_log)
-        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person_deletes_log" in call]
-        assert (
-            len(max_queries) == 1
-        ), "Should query for max_id from posthog_person_deletes_log when override is not provided"
-
-    def test_get_id_range_uses_max_id_override(self):
-        """Test that max_id override is honored when provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=1, max_id=5000)
+    def test_get_scan_range_handles_zero_rows(self):
+        """Test that zero rows returns (0, 0)."""
+        config = DeletePersonsFromTriggerLogConfig()
         mock_db = create_mock_database_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"row_count": 0}
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range_for_dpft(context, config)
+        result = get_scan_range_for_dpft(context, config)
 
-        assert result == (1, 5000)
-        assert result[1] == 5000  # max_id override used
+        assert result == (0, 0)
 
-        # Verify max_id query was NOT executed (override used)
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        max_queries = [call for call in execute_calls if "MAX(id)" in call]
-        assert len(max_queries) == 0, "Should not query for max_id when override is provided"
-
-    def test_get_id_range_uses_both_overrides(self):
-        """Test that both min_id and max_id overrides are honored when provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=100, max_id=5000)
+    def test_get_scan_range_handles_none_row_count(self):
+        """Test that None row count raises Failure."""
+        config = DeletePersonsFromTriggerLogConfig()
         mock_db = create_mock_database_resource()
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
-
-        context = build_op_context(resources={"database": mock_db})
-
-        result = get_id_range_for_dpft(context, config)
-
-        assert result == (100, 5000)
-        assert result[0] == 100  # min_id override used
-        assert result[1] == 5000  # max_id override used
-
-        # Verify NO queries were executed (both overrides used)
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        min_queries = [call for call in execute_calls if "MIN(id)" in call]
-        max_queries = [call for call in execute_calls if "MAX(id)" in call]
-        assert len(min_queries) == 0, "Should not query for min_id when override is provided"
-        assert len(max_queries) == 0, "Should not query for max_id when override is provided"
-
-    def test_get_id_range_queries_database_when_min_id_not_provided(self):
-        """Test that database is queried for min_id when override is not provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=None, max_id=5000)
-        mock_db = create_mock_database_resource()
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-        cursor.fetchone.return_value = {"min_id": 1}
-
-        context = build_op_context(resources={"database": mock_db})
-
-        result = get_id_range_for_dpft(context, config)
-
-        assert result == (1, 5000)
-
-        # Verify min_id query was executed (queries posthog_person_deletes_log)
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        min_queries = [call for call in execute_calls if "MIN(id)" in call and "posthog_person_deletes_log" in call]
-        assert (
-            len(min_queries) == 1
-        ), "Should query for min_id from posthog_person_deletes_log when override is not provided"
-
-    def test_get_id_range_queries_database_when_both_not_provided(self):
-        """Test that database is queried for both min_id and max_id when overrides are not provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=None, max_id=None)
-        mock_db = create_mock_database_resource()
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-        # fetchone will be called twice - once for MIN, once for MAX
-        cursor.fetchone.side_effect = [{"min_id": 1}, {"max_id": 5000}]
-
-        context = build_op_context(resources={"database": mock_db})
-
-        result = get_id_range_for_dpft(context, config)
-
-        assert result == (1, 5000)
-
-        # Verify both queries were executed (queries posthog_person_deletes_log)
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        min_queries = [call for call in execute_calls if "MIN(id)" in call and "posthog_person_deletes_log" in call]
-        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person_deletes_log" in call]
-        assert (
-            len(min_queries) == 1
-        ), "Should query for min_id from posthog_person_deletes_log when override is not provided"
-        assert (
-            len(max_queries) == 1
-        ), "Should query for max_id from posthog_person_deletes_log when override is not provided"
-
-    def test_get_id_range_queries_database_when_max_id_not_provided(self):
-        """Test that database is queried for max_id when override is not provided."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=1, max_id=None)
-        mock_db = create_mock_database_resource()
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-        cursor.fetchone.return_value = {"max_id": 5000}
-
-        context = build_op_context(resources={"database": mock_db})
-
-        result = get_id_range_for_dpft(context, config)
-
-        assert result == (1, 5000)
-
-        # Verify max_id query was executed (queries posthog_person_deletes_log)
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        max_queries = [call for call in execute_calls if "MAX(id)" in call and "posthog_person_deletes_log" in call]
-        assert (
-            len(max_queries) == 1
-        ), "Should query for max_id from posthog_person_deletes_log when override is not provided"
-
-    def test_get_id_range_validates_max_id_greater_than_min_id(self):
-        """Test that validation fails when max_id < min_id."""
-        config = DeletePersonsFromTriggerLogConfig(min_id=5000, max_id=100)
-        mock_db = create_mock_database_resource()
+        cursor.fetchone.return_value = {"row_count": None}
 
         context = build_op_context(resources={"database": mock_db})
 
         from dagster import Failure
 
         try:
-            get_id_range_for_dpft(context, config)
+            get_scan_range_for_dpft(context, config)
             raise AssertionError("Expected Dagster.Failure to be raised")
         except Failure as e:
             assert e.description is not None
-            description = e.description
-            assert "max_id" in description.lower() or "invalid" in description.lower()
-            assert "5000" in description or "100" in description
+            assert "no valid row count" in e.description.lower()
+
+    def test_get_scan_range_handles_query_failure(self):
+        """Test that query failures are properly handled when the row count query fails."""
+        config = DeletePersonsFromTriggerLogConfig()
+        mock_db = create_mock_database_resource()
+
+        cursor = mock_db.cursor.return_value.__enter__.return_value
+        # Simulate query failure by raising an exception on execute
+        cursor.execute.side_effect = Exception("Database connection lost")
+
+        context = build_op_context(resources={"database": mock_db})
+
+        try:
+            get_scan_range_for_dpft(context, config)
+            raise AssertionError("Expected exception to be raised")
+        except Exception:
+            # Query failure should bubble up
+            assert True
