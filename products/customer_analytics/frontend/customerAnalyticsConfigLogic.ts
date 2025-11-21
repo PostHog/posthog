@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, selectors } from 'kea'
 
+import { isEmptyObject } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ActionsNode, CustomerAnalyticsConfig, DataWarehouseNode, EventsNode } from '~/queries/schema/schema-general'
@@ -21,23 +22,32 @@ export const customerAnalyticsConfigLogic = kea<customerAnalyticsConfigLogicType
     selectors({
         activityEvent: [
             (s) => [s.customerAnalyticsConfig],
-            (config: CustomerAnalyticsConfig) => ({ ...config.activity_event, custom_name: 'Activity' }),
+            (config: CustomerAnalyticsConfig) =>
+                !isEmptyObject(config.activity_event) ? { ...config.activity_event, custom_name: 'Activity' } : {},
         ],
         signupEvent: [
             (s) => [s.customerAnalyticsConfig],
-            (config: CustomerAnalyticsConfig) => ({ ...config.signup_event, custom_name: 'Signups' }),
+            (config: CustomerAnalyticsConfig) =>
+                !isEmptyObject(config.signup_event) ? { ...config.signup_event, custom_name: 'Signups' } : {},
         ],
         signupPageviewEvent: [
             (s) => [s.customerAnalyticsConfig],
-            (config: CustomerAnalyticsConfig) => ({ ...config.signup_pageview_event, custom_name: 'Signup pageviews' }),
+            (config: CustomerAnalyticsConfig) =>
+                !isEmptyObject(config.signup_pageview_event)
+                    ? { ...config.signup_pageview_event, custom_name: 'Signup pageviews' }
+                    : {},
         ],
         subscriptionEvent: [
             (s) => [s.customerAnalyticsConfig],
-            (config: CustomerAnalyticsConfig) => ({ ...config.subscription_event, custom_name: 'Subscriptions' }),
+            (config: CustomerAnalyticsConfig) =>
+                !isEmptyObject(config.subscription_event)
+                    ? { ...config.subscription_event, custom_name: 'Subscriptions' }
+                    : {},
         ],
         paymentEvent: [
             (s) => [s.customerAnalyticsConfig],
-            (config: CustomerAnalyticsConfig) => ({ ...config.payment_event, custom_name: 'Payments' }),
+            (config: CustomerAnalyticsConfig) =>
+                !isEmptyObject(config.payment_event) ? { ...config.payment_event, custom_name: 'Payments' } : {},
         ],
     }),
 
