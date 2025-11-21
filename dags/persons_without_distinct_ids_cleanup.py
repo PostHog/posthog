@@ -1,6 +1,5 @@
 """Dagster job for deleting posthog_persons rows that have no associated posthog_persondistinctid rows."""
 
-import os
 import time
 from typing import Any
 
@@ -24,10 +23,11 @@ class PersonsNoDistinctIdsCleanupConfig(dagster.Config):
     batch_size: int = 1000  # Records to scan for a parent person or delete in a single transaction
     max_id: int | None = None  # Optional override for max ID to resume from partial state
     min_id: int | None = None  # Optional override for min ID to resume from partial state
+    persons_table: str = "posthog_persons_new"  # Override once the table name swap is complete!
 
 
 @dagster.op
-def get_id_range(
+def get_id_range_for_pwdc(
     context: dagster.OpExecutionContext,
     config: PersonsNoDistinctIdsCleanupConfig,
     database: dagster.ResourceParam[psycopg2.extensions.connection],
@@ -51,7 +51,7 @@ def get_id_range(
 
             if min_result is None or min_result["min_id"] is None:
                 context.log.exception("Source table has no valid min ID")
-                # Note: No metrics client here as this is get_id_range op, not copy_chunk
+                # Note: No metrics client here as this is get_id_range_for_pwdc op, not copy_chunk
                 raise dagster.Failure("Source table has no valid min ID")
 
             min_id = int(min_result["min_id"])
@@ -68,7 +68,7 @@ def get_id_range(
 
             if max_result is None or max_result["max_id"] is None:
                 context.log.exception("posthog_person table has no valid max ID")
-                # Note: No metrics client here as this is get_id_range op, not copy_chunk
+                # Note: No metrics client here as this is get_id_range_for_pwdc op, not copy_chunk
                 raise dagster.Failure("posthog_person table has no valid max ID")
 
             max_id = int(max_result["max_id"])
@@ -95,7 +95,7 @@ def get_id_range(
 
 
 @dagster.op(out=dagster.DynamicOut(tuple[int, int]))
-def create_chunks(
+def create_chunks_for_pwdc(
     context: dagster.OpExecutionContext,
     config: PersonsNoDistinctIdsCleanupConfig,
     id_range: tuple[int, int],
@@ -133,7 +133,7 @@ def create_chunks(
 
 
 @dagster.op
-def scan_delete_chunk(
+def scan_delete_chunk_for_pwdc(
     context: dagster.OpExecutionContext,
     config: PersonsNoDistinctIdsCleanupConfig,
     chunk: tuple[int, int],
@@ -141,8 +141,8 @@ def scan_delete_chunk(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict[str, Any]:
     """
-    Scan posthog_person table for records that have no associated posthog_persondistinctid row,
-    and deletes the corresponding posthog_person row.
+    Scan posthog_person_new table for records that have no associated posthog_persondistinctid row,
+    and deletes the corresponding posthog_person_new row.
     Processes in batches of batch_size records.
     """
     chunk_min, chunk_max = chunk
@@ -189,10 +189,10 @@ def scan_delete_chunk(
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
-                    # Execute DELETE FROM posthog_person with NOT EXISTS check on
+                    # Execute DELETE FROM posthog_person_new with NOT EXISTS check on
                     # associated posthog_persondistinctid rows
                     scan_delete_query = f"""
-DELETE FROM posthog_person AS p
+DELETE FROM {config.persons_table} AS p
 WHERE p.id >= %s AND p.id <= %s
   AND NOT EXISTS (
     SELECT 1
@@ -391,25 +391,6 @@ ORDER BY p.id DESC
     }
 
 
-@dagster.asset
-def postgres_env_check(context: dagster.AssetExecutionContext) -> None:
-    """
-    Simple asset that prints PostgreSQL environment variables being used.
-    Useful for debugging connection configuration.
-    """
-    env_vars = {
-        "POSTGRES_HOST": os.getenv("POSTGRES_HOST", "not set"),
-        "POSTGRES_PORT": os.getenv("POSTGRES_PORT", "not set"),
-        "POSTGRES_DATABASE": os.getenv("POSTGRES_DATABASE", "not set"),
-        "POSTGRES_USER": os.getenv("POSTGRES_USER", "not set"),
-        "POSTGRES_PASSWORD": "***" if os.getenv("POSTGRES_PASSWORD") else "not set",
-    }
-
-    context.log.info("PostgreSQL environment variables:")
-    for key, value in env_vars.items():
-        context.log.info(f"  {key}: {value}")
-
-
 @dagster.job(
     tags={"owner": JobOwners.TEAM_INGESTION.value},
     executor_def=k8s_job_executor,
@@ -420,6 +401,6 @@ def persons_without_distinct_ids_cleanup_job():
     rows, deleting the corresponding posthog_person rows.
     Divides the ID space into chunks and processes them in parallel.
     """
-    id_range = get_id_range()
-    chunks = create_chunks(id_range)
-    chunks.map(scan_delete_chunk)
+    id_range = get_id_range_for_pwdc()
+    chunks = create_chunks_for_pwdc(id_range)
+    chunks.map(scan_delete_chunk_for_pwdc)

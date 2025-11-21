@@ -7,9 +7,9 @@ from dagster import build_op_context
 
 from dags.persons_without_distinct_ids_cleanup import (
     PersonsNoDistinctIdsCleanupConfig,
-    create_chunks,
-    get_id_range,
-    scan_delete_chunk,
+    create_chunks_for_pwdc,
+    get_id_range_for_pwdc,
+    scan_delete_chunk_for_pwdc,
 )
 
 
@@ -32,8 +32,8 @@ def create_mock_psycopg2_error(message: str, pgcode: str) -> Exception:
     return MockPsycopg2Error(message, pgcode)
 
 
-class TestCreateChunks:
-    """Test the create_chunks function."""
+class TestCreateChunksForPwdc:
+    """Test the create_chunks_for_pwdc function."""
 
     def test_create_chunks_produces_non_overlapping_ranges(self):
         """Test that chunks produce non-overlapping ranges."""
@@ -41,7 +41,7 @@ class TestCreateChunks:
         id_range = (1, 5000)  # min_id=1, max_id=5000
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pwdc(context, config, id_range))
 
         # Extract all chunk ranges from DynamicOutput objects
         chunk_ranges = [chunk.value for chunk in chunks]
@@ -62,7 +62,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pwdc(context, config, id_range))
 
         # Extract all chunk ranges from DynamicOutput objects
         chunk_ranges = [chunk.value for chunk in chunks]
@@ -85,7 +85,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pwdc(context, config, id_range))
 
         # First chunk in the list (yielded first, highest IDs)
         first_chunk_min, first_chunk_max = chunks[0].value
@@ -102,7 +102,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pwdc(context, config, id_range))
 
         # Last chunk in the list (yielded last, lowest IDs)
         final_chunk_min, final_chunk_max = chunks[-1].value
@@ -119,7 +119,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pwdc(context, config, id_range))
 
         # Verify chunks are in descending order by max_id
         for i in range(len(chunks) - 1):
@@ -136,7 +136,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pwdc(context, config, id_range))
 
         assert len(chunks) == 5, f"Expected 5 chunks, got {len(chunks)}"
 
@@ -153,7 +153,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pwdc(context, config, id_range))
 
         assert len(chunks) == 4, f"Expected 4 chunks, got {len(chunks)}"
 
@@ -170,7 +170,7 @@ class TestCreateChunks:
         id_range = (min_id, max_id)
 
         context = build_op_context()
-        chunks = list(create_chunks(context, config, id_range))
+        chunks = list(create_chunks_for_pwdc(context, config, id_range))
 
         assert len(chunks) == 1, f"Expected 1 chunk, got {len(chunks)}"
         assert chunks[0].value == (100, 500), f"Chunk should be (100, 500), got {chunks[0].value}"
@@ -218,8 +218,8 @@ def create_mock_cluster_resource():
     return MagicMock()
 
 
-class TestScanDeleteChunk:
-    """Test the scan_delete_chunk function."""
+class TestScanDeleteChunkForPwdc:
+    """Test the scan_delete_chunk_for_pwdc function."""
 
     def test_scan_delete_chunk_single_batch_success(self):
         """Test successful scan and delete of a single batch within a chunk."""
@@ -235,11 +235,11 @@ class TestScanDeleteChunk:
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
+        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pwdc
         from unittest.mock import PropertyMock
 
         with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            result = scan_delete_chunk(context, config, chunk)
+            result = scan_delete_chunk_for_pwdc(context, config, chunk)
 
         # Verify result
         assert result["chunk_min"] == 1
@@ -274,7 +274,7 @@ class TestScanDeleteChunk:
         scan_delete_calls = [call for call in execute_calls if "DELETE FROM" in call]
         assert len(scan_delete_calls) == 1
         scan_delete_query = scan_delete_calls[0]
-        assert "DELETE FROM posthog_person" in scan_delete_query
+        assert f"DELETE FROM {config.persons_table}" in scan_delete_query
         assert "WHERE p.id >=" in scan_delete_query
         assert "AND p.id <=" in scan_delete_query
         assert "NOT EXISTS" in scan_delete_query
@@ -311,11 +311,11 @@ class TestScanDeleteChunk:
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
+        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pwdc
         from unittest.mock import PropertyMock
 
         with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            result = scan_delete_chunk(context, config, chunk)
+            result = scan_delete_chunk_for_pwdc(context, config, chunk)
 
         # Verify result
         assert result["chunk_min"] == 1
@@ -375,7 +375,7 @@ class TestScanDeleteChunk:
             patch("dags.persons_without_distinct_ids_cleanup.time.sleep"),
             patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
         ):
-            scan_delete_chunk(context, config, chunk)
+            scan_delete_chunk_for_pwdc(context, config, chunk)
 
         # Verify ROLLBACK was called on error
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
@@ -426,7 +426,7 @@ class TestScanDeleteChunk:
             patch("dags.persons_without_distinct_ids_cleanup.time.sleep"),
             patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
         ):
-            scan_delete_chunk(context, config, chunk)
+            scan_delete_chunk_for_pwdc(context, config, chunk)
 
         # Verify ROLLBACK was called on error
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
@@ -459,7 +459,7 @@ class TestScanDeleteChunk:
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
+        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pwdc
         from unittest.mock import PropertyMock
 
         mock_run = MagicMock(job_name="test_job")
@@ -468,7 +468,7 @@ class TestScanDeleteChunk:
             from dagster import Failure
 
             try:
-                scan_delete_chunk(context, config, chunk)
+                scan_delete_chunk_for_pwdc(context, config, chunk)
                 raise AssertionError("Expected Dagster.Failure to be raised")
             except Failure as e:
                 # Verify error metadata
@@ -493,11 +493,11 @@ class TestScanDeleteChunk:
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
+        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pwdc
         from unittest.mock import PropertyMock
 
         with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            scan_delete_chunk(context, config, chunk)
+            scan_delete_chunk_for_pwdc(context, config, chunk)
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
@@ -507,7 +507,7 @@ class TestScanDeleteChunk:
         assert scan_delete_query is not None
 
         # Verify query components
-        assert "DELETE FROM posthog_person AS p" in scan_delete_query
+        assert f"DELETE FROM {config.persons_table} AS p" in scan_delete_query
         assert "WHERE p.id >=" in scan_delete_query
         assert "AND p.id <=" in scan_delete_query
         assert "NOT EXISTS" in scan_delete_query
@@ -527,11 +527,11 @@ class TestScanDeleteChunk:
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
+        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pwdc
         from unittest.mock import PropertyMock
 
         with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            scan_delete_chunk(context, config, chunk)
+            scan_delete_chunk_for_pwdc(context, config, chunk)
 
         cursor = mock_db.cursor.return_value.__enter__.return_value
         execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
@@ -561,8 +561,8 @@ class TestScanDeleteChunk:
             assert max(set_indices) < min(begin_indices), "SET statements should come before BEGIN statements"
 
 
-class TestGetIdRange:
-    """Test the get_id_range function."""
+class TestGetIdRangeForPwdc:
+    """Test the get_id_range_for_pwdc function."""
 
     def test_get_id_range_uses_min_id_override(self):
         """Test that min_id override is honored when provided."""
@@ -574,7 +574,7 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pwdc(context, config)
 
         assert result == (100, 5000)
         assert result[0] == 100  # min_id override used
@@ -598,7 +598,7 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pwdc(context, config)
 
         assert result == (1, 5000)
         assert result[1] == 5000  # max_id override used
@@ -621,7 +621,7 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pwdc(context, config)
 
         assert result == (100, 5000)
         assert result[0] == 100  # min_id override used
@@ -645,7 +645,7 @@ class TestGetIdRange:
 
         context = build_op_context(resources={"database": mock_db})
 
-        result = get_id_range(context, config)
+        result = get_id_range_for_pwdc(context, config)
 
         assert result == (1, 5000)
 
@@ -666,7 +666,7 @@ class TestGetIdRange:
         from dagster import Failure
 
         try:
-            get_id_range(context, config)
+            get_id_range_for_pwdc(context, config)
             raise AssertionError("Expected Dagster.Failure to be raised")
         except Failure as e:
             assert e.description is not None
