@@ -4,6 +4,32 @@
     --text-input-height-lg: var(--button-height-lg);
 }
 
+.text-input-primitive--default {
+    background-color: var(--color-bg-surface-primary);
+    border-color: var(--color-border-primary);
+
+    &:hover {
+        border-color: var(--color-border-secondary);
+    }
+
+    &:focus-visible {
+        border-color: var(--color-border-secondary);
+    }
+}
+
+.text-input-primitive--invisible {
+    background-color: transparent;
+    border-color: transparent;
+
+    &:hover {
+        border-color: transparent;
+    }
+
+    &:focus-visible {
+        border-color: transparent;
+    }
+}
+
 .text-input-primitive--height-sm {
     height: var(--text-input-height-sm);
     min-height: var(--text-input-height-sm);
