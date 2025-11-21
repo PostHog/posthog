@@ -13,13 +13,14 @@ import {
 import { useStacktraceDisplay } from '../hooks/use-stacktrace-display'
 
 export function useErrorTrackingExplainIssueMaxTool(
-    issueId: ErrorTrackingRelationalIssue['id']
+    issueId: ErrorTrackingRelationalIssue['id'],
+    issueName: ErrorTrackingRelationalIssue['name']
 ): ReturnType<typeof useMaxTool> {
     const { ready, stacktraceText } = useStacktraceDisplay()
 
     const context: ErrorTrackingExplainIssueToolContext = {
         stacktrace: stacktraceText,
-        issue_id: issueId,
+        issue_name: issueName ?? issueId,
     }
 
     const maxToolResult = useMaxTool({

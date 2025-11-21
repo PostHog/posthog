@@ -51,6 +51,12 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                 return properties ? getExceptionList(properties) : []
             },
         ],
+        exceptionType: [
+            (s) => [s.exceptionList],
+            (excList: ErrorTrackingException[]) => {
+                return excList[0]?.type || null
+            },
+        ],
         additionalProperties: [
             (s) => [s.properties, s.isCloudOrDev],
             (properties: ErrorEventProperties, isCloudOrDev: boolean | undefined) =>

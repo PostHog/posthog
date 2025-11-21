@@ -43,10 +43,11 @@ export function StacktraceTab({
 }: StacktraceTabProps): JSX.Element {
     const { loading, issueId } = useValues(exceptionCardLogic)
     const { setShowAllFrames } = useActions(exceptionCardLogic)
-    const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames } = useValues(errorPropertiesLogic)
+    const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames, exceptionType } =
+        useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
-    const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId)
+    const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId, exceptionType)
 
     useEffect(() => {
         if (!loading) {
