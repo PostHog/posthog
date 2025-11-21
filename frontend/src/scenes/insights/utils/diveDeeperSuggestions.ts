@@ -3,6 +3,7 @@ import {
     EventsNode,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleQuery,
     NodeKind,
     RetentionQuery,
     StickinessQuery,
@@ -106,16 +107,37 @@ function getRetentionFollowUps(query: RetentionQuery): FollowUpSuggestion[] {
         stickinessFilter: {},
     }
 
-    const targetQuery: InsightVizNode = {
+    const stickinessTargetQuery: InsightVizNode = {
         kind: NodeKind.InsightVizNode,
         source: stickinessQuery,
     }
 
+    // Build the lifecycle query
+    const lifecycleQuery: LifecycleQuery = {
+        kind: NodeKind.LifecycleQuery,
+        series,
+        interval,
+        dateRange: query.dateRange,
+        properties: query.properties,
+        filterTestAccounts: query.filterTestAccounts,
+        lifecycleFilter: {},
+    }
+
+    const lifecycleTargetQuery: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: lifecycleQuery,
+    }
+
     return [
         {
-            title: `Stickiness of ${entityDisplayName}`,
+            title: `Stickiness of users who performed ${entityDisplayName}`,
             description: `See how frequently retained users perform this event (${intervalDescription})`,
-            targetQuery,
+            targetQuery: stickinessTargetQuery,
+        },
+        {
+            title: `Lifecycle of users who perform ${entityDisplayName}`,
+            description: 'See lifecycle of users who perform this event (new vs returning vs resurrecting vs dormant)',
+            targetQuery: lifecycleTargetQuery,
         },
     ]
 }
