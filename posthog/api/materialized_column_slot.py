@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import IntegrityError, models, transaction
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -84,10 +85,16 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     @action(methods=["GET"], detail=False)
     def slot_usage(self, request, **kwargs):
         """Get slot usage summary for a team."""
+        counts = {
+            row["property_type"]: row["count"]
+            for row in MaterializedColumnSlot.objects.filter(team_id=self.team_id)
+            .values("property_type")
+            .annotate(count=models.Count("id"))
+        }
         usage = {}
         for prop_type in MATERIALIZABLE_PROPERTY_TYPES:
-            count = MaterializedColumnSlot.objects.filter(team_id=self.team_id, property_type=prop_type).count()
-            usage[prop_type] = {"used": count, "total": 10, "available": 10 - count}
+            used = counts.get(prop_type, 0)
+            usage[prop_type] = {"used": used, "total": 10, "available": 10 - used}
 
         return response.Response(
             {
@@ -166,84 +173,44 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             logger.exception("Failed to get auto-materialized columns", error=str(e))
             return response.Response({"error": str(e)}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @action(methods=["POST"], detail=False)
-    def assign_slot(self, request, **kwargs):
-        """Assign a property to an available slot."""
-        property_definition_id = request.data.get("property_definition_id")
-
-        if not property_definition_id:
-            return response.Response({"error": "property_definition_id is required"}, status=400)
-
-        try:
-            property_definition = PropertyDefinition.objects.get(id=property_definition_id, team_id=self.team_id)
-        except PropertyDefinition.DoesNotExist:
-            return response.Response({"error": "Property definition not found"}, status=404)
-
+    def _validate_property_for_materialization(self, property_definition: PropertyDefinition) -> str | None:
+        """Returns error message if property cannot be materialized, None if valid."""
         if not property_definition.property_type:
-            return response.Response({"error": "Property must have a type set to be materialized"}, status=400)
-
+            return "Property must have a type set to be materialized"
         if property_definition.property_type not in MATERIALIZABLE_PROPERTY_TYPES:
-            return response.Response(
-                {"error": f"Property type '{property_definition.property_type}' cannot be materialized"},
-                status=400,
-            )
-
-        # Validate property is not a PostHog system property (except feature flags)
+            return f"Property type '{property_definition.property_type}' cannot be materialized"
         if property_definition.name.startswith("$") and not property_definition.name.startswith("$feature/"):
-            return response.Response({"error": "PostHog system properties cannot be materialized"}, status=400)
-
-        # Validate property is not already auto-materialized by PostHog
-        auto_materialized_names = get_auto_materialized_property_names()
-        if property_definition.name in auto_materialized_names:
-            return response.Response(
-                {
-                    "error": f"This property is already automatically materialized by PostHog! You're already getting all the performance gains we can provide for '{property_definition.name}'."
-                },
-                status=400,
-            )
-
-        # Check if property is already materialized
+            return "PostHog system properties cannot be materialized"
+        if property_definition.name in get_auto_materialized_property_names():
+            return f"Property '{property_definition.name}' is already auto-materialized by PostHog"
         if MaterializedColumnSlot.objects.filter(
             team_id=self.team_id, property_definition=property_definition
         ).exists():
-            return response.Response({"error": "Property is already materialized"}, status=400)
+            return "Property is already materialized"
+        return None
 
-        # Find next available slot for this property type
+    def _find_available_slot_index(self, property_type: str) -> int | None:
+        """Find the next available slot index for a property type."""
         used_slots = set(
-            MaterializedColumnSlot.objects.filter(team_id=self.team_id, property_type=property_definition.property_type)
-            .values_list("slot_index", flat=True)
-            .distinct()
+            MaterializedColumnSlot.objects.filter(team_id=self.team_id, property_type=property_type).values_list(
+                "slot_index", flat=True
+            )
         )
-
-        available_slot = None
         for i in range(10):
             if i not in used_slots:
-                available_slot = i
-                break
+                return i
+        return None
 
-        if available_slot is None:
-            return response.Response(
-                {"error": f"No available slots for property type {property_definition.property_type}"}, status=400
-            )
+    def _start_backfill_workflow(self, slot: MaterializedColumnSlot) -> str | None:
+        """Start the Temporal backfill workflow. Returns error message on failure, None on success."""
 
-        # Create the slot assignment
-        slot = MaterializedColumnSlot.objects.create(
-            team=self.team,
-            property_definition=property_definition,
-            property_type=property_definition.property_type,
-            slot_index=available_slot,
-            state=MaterializedColumnSlotState.BACKFILL,
-            created_by=request.user,
-        )
-
-        # Start Temporal backfill workflow
-        async def _start_backfill():
+        async def _start():
             client = await async_connect()
             workflow_id = f"backfill-mat-prop-{slot.id}"
             handle = await client.start_workflow(
                 "backfill-materialized-property",
                 BackfillMaterializedPropertyInputs(
-                    team_id=self.team_id,
+                    team_id=slot.team_id,
                     slot_id=str(slot.id),
                 ),
                 id=workflow_id,
@@ -253,33 +220,27 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             return handle.id
 
         try:
-            workflow_id = async_to_sync(_start_backfill)()
+            workflow_id = async_to_sync(_start)()
             slot.backfill_temporal_workflow_id = workflow_id
             slot.save()
-
             logger.info(
                 "Started backfill workflow",
                 slot_id=slot.id,
-                team_id=self.team_id,
+                team_id=slot.team_id,
                 workflow_id=workflow_id,
-                property_name=property_definition.name,
             )
+            return None
         except Exception as e:
             logger.exception(
                 "Failed to start backfill workflow",
                 slot_id=slot.id,
-                team_id=self.team_id,
-                property_name=property_definition.name,
+                team_id=slot.team_id,
                 error=str(e),
             )
-            # Don't delete the slot, leave it in BACKFILL state so user can retry
-            # Return error so user knows workflow didn't start
-            return response.Response(
-                {"error": f"Failed to start backfill workflow: {str(e)}"},
-                status=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return f"Failed to start backfill workflow: {str(e)}"
 
-        # Log activity
+    def _log_slot_created(self, slot: MaterializedColumnSlot, request) -> None:
+        """Log activity for slot creation."""
         log_activity(
             organization_id=self.team.organization_id,
             team_id=self.team_id,
@@ -289,30 +250,70 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             scope="DataManagement",
             activity="materialized_column_created",
             detail=Detail(
-                name=property_definition.name,
+                name=slot.property_definition.name,
                 changes=[
                     Change(
                         type="MaterializedColumnSlot",
                         action="created",
                         field="property",
-                        after=property_definition.name,
+                        after=slot.property_definition.name,
                     ),
                     Change(
-                        type="MaterializedColumnSlot",
-                        action="created",
-                        field="property_type",
-                        after=property_definition.property_type,
+                        type="MaterializedColumnSlot", action="created", field="property_type", after=slot.property_type
                     ),
-                    Change(
-                        type="MaterializedColumnSlot",
-                        action="created",
-                        field="slot_index",
-                        after=available_slot,
-                    ),
+                    Change(type="MaterializedColumnSlot", action="created", field="slot_index", after=slot.slot_index),
                 ],
             ),
         )
 
+    @action(methods=["POST"], detail=False)
+    def assign_slot(self, request, **kwargs):
+        """Assign a property to an available slot."""
+        property_definition_id = request.data.get("property_definition_id")
+        if not property_definition_id:
+            return response.Response({"error": "property_definition_id is required"}, status=400)
+
+        try:
+            with transaction.atomic():
+                # Lock the property definition to prevent property_type changes during slot creation
+                property_definition = PropertyDefinition.objects.select_for_update().get(
+                    id=property_definition_id, team_id=self.team_id
+                )
+
+                validation_error = self._validate_property_for_materialization(property_definition)
+                if validation_error:
+                    return response.Response({"error": validation_error}, status=400)
+
+                slot_index = self._find_available_slot_index(property_definition.property_type)
+                if slot_index is None:
+                    return response.Response(
+                        {"error": f"No available slots for property type {property_definition.property_type}"},
+                        status=400,
+                    )
+
+                slot = MaterializedColumnSlot.objects.create(
+                    team=self.team,
+                    property_definition=property_definition,
+                    property_type=property_definition.property_type,
+                    slot_index=slot_index,
+                    state=MaterializedColumnSlotState.BACKFILL,
+                    created_by=request.user,
+                )
+
+        except PropertyDefinition.DoesNotExist:
+            return response.Response({"error": "Property definition not found"}, status=404)
+        except IntegrityError:
+            return response.Response(
+                {"error": "Conflict detected. Please refresh and try again."},
+                status=http_status.HTTP_409_CONFLICT,
+            )
+
+        # Start workflow outside transaction (idempotent, slot already committed)
+        workflow_error = self._start_backfill_workflow(slot)
+        if workflow_error:
+            return response.Response({"error": workflow_error}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        self._log_slot_created(slot, request)
         return response.Response(MaterializedColumnSlotSerializer(slot).data, status=http_status.HTTP_201_CREATED)
 
     def destroy(self, request, *args, **kwargs):

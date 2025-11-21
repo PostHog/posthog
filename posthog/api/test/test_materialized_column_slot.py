@@ -436,7 +436,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "already automatically materialized by PostHog" in response.json()["error"]
+        assert "already auto-materialized by PostHog" in response.json()["error"]
 
     @patch("posthog.api.materialized_column_slot.async_to_sync")
     def test_assign_slot_already_materialized(self, mock_async_to_sync):
