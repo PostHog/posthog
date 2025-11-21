@@ -86,7 +86,7 @@ class TestCreateTeamChunksForDpft:
 
     def test_create_chunks_handles_empty_team_list(self):
         """Test that no chunks are created for empty team list."""
-        team_ids = []
+        team_ids: list[int] = []
 
         context = build_op_context()
         chunks = list(create_team_chunks_for_dpft(context, team_ids))
