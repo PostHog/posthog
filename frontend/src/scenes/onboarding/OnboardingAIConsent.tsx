@@ -38,7 +38,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
     }
 
     return (
-        <OnboardingStep stepKey={stepKey} title="Try PostHog AI" onContinue={handleContinue}>
+        <OnboardingStep stepKey={stepKey} title="Activate PostHog AI" onContinue={handleContinue}>
             <HogfettiComponent />
             <div className="mt-6">
                 <div className="flex items-start gap-6 mb-8">
