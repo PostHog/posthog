@@ -50,8 +50,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
-    ErrorTrackingIssueV2: () =>
-        import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueV2Scene/ErrorTrackingIssueV2Scene'),
     ErrorTrackingIssueFingerprints: () =>
         import(
             '../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'
@@ -106,7 +104,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/endpoints/new': ['EndpointNew', 'endpointNew'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
-    '/error_tracking_issue_v2/:id': ['ErrorTrackingIssueV2', 'errorTrackingIssueV2'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
@@ -249,8 +246,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'error_tracking',
         description: 'Track and analyze your error tracking data to understand and fix issues.',
     },
-    ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue' },
-    ErrorTrackingIssueV2: { projectBased: true, name: 'Error tracking issue V2', layout: 'app-full-scene-height' },
+    ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingConfiguration: { projectBased: true, name: 'Error tracking configuration' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -427,13 +423,6 @@ export const productUrls = {
     },
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
-    errorTrackingIssueV2: (
-        id: string,
-        params: {
-            timestamp?: string
-            fingerprint?: string
-        } = {}
-    ): string => combineUrl(`/error_tracking_issue_v2/${id}`, params).url,
     errorTrackingIssue: (
         id: string,
         params: {
@@ -978,7 +967,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: [
             'ErrorTracking',
             'ErrorTrackingIssue',
-            'ErrorTrackingIssueV2',
             'ErrorTrackingIssueFingerprints',
             'ErrorTrackingConfiguration',
         ],

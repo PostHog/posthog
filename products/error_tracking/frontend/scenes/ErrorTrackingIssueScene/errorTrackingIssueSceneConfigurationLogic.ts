@@ -2,7 +2,7 @@ import { actions, defaults, kea, path, reducers } from 'kea'
 
 import type { errorTrackingIssueSceneConfigurationLogicType } from './errorTrackingIssueSceneConfigurationLogicType'
 
-export type ErrorTrackingIssueSceneCategory = 'overview' | 'exceptions' | 'breakdowns' | 'autofix' | 'similar_issues'
+export type ErrorTrackingIssueSceneCategory = 'exceptions' | 'breakdowns' | 'autofix' | 'similar_issues'
 
 export const errorTrackingIssueSceneConfigurationLogic = kea<errorTrackingIssueSceneConfigurationLogicType>([
     path([
@@ -21,7 +21,7 @@ export const errorTrackingIssueSceneConfigurationLogic = kea<errorTrackingIssueS
 
     defaults({
         isSidebarOpen: true as boolean,
-        category: 'overview' as ErrorTrackingIssueSceneCategory,
+        category: 'exceptions' as ErrorTrackingIssueSceneCategory,
     }),
 
     reducers(() => ({

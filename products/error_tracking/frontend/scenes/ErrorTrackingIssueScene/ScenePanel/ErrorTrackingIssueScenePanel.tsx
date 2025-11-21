@@ -1,73 +1,70 @@
 import { useActions, useValues } from 'kea'
 
+import { IconComment, IconShare } from '@posthog/icons'
 import { Link, Spinner } from '@posthog/lemon-ui'
 
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { pluralize } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
-import { ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { ScenePanel, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
+import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import { ExternalReferences } from '../../../components/ExternalReferences'
-import { IssueTasks } from '../../../components/IssueTasks'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { BaseActions } from './BaseActions'
-import { IssueAssigneeSelect } from './IssueAssigneeSelect'
 import { IssueCohort } from './IssueCohort'
-import { IssueStatusSelect } from './IssueStatusSelect'
-import { SimilarIssuesList } from './SimilarIssuesList'
-
-const RESOURCE_TYPE = 'issue'
 
 export const ErrorTrackingIssueScenePanel = ({
-    showActions = true,
-    showSimilarIssues = true,
+    issue,
 }: {
-    showActions?: boolean
-    showSimilarIssues?: boolean
+    issue: ErrorTrackingRelationalIssue
 }): JSX.Element | null => {
-    const { issue } = useValues(errorTrackingIssueSceneLogic)
-    const { updateName, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
-    const hasTasks = useFeatureFlag('TASKS')
+    const { openSidePanel } = useActions(sidePanelLogic)
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
 
     return issue ? (
-        <div className="flex flex-col gap-2 @container">
-            {showActions && (
-                <>
-                    <BaseActions issueId={issue.id} resourceType={RESOURCE_TYPE} />
-                    <ScenePanelDivider />
-                </>
-            )}
+        <ScenePanel>
+            <ScenePanelActionsSection>
+                <div className="grid grid-cols-2 gap-1">
+                    <ButtonPrimitive
+                        onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                        tooltip="Comment"
+                        menuItem
+                        className="justify-center"
+                    >
+                        <IconComment />
+                        <span className="hidden @[200px]:block">Comment</span>
+                    </ButtonPrimitive>
 
-            <SceneTextInput
-                name="name"
-                defaultValue={issue.name ?? ''}
-                onSave={updateName}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-
-            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-            <IssueAssigneeSelect
-                assignee={issue.assignee}
-                onChange={updateAssignee}
-                disabled={issue.status != 'active'}
-            />
+                    <ButtonPrimitive
+                        onClick={() => {
+                            void copyToClipboard(
+                                window.location.origin + urls.errorTrackingIssue(issue.id),
+                                'issue link'
+                            )
+                        }}
+                        tooltip="Share"
+                        data-attr={`issue-share`}
+                        menuItem
+                        className="justify-center"
+                    >
+                        <IconShare />
+                        <span className="hidden @[200px]:block">Share</span>
+                    </ButtonPrimitive>
+                </div>
+            </ScenePanelActionsSection>
+            <ScenePanelDivider />
             <IssueExternalReference />
             <IssueCohort issue={issue} />
             {hasIssueSplitting && <IssueFingerprints />}
-            {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-            {hasSimilarIssues && showSimilarIssues ? (
-                <ScenePanelLabel title="Similar issues">
-                    <SimilarIssuesList />
-                </ScenePanelLabel>
-            ) : null}
-        </div>
+        </ScenePanel>
     ) : null
 }
 
