@@ -42,6 +42,7 @@ from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
+    CONTEXT_INITIAL_MODE_PROMPT,
     CONTEXT_MODE_PROMPT,
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
@@ -431,4 +432,8 @@ class AssistantContextManager(AssistantContextMixin):
         return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)
 
     def _get_mode_prompt(self, mode: AgentMode | None) -> str:
-        return format_prompt_string(CONTEXT_MODE_PROMPT, mode=mode.value if mode else AgentMode.PRODUCT_ANALYTICS.value)
+        return format_prompt_string(
+            CONTEXT_MODE_PROMPT,
+            initial_mode_prompt=CONTEXT_INITIAL_MODE_PROMPT,
+            mode=mode.value if mode else AgentMode.PRODUCT_ANALYTICS.value,
+        )

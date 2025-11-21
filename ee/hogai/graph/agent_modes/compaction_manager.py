@@ -15,10 +15,13 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, HumanMessage
+from posthog.schema import AgentMode, AssistantMessage, AssistantToolCallMessage, ContextMessage, HumanMessage
 
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.context.prompts import CONTEXT_INITIAL_MODE_PROMPT
+from ee.hogai.graph.agent_modes.prompts import ROOT_AGENT_MODE_REMINDER_PROMPT
+from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.types import AssistantMessageUnion
 
@@ -101,7 +104,13 @@ class ConversationCompactionManager(ABC):
         return await self._get_token_count(model, messages, tools, **kwargs)
 
     def update_window(
-        self, messages: Sequence[T], summary_message: ContextMessage, start_id: str | None = None
+        self,
+        messages: Sequence[T],
+        summary_message: ContextMessage,
+        agent_mode: AgentMode,
+        start_id: str | None = None,
+        # TODO: Delete when modes are rolled out
+        is_modes_feature_flag_enabled: bool = False,
     ) -> InsertionResult:
         """Finds the optimal position to insert the summary message in the conversation window."""
         window_start_id_candidate = self.find_window_boundary(messages, max_messages=16, max_tokens=2048)
@@ -114,10 +123,8 @@ class ConversationCompactionManager(ABC):
 
         # The last messages were too large to fit into the window. Copy the last human message to the start of the window.
         if not window_start_id_candidate:
-            return InsertionResult(
-                messages=[*messages, summary_message, start_message_copy],
-                updated_start_id=start_message_copy.id,
-                updated_window_start_id=summary_message.id,
+            return self._handle_no_window_boundary(
+                messages, summary_message, start_message_copy, agent_mode, is_modes_feature_flag_enabled
             )
 
         # Find the updated window
@@ -126,23 +133,116 @@ class ConversationCompactionManager(ABC):
 
         # If the start human message is in the window, insert the summary message before it
         # and update the window start.
-        if next((m for m in new_window if m.id == start_id), None):
-            updated_messages = insert_messages_before_start(messages, [summary_message], start_id=start_id)
-            return InsertionResult(
-                messages=updated_messages,
-                updated_start_id=start_id,
-                updated_window_start_id=window_start_id_candidate,
+        if start_id and next((m for m in new_window if m.id == start_id), None):
+            return self._handle_start_in_window(
+                messages,
+                summary_message,
+                start_id,
+                window_start_id_candidate,
+                agent_mode,
+                is_modes_feature_flag_enabled,
             )
 
         # If the start message is not in the window, insert the summary message and human message at the start of the window.
-        updated_messages = insert_messages_before_start(
-            new_window, [summary_message, start_message_copy], start_id=window_start_id_candidate
+        return self._handle_start_outside_window(
+            new_window,
+            summary_message,
+            start_message_copy,
+            window_start_id_candidate,
+            agent_mode,
+            is_modes_feature_flag_enabled,
         )
+
+    def _handle_no_window_boundary(
+        self,
+        messages: Sequence[T],
+        summary_message: ContextMessage,
+        start_message_copy: HumanMessage,
+        agent_mode: AgentMode,
+        is_modes_feature_flag_enabled: bool,
+    ) -> InsertionResult:
+        """Handle case where no window boundary was found (messages too large)."""
+        result_messages = [*messages, summary_message, start_message_copy]
+        # Check if we need to add a mode reminder
+        if is_modes_feature_flag_enabled and (context_message := self._get_mode_message(result_messages, agent_mode)):
+            # Insert mode reminder right after summary message
+            result_messages = [*messages, summary_message, context_message, start_message_copy]
+        return InsertionResult(
+            messages=result_messages,
+            updated_start_id=start_message_copy.id,
+            updated_window_start_id=summary_message.id,
+        )
+
+    def _handle_start_in_window(
+        self,
+        messages: Sequence[T],
+        summary_message: ContextMessage,
+        start_id: str,
+        window_start_id_candidate: str,
+        agent_mode: AgentMode,
+        is_modes_feature_flag_enabled: bool,
+    ) -> InsertionResult:
+        """Handle case where start message is within the window boundary."""
+        updated_messages = insert_messages_before_start(messages, [summary_message], start_id=start_id)
+        if summary_message.id:
+            updated_messages = list(
+                self._insert_mode_reminder_after_summary(
+                    updated_messages, summary_message.id, agent_mode, is_modes_feature_flag_enabled
+                )
+            )
+        return InsertionResult(
+            messages=updated_messages,
+            updated_start_id=start_id,
+            updated_window_start_id=window_start_id_candidate,
+        )
+
+    def _handle_start_outside_window(
+        self,
+        new_window: Sequence[T],
+        summary_message: ContextMessage,
+        start_message_copy: HumanMessage,
+        window_start_id_candidate: str,
+        agent_mode: AgentMode,
+        is_modes_feature_flag_enabled: bool,
+    ) -> InsertionResult:
+        """Handle case where start message is outside the window boundary."""
+        updated_messages = list(
+            insert_messages_before_start(
+                new_window, [summary_message, start_message_copy], start_id=window_start_id_candidate
+            )
+        )
+        summary_id = summary_message.id
+        if summary_id:
+            updated_messages = list(
+                self._insert_mode_reminder_after_summary(
+                    updated_messages, summary_id, agent_mode, is_modes_feature_flag_enabled
+                )
+            )
         return InsertionResult(
             messages=updated_messages,
             updated_start_id=start_message_copy.id,
             updated_window_start_id=window_start_id_candidate,
         )
+
+    def _insert_mode_reminder_after_summary(
+        self,
+        messages: Sequence[T],
+        summary_id: str,
+        agent_mode: AgentMode,
+        is_modes_feature_flag_enabled: bool,
+    ) -> Sequence[T]:
+        """Insert mode reminder right after the summary message if needed."""
+        if not is_modes_feature_flag_enabled:
+            return messages
+        context_message = self._get_mode_message(messages, agent_mode)
+        if not context_message:
+            return messages
+        summary_idx = next(i for i, msg in enumerate(messages) if msg.id == summary_id)
+        return [
+            *messages[: summary_idx + 1],
+            context_message,
+            *messages[summary_idx + 1 :],
+        ]
 
     def _get_estimated_assistant_message_tokens(self, message: AssistantMessageUnion) -> int:
         """
@@ -212,6 +312,52 @@ class ConversationCompactionManager(ABC):
         **kwargs,
     ) -> int:
         raise NotImplementedError
+
+    def _get_mode_message(
+        self, updated_messages: Sequence[AssistantMessageUnion], agent_mode: AgentMode
+    ) -> ContextMessage | None:
+        if not self._should_add_mode_reminder(updated_messages):
+            return None
+        return ContextMessage(
+            content=ROOT_AGENT_MODE_REMINDER_PROMPT.format(mode=agent_mode.value),
+            id=str(uuid4()),
+        )
+
+    def _should_add_mode_reminder(self, messages: Sequence[AssistantMessageUnion]) -> bool:
+        """
+        Determine if a mode reminder should be added to the messages.
+        Returns True if:
+        - agent_mode is set
+        - mode is not evident in the messages (no switch_mode call for current mode)
+        - initial mode message is not present in the messages
+        """
+        if self._has_initial_mode_message(messages):
+            return False
+        if self._is_mode_evident_in_window(messages):
+            return False
+        return True
+
+    def _is_mode_evident_in_window(self, messages: Sequence[AssistantMessageUnion]) -> bool:
+        """
+        Check if the current agent mode is evident in the conversation window.
+        Returns True if there's a switch_mode tool call for the current mode in the messages.
+        """
+
+        for message in messages:
+            if isinstance(message, AssistantMessage) and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    if tool_call.name == SWITCH_MODE_TOOL_NAME:
+                        return True
+        return False
+
+    def _has_initial_mode_message(self, messages: Sequence[AssistantMessageUnion]) -> bool:
+        """
+        Check if the initial mode message from the context manager is present in the messages.
+        """
+        for message in messages:
+            if isinstance(message, ContextMessage) and CONTEXT_INITIAL_MODE_PROMPT in message.content:
+                return True
+        return False
 
 
 class AnthropicConversationCompactionManager(ConversationCompactionManager):

@@ -269,3 +269,9 @@ This tool does not exist.
 Only use tools that are available to you.
 </system_reminder>
 """.strip()
+
+ROOT_AGENT_MODE_REMINDER_PROMPT = """
+<system_reminder>
+You are currently in {mode} mode. This mode was enabled earlier in the conversation.
+</system_reminder>
+""".strip()
