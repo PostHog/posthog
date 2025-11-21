@@ -23,6 +23,11 @@ OTLP HTTP Request
        |       |       |
        |       |       +---> posthog_native.py
        |       |       +---> genai.py
+       |       |       |       |
+       |       |       |       +---> providers/ (framework-specific transformations)
+       |       |       |               |
+       |       |       |               +---> mastra.py
+       |       |       |               +---> base.py
        |       |
        |       +---> event_merger.py (Redis cache for v2)
        |
@@ -74,9 +79,14 @@ v1 instrumentation sends complete LLM call data within span attributes using ind
 - Completions: `gen_ai.completion.0.role`, `gen_ai.completion.0.content`
 - Metadata: `gen_ai.request.model`, `gen_ai.usage.input_tokens`, etc.
 
-**Processing**: When a span contains `prompt` or `completion` attributes (after extraction), the transformer recognizes it as v1 and sends the event immediately without caching. This works because v1 spans are self-contained.
+**Processing**: The transformer recognizes v1 in two ways:
 
-**Package**: `opentelemetry-instrumentation-openai`
+1. Span contains `prompt` or `completion` attributes (after extraction)
+2. Framework detection via instrumentation scope name (e.g., `@mastra/otel` for Mastra)
+
+When detected, events are sent immediately without caching since v1 spans are self-contained.
+
+**Packages**: `opentelemetry-instrumentation-openai`, Mastra framework (`@mastra/otel-exporter`)
 
 ### v2 Instrumentation
 
@@ -104,17 +114,19 @@ Main entry point for OTLP HTTP requests. Parses protobuf payloads and routes to 
 Converts OTel spans to PostHog AI events using a waterfall attribute extraction pattern:
 
 1. Extract PostHog-native attributes (highest priority)
-2. Extract GenAI semantic convention attributes (fallback)
+2. Extract GenAI semantic convention attributes (fallback, with provider transformers)
 3. Merge with PostHog attributes taking precedence
 
 Determines event type based on span characteristics:
 
 - `$ai_generation`: LLM completion requests (has model, tokens, and input)
 - `$ai_embedding`: Embedding requests (operation_name matches embedding patterns)
-- `$ai_trace`: Root spans (no parent)
-- `$ai_span`: All other spans
+- `$ai_trace`: Root spans (no parent) for v2 frameworks
+- `$ai_span`: All other spans, including root spans from v1 frameworks
 
-Detects v1 vs v2 by checking for `prompt` or `completion` in extracted attributes. v1 spans bypass the event merger.
+**v1 Detection**: Checks for `prompt` or `completion` attributes OR framework scope name (e.g., `@mastra/otel`). v1 spans bypass the event merger.
+
+**Event Type Logic**: For v1 frameworks like Mastra, root spans are marked as `$ai_span` (not `$ai_trace`) to ensure they appear in the tree hierarchy. This is necessary because `TraceQueryRunner` filters out `$ai_trace` events from the events array.
 
 ### logs_transformer.py
 
@@ -141,7 +153,12 @@ Attribute extraction modules implementing semantic conventions:
 
 **posthog_native.py**: Extracts PostHog-specific attributes prefixed with `posthog.ai.*`. These take precedence in the waterfall.
 
-**genai.py**: Extracts OpenTelemetry GenAI semantic convention attributes (`gen_ai.*`). Handles indexed message fields by collecting attributes like `gen_ai.prompt.0.role` into structured message arrays.
+**genai.py**: Extracts OpenTelemetry GenAI semantic convention attributes (`gen_ai.*`). Handles indexed message fields by collecting attributes like `gen_ai.prompt.0.role` into structured message arrays. Supports provider-specific transformations for frameworks that use custom OTEL formats.
+
+**providers/**: Framework-specific transformers for handling custom OTEL formats:
+
+- **base.py**: Abstract base class defining the provider transformer interface (`can_handle()`, `transform_prompt()`, `transform_completion()`)
+- **mastra.py**: Transforms Mastra's wrapped message format (e.g., `{"messages": [...]}` for input, `{"text": "...", "files": [], ...}` for output) into standard PostHog format. Detected by instrumentation scope name `@mastra/otel`.
 
 ## Event Schema
 
@@ -237,13 +254,73 @@ v2 can send multiple log events in a single HTTP request. The ingestion layer gr
 
 ### v1/v2 Detection
 
-Rather than requiring explicit configuration, the transformer auto-detects instrumentation version by checking for `prompt` or `completion` attributes. This allows both patterns to coexist without configuration.
+Rather than requiring explicit configuration, the transformer auto-detects instrumentation version by:
+
+1. Checking for `prompt` or `completion` attributes (after extraction)
+2. Detecting framework via instrumentation scope name (e.g., `@mastra/otel`)
+
+This allows both patterns to coexist without configuration, and supports frameworks that don't follow standard attribute conventions.
+
+### Provider Transformers
+
+Some frameworks (like Mastra) wrap OTEL data in custom structures that don't match standard GenAI conventions. Provider transformers detect these frameworks (via instrumentation scope or attribute prefixes) and unwrap their data into standard format. This keeps framework-specific logic isolated while maintaining compatibility with the core transformer pipeline.
+
+**Example**: Mastra wraps prompts as `{"messages": [{"role": "user", "content": [...]}]}` where content is an array of `{"type": "text", "text": "..."}` objects. The Mastra transformer unwraps this into standard `[{"role": "user", "content": "..."}]` format.
+
+### Event Type Determination for v1 Frameworks
+
+v1 frameworks create root spans that should appear in the tree hierarchy alongside their children. These root spans are marked as `$ai_span` (not `$ai_trace`) because `TraceQueryRunner` filters out `$ai_trace` events from the events array. This ensures v1 framework traces display correctly with proper parent-child relationships in the UI.
 
 ### TTL-Based Cleanup
 
 The event merger uses 60-second TTL on cache entries. This automatically cleans up orphaned data from incomplete traces (e.g., lost log packets) without requiring background jobs or manual cleanup.
 
 ## Extending the System
+
+### Adding New Provider Transformers
+
+Create a new transformer in `conventions/providers/`:
+
+```python
+from .base import ProviderTransformer
+from typing import Any
+
+class CustomFrameworkTransformer(ProviderTransformer):
+    """Transform CustomFramework's OTEL format."""
+
+    def can_handle(self, span: dict[str, Any], scope: dict[str, Any]) -> bool:
+        """Detect CustomFramework by scope name or attributes."""
+        scope_name = scope.get("name", "")
+        return scope_name == "custom-framework-scope"
+
+    def transform_prompt(self, prompt: Any) -> Any:
+        """Transform wrapped prompt format to standard."""
+        if not isinstance(prompt, str):
+            return None
+
+        try:
+            parsed = json.loads(prompt)
+            # Transform custom format to standard
+            return [{"role": "user", "content": parsed["text"]}]
+        except (json.JSONDecodeError, KeyError):
+            return None
+
+    def transform_completion(self, completion: Any) -> Any:
+        """Transform wrapped completion format to standard."""
+        # Similar transformation logic
+        pass
+```
+
+Register in `conventions/providers/__init__.py`:
+
+```python
+from .custom_framework import CustomFrameworkTransformer
+
+PROVIDER_TRANSFORMERS = [
+    CustomFrameworkTransformer,
+    MastraTransformer,
+]
+```
 
 ### Adding New Semantic Conventions
 
