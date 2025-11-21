@@ -60,9 +60,9 @@ def transform_span_to_ai_event(
     properties = build_event_properties(span, merged_attrs, resource, scope, baggage)
 
     # Detect v1 vs v2 instrumentation:
-    # v1: Everything in span attributes (gen_ai.prompt, gen_ai.completion) - send immediately
+    # v1: Everything in span attributes (extracted as "prompt", "completion") - send immediately
     # v2: Metadata in span, content in logs - use event merger
-    is_v1_span = bool(merged_attrs.get("gen_ai.prompt") or merged_attrs.get("gen_ai.completion"))
+    is_v1_span = bool(merged_attrs.get("prompt") or merged_attrs.get("completion"))
 
     if not is_v1_span:
         # v2 instrumentation - use event merger for bidirectional merge with logs
