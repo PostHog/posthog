@@ -43,6 +43,7 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     ActivityScope,
@@ -65,7 +66,6 @@ import {
     MultivariateFlagVariant,
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
-    ProductKey,
     ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,

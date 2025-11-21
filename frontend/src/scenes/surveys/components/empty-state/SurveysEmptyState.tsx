@@ -14,7 +14,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { ProductKey, SidePanelTab } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import { TemplateCard } from '../../SurveyTemplates'
 import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType, defaultSurveyTemplates } from '../../constants'
@@ -104,7 +105,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     'Create an NPS survey for customers who completed checkout',
                                     'Create a feedback survey asking about our new dashboard',
                                 ]}
-                                context={{ user_id: user.uuid }}
+                                context={{}}
                                 callback={(toolOutput: {
                                     survey_id?: string
                                     error?: string

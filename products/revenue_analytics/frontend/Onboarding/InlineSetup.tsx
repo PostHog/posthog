@@ -16,8 +16,8 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
-import { AccessControlResourceType, ProductKey } from '~/types'
+import { ExternalDataSourceType, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlResourceType } from '~/types'
 
 import { EventConfigurationModal } from '../settings/EventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
