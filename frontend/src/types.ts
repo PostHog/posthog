@@ -4501,6 +4501,7 @@ export type OnlineExportContext = {
 export type QueryExportContext = {
     source: Record<string, any>
     filename?: string
+    show_legend?: boolean
 }
 
 export interface ReplayExportContext {
@@ -4525,17 +4526,12 @@ export interface HeatmapExportContext {
     common_filters?: CommonFilters
 }
 
-export interface InsightExportContext {
-    show_legend?: boolean
-}
-
 export type ExportContext =
     | OnlineExportContext
     | LocalExportContext
     | QueryExportContext
     | ReplayExportContext
     | HeatmapExportContext
-    | InsightExportContext
 
 export interface ExportedAssetType {
     id: number
