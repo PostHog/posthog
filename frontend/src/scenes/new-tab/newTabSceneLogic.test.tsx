@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -35,6 +37,8 @@ describe('newTabSceneLogic - recents search', () => {
         projectTreeLogicInstance.mount()
 
         listMock = jest.spyOn(api.fileSystem, 'list').mockImplementation(async () => ({ ...defaultResponse }))
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.NEW_TAB_PROJECT_EXPLORER]: true })
 
         logic = newTabSceneLogic({ tabId: 'test-tab' })
         logic.mount()
@@ -173,6 +177,18 @@ describe('newTabSceneLogic - recents search', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.sectionItemLimits.recents).toBe(initialLimit + PAGINATION_LIMIT)
+    })
+
+    it('hides explorer-specific features when the flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.NEW_TAB_PROJECT_EXPLORER]: false })
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({
+            projectExplorerEnabled: false,
+            showFoldersCategory: false,
+            folderCategoryItems: [],
+        })
     })
 
     it('clears the search input when opening a folder', async () => {

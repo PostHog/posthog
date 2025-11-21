@@ -482,8 +482,9 @@ export function Results({
         folderCategoryLoading,
         folderHasResults,
         activeExplorerFolderPath,
+        projectExplorerEnabled,
     } = useValues(newTabSceneLogic({ tabId }))
-    const showExplorerView = activeExplorerFolderPath !== null
+    const showExplorerView = projectExplorerEnabled && activeExplorerFolderPath !== null
     const showSearchResults = !showExplorerView
     // Track whether we have any results
     const hasStandardResults = allCategories.some((category) => category.items.length > 0)

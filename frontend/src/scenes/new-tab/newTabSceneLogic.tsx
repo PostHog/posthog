@@ -18,6 +18,7 @@ import {
 } from '@posthog/icons'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -848,9 +849,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }),
         ],
         showFoldersCategory: [
-            (s) => [s.newTabSceneDataInclude],
-            (newTabSceneDataInclude: NEW_TAB_COMMANDS[]): boolean =>
-                newTabSceneDataInclude.includes('all') || newTabSceneDataInclude.includes('folders'),
+            (s) => [s.newTabSceneDataInclude, s.projectExplorerEnabled],
+            (newTabSceneDataInclude: NEW_TAB_COMMANDS[], projectExplorerEnabled: boolean): boolean =>
+                projectExplorerEnabled &&
+                (newTabSceneDataInclude.includes('all') || newTabSceneDataInclude.includes('folders')),
+        ],
+        projectExplorerEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.NEW_TAB_PROJECT_EXPLORER],
         ],
         breadcrumbs: [
             (s) => [s.activeExplorerFolderPath],
@@ -1759,6 +1765,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     })),
     listeners(({ actions, values }) => ({
         toggleExplorerFolderExpansion: ({ path }) => {
+            if (!values.projectExplorerEnabled) {
+                return
+            }
+
             const folderKey = values.activeExplorerFolderPath ?? ''
             const expandedFolders = values.explorerExpandedFoldersByFolder[folderKey] ?? {}
 
@@ -1768,6 +1778,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             })
         },
         setActiveExplorerFolderPath: ({ path }) => {
+            if (!values.projectExplorerEnabled) {
+                return
+            }
+
             if (path === values.activeExplorerFolderPath) {
                 return
             }
@@ -2037,7 +2051,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         const buildParams = (overrides: { folderPath?: string | null } = {}): Record<string, any> => {
             const includeItems = values.newTabSceneDataInclude.filter((item) => item !== 'all')
             const includeParam = includeItems.length > 0 ? includeItems.join(',') : undefined
-            const folderPath = 'folderPath' in overrides ? overrides.folderPath : values.activeExplorerFolderPath
+            const folderPath = values.projectExplorerEnabled
+                ? 'folderPath' in overrides
+                    ? overrides.folderPath
+                    : values.activeExplorerFolderPath
+                : null
             const folderParam = folderPath === null || folderPath === undefined ? undefined : folderPath
 
             return {
@@ -2154,7 +2172,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
 
             const folderParamExists = Object.prototype.hasOwnProperty.call(searchParams, 'folder')
-            if (folderParamExists) {
+            if (values.projectExplorerEnabled && folderParamExists) {
                 const folderFromUrlRaw = searchParams.folder
                 const folderPathFromUrl =
                     folderFromUrlRaw === undefined || folderFromUrlRaw === null ? '' : String(folderFromUrlRaw)
@@ -2162,7 +2180,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (folderPathFromUrl !== values.activeExplorerFolderPath) {
                     actions.setActiveExplorerFolderPath(folderPathFromUrl)
                 }
-            } else if (values.activeExplorerFolderPath !== null) {
+            } else if (values.projectExplorerEnabled && values.activeExplorerFolderPath !== null) {
                 actions.setActiveExplorerFolderPath(null)
             }
 

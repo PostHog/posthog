@@ -28,9 +28,13 @@ export const scene: SceneExport = {
 export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const { search, newTabSceneDataInclude, activeExplorerFolderPath, explorerExpandedFolders } = useValues(
-        newTabSceneLogic({ tabId })
-    )
+    const {
+        search,
+        newTabSceneDataInclude,
+        activeExplorerFolderPath,
+        explorerExpandedFolders,
+        projectExplorerEnabled,
+    } = useValues(newTabSceneLogic({ tabId }))
     const {
         setSearch,
         toggleNewTabSceneDataInclude,
@@ -51,7 +55,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 return
             }
 
-            if (activeExplorerFolderPath === null || trimmedSearch !== '') {
+            if (!projectExplorerEnabled || activeExplorerFolderPath === null || trimmedSearch !== '') {
                 return
             }
 
@@ -85,6 +89,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             toggleExplorerFolderExpansion,
             loadFolder,
             listboxRef,
+            projectExplorerEnabled,
         ]
     )
 
@@ -94,7 +99,10 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     }
 
     // The active commands are just the items in newTabSceneDataInclude
-    const activeCommands: NEW_TAB_COMMANDS[] = newTabSceneDataInclude
+    const filteredActiveCommands: NEW_TAB_COMMANDS[] = projectExplorerEnabled
+        ? newTabSceneDataInclude
+        : newTabSceneDataInclude.filter((command) => command !== 'folders')
+    const activeCommands: NEW_TAB_COMMANDS[] = filteredActiveCommands
 
     // Convert active commands to selected commands for the SearchInput
     // Filter out 'all' since that represents the default state (no specific filters)
@@ -106,15 +114,21 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         })
 
     const explorerBreadcrumbs: SearchInputBreadcrumb[] | null =
-        activeExplorerFolderPath === null
-            ? null
-            : [
+        projectExplorerEnabled && activeExplorerFolderPath !== null
+            ? [
                   { label: 'Project root', path: '' },
                   ...splitPath(activeExplorerFolderPath).map((segment, index, arr) => ({
                       label: segment,
                       path: joinPath(arr.slice(0, index + 1)),
                   })),
               ]
+            : null
+
+    const searchCommands = projectExplorerEnabled
+        ? NEW_TAB_COMMANDS_ITEMS
+        : NEW_TAB_COMMANDS_ITEMS.filter((command) => command.value !== 'folders')
+
+    const isExplorerActive = projectExplorerEnabled && activeExplorerFolderPath !== null
 
     // Set the ref in the logic so it can be accessed from other components
     useEffect(() => {
@@ -203,7 +217,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:py-4 mx-auto w-full max-w-[1200px]">
                         <SearchInput
                             ref={commandInputRef}
-                            commands={NEW_TAB_COMMANDS_ITEMS}
+                            commands={searchCommands}
                             value={search}
                             onChange={(value) => {
                                 // Only prevent setting search if the entire value is just "/" (command mode)
@@ -212,11 +226,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                     setSearch(value)
                                 }
                             }}
-                            placeholder={
-                                activeExplorerFolderPath !== null
-                                    ? 'Search in folder...'
-                                    : 'Search or ask an AI question'
-                            }
+                            placeholder={isExplorerActive ? 'Search in folder...' : 'Search or ask an AI question'}
                             activeCommands={activeCommands}
                             selectedCommands={selectedCommands}
                             onCommandSelect={(command) => {
@@ -245,10 +255,10 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                 refreshDataAfterToggle()
                             }}
                             explorerBreadcrumbs={explorerBreadcrumbs}
-                            onExplorerBreadcrumbClick={(path) => setActiveExplorerFolderPath(path)}
-                            onExitExplorer={
-                                activeExplorerFolderPath !== null ? () => setActiveExplorerFolderPath(null) : undefined
+                            onExplorerBreadcrumbClick={
+                                projectExplorerEnabled ? (path) => setActiveExplorerFolderPath(path) : undefined
                             }
+                            onExitExplorer={isExplorerActive ? () => setActiveExplorerFolderPath(null) : undefined}
                         />
                     </div>
                 </div>
