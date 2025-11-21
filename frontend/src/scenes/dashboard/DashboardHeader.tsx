@@ -252,7 +252,7 @@ export function DashboardHeader(): JSX.Element | null {
                         <AppShortcut
                             name="ToggleEditMode"
                             scope={Scene.Dashboard}
-                            keybind={keyBinds.edit}
+                            keybind={[keyBinds.edit]}
                             intent="Toggle edit mode"
                             interaction="click"
                             asChild
@@ -428,7 +428,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 </LemonButton>
                                 <AppShortcut
                                     name="SaveDashboard"
-                                    keybind={keyBinds.save}
+                                    keybind={[keyBinds.save]}
                                     intent="Save dashboard"
                                     interaction="click"
                                     scope={Scene.Dashboard}
@@ -491,7 +491,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             <AppShortcut
                                                 name="AddTextTileToDashboard"
                                                 scope={Scene.Dashboard}
-                                                keybind={keyBinds.dashboardAddTextTile}
+                                                keybind={[keyBinds.dashboardAddTextTile]}
                                                 intent="Add text card"
                                                 interaction="click"
                                                 asChild

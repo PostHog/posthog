@@ -457,7 +457,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                             <AppShortcut
                                 name="Search"
-                                keybind={keyBinds.search}
+                                keybind={[keyBinds.search]}
                                 intent="Search"
                                 interaction="click"
                                 asChild
@@ -486,7 +486,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                             <AppShortcut
                                 name="ToggleShortcutMenu"
-                                keybind={keyBinds.toggleShortcutMenu}
+                                keybind={[keyBinds.toggleShortcutMenu, keyBinds.toggleShortcutMenuFallback]}
                                 intent="Toggle shortcut menu"
                                 interaction="click"
                                 asChild
@@ -547,7 +547,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 preflight?.instance_preferences?.debug_queries) && (
                                 <AppShortcut
                                     name="DebugClickhouseQueries"
-                                    keybind={['command', 'option', 'tab']}
+                                    keybind={[['command', 'option', 'tab']]}
                                     intent="Debug clickhouse queries"
                                     interaction="click"
                                     asChild
@@ -569,6 +569,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     </ButtonPrimitive>
                                 </AppShortcut>
                             )}
+
                             <Link
                                 buttonProps={{
                                     menuItem: !isLayoutNavCollapsed,

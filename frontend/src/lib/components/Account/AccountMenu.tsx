@@ -163,7 +163,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                 collisionPadding={{ bottom: 0 }}
                 alignOffset={2}
                 className="min-w-[var(--project-panel-width)]"
-                forceMount
             >
                 <DropdownMenuGroup>
                     <Label intent="menu" className="px-2">
@@ -320,7 +319,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     <AppShortcut
                         name="ToggleShortcutMenu"
-                        keybind={keyBinds.toggleShortcutMenu}
+                        keybind={[keyBinds.toggleShortcutMenu]}
                         intent="Toggle shortcut menu"
                         interaction="click"
                         asChild
@@ -334,9 +333,13 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 menuItem
                                 className={cn(!useAppShortcuts && 'hidden')}
                             >
-                                <span className="text-tertiary size-4 flex items-center justify-center">⌘</span>
+                                <span className="size-4 flex items-center justify-center">⌘</span>
                                 Shortcuts
-                                <KeyboardShortcut command option k className="ml-auto" />
+                                <div className="flex gap-1 ml-auto items-center">
+                                    <KeyboardShortcut command option k />
+                                    <span className="text-xs opacity-75">or</span>
+                                    <KeyboardShortcut command shift k />
+                                </div>
                             </ButtonPrimitive>
                         </DropdownMenuItem>
                     </AppShortcut>

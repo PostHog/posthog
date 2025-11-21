@@ -144,7 +144,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                         </div>
                         <AppShortcut
                             name="NewTab"
-                            keybind={keyBinds.newTab}
+                            keybind={[keyBinds.newTab]}
                             intent="New tab"
                             interaction="click"
                             asChild
@@ -269,7 +269,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                 {canRemoveTab && (
                     <AppShortcut
                         name="CloseActiveTab"
-                        keybind={keyBinds.closeActiveTab}
+                        keybind={[keyBinds.closeActiveTab]}
                         intent="Close active tab"
                         interaction="click"
                         asChild
