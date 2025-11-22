@@ -14,10 +14,12 @@ class UserProductListInlineForm(forms.ModelForm):
         # Extract parent_instance from kwargs if present (set by formset)
         self.parent_instance = kwargs.pop("parent_instance", None)
         super().__init__(*args, **kwargs)
-        # Restrict reason to sales_led only
+
+        # Restrict reason to sales_led only and disable it
         self.fields["reason"].choices = [(UserProductList.Reason.SALES_LED, UserProductList.Reason.SALES_LED.label)]
         self.fields["reason"].initial = UserProductList.Reason.SALES_LED
         self.fields["reason"].widget = forms.Select(choices=self.fields["reason"].choices)
+        self.fields["reason"].disabled = True
 
         # Set product_path choices from Products
         product_paths = Products.get_product_paths()
@@ -57,14 +59,9 @@ class UserProductListInlineForm(forms.ModelForm):
             "\n\nExample: Hey, it's Rafael. I believe you'll like using our new SQL Editor! I went ahead and gave you 1,000,000 free rows, Merry Christmas!"
         )
 
-        # Set enabled default to True
+        # Set enabled default to True and read-only
         self.fields["enabled"].initial = True
-
-        # For existing instances, make most fields readonly except reason_text and enabled
-        if self.instance and self.instance.pk:
-            self.fields["user"].disabled = True
-            self.fields["product_path"].disabled = True
-            self.fields["reason"].disabled = True
+        self.fields["enabled"].disabled = True
 
     def clean(self):
         cleaned_data = super().clean()
