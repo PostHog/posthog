@@ -16,6 +16,7 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -503,5 +504,4 @@ class TestSlackErrorTruncation(APIBaseTest):
         assert block["type"] == "section"
         text = block["text"]["text"]
         assert "*My Test subscription*" in text
-        assert "There was an error generating your asset: Failed to generate content" in text
-        assert "_If this issue persists, please contact support._" in text
+        assert ASSET_GENERATION_FAILED_MESSAGE in text

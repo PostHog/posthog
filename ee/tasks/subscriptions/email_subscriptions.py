@@ -8,18 +8,19 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, get_unsubscribe_token
 from posthog.utils import absolute_uri
 
-from ee.tasks.subscriptions.subscription_utils import UTM_TAGS_BASE
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
 logger = structlog.get_logger(__name__)
 
 
 def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
-    if asset.exception:
+    if _has_asset_failed(asset):
         insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
+        error_message = str(asset.exception) if asset.exception else ASSET_GENERATION_FAILED_MESSAGE
         return {
             "error": True,
             "insight_name": insight_name,
-            "error_message": asset.exception,
+            "error_message": error_message,
         }
 
     return {

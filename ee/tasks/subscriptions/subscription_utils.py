@@ -26,6 +26,7 @@ DEFAULT_MAX_ASSET_COUNT = 6
 # Maximum height for screenshots in pixels. This prevents Chrome from consuming excessive memory
 # when rendering very tall pages (e.g., tables with thousands of rows).
 MAX_SCREENSHOT_HEIGHT_PIXELS = 5000
+ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
 
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:

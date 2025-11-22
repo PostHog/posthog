@@ -12,7 +12,7 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
 
-from ee.tasks.subscriptions.subscription_utils import _has_asset_failed
+from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, _has_asset_failed
 
 logger = structlog.get_logger(__name__)
 
@@ -55,7 +55,7 @@ def _block_for_asset(asset: ExportedAsset) -> dict:
             if len(exception_text) > max_error_length:
                 exception_text = exception_text[:max_error_length] + "... (truncated)"
         else:
-            exception_text = "Failed to generate content"
+            exception_text = ASSET_GENERATION_FAILED_MESSAGE
 
         error_text = (
             f"*{insight_name}*\n"
