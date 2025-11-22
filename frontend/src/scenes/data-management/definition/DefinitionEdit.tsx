@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { createRef } from 'react'
 
-import { IconImage, IconPencil, IconTrash } from '@posthog/icons'
+import { IconImage } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
@@ -27,10 +27,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, ObjectMediaPreview } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
-import { MediaPreviewModal } from './MediaPreviewModal'
+import { MediaPreviewGallery } from './MediaPreviewGallery'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
@@ -51,9 +51,8 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
 
     const showHiddenOption = hasTaxonomyFeatures && 'hidden' in editDefinition
 
-    const { preview, previewLoading } = useValues(definitionLogicInstance)
-    const { createMediaPreview, deleteMediaPreview, loadPreviews, setPreviewModalOpen } =
-        useActions(definitionLogicInstance)
+    const { previews, previewsLoading } = useValues(definitionLogicInstance)
+    const { createMediaPreview, deleteMediaPreview } = useActions(definitionLogicInstance)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_url, _fileName, uploadedMediaId) => {
@@ -169,82 +168,64 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                         <LemonField
                                             name="media_preview"
                                             label={
-                                                <LemonLabel info="Upload a screenshot or design to this event">
+                                                <LemonLabel info="Previews show where a client side event is triggered. Upload a screenshot or design.">
                                                     Media preview
                                                 </LemonLabel>
                                             }
                                         >
                                             <div>
-                                                {previewLoading && (
+                                                {previewsLoading && (
                                                     <div className="flex items-center gap-2">
                                                         <Spinner />
                                                         <span className="text-secondary">Loading preview...</span>
                                                     </div>
                                                 )}
 
-                                                {!preview && !previewLoading && (
-                                                    <>
-                                                        <div
-                                                            ref={mediaPreviewDragTarget}
-                                                            className="border-2 border-dashed rounded p-4 flex items-center justify-center cursor-pointer"
-                                                            onClick={(e) => {
-                                                                if (e.target === e.currentTarget) {
-                                                                    const input =
-                                                                        mediaPreviewDragTarget.current?.querySelector(
-                                                                            'input[type="file"]'
-                                                                        ) as HTMLInputElement
-                                                                    input?.click()
-                                                                }
-                                                            }}
-                                                        >
-                                                            <LemonFileInput
-                                                                accept="image/*"
-                                                                multiple={false}
-                                                                onChange={setFilesToUpload}
-                                                                loading={uploading}
-                                                                value={filesToUpload}
-                                                                alternativeDropTargetRef={mediaPreviewDragTarget}
-                                                                callToAction={
-                                                                    <div className="flex items-center gap-2">
-                                                                        <IconImage />
-                                                                        <span>
-                                                                            Click or drag and drop to upload an image
-                                                                        </span>
-                                                                    </div>
-                                                                }
-                                                            />
-                                                        </div>
-                                                    </>
-                                                )}
-
-                                                {preview && (
-                                                    <div className="border rounded p-2 relative group inline-block">
-                                                        <img
-                                                            src={preview.media_url}
-                                                            alt="Event preview"
-                                                            className="max-w-full max-h-80 rounded"
+                                                <div className="mb-4">
+                                                    <div
+                                                        ref={mediaPreviewDragTarget}
+                                                        className="border-2 border-dashed rounded p-4 flex items-center justify-center cursor-pointer"
+                                                        onClick={(e) => {
+                                                            if (e.target === e.currentTarget) {
+                                                                const input =
+                                                                    mediaPreviewDragTarget.current?.querySelector(
+                                                                        'input[type="file"]'
+                                                                    ) as HTMLInputElement
+                                                                input?.click()
+                                                            }
+                                                        }}
+                                                    >
+                                                        <LemonFileInput
+                                                            accept="image/*"
+                                                            multiple={false}
+                                                            onChange={setFilesToUpload}
+                                                            loading={uploading}
+                                                            value={filesToUpload}
+                                                            alternativeDropTargetRef={mediaPreviewDragTarget}
+                                                            callToAction={
+                                                                <div className="flex items-center gap-2">
+                                                                    <IconImage />
+                                                                    <span>
+                                                                        Click or drag and drop to upload an image
+                                                                    </span>
+                                                                </div>
+                                                            }
                                                         />
-                                                        <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <LemonButton
-                                                                icon={<IconPencil />}
-                                                                type="secondary"
-                                                                size="small"
-                                                                onClick={() => {
-                                                                    loadPreviews()
-                                                                    setPreviewModalOpen(true)
-                                                                }}
-                                                                tooltip="Change preview"
-                                                            />
-                                                            <LemonButton
-                                                                icon={<IconTrash />}
-                                                                type="secondary"
-                                                                status="danger"
-                                                                size="small"
-                                                                onClick={() => deleteMediaPreview(preview.id)}
-                                                                tooltip="Delete preview"
-                                                            />
-                                                        </div>
                                                     </div>
+                                                </div>
+
+                                                {previews && previews.length > 0 && (
+                                                    <MediaPreviewGallery
+                                                        imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)}
+                                                        onDelete={(url: string) => {
+                                                            const preview = previews.find(
+                                                                (p: ObjectMediaPreview) => p.media_url === url
+                                                            )
+                                                            if (preview) {
+                                                                deleteMediaPreview(preview.id)
+                                                            }
+                                                        }}
+                                                    />
                                                 )}
                                             </div>
                                         </LemonField>
@@ -303,7 +284,6 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
             </SceneContent>
-            <MediaPreviewModal props={props} />
         </Form>
     )
 }

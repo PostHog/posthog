@@ -36,12 +36,14 @@ import { getFilterLabel } from '~/taxonomy/helpers'
 import {
     AvailableFeature,
     FilterLogicalOperator,
+    ObjectMediaPreview,
     PropertyDefinition,
     PropertyDefinitionVerificationStatus,
     ReplayTabs,
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+import { MediaPreviewGallery } from './MediaPreviewGallery'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
@@ -95,8 +97,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
         isProperty,
         metrics,
         metricsLoading,
-        preview,
-        previewLoading,
+        previews,
+        previewsLoading,
     } = useValues(logic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const onGuardClick = (callback: () => void): void => {
@@ -283,24 +285,18 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     />
                 )}
 
-                {preview && (
+                {previews && previews.length > 0 && (
                     <div className="mt-4">
                         <h5 className="mb-2">
-                            <Tooltip title="Media previews let you see a snapshot of how this event appears in your app.">
-                                <div className="flex flex-row items-center gap-1">
-                                    Media preview <IconInfo className="text-lg" />
-                                </div>
+                            Preview{' '}
+                            <Tooltip title="Previews show where a client side event is triggered. Upload a screenshot or design.">
+                                <IconInfo className="text-sm" />
                             </Tooltip>
-                            {preview.media_type === 'exported' && (
-                                <span className="text-xs text-secondary ml-2">(Auto-captured)</span>
-                            )}
                         </h5>
-                        <div className="border rounded p-2 inline-block">
-                            <img src={preview.media_url} alt="Event preview" className="max-w-full max-h-96 rounded" />
-                        </div>
+                        <MediaPreviewGallery imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)} />
                     </div>
                 )}
-                {previewLoading && (
+                {previewsLoading && (
                     <div className="mt-4">
                         <Spinner />
                     </div>
@@ -332,7 +328,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                         <h5>
                             30 day queries{' '}
                             <Tooltip title="Number of times this event has been queried in the last 30 days">
-                                <IconInfo />
+                                <IconInfo className="text-sm" />
                             </Tooltip>
                         </h5>
                         <b>
