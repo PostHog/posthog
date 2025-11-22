@@ -336,7 +336,9 @@ class InsightViewed(models.Model):
 def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
-        candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
+        candidate_filters_hash = generate_cache_key(
+            insight.team.pk, "{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id)
+        )
         return candidate_filters_hash
     except Exception as e:
         logger.error(
