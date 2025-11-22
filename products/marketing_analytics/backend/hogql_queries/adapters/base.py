@@ -78,6 +78,14 @@ class TikTokAdsConfig(BaseMarketingConfig):
 
 
 @dataclass
+class BingAdsConfig(BaseMarketingConfig):
+    """Configuration for Bing Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
 class ValidationResult:
     """Result of source validation"""
 
