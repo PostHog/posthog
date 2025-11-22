@@ -5,8 +5,9 @@ This workflow runs daily to:
 1. Sample N recent traces from the past day
 2. Generate text representations and summaries for each trace
 3. Store summaries as $ai_trace_summary events in ClickHouse
+4. Generate embeddings for summaries and store in document_embeddings table
 
-The summaries will serve as inputs for embedding and clustering workflows.
+The summaries and embeddings serve as inputs for clustering and semantic search.
 """
 
 from datetime import timedelta
@@ -22,12 +23,14 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_WINDOW_MINUTES,
+    EMBED_TIMEOUT_SECONDS,
     EMIT_EVENTS_TIMEOUT_SECONDS,
     FETCH_HIERARCHY_TIMEOUT_SECONDS,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
     SAMPLE_TIMEOUT_SECONDS,
     WORKFLOW_NAME,
 )
+from posthog.temporal.llm_analytics.trace_summarization.embedding import embed_summaries_activity
 from posthog.temporal.llm_analytics.trace_summarization.events import emit_trace_summary_events_activity
 from posthog.temporal.llm_analytics.trace_summarization.fetching import fetch_trace_hierarchy_activity
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, TraceSummary
@@ -96,13 +99,21 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             return {
                 "batch_run_id": batch_run_id,
                 "traces_queried": 0,
+                "summaries_requested": 0,
+                "summaries_failed": 0,
                 "summaries_generated": 0,
                 "events_emitted": 0,
+                "embeddings_requested": 0,
+                "embeddings_failed": 0,
             }
 
         # Step 2: Process traces in batches
-        total_summaries = 0
+        total_summaries_requested = 0
+        total_summaries_failed = 0
+        total_summaries_generated = 0
         total_events = 0
+        total_embeddings_requested = 0
+        total_embeddings_failed = 0
 
         for i in range(0, len(traces), inputs.batch_size):
             batch = traces[i : i + inputs.batch_size]
@@ -119,6 +130,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             batch_summaries: list[TraceSummary] = []
 
             for trace_info in batch:
+                total_summaries_requested += 1
                 try:
                     # Fetch full trace data
                     trace_data = await temporalio.workflow.execute_activity(
@@ -143,6 +155,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     batch_summaries.append(summary)
 
                 except Exception as e:
+                    total_summaries_failed += 1
                     logger.exception(
                         "Failed to generate summary for trace",
                         trace_id=trace_info["trace_id"],
@@ -159,8 +172,18 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
 
-                total_summaries += len(batch_summaries)
+                # Step 4: Generate embeddings for this batch
+                embedding_result = await temporalio.workflow.execute_activity(
+                    embed_summaries_activity,
+                    args=[batch_summaries, inputs.team_id, inputs.mode],
+                    schedule_to_close_timeout=timedelta(seconds=EMBED_TIMEOUT_SECONDS),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+                total_summaries_generated += len(batch_summaries)
                 total_events += events_count
+                total_embeddings_requested += embedding_result["embeddings_requested"]
+                total_embeddings_failed += embedding_result["embeddings_failed"]
 
         end_time = temporalio.workflow.now()
         duration = (end_time - start_time).total_seconds()
@@ -170,15 +193,23 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             batch_run_id=batch_run_id,
             traces_queried=len(traces),
-            summaries_generated=total_summaries,
+            summaries_requested=total_summaries_requested,
+            summaries_failed=total_summaries_failed,
+            summaries_generated=total_summaries_generated,
             events_emitted=total_events,
+            embeddings_requested=total_embeddings_requested,
+            embeddings_failed=total_embeddings_failed,
             duration_seconds=duration,
         )
 
         return {
             "batch_run_id": batch_run_id,
             "traces_queried": len(traces),
-            "summaries_generated": total_summaries,
+            "summaries_requested": total_summaries_requested,
+            "summaries_failed": total_summaries_failed,
+            "summaries_generated": total_summaries_generated,
             "events_emitted": total_events,
+            "embeddings_requested": total_embeddings_requested,
+            "embeddings_failed": total_embeddings_failed,
             "duration_seconds": duration,
         }

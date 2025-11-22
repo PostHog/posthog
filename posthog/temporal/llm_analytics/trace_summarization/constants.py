@@ -12,6 +12,7 @@ SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
 FETCH_HIERARCHY_TIMEOUT_SECONDS = 30  # 30 seconds per trace hierarchy fetch
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 120  # 2 minutes per summary generation (includes LLM call)
 EMIT_EVENTS_TIMEOUT_SECONDS = 60  # 1 minute for batch event emission
+EMBED_TIMEOUT_SECONDS = 60  # 1 minute for batch embedding (Kafka is async)
 
 # Workflow-level timeouts (in minutes)
 WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 90  # Max time for single team workflow (worst case: 100 traces * 30s = ~58min)
@@ -48,3 +49,7 @@ ALLOWED_TEAM_IDS: list[int] = [
 # Temporal configuration
 WORKFLOW_NAME = "batch-trace-summarization"
 TASK_QUEUE = "llm-analytics-queue"
+
+# Embedding rendering types (for document_embeddings table)
+LLMA_TRACE_MINIMAL_RENDERING = "llma_trace_minimal"
+LLMA_TRACE_DETAILED_RENDERING = "llma_trace_detailed"

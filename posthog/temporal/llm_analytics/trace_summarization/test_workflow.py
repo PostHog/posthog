@@ -6,6 +6,10 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
+from posthog.temporal.llm_analytics.trace_summarization.embedding import (
+    embed_summaries_activity,
+    format_summary_for_embedding,
+)
 from posthog.temporal.llm_analytics.trace_summarization.events import emit_trace_summary_events_activity
 from posthog.temporal.llm_analytics.trace_summarization.fetching import fetch_trace_hierarchy_activity
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, TraceSummary
@@ -281,6 +285,183 @@ class TestEmitTraceSummaryEventsActivity:
 
         with pytest.raises(ValueError, match="Team 99999 not found"):
             await emit_trace_summary_events_activity(summaries, 99999, "test_batch")
+
+
+class TestFormatSummaryForEmbedding:
+    """Tests for format_summary_for_embedding function."""
+
+    def test_format_full_summary(self):
+        """Test formatting a complete summary with all fields."""
+        from products.llm_analytics.backend.summarization.llm.schema import (
+            InterestingNote,
+            SummarizationResponse,
+            SummaryBullet,
+        )
+
+        summary = TraceSummary(
+            trace_id="trace_123",
+            text_repr="L1: Test trace\nL2: Content",
+            summary=SummarizationResponse(
+                title="User Authentication Flow",
+                flow_diagram="graph TD;\nA[Login] --> B{Auth};\nB -->|Success| C[Dashboard];",
+                summary_bullets=[
+                    SummaryBullet(text="User logged in successfully", line_refs="L5"),
+                    SummaryBullet(text="Session created with 1h expiry", line_refs="L12"),
+                ],
+                interesting_notes=[
+                    InterestingNote(text="Using JWT for authentication", line_refs="L20"),
+                    InterestingNote(text="Redis for session storage", line_refs="L25"),
+                ],
+            ),
+            metadata={"mode": "detailed"},
+        )
+
+        result = format_summary_for_embedding(summary)
+
+        assert "Title: User Authentication Flow" in result
+        assert "graph TD;" in result
+        assert "User logged in successfully" in result
+        assert "Session created with 1h expiry" in result
+        assert "Using JWT for authentication" in result
+        assert "Redis for session storage" in result
+        # Line refs should NOT be in the output
+        assert "L5" not in result
+        assert "L12" not in result
+        assert "L20" not in result
+        assert "L25" not in result
+
+    def test_format_minimal_summary(self):
+        """Test formatting a minimal summary with no notes."""
+        from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse, SummaryBullet
+
+        summary = TraceSummary(
+            trace_id="trace_456",
+            text_repr="Test",
+            summary=SummarizationResponse(
+                title="Simple API Call",
+                flow_diagram="A -> B",
+                summary_bullets=[SummaryBullet(text="GET request to /api/users", line_refs="L1")],
+                interesting_notes=[],
+            ),
+            metadata={"mode": "minimal"},
+        )
+
+        result = format_summary_for_embedding(summary)
+
+        assert "Title: Simple API Call" in result
+        assert "GET request to /api/users" in result
+        assert "Interesting Notes:" not in result
+
+
+class TestEmbedSummariesActivity:
+    """Tests for embed_summaries_activity."""
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_embed_summaries_success(self, mock_team):
+        """Test successful embedding of summaries."""
+        from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse, SummaryBullet
+
+        summaries = [
+            TraceSummary(
+                trace_id="trace_1",
+                text_repr="L1: Test content",
+                summary=SummarizationResponse(
+                    title="Summary 1",
+                    flow_diagram="A -> B",
+                    summary_bullets=[SummaryBullet(text="Bullet 1", line_refs="L1")],
+                    interesting_notes=[],
+                ),
+                metadata={"mode": "detailed"},
+            ),
+            TraceSummary(
+                trace_id="trace_2",
+                text_repr="L1: More content",
+                summary=SummarizationResponse(
+                    title="Summary 2",
+                    flow_diagram="C -> D",
+                    summary_bullets=[SummaryBullet(text="Bullet 2", line_refs="L2")],
+                    interesting_notes=[],
+                ),
+                metadata={"mode": "detailed"},
+            ),
+        ]
+
+        with patch(
+            "ee.hogai.llm_traces_summaries.tools.embed_summaries.LLMTracesSummarizerEmbedder"
+        ) as mock_embedder_class:
+            mock_embedder = mock_embedder_class.return_value
+
+            result = await embed_summaries_activity(summaries, mock_team.id, "detailed")
+
+            assert result["embeddings_requested"] == 2
+            assert result["embeddings_failed"] == 0
+            assert mock_embedder._embed_document.call_count == 2
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_embed_summaries_failure_threshold(self, mock_team):
+        """Test that >10% failure rate raises error."""
+        from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse, SummaryBullet
+
+        # Create 10 summaries
+        summaries = [
+            TraceSummary(
+                trace_id=f"trace_{i}",
+                text_repr="Test",
+                summary=SummarizationResponse(
+                    title=f"Summary {i}",
+                    flow_diagram="A -> B",
+                    summary_bullets=[SummaryBullet(text="Bullet", line_refs="L1")],
+                    interesting_notes=[],
+                ),
+                metadata={"mode": "minimal"},
+            )
+            for i in range(10)
+        ]
+
+        # Mock formatting to fail for 2 summaries (20% > 10% threshold)
+        with patch(
+            "posthog.temporal.llm_analytics.trace_summarization.embedding.format_summary_for_embedding"
+        ) as mock_format:
+            mock_format.side_effect = [
+                "formatted_0",
+                Exception("Error 1"),
+                "formatted_2",
+                "formatted_3",
+                "formatted_4",
+                "formatted_5",
+                "formatted_6",
+                "formatted_7",
+                "formatted_8",
+                Exception("Error 2"),
+            ]
+
+            with pytest.raises(ValueError, match="Exceeds 10% threshold"):
+                await embed_summaries_activity(summaries, mock_team.id, "minimal")
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_embed_summaries_team_not_found(self):
+        """Test embedding when team doesn't exist."""
+        from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
+
+        summaries = [
+            TraceSummary(
+                trace_id="trace_1",
+                text_repr="Test",
+                summary=SummarizationResponse(
+                    title="Test",
+                    flow_diagram="",
+                    summary_bullets=[],
+                    interesting_notes=[],
+                ),
+                metadata={},
+            )
+        ]
+
+        with pytest.raises(ValueError, match="Team 99999 not found"):
+            await embed_summaries_activity(summaries, 99999, "minimal")
 
 
 class TestBatchTraceSummarizationWorkflow:
