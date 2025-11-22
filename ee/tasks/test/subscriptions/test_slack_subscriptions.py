@@ -494,3 +494,14 @@ class TestSlackErrorTruncation(APIBaseTest):
         assert len(text) < 3000
         assert "*My Test subscription*" in text
         assert "There was an error generating your asset:" in text
+
+    def test_block_for_asset_without_content_or_location(self) -> None:
+        asset = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
+
+        block = _block_for_asset(asset)
+
+        assert block["type"] == "section"
+        text = block["text"]["text"]
+        assert "*My Test subscription*" in text
+        assert "There was an error generating your asset: Failed to generate content" in text
+        assert "_If this issue persists, please contact support._" in text
