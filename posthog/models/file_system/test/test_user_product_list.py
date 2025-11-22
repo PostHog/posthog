@@ -11,14 +11,14 @@ class TestUserProductList(BaseTest):
         )
         user.join(organization=self.organization)
 
-        UserProductList.objects.create(user=user, team=self.team, product_path="product_analytics", enabled=True)
-        UserProductList.objects.create(user=user, team=self.team, product_path="feature_flags", enabled=True)
+        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=user, team=self.team, product_path="Feature flags", enabled=True)
 
         hardcoded_counts = [
-            {"product_path": "product_analytics", "colleague_count": 5},
-            {"product_path": "session_replay", "colleague_count": 4},
-            {"product_path": "feature_flags", "colleague_count": 3},
-            {"product_path": "surveys", "colleague_count": 2},
+            {"product_path": "Product analytics", "colleague_count": 5},
+            {"product_path": "Session replay", "colleague_count": 4},
+            {"product_path": "Feature flags", "colleague_count": 3},
+            {"product_path": "Surveys", "colleague_count": 2},
         ]
 
         created_items = UserProductList.sync_from_team_colleagues(
@@ -27,16 +27,16 @@ class TestUserProductList(BaseTest):
 
         assert len(created_items) == 2
         product_paths = {item.product_path for item in created_items}
-        assert "product_analytics" not in product_paths
-        assert "feature_flags" not in product_paths
-        assert "session_replay" in product_paths
-        assert "surveys" in product_paths
+        assert "Product analytics" not in product_paths
+        assert "Feature flags" not in product_paths
+        assert "Session replay" in product_paths
+        assert "Surveys" in product_paths
 
         all_user_products = UserProductList.objects.filter(user=user, team=self.team, enabled=True)
-        assert all_user_products.filter(product_path="session_replay").exists()
-        assert all_user_products.filter(product_path="surveys").exists()
-        assert all_user_products.filter(product_path="product_analytics").exists()
-        assert all_user_products.filter(product_path="feature_flags").exists()
+        assert all_user_products.filter(product_path="Session replay").exists()
+        assert all_user_products.filter(product_path="Surveys").exists()
+        assert all_user_products.filter(product_path="Product analytics").exists()
+        assert all_user_products.filter(product_path="Feature flags").exists()
 
         for item in created_items:
             assert item.reason == UserProductList.Reason.USED_BY_COLLEAGUES
@@ -49,11 +49,11 @@ class TestUserProductList(BaseTest):
         user.join(organization=self.organization)
 
         hardcoded_counts = [
-            {"product_path": "product_analytics", "colleague_count": 10},
-            {"product_path": "session_replay", "colleague_count": 8},
-            {"product_path": "feature_flags", "colleague_count": 5},
-            {"product_path": "surveys", "colleague_count": 3},
-            {"product_path": "experiments", "colleague_count": 1},
+            {"product_path": "Product analytics", "colleague_count": 10},
+            {"product_path": "Session replay", "colleague_count": 8},
+            {"product_path": "Feature flags", "colleague_count": 5},
+            {"product_path": "Surveys", "colleague_count": 3},
+            {"product_path": "Experiments", "colleague_count": 1},
         ]
 
         created_items = UserProductList.sync_from_team_colleagues(
@@ -62,10 +62,10 @@ class TestUserProductList(BaseTest):
 
         assert len(created_items) == 3
         product_paths = [item.product_path for item in created_items]
-        assert set(product_paths) == {"product_analytics", "session_replay", "feature_flags"}
-        assert product_paths[0] == "product_analytics"
-        assert product_paths[1] == "session_replay"
-        assert product_paths[2] == "feature_flags"
+        assert set(product_paths) == {"Product analytics", "Session replay", "Feature flags"}
+        assert product_paths[0] == "Product analytics"
+        assert product_paths[1] == "Session replay"
+        assert product_paths[2] == "Feature flags"
 
     def test_sync_respects_count_limit(self):
         user = User.objects.create_user(
@@ -74,10 +74,10 @@ class TestUserProductList(BaseTest):
         user.join(organization=self.organization)
 
         hardcoded_counts = [
-            {"product_path": "product_analytics", "colleague_count": 10},
-            {"product_path": "session_replay", "colleague_count": 8},
-            {"product_path": "feature_flags", "colleague_count": 5},
-            {"product_path": "surveys", "colleague_count": 3},
+            {"product_path": "Product analytics", "colleague_count": 10},
+            {"product_path": "Session replay", "colleague_count": 8},
+            {"product_path": "Feature flags", "colleague_count": 5},
+            {"product_path": "Surveys", "colleague_count": 3},
         ]
 
         created_items = UserProductList.sync_from_team_colleagues(
@@ -86,7 +86,7 @@ class TestUserProductList(BaseTest):
 
         assert len(created_items) == 2
         product_paths = {item.product_path for item in created_items}
-        assert product_paths == {"product_analytics", "session_replay"}
+        assert product_paths == {"Product analytics", "Session replay"}
 
     def test_sync_respects_allow_sidebar_suggestions_false(self):
         user = User.objects.create_user(
@@ -95,8 +95,8 @@ class TestUserProductList(BaseTest):
         user.join(organization=self.organization)
 
         hardcoded_counts = [
-            {"product_path": "product_analytics", "colleague_count": 10},
-            {"product_path": "session_replay", "colleague_count": 8},
+            {"product_path": "Product analytics", "colleague_count": 10},
+            {"product_path": "Session replay", "colleague_count": 8},
         ]
 
         created_items = UserProductList.sync_from_team_colleagues(
@@ -120,16 +120,16 @@ class TestUserProductList(BaseTest):
         colleague2.join(organization=self.organization)
         user.join(organization=self.organization)
 
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="product_analytics", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="product_analytics", enabled=True)
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="session_replay", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=True)
 
         created_items = UserProductList.sync_from_team_colleagues(user=user, team=self.team, count=2)
 
         assert len(created_items) == 2
         product_paths = {item.product_path for item in created_items}
-        assert "product_analytics" in product_paths
-        assert "session_replay" in product_paths
+        assert "Product analytics" in product_paths
+        assert "Session replay" in product_paths
 
     def test_sync_does_not_duplicate_existing_products(self):
         user = User.objects.create_user(
@@ -137,11 +137,11 @@ class TestUserProductList(BaseTest):
         )
         user.join(organization=self.organization)
 
-        UserProductList.objects.create(user=user, team=self.team, product_path="product_analytics", enabled=True)
+        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
 
         hardcoded_counts = [
-            {"product_path": "product_analytics", "colleague_count": 10},
-            {"product_path": "session_replay", "colleague_count": 8},
+            {"product_path": "Product analytics", "colleague_count": 10},
+            {"product_path": "Session replay", "colleague_count": 8},
         ]
 
         created_items = UserProductList.sync_from_team_colleagues(
@@ -149,9 +149,9 @@ class TestUserProductList(BaseTest):
         )
 
         assert len(created_items) == 1
-        assert created_items[0].product_path == "session_replay"
+        assert created_items[0].product_path == "Session replay"
 
-        all_user_products = UserProductList.objects.filter(user=user, team=self.team, product_path="product_analytics")
+        all_user_products = UserProductList.objects.filter(user=user, team=self.team, product_path="Product analytics")
         assert all_user_products.count() == 1
 
     def test_get_user_product_list_count(self):
@@ -173,32 +173,32 @@ class TestUserProductList(BaseTest):
         colleague3.join(organization=self.organization)
         colleague4.join(organization=self.organization)
 
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="product_analytics", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="product_analytics", enabled=True)
-        UserProductList.objects.create(user=colleague3, team=self.team, product_path="product_analytics", enabled=True)
-        UserProductList.objects.create(user=colleague4, team=self.team, product_path="product_analytics", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague3, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague4, team=self.team, product_path="Product analytics", enabled=True)
 
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="session_replay", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="session_replay", enabled=True)
-        UserProductList.objects.create(user=colleague3, team=self.team, product_path="session_replay", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=True)
+        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Session replay", enabled=True)
+        UserProductList.objects.create(user=colleague3, team=self.team, product_path="Session replay", enabled=True)
 
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="feature_flags", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="feature_flags", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Feature flags", enabled=True)
+        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Feature flags", enabled=True)
 
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="surveys", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Surveys", enabled=True)
 
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="experiments", enabled=False)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Experiments", enabled=False)
 
         counts = get_user_product_list_count(self.team)
 
         assert len(counts) == 4
-        assert counts[0]["product_path"] == "product_analytics"
+        assert counts[0]["product_path"] == "Product analytics"
         assert counts[0]["colleague_count"] == 4
-        assert counts[1]["product_path"] == "session_replay"
+        assert counts[1]["product_path"] == "Session replay"
         assert counts[1]["colleague_count"] == 3
-        assert counts[2]["product_path"] == "feature_flags"
+        assert counts[2]["product_path"] == "Feature flags"
         assert counts[2]["colleague_count"] == 2
-        assert counts[3]["product_path"] == "surveys"
+        assert counts[3]["product_path"] == "Surveys"
         assert counts[3]["colleague_count"] == 1
 
     def test_get_user_product_list_count_excludes_disabled_products(self):
@@ -212,15 +212,15 @@ class TestUserProductList(BaseTest):
         colleague1.join(organization=self.organization)
         colleague2.join(organization=self.organization)
 
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="product_analytics", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="product_analytics", enabled=True)
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="session_replay", enabled=False)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="session_replay", enabled=False)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
+        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=False)
+        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Session replay", enabled=False)
 
         counts = get_user_product_list_count(self.team)
 
         assert len(counts) == 1
-        assert counts[0]["product_path"] == "product_analytics"
+        assert counts[0]["product_path"] == "Product analytics"
         assert counts[0]["colleague_count"] == 2
 
     def test_get_user_product_list_count_handles_empty_team(self):

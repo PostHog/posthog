@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import models, transaction
@@ -18,12 +18,12 @@ if TYPE_CHECKING:
     from posthog.models.product_intent.product_intent import ProductIntent
 
 
-def get_user_product_list_count(team: Team) -> list[dict[str, int]]:
+def get_user_product_list_count(team: Team) -> list[dict[str, Any]]:
     """
     Get product counts for all items in a team, ranked by popularity.
     Returns a list of dicts with 'product_path' and 'colleague_count' keys, ordered by count descending.
     """
-    return list(
+    return list[dict[str, Any]](
         UserProductList.objects.filter(team=team, enabled=True)
         .values("product_path")
         .annotate(colleague_count=Count("user", distinct=True))
@@ -129,7 +129,7 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         user: User,
         team: Team,
         count: int = 1,
-        colleague_product_counts: list[dict[str, int]] | None = None,
+        colleague_product_counts: list[dict[str, Any]] | None = None,
     ) -> "list[UserProductList]":
         """
         Create UserProductList entries for a user based on what their team colleagues have.
