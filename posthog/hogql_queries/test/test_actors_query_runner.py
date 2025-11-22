@@ -4,7 +4,7 @@ from typing import cast
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -748,3 +748,41 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             PersonsArgMaxVersion.V2,
             "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data",
         )
+
+    @patch("posthog.hogql_queries.actor_strategies.connections")
+    @patch("posthog.hogql_queries.actor_strategies.connection")
+    def test_get_actors_batches_distinct_id_queries(self, mock_connection, mock_connections):
+        from posthog.hogql_queries.actor_strategies import PersonStrategy
+        from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+
+        # Create 25,000 person UUIDs to trigger batching (BATCH_SIZE = 10,000)
+        person_uuids = [str(UUIDT()) for _ in range(25000)]
+
+        strategy = PersonStrategy(
+            team=self.team, query=ActorsQuery(), paginator=HogQLHasMorePaginator(limit=30000, offset=0)
+        )
+
+        mock_cursor = MagicMock()
+
+        people_data = [(i, person_uuids[i], "{}", True, datetime.now(UTC)) for i in range(25000)]
+        # 25,000 people will be split into 3 batches for distinct IDs: 10k + 10k + 5k
+        batch1_distinct_ids = [(i, f"distinct_id_{i}") for i in range(10000)]
+        batch2_distinct_ids = [(i, f"distinct_id_{i}") for i in range(10000, 20000)]
+        batch3_distinct_ids = [(i, f"distinct_id_{i}") for i in range(20000, 25000)]
+
+        mock_cursor.fetchall.side_effect = [
+            people_data[:10000],  # First persons batch
+            people_data[10000:20000],  # Second persons batch
+            people_data[20000:25000],  # Third persons batch
+            batch1_distinct_ids,  # First distinct IDs batch
+            batch2_distinct_ids,  # Second distinct IDs batch
+            batch3_distinct_ids,  # Third distinct IDs batch
+        ]
+
+        mock_connections.__contains__.return_value = False
+        mock_connection.cursor.return_value.__enter__.return_value = mock_cursor
+
+        strategy.get_actors(person_uuids)
+
+        # Should have 6 queries: 3 for persons + 3 for distinct IDs
+        self.assertEqual(mock_cursor.execute.call_count, 6)

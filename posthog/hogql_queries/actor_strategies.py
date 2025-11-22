@@ -3,6 +3,7 @@ from typing import Literal, Optional, cast
 from django.db import connection, connections
 
 import orjson as json
+import structlog
 
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
@@ -14,6 +15,8 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Group, Team
 from posthog.models.person import Person, PersonDistinctId
+
+logger = structlog.get_logger(__name__)
 
 
 class ActorStrategy:
@@ -49,33 +52,63 @@ class PersonStrategy(ActorStrategy):
 
     # This is hand written instead of using the ORM because the ORM was blowing up the memory on exports and taking forever
     def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
-        # If actor queries start quietly dying again, this might need batching at some point
-        # but currently works with 800,000 persondistinctid entries (May 24, 2024)
         person_table = Person._meta.db_table
         pdi_table = PersonDistinctId._meta.db_table
-        persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
-            FROM {person_table}
-            WHERE {person_table}.uuid = ANY(%(uuids)s)
-            AND {person_table}.team_id = %(team_id)s"""
-        if order_by:
-            persons_query += f" ORDER BY {order_by}"
+
+        BATCH_SIZE = 10000
+
+        actor_ids_list = list(actor_ids)
+
+        logger.info(
+            "get_actors_started",
+            team_id=self.team.pk,
+            actor_ids_count=len(actor_ids_list),
+        )
 
         conn = connections["persons_db_reader"] if "persons_db_reader" in connections else connection
 
+        people = []
         with conn.cursor() as cursor:
-            cursor.execute(
-                persons_query,
-                {"uuids": list(actor_ids), "team_id": self.team.pk},
+            for i in range(0, len(actor_ids_list), BATCH_SIZE):
+                batch = actor_ids_list[i : i + BATCH_SIZE]
+                persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
+                    FROM {person_table}
+                    WHERE {person_table}.team_id = %(team_id)s
+                    AND {person_table}.uuid = ANY(%(uuids)s)"""
+                if order_by:
+                    persons_query += f" ORDER BY {order_by}"
+
+                cursor.execute(
+                    persons_query,
+                    {"uuids": batch, "team_id": self.team.pk},
+                )
+                people.extend(cursor.fetchall())
+
+            logger.info(
+                "get_actors_people_fetched",
+                team_id=self.team.pk,
+                people_count=len(people),
             )
-            people = cursor.fetchall()
-            cursor.execute(
-                f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
-            FROM {pdi_table}
-            WHERE {pdi_table}.person_id = ANY(%(people_ids)s)
-            AND {pdi_table}.team_id = %(team_id)s""",
-                {"people_ids": [x[0] for x in people], "team_id": self.team.pk},
+
+            people_ids = [x[0] for x in people]
+            distinct_ids = []
+
+            for i in range(0, len(people_ids), BATCH_SIZE):
+                batch = people_ids[i : i + BATCH_SIZE]
+                cursor.execute(
+                    f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
+                FROM {pdi_table}
+                WHERE {pdi_table}.team_id = %(team_id)s
+                AND {pdi_table}.person_id = ANY(%(people_ids)s)""",
+                    {"people_ids": batch, "team_id": self.team.pk},
+                )
+                distinct_ids.extend(cursor.fetchall())
+
+            logger.info(
+                "get_actors_distinct_ids_fetched",
+                team_id=self.team.pk,
+                distinct_ids_count=len(distinct_ids),
             )
-            distinct_ids = cursor.fetchall()
 
         person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in people}
 
