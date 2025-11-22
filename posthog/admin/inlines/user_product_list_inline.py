@@ -16,9 +16,9 @@ class UserProductListInlineForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         # Restrict reason to sales_led only and disable it
-        self.fields["reason"].choices = [(UserProductList.Reason.SALES_LED, UserProductList.Reason.SALES_LED.label)]
+        self.fields["reason"].choices = [(UserProductList.Reason.SALES_LED, UserProductList.Reason.SALES_LED.label)]  # type: ignore
         self.fields["reason"].initial = UserProductList.Reason.SALES_LED
-        self.fields["reason"].widget = forms.Select(choices=self.fields["reason"].choices)
+        self.fields["reason"].widget = forms.Select(choices=self.fields["reason"].choices)  # type: ignore
         self.fields["reason"].disabled = True
 
         # Set product_path choices from Products
@@ -47,7 +47,7 @@ class UserProductListInlineForm(forms.ModelForm):
         if team and hasattr(team, "organization_id") and team.organization_id:
             from posthog.models.user import User
 
-            self.fields["user"].queryset = User.objects.filter(
+            self.fields["user"].queryset = User.objects.filter(  # type: ignore
                 organization_membership__organization_id=team.organization_id
             ).distinct()
 
@@ -65,6 +65,10 @@ class UserProductListInlineForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+
+        if not cleaned_data:
+            return cleaned_data
+
         user = cleaned_data.get("user")
 
         # Only validate for new instances (when creating, not editing)
@@ -134,7 +138,7 @@ class UserProductListInline(admin.TabularInline):
             result = original_init(self, *args, **kwargs)
             return result
 
-        formset.form.__init__ = form_init
+        formset.form.__init__ = form_init  # type: ignore
         return formset
 
     def get_queryset(self, request):
