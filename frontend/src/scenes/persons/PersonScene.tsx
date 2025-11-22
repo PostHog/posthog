@@ -145,6 +145,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
         <LemonSelect
             size="medium"
             icon={<IconOpenInApp />}
+            data-attr="launch-toolbar-with-loaded-flags-button"
             tooltip="Launch authorized URL with this user's feature flag values as overrides"
             options={(currentTeam?.app_urls || []).map((url) => ({
                 label: `Launch ${url}`,
