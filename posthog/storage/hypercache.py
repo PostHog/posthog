@@ -123,7 +123,7 @@ class HyperCache:
             return f"cache/team_tokens/{key}/{self.namespace}/{self.value}"
         else:
             if isinstance(key, Team):
-                key = key.id
+                key = key.project_id
             return f"cache/teams/{key}/{self.namespace}/{self.value}"
 
     def get_from_cache(self, key: KeyType) -> dict | None:

@@ -11,7 +11,7 @@ The cache is automatically invalidated when:
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Cache Key Pattern:
-- Uses team_id as the key
+- Uses project_id as the key
 - Stored in both Redis and S3 via HyperCache
 
 Configuration:
