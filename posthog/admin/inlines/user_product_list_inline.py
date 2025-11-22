@@ -50,10 +50,11 @@ class UserProductListInlineForm(forms.ModelForm):
             ).distinct()
 
         self.fields["reason_text"].required = False
-        self.fields["reason_text"].widget.attrs["rows"] = 6
+        self.fields["reason_text"].widget.attrs["rows"] = 8
         self.fields["reason_text"].widget.attrs["placeholder"] = (
-            'This message will be prefixed in the UI by "We\'ve added this product to your sidebar automatically because [...]". '
-            "\n\nExample: your friend Rafael from the Sales Team believes you'll like it. I went ahead and gave you 1,000,000 free events, Merry Christmas!"
+            "We default to displaying this message in the UI when adding a new product: \"We've added this product to your sidebar because we believe you'd benefit from it! Your TAM will reach out to help you learn more about it.\""
+            "\nYou can override with a custom message here, make it personal!"
+            "\n\nExample: Hey, it's Rafael. I believe you'll like using our new SQL Editor! I went ahead and gave you 1,000,000 free rows, Merry Christmas!"
         )
 
         # Set enabled default to True

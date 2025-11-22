@@ -4543,6 +4543,26 @@ export interface ProductsData {
     metadata: ProductItem[]
 }
 
+export enum UserProductListReason {
+    ONBOARDING = 'onboarding',
+    PRODUCT_INTENT = 'product_intent',
+    USED_BY_COLLEAGUES = 'used_by_colleagues',
+    USED_SIMILAR_PRODUCTS = 'used_similar_products',
+    USED_ON_SEPARATE_TEAM = 'used_on_separate_team',
+    NEW_PRODUCT = 'new_product',
+    SALES_LED = 'sales_led',
+}
+
+export interface UserProductListItem {
+    id: string
+    product_path: string
+    enabled: boolean
+    reason: UserProductListReason
+    reason_text: string | null
+    created_at: string
+    updated_at: string
+}
+
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',

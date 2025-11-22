@@ -20,13 +20,18 @@ class UserProductListSerializer(serializers.ModelSerializer):
             "id",
             "product_path",
             "enabled",
+            "reason",
+            "reason_text",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
+            "product_path",
             "created_at",
             "updated_at",
+            "reason",
+            "reason_text",
         ]
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> UserProductList:
