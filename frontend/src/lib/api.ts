@@ -3763,8 +3763,11 @@ const api = {
         async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
         },
-        async getResponsesCount(): Promise<{ [key: string]: number }> {
-            return await new ApiRequest().surveysResponsesCount().get()
+        async getResponsesCount(surveyIds?: string): Promise<{ [key: string]: number }> {
+            return await new ApiRequest()
+                .surveysResponsesCount()
+                .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
+                .get()
         },
         async summarize_responses(
             surveyId: Survey['id'],
