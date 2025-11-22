@@ -1281,6 +1281,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "products_modifiers": {
                 "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
                 "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
+                "customer_analytics": self.team.customer_analytics_config.to_cache_key_dict(),
             },
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
@@ -1289,7 +1290,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         }
 
     def get_cache_key(self) -> str:
-        return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
+        return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
     def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
         """

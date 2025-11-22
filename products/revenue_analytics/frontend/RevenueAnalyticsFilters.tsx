@@ -137,6 +137,10 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                     properties: revenueAnalyticsFilter,
                 },
             }}
+            contextDescription={{
+                text: 'Current filters',
+                icon: <IconFilter />,
+            }}
             callback={(toolOutput: Record<string, any>) => {
                 // Types suck here, but they *should* be correct if pydantic does its job correctly
                 setRevenueAnalyticsFilters(toolOutput.properties)

@@ -57,7 +57,8 @@ class OrgQuotaLimitingInformation(TypedDict):
     quota_limiting_suspended_until: Optional[int]
 
 
-# These quota resource identifiers match billing default_plans_config.yml usage_key
+# These quota resource identifiers match billing default_plans_config.yml usage_key.
+# These keys should match OrganizationUsageInfo and UsageCounters.
 class QuotaResource(Enum):
     EVENTS = "events"
     EXCEPTIONS = "exceptions"
@@ -89,27 +90,14 @@ OVERAGE_BUFFER = {
     QuotaResource.ROWS_EXPORTED: 0,
 }
 
-# These trust score keys match billing default_plans_config.yml product keys (top level key)
-TRUST_SCORE_KEYS = {
-    QuotaResource.EVENTS: "events",
-    QuotaResource.EXCEPTIONS: "exceptions",
-    QuotaResource.RECORDINGS: "recordings",
-    QuotaResource.ROWS_SYNCED: "rows_synced",
-    QuotaResource.FEATURE_FLAG_REQUESTS: "feature_flags",
-    QuotaResource.API_QUERIES: "api_queries",
-    QuotaResource.SURVEY_RESPONSES: "surveys",
-    QuotaResource.LLM_EVENTS: "llm_events",
-    QuotaResource.CDP_TRIGGER_EVENTS: "realtime_destinations",
-    QuotaResource.ROWS_EXPORTED: "rows_exported",
-}
 
-
+# These should be kept in sync with OrganizationUsageInfo and QuotaResource values.
 class UsageCounters(TypedDict):
     events: int
     exceptions: int
     recordings: int
     rows_synced: int
-    feature_flags: int
+    feature_flag_requests: int
     api_queries_read_bytes: int
     survey_responses: int
     llm_events: int
@@ -194,11 +182,11 @@ def org_quota_limited_until(
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
-    # Note: customer_trust_scores can initially be null. This should only happen after the initial migration and therefore
-    # should be removed once all existing customers have this field set.
-    trust_score = (
-        organization.customer_trust_scores.get(TRUST_SCORE_KEYS[resource]) if organization.customer_trust_scores else 0
-    )
+    # Note: customer_trust_scores can be empty {} for orgs not yet synced from billing. Default to 0 (no grace period).
+    # Note: customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values).
+    # The billing service stores trust scores by product_key, but billing_manager.py translates them to usage_key
+    # when syncing billing_customer to posthog_organization.
+    trust_score = organization.customer_trust_scores.get(resource.value) if organization.customer_trust_scores else 0
 
     # Flow for checking quota limits:
     # 1. ignore the limits
@@ -654,7 +642,8 @@ def update_all_orgs_billing_quotas(
             exceptions=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
             recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
-            feature_flags=decide_requests + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
+            feature_flag_requests=decide_requests
+            + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),

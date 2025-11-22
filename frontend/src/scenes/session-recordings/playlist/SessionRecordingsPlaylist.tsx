@@ -130,6 +130,7 @@ export function SessionRecordingsPlaylist({
                                 filters={filters}
                                 setFilters={setFilters}
                                 totalFiltersCount={totalFiltersCount}
+                                currentSessionRecordingId={activeSessionRecordingId}
                             />
                         )
                     }

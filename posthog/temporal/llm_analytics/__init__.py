@@ -1,6 +1,7 @@
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
     emit_evaluation_event_activity,
+    emit_internal_telemetry_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
 )
@@ -24,6 +25,7 @@ ACTIVITIES = [
     fetch_evaluation_activity,
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
+    emit_internal_telemetry_activity,
     query_traces_in_window_activity,
     fetch_trace_hierarchy_activity,
     generate_summary_activity,

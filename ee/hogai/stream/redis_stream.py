@@ -1,3 +1,4 @@
+import time
 import pickle
 import asyncio
 from collections.abc import AsyncGenerator, Callable
@@ -8,6 +9,7 @@ from django.conf import settings
 
 import structlog
 import redis.exceptions as redis_exceptions
+from prometheus_client import Histogram
 from pydantic import BaseModel, Field
 
 from posthog.schema import (
@@ -25,6 +27,11 @@ from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
+REDIS_TO_CLIENT_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_redis_to_client_latency_seconds",
+    "Time from writing message to Redis stream to reading it on client side",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
 
 # Redis stream configuration
 CONVERSATION_STREAM_MAX_LENGTH = 1000  # Maximum number of messages to keep in stream
@@ -68,6 +75,7 @@ StreamEventUnion = ConversationEvent | MessageEvent | GenerationStatusEvent | Up
 
 class StreamEvent(BaseModel):
     event: StreamEventUnion = Field(discriminator="type")
+    timestamp: float = Field(default_factory=time.time)
 
 
 def get_conversation_stream_key(conversation_id: UUID) -> str:
@@ -160,11 +168,18 @@ class StreamError(Exception):
 class ConversationRedisStream:
     """Manages conversation streaming from Redis streams."""
 
-    def __init__(self, stream_key: str):
+    def __init__(
+        self,
+        stream_key: str,
+        timeout: int = CONVERSATION_STREAM_TIMEOUT,
+        max_length: int = CONVERSATION_STREAM_MAX_LENGTH,
+    ):
         self._stream_key = stream_key
         self._redis_client = get_async_client(settings.REDIS_URL)
         self._deletion_lock = asyncio.Lock()
         self._serializer = ConversationStreamSerializer()
+        self._timeout = timeout
+        self._max_length = max_length
 
     async def wait_for_stream(self) -> bool:
         """Wait for stream to be created using linear backoff.
@@ -220,7 +235,7 @@ class ConversationRedisStream:
         start_time = asyncio.get_event_loop().time()
 
         while True:
-            if asyncio.get_event_loop().time() - start_time > CONVERSATION_STREAM_TIMEOUT:
+            if asyncio.get_event_loop().time() - start_time > self._timeout:
                 raise StreamError("Stream timeout - conversation took too long to complete")
 
             try:
@@ -238,6 +253,9 @@ class ConversationRedisStream:
                     for stream_id, message in stream_messages:
                         current_id = stream_id
                         data = self._serializer.deserialize(message)
+
+                        latency = time.time() - data.timestamp
+                        REDIS_TO_CLIENT_LATENCY_HISTOGRAM.observe(latency)
 
                         if isinstance(data.event, StreamStatusEvent):
                             if data.event.payload.status == "complete":
@@ -283,7 +301,7 @@ class ConversationRedisStream:
             callback: Callback to trigger after each message is written to the stream
         """
         try:
-            await self._redis_client.expire(self._stream_key, CONVERSATION_STREAM_TIMEOUT)
+            await self._redis_client.expire(self._stream_key, self._timeout)
 
             async for chunk in generator:
                 message = self._serializer.dumps(chunk)
@@ -291,7 +309,7 @@ class ConversationRedisStream:
                     await self._redis_client.xadd(
                         self._stream_key,
                         message,
-                        maxlen=CONVERSATION_STREAM_MAX_LENGTH,
+                        maxlen=self._max_length,
                         approximate=True,
                     )
                 if callback:
@@ -303,7 +321,7 @@ class ConversationRedisStream:
             await self._redis_client.xadd(
                 self._stream_key,
                 completion_message,
-                maxlen=CONVERSATION_STREAM_MAX_LENGTH,
+                maxlen=self._max_length,
                 approximate=True,
             )
 
@@ -314,7 +332,7 @@ class ConversationRedisStream:
             await self._redis_client.xadd(
                 self._stream_key,
                 message,
-                maxlen=CONVERSATION_STREAM_MAX_LENGTH,
+                maxlen=self._max_length,
                 approximate=True,
             )
             raise StreamError("Failed to write to stream")

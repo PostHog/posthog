@@ -29,7 +29,6 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -105,8 +104,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
-
-    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
+    const { appShortcutMenuOpen } = useValues(appShortcutLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -456,11 +454,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                             <AppShortcut
                                 name="Search"
-                                keybind={keyBinds.search}
+                                keybind={[keyBinds.search]}
                                 intent="Search"
                                 interaction="click"
                                 asChild
-                                disabled={!useAppShortcuts}
                             >
                                 {/* Button is hidden, keep to register shortcut */}
                                 <ButtonPrimitive
@@ -485,18 +482,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                             <AppShortcut
                                 name="ToggleShortcutMenu"
-                                keybind={['command', 'shift', 'k']}
+                                keybind={[keyBinds.toggleShortcutMenu, keyBinds.toggleShortcutMenuFallback]}
                                 intent="Toggle shortcut menu"
                                 interaction="click"
                                 asChild
-                                disabled={!useAppShortcuts}
                             >
                                 {/* Button is hidden, keep to register shortcut */}
                                 <ButtonPrimitive
                                     iconOnly={isLayoutNavCollapsed}
                                     tooltip={isLayoutNavCollapsed ? 'Open shortcut menu' : undefined}
                                     tooltipPlacement="right"
-                                    onClick={() => setAppShortcutMenuOpen(true)}
+                                    onClick={() => setAppShortcutMenuOpen(!appShortcutMenuOpen)}
                                     menuItem={!isLayoutNavCollapsed}
                                     className="hidden"
                                 />
@@ -546,7 +542,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 preflight?.instance_preferences?.debug_queries) && (
                                 <AppShortcut
                                     name="DebugClickhouseQueries"
-                                    keybind={['command', 'option', 'tab']}
+                                    keybind={[['command', 'option', 'tab']]}
                                     intent="Debug clickhouse queries"
                                     interaction="click"
                                     asChild
@@ -568,6 +564,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     </ButtonPrimitive>
                                 </AppShortcut>
                             )}
+
                             <Link
                                 buttonProps={{
                                     menuItem: !isLayoutNavCollapsed,

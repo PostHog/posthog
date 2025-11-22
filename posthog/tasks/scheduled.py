@@ -15,6 +15,7 @@ from posthog.tasks.alerts.checks import (
     reset_stuck_alerts_task,
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
+from posthog.tasks.feature_flags import cleanup_stale_flags_expiry_tracking_task, refresh_expiring_flags_cache_entries
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
@@ -126,6 +127,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         cleanup_stale_expiry_tracking_task.s(),
         name="team metadata expiry tracking cleanup",
+    )
+
+    # Flags cache sync - hourly
+    sender.add_periodic_task(
+        crontab(hour="*", minute="15"),
+        refresh_expiring_flags_cache_entries.s(),
+        name="refresh expiring flags cache entries",
+    )
+
+    # Flags cache expiry tracking cleanup - daily at 3:15 AM
+    sender.add_periodic_task(
+        crontab(hour="3", minute="15"),
+        cleanup_stale_flags_expiry_tracking_task.s(),
+        name="flags cache expiry tracking cleanup",
     )
 
     # Update events table partitions twice a week
