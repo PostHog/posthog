@@ -551,14 +551,6 @@ export interface CorrelationConfigType {
     excluded_event_names?: string[]
 }
 
-export interface SessionRecordingAIConfig {
-    opt_in: boolean
-    preferred_events: string[]
-    excluded_events: string[]
-    included_event_properties: string[]
-    important_user_properties: string[]
-}
-
 export interface ProjectType extends ProjectBasicType {
     created_at: string
 }
