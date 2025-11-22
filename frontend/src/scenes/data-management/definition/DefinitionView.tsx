@@ -6,6 +6,7 @@ import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { ImageGallery } from 'lib/components/ImageGallery/ImageGallery'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -43,7 +44,6 @@ import {
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
-import { MediaPreviewGallery } from './MediaPreviewGallery'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
@@ -293,7 +293,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                 <IconInfo className="text-sm" />
                             </Tooltip>
                         </h5>
-                        <MediaPreviewGallery imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)} />
+                        <ImageGallery imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)} />
                     </div>
                 )}
                 {previewsLoading && (

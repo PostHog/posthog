@@ -3,12 +3,12 @@ import { useEffect, useState } from 'react'
 import { IconChevronLeft, IconChevronRight, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
-interface MediaPreviewGalleryProps {
+interface ImageGalleryProps {
     imageUrls: string[]
     onDelete?: (url: string) => void
 }
 
-export function MediaPreviewGallery({ imageUrls, onDelete }: MediaPreviewGalleryProps): JSX.Element {
+export function ImageGallery({ imageUrls, onDelete }: ImageGalleryProps): JSX.Element {
     const [currentIndex, setCurrentIndex] = useState(0)
 
     // Reset index if it goes out of bounds (e.g. after deletion)
