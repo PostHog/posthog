@@ -6,7 +6,7 @@ import { IconImage } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
-import { ImageGallery } from 'lib/components/ImageGallery/ImageGallery'
+import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -215,7 +215,7 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                                                 </div>
 
                                                 {previews && previews.length > 0 && (
-                                                    <ImageGallery
+                                                    <ImageCarousel
                                                         imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)}
                                                         onDelete={(url: string) => {
                                                             const preview = previews.find(

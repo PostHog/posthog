@@ -1,12 +1,12 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { ImageGallery } from './ImageGallery'
+import { ImageCarousel } from './ImageCarousel'
 
-type Story = StoryObj<typeof ImageGallery>
-const meta: Meta<typeof ImageGallery> = {
-    title: 'Lemon UI/Image Gallery',
-    component: ImageGallery,
+type Story = StoryObj<typeof ImageCarousel>
+const meta: Meta<typeof ImageCarousel> = {
+    title: 'Lemon UI/Image Carousel',
+    component: ImageCarousel,
     tags: ['autodocs'],
 }
 export default meta
@@ -17,8 +17,8 @@ const sampleImages = [
     'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?w=400&h=400&fit=crop',
 ]
 
-const BasicTemplate: StoryFn<typeof ImageGallery> = (args) => {
-    return <ImageGallery {...args} />
+const BasicTemplate: StoryFn<typeof ImageCarousel> = (args) => {
+    return <ImageCarousel {...args} />
 }
 
 export const MultipleImages: Story = BasicTemplate.bind({})
@@ -31,11 +31,11 @@ SingleImage.args = {
     imageUrls: [sampleImages[0]],
 }
 
-const WithDeleteTemplate: StoryFn<typeof ImageGallery> = () => {
+const WithDeleteTemplate: StoryFn<typeof ImageCarousel> = () => {
     const [images, setImages] = useState(sampleImages)
 
     return (
-        <ImageGallery
+        <ImageCarousel
             imageUrls={images}
             onDelete={(url) => {
                 setImages(images.filter((img) => img !== url))
@@ -50,4 +50,10 @@ WithDelete.args = {}
 export const Empty: Story = BasicTemplate.bind({})
 Empty.args = {
     imageUrls: [],
+}
+
+export const Loading: Story = BasicTemplate.bind({})
+Loading.args = {
+    imageUrls: sampleImages,
+    loading: true,
 }

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
-interface ImageGalleryProps {
+interface ImageCarouselProps {
     imageUrls: string[]
+    loading?: boolean
     onDelete?: (url: string) => void
 }
 
-export function ImageGallery({ imageUrls, onDelete }: ImageGalleryProps): JSX.Element {
+export function ImageCarousel({ imageUrls, loading, onDelete }: ImageCarouselProps): JSX.Element {
     const [currentIndex, setCurrentIndex] = useState(0)
 
     // Reset index if it goes out of bounds (e.g. after deletion)
@@ -18,26 +19,26 @@ export function ImageGallery({ imageUrls, onDelete }: ImageGalleryProps): JSX.El
         }
     }, [imageUrls.length, currentIndex])
 
-    if (!imageUrls || imageUrls.length === 0) {
+    if (!loading && imageUrls.length === 0) {
         return <></>
     }
 
     const showArrows = imageUrls.length > 1
     const currentImageUrl = imageUrls[currentIndex]
 
-    const handlePrevious = (): void => {
+    const goToPrevious = (): void => {
         setCurrentIndex((prev) => (prev === 0 ? imageUrls.length - 1 : prev - 1))
     }
 
-    const handleNext = (): void => {
+    const goToNext = (): void => {
         setCurrentIndex((prev) => (prev === imageUrls.length - 1 ? 0 : prev + 1))
     }
 
     return (
-        <div className="relative group border rounded p-2 bg-bg-light w-full max-w-[600px] aspect-[3/2] flex items-center justify-center overflow-hidden">
-            <img src={currentImageUrl} className="max-w-full max-h-full object-contain" />
+        <div className="relative group border rounded bg-bg-light w-full max-w-[600px] aspect-[3/2] flex items-center justify-center overflow-hidden">
+            {loading ? <Spinner /> : <img src={currentImageUrl} className="max-w-[96%] max-h-[96%] object-contain" />}
 
-            {onDelete && (
+            {onDelete && !loading && (
                 <LemonButton
                     icon={<IconTrash />}
                     type="secondary"
@@ -58,27 +59,27 @@ export function ImageGallery({ imageUrls, onDelete }: ImageGalleryProps): JSX.El
                         })
                     }
                     tooltip="Delete image"
-                    className="absolute top-4 right-4 bg-surface-primary/80 opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-10"
+                    className="absolute top-[2%] right-[2%] bg-surface-primary/80 opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-10"
                 />
             )}
 
-            {showArrows && (
+            {showArrows && !loading && (
                 <>
                     <LemonButton
                         icon={<IconChevronLeft />}
-                        size="medium"
+                        size="small"
                         type="secondary"
-                        onClick={handlePrevious}
-                        className="absolute top-1/2 left-4 -translate-y-1/2 bg-surface-primary/80 opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-10"
+                        onClick={goToPrevious}
+                        className="absolute top-1/2 left-[2%] -translate-y-1/2 bg-surface-primary/80 opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-10"
                     />
                     <LemonButton
                         icon={<IconChevronRight />}
-                        size="medium"
+                        size="small"
                         type="secondary"
-                        onClick={handleNext}
-                        className="absolute top-1/2 right-4 -translate-y-1/2 bg-surface-primary/80 opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-10"
+                        onClick={goToNext}
+                        className="absolute top-1/2 right-[2%] -translate-y-1/2 bg-surface-primary/80 opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-10"
                     />
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-surface-primary/80 px-2 py-1 rounded-full text-xs font-semibold shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <div className="absolute bottom-[2%] left-1/2 -translate-x-1/2 bg-surface-primary/80 px-2 py-1 rounded-full text-xs font-semibold shadow-sm opacity-0 group-hover:opacity-100 transition-opacity z-10">
                         {currentIndex + 1} / {imageUrls.length}
                     </div>
                 </>

@@ -2,12 +2,11 @@ import './DefinitionPopover.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonDivider, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -106,48 +105,6 @@ function DescriptionEmpty(): JSX.Element {
     return <div className="definition-popover-description empty">Add a description for this {singularType}</div>
 }
 
-function ImageCarousel({ images, loading }: { images: string[]; loading?: boolean }): JSX.Element {
-    const [currentIndex, setCurrentIndex] = useState(0)
-
-    const goToPrevious = (): void => {
-        setCurrentIndex((prevIndex) => (prevIndex === 0 ? images.length - 1 : prevIndex - 1))
-    }
-
-    const goToNext = (): void => {
-        setCurrentIndex((prevIndex) => (prevIndex === images.length - 1 ? 0 : prevIndex + 1))
-    }
-
-    if (!loading && images.length === 0) {
-        // TODO upsell manual addition of images?
-        return <></>
-    }
-
-    return (
-        <div className="flex items-center gap-2">
-            {images.length > 1 && (
-                <LemonButton size="small" type="secondary" icon={<IconChevronLeft />} onClick={goToPrevious} />
-            )}
-            <div className="flex-1 flex justify-center overflow-hidden">
-                {loading ? (
-                    <Spinner />
-                ) : (
-                    <img
-                        key={currentIndex}
-                        src={images[currentIndex]}
-                        alt={`Screenshot ${currentIndex + 1} of ${images.length}`}
-                        loading="lazy"
-                        className="max-w-full h-auto object-contain transition-opacity duration-300 ease-in-out rounded"
-                        style={{ maxWidth: '600px' }}
-                    />
-                )}
-            </div>
-            {images.length > 1 && (
-                <LemonButton size="small" type="secondary" icon={<IconChevronRight />} onClick={goToNext} />
-            )}
-        </div>
-    )
-}
-
 function Example({ value }: { value?: string }): JSX.Element {
     const { type, examples, examplesLoading } = useValues(definitionPopoverLogic)
 
@@ -174,7 +131,7 @@ function Example({ value }: { value?: string }): JSX.Element {
         <></>
     )
 
-    const imageExample = examples.length > 0 ? <ImageCarousel images={examples} loading={examplesLoading} /> : <></>
+    const imageExample = <ImageCarousel imageUrls={examples} loading={examplesLoading} />
 
     const hasContent = data?.examples?.[0] || examples.length > 0
 

@@ -6,7 +6,7 @@ import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { ImageGallery } from 'lib/components/ImageGallery/ImageGallery'
+import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -285,22 +285,21 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     />
                 )}
 
-                {previews && previews.length > 0 && (
-                    <div className="mt-4">
-                        <h5 className="mb-2">
-                            Preview{' '}
-                            <Tooltip title="Previews show where a client side event is triggered. Upload a screenshot or design.">
-                                <IconInfo className="text-sm" />
-                            </Tooltip>
-                        </h5>
-                        <ImageGallery imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)} />
-                    </div>
-                )}
-                {previewsLoading && (
-                    <div className="mt-4">
-                        <Spinner />
-                    </div>
-                )}
+                {(previews && previews.length > 0) ||
+                    (previewsLoading && (
+                        <div className="mt-4">
+                            <h5 className="mb-2">
+                                Preview{' '}
+                                <Tooltip title="Previews show where a client side event is triggered. Upload a screenshot or design.">
+                                    <IconInfo className="text-sm" />
+                                </Tooltip>
+                            </h5>
+                            <ImageCarousel
+                                imageUrls={previews.map((p: ObjectMediaPreview) => p.media_url)}
+                                loading={previewsLoading}
+                            />
+                        </div>
+                    ))}
                 <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
             </div>
 
