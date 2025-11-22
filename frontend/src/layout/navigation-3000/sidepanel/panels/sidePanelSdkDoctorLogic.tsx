@@ -373,28 +373,30 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             }
 
             // Find versions with missing release dates
-            Object.entries(teamSdkVersions).forEach(([sdkType, teamVersions]) => {
-                const sdkVersion = sdkVersions[sdkType as SdkType]
-                if (!sdkVersion) {
-                    return
-                }
-
-                teamVersions.forEach((versionInfo) => {
-                    if (typeof versionInfo !== 'object' || !('lib_version' in versionInfo)) {
+            Object.entries(teamSdkVersions)
+                .filter(([, value]) => Array.isArray(value))
+                .forEach(([sdkType, teamVersions]) => {
+                    const sdkVersion = sdkVersions[sdkType as SdkType]
+                    if (!sdkVersion) {
                         return
                     }
-                    const version = versionInfo.lib_version
-                    // Avoid duplicate API calls for already-loaded dates
-                    const hasReleaseDate =
-                        sdkVersion.releaseDates[version] !== undefined ||
-                        values.lazyLoadedDates[`${sdkType}:${version}`] !== undefined
 
-                    if (!hasReleaseDate) {
-                        // Background load updates state when ready
-                        actions.loadVersionDate({ sdkType: sdkType as SdkType, version })
-                    }
+                    ;(teamVersions as TeamSdkVersionInfo[]).forEach((versionInfo) => {
+                        if (typeof versionInfo !== 'object' || !('lib_version' in versionInfo)) {
+                            return
+                        }
+                        const version = versionInfo.lib_version
+                        // Avoid duplicate API calls for already-loaded dates
+                        const hasReleaseDate =
+                            sdkVersion.releaseDates[version] !== undefined ||
+                            values.lazyLoadedDates[`${sdkType}:${version}`] !== undefined
+
+                        if (!hasReleaseDate) {
+                            // Background load updates state when ready
+                            actions.loadVersionDate({ sdkType: sdkType as SdkType, version })
+                        }
+                    })
                 })
-            })
         },
         loadSdkVersionsSuccess: () => {
             // Team SDK versions lazy-loaded in loadTeamSdkVersionsSuccess listener

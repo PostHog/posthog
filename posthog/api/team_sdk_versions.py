@@ -89,6 +89,7 @@ def team_sdk_versions(request: Request) -> JsonResponse:
                     )
                     cached_at = cache_payload.get("cachedAt")
                 except (json.JSONDecodeError, AttributeError):
+                    # cachedAt is optional metadata - graceful degradation if extraction fails
                     pass
 
             response = {"sdk_versions": sdk_versions, "cached": False}
