@@ -25,12 +25,13 @@ import { FeatureFlagType, PropertyDefinitionType, Survey, SurveyQuestionType, Su
 export interface QuickSurveyFormProps {
     flag: FeatureFlagType
     onCancel?: () => void
+    initialVariantKey?: string | null
 }
 
-export function QuickSurveyForm({ flag, onCancel }: QuickSurveyFormProps): JSX.Element {
+export function QuickSurveyForm({ flag, onCancel, initialVariantKey }: QuickSurveyFormProps): JSX.Element {
     const flagName = flag.name || flag.key
     const [question, setQuestion] = useState(`You're trying our latest new feature. What do you think?`)
-    const [targetVariant, setTargetVariant] = useState<string | null>(null)
+    const [targetVariant, setTargetVariant] = useState<string | null>(initialVariantKey || null)
     const [targetUrl, setTargetUrl] = useState<string>('')
     const [selectedEvents, setSelectedEvents] = useState<string[]>([])
     const [isCreating, setIsCreating] = useState(false)
@@ -307,12 +308,13 @@ export interface QuickSurveyModalProps {
     flag: FeatureFlagType
     isOpen: boolean
     onClose: () => void
+    initialVariantKey?: string | null
 }
 
-export function QuickSurveyModal({ flag, isOpen, onClose }: QuickSurveyModalProps): JSX.Element {
+export function QuickSurveyModal({ flag, isOpen, onClose, initialVariantKey }: QuickSurveyModalProps): JSX.Element {
     return (
         <LemonModal title="Quick feedback survey" isOpen={isOpen} onClose={onClose} width={900}>
-            <QuickSurveyForm flag={flag} onCancel={onClose} />
+            <QuickSurveyForm flag={flag} onCancel={onClose} initialVariantKey={initialVariantKey} />
         </LemonModal>
     )
 }

@@ -7,6 +7,7 @@ import { expect, test } from '../../utils/playwright-test-base'
 
 const saveFeatureFlag = async (page: Page): Promise<void> => {
     await page.locator('[data-attr="save-feature-flag"]').first().click()
+    await page.waitForURL(/project\/(\d+)\/feature_flags\/(\d+)/)
     await page.goto(urls.featureFlags())
 }
 
@@ -31,20 +32,22 @@ const expectEvents = async (page: Page, events: string[]): Promise<void> => {
     const eventsSection = eventsSpan.locator('..')
 
     await expect(eventsSpan).toBeVisible()
-    events.forEach(async (event) => {
+    for (const event of events) {
         await expect(eventsSection.locator('.LemonTag').getByText(event)).toBeVisible()
-    })
+    }
 }
 
 const addTwoVariants = async (page: Page): Promise<void> => {
     await page.getByText('Multiple variants with rollout percentages (A/B/n test)').click()
-    await page.getByText('Add variant').click()
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="0"]').fill('test-1')
+    await page.getByText('Add variant').click()
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="1"]').fill('test-2')
 }
 
 const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
-    await page.locator(`[data-row-key="${name}"] [data-attr="more-button"]`).click()
+    const row = page.locator(`[data-row-key="${name}"]`)
+    await expect(row).toBeVisible()
+    await row.locator('[data-attr="more-button"]').click()
     await page.locator('[data-attr="create-survey"]').click()
 }
 
