@@ -5,6 +5,7 @@ from asgiref.sync import async_to_sync
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.chat_agent import AssistantGraph
@@ -13,7 +14,7 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
 from ee.models.assistant import Conversation
 
-_conversation_fields = ["id", "status", "title", "created_at", "updated_at", "type"]
+_conversation_fields = ["id", "status", "title", "user", "created_at", "updated_at", "type"]
 
 
 CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[AssistantGraph], type[AssistantMaxGraphState]]] = {
@@ -28,8 +29,10 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
         fields = _conversation_fields
         read_only_fields = fields
 
+    user = UserBasicSerializer(read_only=True)
 
-class ConversationSerializer(serializers.ModelSerializer):
+
+class ConversationSerializer(ConversationMinimalSerializer):
     class Meta:
         model = Conversation
         fields = [*_conversation_fields, "messages", "has_unsupported_content"]

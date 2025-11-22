@@ -161,7 +161,7 @@ class AgentExecutor:
         if isinstance(message.event, MessageEvent):
             return (AssistantEventType.MESSAGE, message.event.payload)
         elif isinstance(message.event, ConversationEvent):
-            conversation = await Conversation.objects.aget(id=message.event.payload)
+            conversation = await Conversation.objects.select_related("user").aget(id=message.event.payload)
             return (AssistantEventType.CONVERSATION, conversation)
         elif isinstance(message.event, UpdateEvent):
             return (AssistantEventType.UPDATE, message.event.payload)
