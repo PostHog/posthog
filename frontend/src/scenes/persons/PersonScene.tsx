@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -12,8 +14,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -102,6 +106,55 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 </Link>
             </div>
         </div>
+    )
+}
+
+interface LaunchToolbarButtonProps {
+    distinctId: string
+}
+
+function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleLaunchToolbar = async (targetUrl: string): Promise<void> => {
+        if (!currentTeam?.app_urls?.length) {
+            lemonToast.error('No authorized URLs configured. Please add a URL in Toolbar settings.')
+            return
+        }
+
+        try {
+            // Prepare toolbar flags on backend and get cache key
+            const response = await api.create('api/user/prepare_toolbar_preloaded_flags', {
+                distinct_id: distinctId,
+            })
+
+            const toolbarUrl = appEditorUrl(targetUrl, {
+                toolbarFlagsKey: response.key,
+            })
+
+            window.open(toolbarUrl, '_blank')
+            lemonToast.success(
+                `Launching toolbar with ${response.flag_count} feature flag override${response.flag_count === 1 ? '' : 's'}`
+            )
+        } catch (error) {
+            lemonToast.error('Failed to launch toolbar. Please try again.')
+            console.error('Error launching toolbar:', error)
+        }
+    }
+
+    return (
+        <LemonSelect
+            size="medium"
+            icon={<IconOpenInApp />}
+            data-attr="launch-toolbar-with-loaded-flags-button"
+            tooltip="Launch authorized URL with this user's feature flag values as overrides"
+            options={(currentTeam?.app_urls || []).map((url) => ({
+                label: `Launch ${url}`,
+                value: url,
+            }))}
+            placeholder="Launch toolbar with this user's feature flags"
+            onChange={(value) => value && handleLaunchToolbar(value)}
+        />
     )
 }
 
@@ -294,49 +347,56 @@ export function PersonScene(): JSX.Element | null {
                               key: PersonsTabType.FEATURE_FLAGS,
                               tooltip: `Only shows feature flags with targeting conditions based on person properties.`,
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
-                              content: (
-                                  <>
-                                      <div className="flex deprecated-space-x-2 items-center mb-2">
-                                          <div className="flex items-center">
-                                              Choose ID:
-                                              <Tooltip
-                                                  title={
-                                                      <div className="deprecated-space-y-2">
-                                                          <div>
-                                                              Feature flags values can depend on a person's distinct ID.
+                              content: (() => {
+                                  const selectedDistinctId = distinctId || primaryDistinctId
+                                  return (
+                                      <>
+                                          <div className="flex deprecated-space-x-2 items-center mb-2">
+                                              <div className="flex items-center">
+                                                  Choose ID:
+                                                  <Tooltip
+                                                      title={
+                                                          <div className="deprecated-space-y-2">
+                                                              <div>
+                                                                  Feature flags values can depend on a person's distinct
+                                                                  ID.
+                                                              </div>
+                                                              <div>
+                                                                  If you want your flag values to stay consistent for
+                                                                  each user, you can enable flag persistence in the
+                                                                  feature flag settings.
+                                                              </div>
+                                                              <div>
+                                                                  This option may depend on your specific setup and
+                                                                  isn't always suitable. Read more in the{' '}
+                                                                  <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
+                                                                      documentation.
+                                                                  </Link>
+                                                              </div>
                                                           </div>
-                                                          <div>
-                                                              If you want your flag values to stay consistent for each
-                                                              user, you can enable flag persistence in the feature flag
-                                                              settings.
-                                                          </div>
-                                                          <div>
-                                                              This option may depend on your specific setup and isn't
-                                                              always suitable. Read more in the{' '}
-                                                              <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
-                                                                  documentation.
-                                                              </Link>
-                                                          </div>
-                                                      </div>
-                                                  }
-                                              >
-                                                  <IconInfo className="ml-1 text-base" />
-                                              </Tooltip>
+                                                      }
+                                                  >
+                                                      <IconInfo className="ml-1 text-base" />
+                                                  </Tooltip>
+                                              </div>
+                                              <LemonSelect
+                                                  value={selectedDistinctId}
+                                                  onChange={(value) => value && setDistinctId(value)}
+                                                  options={person.distinct_ids.map((distinct_id) => ({
+                                                      label: distinct_id,
+                                                      value: distinct_id,
+                                                  }))}
+                                                  data-attr="person-feature-flags-select"
+                                              />
+                                              {selectedDistinctId && (
+                                                  <LaunchToolbarButton distinctId={selectedDistinctId} />
+                                              )}
                                           </div>
-                                          <LemonSelect
-                                              value={distinctId || primaryDistinctId}
-                                              onChange={(value) => value && setDistinctId(value)}
-                                              options={person.distinct_ids.map((distinct_id) => ({
-                                                  label: distinct_id,
-                                                  value: distinct_id,
-                                              }))}
-                                              data-attr="person-feature-flags-select"
-                                          />
-                                      </div>
-                                      <LemonDivider className="mb-4" />
-                                      <RelatedFeatureFlags distinctId={distinctId || primaryDistinctId} />
-                                  </>
-                              ),
+                                          <LemonDivider className="mb-4" />
+                                          <RelatedFeatureFlags distinctId={selectedDistinctId} />
+                                      </>
+                                  )
+                              })(),
                           }
                         : false,
                     {
