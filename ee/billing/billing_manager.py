@@ -524,3 +524,54 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def handle_marketplace_webhook(
+        self, event_type: str, event_data: dict[str, Any], organization: Organization
+    ) -> dict[str, Any]:
+        """
+        Forward marketplace webhook events to the Billing Service for processing.
+
+        The Billing Service handles the actual Stripe operations (e.g., marking invoices as paid).
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/billing/marketplace-webhook",
+            headers=self.get_auth_headers(organization),
+            json={
+                "event_type": event_type,
+                "event_data": event_data,
+            },
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def get_marketplace_invoice(self, organization: Organization, invoice_id: str) -> dict[str, Any]:
+        """
+        Get a formatted marketplace invoice payload from the Billing Service.
+
+        Used by the SQS consumer to hydrate invoice data before submitting to marketplace.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/marketplace/invoice/{invoice_id}",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def get_marketplace_usage(self, organization: Organization) -> dict[str, Any]:
+        """
+        Get formatted marketplace usage payload from the Billing Service.
+
+        Used by the SQS consumer to hydrate usage data before submitting to marketplace.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/marketplace/usage/{organization.id}",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()

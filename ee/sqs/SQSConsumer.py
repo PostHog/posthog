@@ -30,10 +30,24 @@ class SQSConsumer(ABC):
         self.wait_time_seconds = wait_time_seconds
 
         # Initialize SQS client
-        self.sqs = boto3.client(
-            "sqs",
-            region_name=region_name,
-        )
+        # Detect LocalStack URLs and configure endpoint accordingly
+        endpoint_url = self._get_endpoint_url(queue_url)
+        client_kwargs: dict[str, Any] = {"region_name": region_name}
+        if endpoint_url:
+            client_kwargs["endpoint_url"] = endpoint_url
+            logger.info(f"Using LocalStack endpoint: {endpoint_url}")
+
+        self.sqs = boto3.client("sqs", **client_kwargs)
+
+    @staticmethod
+    def _get_endpoint_url(queue_url: str) -> str | None:
+        """Extract LocalStack endpoint URL from queue URL if applicable."""
+        if "localhost.localstack.cloud" in queue_url or "localhost:4566" in queue_url:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(queue_url)
+            return f"{parsed.scheme}://{parsed.netloc}"
+        return None
 
     @abstractmethod
     def process_message(self, message: dict[str, Any]) -> None:
