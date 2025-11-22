@@ -6,6 +6,7 @@ from django.urls import path, reverse
 from django.utils.html import escapejs, format_html
 
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
+from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.models import Team
 from posthog.models.remote_config import cache_key_for_team_token
 
@@ -46,7 +47,7 @@ class TeamAdmin(admin.ModelAdmin):
         "remote_config_cache_actions",
     ]
 
-    inlines = [TeamMarketingAnalyticsConfigInline]
+    inlines = [TeamMarketingAnalyticsConfigInline, UserProductListInline]
     fieldsets = [
         (
             None,
