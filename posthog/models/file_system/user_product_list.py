@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import models, transaction
@@ -16,6 +16,19 @@ from posthog.products import Products
 
 if TYPE_CHECKING:
     from posthog.models.product_intent.product_intent import ProductIntent
+
+
+def get_user_product_list_count(team: Team) -> list[dict[str, Any]]:
+    """
+    Get product counts for all items in a team, ranked by popularity.
+    Returns a list of dicts with 'product_path' and 'colleague_count' keys, ordered by count descending.
+    """
+    return list[dict[str, Any]](
+        UserProductList.objects.filter(team=team, enabled=True)
+        .values("product_path")
+        .annotate(colleague_count=Count("user", distinct=True))
+        .order_by("-colleague_count")
+    )
 
 
 class UserProductList(UUIDModel, UpdatedMetaFields):
@@ -112,11 +125,23 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         return user_product_lists
 
     @staticmethod
-    def sync_from_team_colleagues(user: User, team: Team, count: int = 1) -> "list[UserProductList]":
+    def sync_from_team_colleagues(
+        user: User,
+        team: Team,
+        count: int = 1,
+        colleague_product_counts: list[dict[str, Any]] | None = None,
+    ) -> "list[UserProductList]":
         """
         Create UserProductList entries for a user based on what their team colleagues have.
         Products are ranked by how many colleagues have them enabled, and only the top `count`
         items that the user doesn't already have enabled are included.
+
+        Args:
+            user: The user to sync products for
+            team: The team to check colleagues in
+            count: Maximum number of products to suggest
+            colleague_product_counts: Optional precomputed colleague product counts.
+                If not provided, will be computed automatically.
         """
         if user.allow_sidebar_suggestions is False:
             return []
@@ -127,13 +152,8 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         )
 
         # Count how many colleagues have each product_path enabled
-        colleague_product_counts = (
-            UserProductList.objects.filter(team=team, enabled=True)
-            .exclude(user=user)
-            .values("product_path")
-            .annotate(colleague_count=Count("user", distinct=True))
-            .order_by("-colleague_count")
-        )
+        if colleague_product_counts is None:
+            colleague_product_counts = get_user_product_list_count(team)
 
         # Filter out products user already has and take top `count` items
         top_products = [
