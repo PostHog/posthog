@@ -226,38 +226,40 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 ][]
 
                 return Object.fromEntries(
-                    sdkData.map(([sdkType, teamSdkVersion]) => {
-                        const sdkVersion = sdkVersions[sdkType as SdkType]
+                    sdkData
+                        .filter(([sdkType]) => sdkVersions[sdkType as SdkType] !== undefined)
+                        .map(([sdkType, teamSdkVersion]) => {
+                            const sdkVersion = sdkVersions[sdkType as SdkType]
 
-                        // Merge lazy-loaded dates
-                        const mergedReleaseDates = { ...sdkVersion.releaseDates }
-                        Object.keys(lazyLoadedDates).forEach((key) => {
-                            const [loadedSdkType, version] = key.split(':')
-                            if (loadedSdkType === sdkType) {
-                                mergedReleaseDates[version as SdkVersion] = lazyLoadedDates[key]
+                            // Merge lazy-loaded dates
+                            const mergedReleaseDates = { ...sdkVersion.releaseDates }
+                            Object.keys(lazyLoadedDates).forEach((key) => {
+                                const [loadedSdkType, version] = key.split(':')
+                                if (loadedSdkType === sdkType) {
+                                    mergedReleaseDates[version as SdkVersion] = lazyLoadedDates[key]
+                                }
+                            })
+
+                            const mergedSdkVersion = {
+                                ...sdkVersion,
+                                releaseDates: mergedReleaseDates,
                             }
+
+                            const releasesInfo = teamSdkVersion.map((version) =>
+                                computeAugmentedInfoRelease(sdkType as SdkType, version, mergedSdkVersion)
+                            )
+
+                            return [
+                                sdkType,
+                                {
+                                    isOutdated: releasesInfo[0]!.isOutdated,
+                                    isOld: releasesInfo[0]!.isOld,
+                                    needsUpdating: releasesInfo[0]!.needsUpdating,
+                                    currentVersion: sdkVersion.latestVersion,
+                                    allReleases: releasesInfo,
+                                },
+                            ]
                         })
-
-                        const mergedSdkVersion = {
-                            ...sdkVersion,
-                            releaseDates: mergedReleaseDates,
-                        }
-
-                        const releasesInfo = teamSdkVersion.map((version) =>
-                            computeAugmentedInfoRelease(sdkType as SdkType, version, mergedSdkVersion)
-                        )
-
-                        return [
-                            sdkType,
-                            {
-                                isOutdated: releasesInfo[0]!.isOutdated,
-                                isOld: releasesInfo[0]!.isOld,
-                                needsUpdating: releasesInfo[0]!.needsUpdating,
-                                currentVersion: sdkVersion.latestVersion,
-                                allReleases: releasesInfo,
-                            },
-                        ]
-                    })
                 )
             },
         ],
