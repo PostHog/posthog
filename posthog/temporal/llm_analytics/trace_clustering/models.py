@@ -8,7 +8,6 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_MAX_K,
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_K,
-    DEFAULT_SAMPLES_PER_CLUSTER,
 )
 
 
@@ -21,7 +20,6 @@ class ClusteringInputs:
     max_samples: int = DEFAULT_MAX_SAMPLES
     min_k: int = DEFAULT_MIN_K
     max_k: int = DEFAULT_MAX_K
-    samples_per_cluster: int = DEFAULT_SAMPLES_PER_CLUSTER
     window_start: Optional[str] = None  # RFC3339 format, overrides lookback_days
     window_end: Optional[str] = None  # RFC3339 format, overrides lookback_days
 

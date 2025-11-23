@@ -138,7 +138,7 @@ class TestQueryTraceEmbeddingsActivity:
         end_dt = datetime.now(UTC)
         start_dt = end_dt - timedelta(days=7)
 
-        with patch("posthog.temporal.llm_analytics.trace_clustering.activities.sync_execute") as mock_execute:
+        with patch("posthog.clickhouse.client.execute.sync_execute") as mock_execute:
             # Mock query results
             mock_execute.return_value = [
                 (
@@ -164,7 +164,7 @@ class TestQueryTraceEmbeddingsActivity:
         end_dt = datetime.now(UTC)
         start_dt = end_dt - timedelta(days=7)
 
-        with patch("posthog.temporal.llm_analytics.trace_clustering.activities.sync_execute") as mock_execute:
+        with patch("posthog.clickhouse.client.execute.sync_execute") as mock_execute:
             mock_execute.return_value = []
 
             result = await query_trace_embeddings_activity(
@@ -285,7 +285,6 @@ class TestWorkflowInputs:
         assert inputs.max_samples == 2000
         assert inputs.min_k == 3
         assert inputs.max_k == 6
-        assert inputs.samples_per_cluster == 7
 
     def test_clustering_inputs_custom(self):
         """Test ClusteringInputs with custom values."""
@@ -295,7 +294,6 @@ class TestWorkflowInputs:
             max_samples=5000,
             min_k=2,
             max_k=8,
-            samples_per_cluster=10,
             window_start="2025-01-01T00:00:00Z",
             window_end="2025-01-08T00:00:00Z",
         )
