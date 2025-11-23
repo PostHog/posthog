@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.settings import get_from_env, get_list
+from posthog.settings import get_from_env
 from posthog.utils import str_to_bool
 
 # TRICKY: we saw unusual memory usage behavior in EU clickhouse cluster
@@ -22,20 +22,6 @@ REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET = get_from_env(
 # gzip is the current default in production
 # TODO we can clean this up once we've tested the new gzip-in-capture compression and don't need a setting
 SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMPRESSION", "gzip")
-
-# can be used to provide an alternative script _name_ from the decide endpoint
-# posthog.js will use this script name to load the rrweb script from its configured asset location
-# intended to allow testing of new releases of rrweb or our lazy loaded recording script
-SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, optional=True)
-
-# a list of teams that are allowed to use the SESSION_REPLAY_RRWEB_SCRIPT
-# can be a comma separated list of team ids or '*' to allow all teams
-SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", ""))
-
-if settings.DEBUG:
-    # in debug mode we allow all teams to use custom rrweb scripts
-    SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = ["*"]
-    SESSION_REPLAY_RRWEB_SCRIPT = "posthog-recorder"
 
 # an AI model to use for session recording filters
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4.1-mini")
