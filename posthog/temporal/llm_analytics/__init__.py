@@ -18,6 +18,7 @@ from posthog.temporal.llm_analytics.trace_clustering import (
 from posthog.temporal.llm_analytics.trace_summarization import (
     BatchTraceSummarizationCoordinatorWorkflow,
     BatchTraceSummarizationWorkflow,
+    embed_summaries_activity,
     emit_trace_summary_events_activity,
     fetch_trace_hierarchy_activity,
     generate_summary_activity,
@@ -42,6 +43,7 @@ ACTIVITIES = [
     fetch_trace_hierarchy_activity,
     generate_summary_activity,
     emit_trace_summary_events_activity,
+    embed_summaries_activity,
     get_teams_with_recent_traces_activity,
     query_trace_embeddings_activity,
     sample_embeddings_activity,
