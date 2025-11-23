@@ -22,7 +22,11 @@ Usage:
 
 from datetime import datetime
 
-from posthog.temporal.common.client import sync_connect
+from django.conf import settings
+
+from asgiref.sync import async_to_sync
+
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs
 
@@ -80,8 +84,6 @@ def trigger_clustering(
     Returns:
         dict: Workflow result if wait=True, WorkflowHandle if wait=False
     """
-    client = sync_connect()
-
     inputs = ClusteringInputs(
         team_id=team_id,
         lookback_days=lookback_days if lookback_days is not None else constants.DEFAULT_LOOKBACK_DAYS,
@@ -106,40 +108,56 @@ def trigger_clustering(
     print("=" * 60)
 
     if wait:
-        result = client.execute_workflow(
-            "daily-trace-clustering",
-            inputs,
-            id=workflow_id,
-            task_queue="general-purpose-queue",
-            execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
-        )
+        print("⏳ Executing workflow (this may take a while)...\n")
+
+        async def _execute():
+            async_client = await async_connect()
+            return await async_client.execute_workflow(
+                "daily-trace-clustering",
+                inputs,
+                id=workflow_id,
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
+            )
+
+        result = async_to_sync(_execute)()
 
         print("\n✅ Clustering completed!")
         print("=" * 60)
-        print(f"Clustering run ID: {result.clustering_run_id}")
-        print(f"Traces analyzed: {result.total_traces_analyzed}")
-        print(f"Traces sampled: {result.sampled_traces_count}")
-        print(f"Optimal k: {result.optimal_k}")
-        print(f"Silhouette score: {result.silhouette_score:.4f}")
-        print(f"Inertia: {result.inertia:.2f}")
-        print(f"\nClusters:")
-        for cluster in result.clusters:
-            print(f"  - Cluster {cluster.cluster_id}: {cluster.size} traces")
-        print(f"\nDuration: {result.duration_seconds:.2f}s")
+        print(f"Clustering run ID: {result.get('clustering_run_id', 'N/A')}")
+        print(f"Traces analyzed: {result.get('total_traces_analyzed', 0)}")
+        print(f"Traces sampled: {result.get('sampled_traces_count', 0)}")
+        print(f"Optimal k: {result.get('optimal_k', 0)}")
+        print(f"Silhouette score: {result.get('silhouette_score', 0):.4f}")
+        print(f"Inertia: {result.get('inertia', 0):.2f}")
+
+        clusters = result.get("clusters", [])
+        if clusters:
+            print(f"\nClusters:")
+            for cluster in clusters:
+                print(f"  - Cluster {cluster.get('cluster_id', 'N/A')}: {cluster.get('size', 0)} traces")
+
+        print(f"\nDuration: {result.get('duration_seconds', 0):.2f}s")
         print("=" * 60)
 
         return result
     else:
-        handle = client.start_workflow(
-            "daily-trace-clustering",
-            inputs,
-            id=workflow_id,
-            task_queue="general-purpose-queue",
-            execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
-        )
+        print("🚀 Starting workflow (non-blocking)...\n")
+
+        async def _start():
+            async_client = await async_connect()
+            return await async_client.start_workflow(
+                "daily-trace-clustering",
+                inputs,
+                id=workflow_id,
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
+            )
+
+        handle = async_to_sync(_start)()
 
         print(f"\n✅ Workflow started: {handle.id}")
-        print(f"Check Temporal UI: http://localhost:8233/namespaces/default/workflows/{handle.id}")
+        print(f"Check Temporal UI: http://localhost:8081/namespaces/default/workflows/{handle.id}")
 
         return handle
 

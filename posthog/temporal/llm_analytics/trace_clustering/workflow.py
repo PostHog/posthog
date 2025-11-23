@@ -20,7 +20,7 @@ with workflow.unsafe.imports_passed_through():
 logger = logging.getLogger(__name__)
 
 
-@workflow.defn
+@workflow.defn(name="daily-trace-clustering")
 class DailyTraceClusteringWorkflow:
     """
     Daily workflow to cluster LLM traces based on their embeddings.
@@ -47,8 +47,9 @@ class DailyTraceClusteringWorkflow:
         start_time = datetime.now()
 
         logger.info(
-            f"Starting trace clustering for team {inputs.team_id}, "
-            f"lookback_days={inputs.lookback_days}, max_samples={inputs.max_samples}"
+            f"🚀 Workflow invoked! Starting trace clustering for team {inputs.team_id}, "
+            f"lookback_days={inputs.lookback_days}, max_samples={inputs.max_samples}, "
+            f"min_k={inputs.min_k}, max_k={inputs.max_k}"
         )
 
         # Calculate time window
@@ -73,6 +74,7 @@ class DailyTraceClusteringWorkflow:
         )
 
         # 1. Query trace embeddings
+        logger.info(f"📊 Step 1: Querying trace embeddings for window {window_start} to {window_end}")
         embeddings = await workflow.execute_activity(
             query_trace_embeddings_activity,
             args=[inputs.team_id, window_start, window_end],
@@ -81,6 +83,7 @@ class DailyTraceClusteringWorkflow:
         )
 
         total_traces = len(embeddings)
+        logger.info(f"✅ Found {total_traces} trace embeddings")
 
         # Check if we have enough traces
         if total_traces < constants.MIN_TRACES_FOR_CLUSTERING:
@@ -104,6 +107,7 @@ class DailyTraceClusteringWorkflow:
             )
 
         # 2. Sample embeddings
+        logger.info(f"🎲 Step 2: Sampling up to {inputs.max_samples} embeddings")
         sampled_embeddings = await workflow.execute_activity(
             sample_embeddings_activity,
             args=[embeddings, inputs.max_samples, None],
@@ -112,8 +116,10 @@ class DailyTraceClusteringWorkflow:
         )
 
         sampled_count = len(sampled_embeddings)
+        logger.info(f"✅ Sampled {sampled_count} embeddings")
 
         # 3. Determine optimal k
+        logger.info(f"🔍 Step 3: Determining optimal k (range: {inputs.min_k}-{inputs.max_k})")
         optimal_k, k_scores = await workflow.execute_activity(
             determine_optimal_k_activity,
             args=[sampled_embeddings, inputs.min_k, inputs.max_k],
@@ -123,16 +129,20 @@ class DailyTraceClusteringWorkflow:
 
         # Get silhouette score for optimal k
         silhouette_score = k_scores.get(optimal_k, 0.0)
+        logger.info(f"✅ Optimal k={optimal_k}, silhouette={silhouette_score:.4f}")
 
         # 4. Perform clustering
+        logger.info(f"🎯 Step 4: Performing k-means clustering with k={optimal_k}")
         labels, centroids, inertia = await workflow.execute_activity(
             perform_clustering_activity,
             args=[sampled_embeddings, optimal_k],
             start_to_close_timeout=constants.PERFORM_CLUSTERING_TIMEOUT,
             retry_policy=retry_policy,
         )
+        logger.info(f"✅ Clustering complete, inertia={inertia:.2f}")
 
         # 5. Emit cluster events
+        logger.info(f"📤 Step 5: Emitting cluster events")
         await workflow.execute_activity(
             emit_cluster_events_activity,
             args=[
@@ -146,6 +156,7 @@ class DailyTraceClusteringWorkflow:
                 silhouette_score,
                 inertia,
                 labels,
+                centroids,
                 sampled_embeddings,
             ],
             start_to_close_timeout=constants.EMIT_EVENTS_TIMEOUT,

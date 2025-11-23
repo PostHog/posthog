@@ -59,10 +59,10 @@ def query_teams_with_embeddings(lookback_days: int, min_embeddings: int) -> list
         SELECT
             team_id,
             count(DISTINCT document_id) as embedding_count
-        FROM document_embeddings
+        FROM posthog_document_embeddings
         WHERE timestamp >= %(start_dt)s
             AND timestamp < %(end_dt)s
-            AND rendering_type IN (%(minimal_rendering)s, %(detailed_rendering)s)
+            AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
             AND length(embedding) > 0
         GROUP BY team_id
         HAVING embedding_count >= %(min_embeddings)s
