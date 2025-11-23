@@ -128,7 +128,9 @@ graph TB
 5. **`emit_cluster_events_activity`**
    - Emits single `$ai_trace_clusters` event with all clusters
    - Includes clustering_run_id for versioning
-   - Stores cluster_id, size, and all trace_ids per cluster
+   - Stores cluster_id, size, centroid, and all traces per cluster
+   - Each trace includes distance metrics (to its centroid and all centroids)
+   - Centroids are 3072-dimensional embedding vectors
    - Timeout: 1 minute
 
 ### Output Events
@@ -158,19 +160,48 @@ Each clustering run generates one `$ai_trace_clusters` event:
         {
             "cluster_id": 0,
             "size": 523,
-            "trace_ids": ["trace_1", "trace_2", ...],  # All traces in cluster
+            "centroid": [0.123, -0.456, ...],  # 3072-dimensional centroid vector
+            "traces": [
+                {
+                    "trace_id": "trace_1",
+                    "distance_to_centroid": 0.42,  # Distance to cluster 0 centroid
+                    "distances_to_all_centroids": [0.42, 0.89, 1.23, 0.67]  # Distances to all k centroids
+                },
+                {
+                    "trace_id": "trace_2",
+                    "distance_to_centroid": 0.38,
+                    "distances_to_all_centroids": [0.38, 0.91, 1.19, 0.71]
+                },
+                # ... all traces in cluster
+            ]
         },
         {
             "cluster_id": 1,
             "size": 412,
-            "trace_ids": ["trace_50", "trace_51", ...],
+            "centroid": [0.789, 0.234, ...],
+            "traces": [
+                {
+                    "trace_id": "trace_50",
+                    "distance_to_centroid": 0.31,
+                    "distances_to_all_centroids": [0.89, 0.31, 1.45, 0.52]
+                },
+                # ... all traces in cluster
+            ]
         },
         # ... more clusters
     ]
 }
 ```
 
-**Note**: Trace metadata (summaries, span counts, durations, etc.) is not included in the event. The UI can fetch this information separately for traces within a cluster when displaying details.
+**Notes**:
+
+- Trace metadata (summaries, span counts, durations, etc.) is not included in the event. The UI can fetch this information separately for traces within a cluster when displaying details.
+- **Centroids** enable assigning new traces to existing clusters without re-clustering by computing similarity to each centroid.
+- **Distance metrics** enable:
+  - Confidence scoring (traces closer to centroid are more typical of the cluster)
+  - Outlier detection (traces far from their centroid or equidistant from multiple centroids)
+  - Boundary analysis (traces near multiple centroids may represent edge cases)
+  - UI features (sorting by typicality, highlighting outliers, visualizing cluster cohesion)
 
 ## Usage
 
@@ -318,7 +349,10 @@ Key constants in `constants.py`:
 
 5. **Emit Event** (< 1 min)
    - Create single event with all clusters
-   - Include cluster_id, size, and trace_ids for each cluster
+   - Include cluster_id, size, centroid (3072-dim vector), and traces for each cluster
+   - Each trace includes distance_to_centroid and distances_to_all_centroids
+   - Centroids enable assigning new traces without re-clustering
+   - Distance metrics enable confidence scoring, outlier detection, and boundary analysis
    - UI can fetch trace metadata separately as needed
 
 ## Error Handling
