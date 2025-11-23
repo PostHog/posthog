@@ -11,7 +11,7 @@ use rdkafka::{
     producer::{FutureRecord, Producer},
     ClientConfig, Message,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
@@ -25,8 +25,7 @@ const KAFKA_MESSAGE_PROCESSED: &str = "kafka_message_processed";
 const KAFKA_MESSAGE_PRODUCED: &str = "kafka_message_produced";
 const REPARTITIONER_PROCESSING_ERROR: &str = "repartitioner_processing_error";
 
-const HEALTH_REPORT_INTERVAL: u64 = 1000;
-
+const HEALTH_REPORT_INTERVAL_MS: u128 = 5000;
 pub struct RepartitionerService {
     config: Config,
     consumer: StreamConsumer,
@@ -98,7 +97,7 @@ impl RepartitionerService {
     pub async fn run(&self) -> Result<()> {
         info!("Starting repartitioner service");
         let mut kafka_error_count = 0_u64;
-        let mut health_report_counter = 1_u64;
+        let mut health_report_interval = Instant::now();
 
         let consumer_health = self
             .health
@@ -107,12 +106,9 @@ impl RepartitionerService {
         consumer_health.report_healthy().await;
 
         loop {
-            // periodically report health status
-            if health_report_counter.is_multiple_of(HEALTH_REPORT_INTERVAL) {
-                health_report_counter = 0;
+            if health_report_interval.elapsed().as_millis() >= HEALTH_REPORT_INTERVAL_MS {
+                health_report_interval = Instant::now();
                 consumer_health.report_healthy().await;
-            } else {
-                health_report_counter += 1;
             }
 
             match self.consumer.recv().await {
