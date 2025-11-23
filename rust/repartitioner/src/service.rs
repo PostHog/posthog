@@ -24,6 +24,9 @@ const KAFKA_MESSAGE_CONSUMED: &str = "kafka_message_consumed";
 const KAFKA_MESSAGE_PROCESSED: &str = "kafka_message_processed";
 const KAFKA_MESSAGE_PRODUCED: &str = "kafka_message_produced";
 const REPARTITIONER_PROCESSING_ERROR: &str = "repartitioner_processing_error";
+
+const HEALTH_REPORT_INTERVAL: u64 = 1000;
+
 pub struct RepartitionerService {
     config: Config,
     consumer: StreamConsumer,
@@ -94,7 +97,8 @@ impl RepartitionerService {
 
     pub async fn run(&self) -> Result<()> {
         info!("Starting repartitioner service");
-        let mut kafka_error_count = 0;
+        let mut kafka_error_count = 0_u64;
+        let mut health_report_counter = 1_u64;
 
         let consumer_health = self
             .health
@@ -103,8 +107,13 @@ impl RepartitionerService {
         consumer_health.report_healthy().await;
 
         loop {
-            // Update health check at start of loop iteration (like cymbal)
-            consumer_health.report_healthy().await;
+            // periodically report health status
+            if health_report_counter.is_multiple_of(HEALTH_REPORT_INTERVAL) {
+                health_report_counter = 0;
+                consumer_health.report_healthy().await;
+            } else {
+                health_report_counter += 1;
+            }
 
             match self.consumer.recv().await {
                 Ok(message) => {
