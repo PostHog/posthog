@@ -9,13 +9,13 @@ DEFAULT_WORKFLOW_MODEL = "gpt-5-mini"  # Default LLM model for workflow (slower 
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
-FETCH_HIERARCHY_TIMEOUT_SECONDS = 30  # 30 seconds per trace hierarchy fetch
-GENERATE_SUMMARY_TIMEOUT_SECONDS = 120  # 2 minutes per summary generation (includes LLM call)
+FETCH_HIERARCHY_TIMEOUT_SECONDS = 60  # 1 minute per trace hierarchy fetch (increased for robustness)
+GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)
 EMIT_EVENTS_TIMEOUT_SECONDS = 60  # 1 minute for batch event emission
 EMBED_TIMEOUT_SECONDS = 60  # 1 minute for batch embedding (Kafka is async)
 
 # Workflow-level timeouts (in minutes)
-WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 90  # Max time for single team workflow (worst case: 100 traces * 30s = ~58min)
+WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (increased with longer activity timeouts)
 
 # Retry configuration
 MAX_RETRY_ATTEMPTS_SAMPLE = 3  # Retries for sampling activity
