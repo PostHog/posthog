@@ -10,6 +10,7 @@ from posthog.temporal.llm_analytics.trace_clustering import (
     TraceClusteringCoordinatorWorkflow,
     determine_optimal_k_activity,
     emit_cluster_events_activity,
+    generate_cluster_labels_activity,
     get_teams_with_embeddings_activity,
     perform_clustering_activity,
     query_trace_embeddings_activity,
@@ -49,6 +50,7 @@ ACTIVITIES = [
     sample_embeddings_activity,
     determine_optimal_k_activity,
     perform_clustering_activity,
+    generate_cluster_labels_activity,
     emit_cluster_events_activity,
     get_teams_with_embeddings_activity,
 ]

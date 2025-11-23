@@ -410,13 +410,13 @@ async def generate_cluster_labels_activity(
         # Query $ai_trace_summary events for these traces
         query = """
             SELECT
-                properties.$ai_trace_id as trace_id,
-                properties.$ai_summary_title as title,
-                properties.$ai_summary_text_repr as summary
+                JSONExtractString(properties, '$ai_trace_id') as trace_id,
+                JSONExtractString(properties, '$ai_summary_title') as title,
+                JSONExtractString(properties, '$ai_summary_text_repr') as summary
             FROM events
             WHERE team_id = %(team_id)s
                 AND event = '$ai_trace_summary'
-                AND properties.$ai_trace_id IN %(trace_ids)s
+                AND JSONExtractString(properties, '$ai_trace_id') IN %(trace_ids)s
         """
 
         results = sync_execute(query, {"team_id": team_id, "trace_ids": all_trace_ids}, workload=Workload.OFFLINE)
@@ -490,20 +490,50 @@ Respond with JSON in this exact format:
 Make titles and descriptions distinctive - users need to quickly understand how clusters differ from each other.
 """
 
-        # Call LLM (using PostHog's LLM infrastructure)
-        from posthog.tasks.llm.llm_client import llm_client_factory
+        # Call LLM (using PostHog's OpenAI infrastructure)
+        import os
 
-        llm_client = llm_client_factory(
-            model="gpt-4o-mini",  # Cheaper model for this task
-            team_id=team_id,
+        from django.conf import settings
+
+        from posthoganalytics.ai.openai import OpenAI
+
+        from posthog.cloud_utils import is_cloud
+        from posthog.utils import get_instance_region
+
+        # Validate environment
+        if not settings.DEBUG and not is_cloud():
+            raise Exception("AI features are only available in PostHog Cloud")
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise Exception("OpenAI API key is not configured")
+
+        # Create OpenAI client (sync, since _generate is sync)
+        class _NoOpPostHogClient:
+            privacy_mode = False
+
+        client = OpenAI(
+            posthog_client=_NoOpPostHogClient(),  # type: ignore[arg-type]
+            timeout=120.0,
+            base_url=getattr(settings, "OPENAI_BASE_URL", None),
         )
 
+        # Prepare user param for tracking
+        instance_region = get_instance_region() or "HOBBY"
+        user_param = f"{instance_region}/{team_id}"
+
         try:
-            response = llm_client.chat(
-                messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",  # Cheaper model for this task
+                messages=[{"role": "user", "content": prompt}],
+                user=user_param,
+                response_format={"type": "json_object"},
             )
 
-            result = json.loads(response)
+            # Parse the JSON response
+            content = response.choices[0].message.content
+            if not content:
+                raise Exception("OpenAI returned empty response")
+            result = json.loads(content)
 
             # Convert to dict[cluster_id -> {title, description}]
             labels_dict = {}
