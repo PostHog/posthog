@@ -119,8 +119,14 @@ impl RepartitionerService {
                         // Processing error mean we can't obtain the new partition key.
                         // this should be exceedingly rare, but if it happens, we have
                         // no choice but to drop the message and continue
-                        error!("Failed to process message, dropping it: {}", e);
+                        warn!(
+                            "Dropping message: failed to process payload ({}:{} offset {}): {e:?}",
+                            message.topic(),
+                            message.partition(),
+                            message.offset(),
+                        );
                         metrics::counter!(REPARTITIONER_PROCESSING_ERROR).increment(1);
+                        continue;
                     } else {
                         metrics::counter!(KAFKA_MESSAGE_PROCESSED).increment(1);
                     }
@@ -136,17 +142,17 @@ impl RepartitionerService {
                 Err(e) => {
                     kafka_error_count += 1;
                     if let Some(e) = self.handle_kafka_error(e, kafka_error_count).await {
-                        if e == KafkaError::Canceled {
-                            self.shutdown().await;
-                            return Ok(());
-                        }
-
+                        self.shutdown().await;
                         consumer_health
                             .report_status(health::ComponentStatus::Unhealthy)
                             .await;
-                        self.shutdown().await;
+
+                        if e == KafkaError::Canceled {
+                            info!("Consumer canceled - shutting down");
+                            return Ok(());
+                        }
                         return Err(anyhow::anyhow!(
-                            "FATAL Kafka error - terminating pod: {}",
+                            "FATAL Kafka error - shutting down consume loop: {}",
                             e
                         ));
                     }
