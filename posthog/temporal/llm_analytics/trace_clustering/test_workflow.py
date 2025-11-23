@@ -13,7 +13,6 @@ from posthog.temporal.llm_analytics.trace_clustering.activities import (
     perform_clustering_activity,
     query_trace_embeddings_activity,
     sample_embeddings_activity,
-    select_cluster_samples_activity,
 )
 from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
     determine_optimal_k,
@@ -51,11 +50,6 @@ def sample_embeddings():
             TraceEmbedding(
                 trace_id=f"trace_0_{i}",
                 embedding=embedding,
-                timestamp=datetime.now(UTC),
-                summary=f"Summary for trace {i}",
-                span_count=5 + i % 3,
-                duration_ms=100.0 + i * 10,
-                has_errors=False,
             )
         )
 
@@ -66,11 +60,6 @@ def sample_embeddings():
             TraceEmbedding(
                 trace_id=f"trace_1_{i}",
                 embedding=embedding,
-                timestamp=datetime.now(UTC),
-                summary=f"Summary for trace {30 + i}",
-                span_count=5 + i % 3,
-                duration_ms=100.0 + (30 + i) * 10,
-                has_errors=i % 5 == 0,
             )
         )
 
@@ -81,11 +70,6 @@ def sample_embeddings():
             TraceEmbedding(
                 trace_id=f"trace_2_{i}",
                 embedding=embedding,
-                timestamp=datetime.now(UTC),
-                summary=f"Summary for trace {60 + i}",
-                span_count=5 + i % 3,
-                duration_ms=100.0 + (60 + i) * 10,
-                has_errors=i % 10 == 0,
             )
         )
 
@@ -160,11 +144,6 @@ class TestQueryTraceEmbeddingsActivity:
                 (
                     f"trace_{i}",
                     np.random.rand(384).tolist(),
-                    datetime.now(UTC),
-                    f"Summary {i}",
-                    5,
-                    100.0,
-                    False,
                 )
                 for i in range(50)
             ]
@@ -243,7 +222,6 @@ class TestDetermineOptimalKActivity:
             TraceEmbedding(
                 trace_id=f"trace_{i}",
                 embedding=np.random.rand(384).tolist(),
-                timestamp=datetime.now(UTC),
             )
             for i in range(10)
         ]
@@ -266,27 +244,6 @@ class TestPerformClusteringActivity:
         assert inertia > 0
 
 
-class TestSelectClusterSamplesActivity:
-    """Tests for select_cluster_samples_activity."""
-
-    @pytest.mark.asyncio
-    async def test_select_samples_success(self, sample_embeddings):
-        """Test sample selection from clusters."""
-        # Run clustering first
-        labels, centroids, _ = await perform_clustering_activity(sample_embeddings, k=3)
-
-        # Select samples
-        cluster_samples = await select_cluster_samples_activity(
-            sample_embeddings, labels, centroids, samples_per_cluster=7
-        )
-
-        assert len(cluster_samples) == 3
-        for _cluster_id, samples in cluster_samples.items():
-            assert len(samples) <= 7
-            assert all(hasattr(s, "trace_id") for s in samples)
-            assert all(hasattr(s, "summary") for s in samples)
-
-
 class TestEmitClusterEventsActivity:
     """Tests for emit_cluster_events_activity."""
 
@@ -295,9 +252,6 @@ class TestEmitClusterEventsActivity:
         """Test event emission (placeholder)."""
         # Run clustering first
         labels, centroids, inertia = await perform_clustering_activity(sample_embeddings, k=3)
-        cluster_samples = await select_cluster_samples_activity(
-            sample_embeddings, labels, centroids, samples_per_cluster=7
-        )
 
         end_dt = datetime.now(UTC)
         start_dt = end_dt - timedelta(days=7)
@@ -314,7 +268,6 @@ class TestEmitClusterEventsActivity:
             inertia=inertia,
             labels=labels,
             embeddings=sample_embeddings,
-            cluster_samples=cluster_samples,
         )
 
         assert result == 1  # Should return 1 event emitted

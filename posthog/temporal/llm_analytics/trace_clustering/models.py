@@ -1,7 +1,6 @@
 """Data models for trace clustering workflow."""
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Optional
 
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
@@ -29,37 +28,27 @@ class ClusteringInputs:
 
 @dataclass
 class TraceEmbedding:
-    """A trace with its embedding vector and metadata."""
+    """A trace with its embedding vector for clustering.
+
+    Metadata (summary, span_count, etc.) can be fetched by the UI
+    when displaying clusters, keeping the clustering workflow lightweight.
+    """
 
     trace_id: str
     embedding: list[float]
-    timestamp: datetime
-    summary: Optional[str] = None
-    span_count: Optional[int] = None
-    duration_ms: Optional[float] = None
-    has_errors: Optional[bool] = None
-
-
-@dataclass
-class ClusterSample:
-    """Representative trace sample from a cluster."""
-
-    trace_id: str
-    summary: str
-    timestamp: str  # ISO format
-    span_count: int
-    duration_ms: float
-    has_errors: bool
 
 
 @dataclass
 class Cluster:
-    """A cluster of traces with samples and metadata."""
+    """A cluster of traces.
+
+    Contains all trace IDs in the cluster. The UI can fetch
+    metadata for display as needed.
+    """
 
     cluster_id: int
     size: int
     trace_ids: list[str]
-    sample_traces: list[ClusterSample]
 
 
 @dataclass

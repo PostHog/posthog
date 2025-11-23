@@ -14,7 +14,6 @@ with workflow.unsafe.imports_passed_through():
         perform_clustering_activity,
         query_trace_embeddings_activity,
         sample_embeddings_activity,
-        select_cluster_samples_activity,
     )
     from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs, ClusteringResult
 
@@ -31,8 +30,7 @@ class DailyTraceClusteringWorkflow:
     2. Samples up to max_samples embeddings
     3. Determines optimal k using silhouette score
     4. Performs k-means clustering
-    5. Selects representative samples per cluster
-    6. Emits results as $ai_trace_clusters events
+    5. Emits results as $ai_trace_clusters events
     """
 
     @workflow.run
@@ -134,15 +132,7 @@ class DailyTraceClusteringWorkflow:
             retry_policy=retry_policy,
         )
 
-        # 5. Select cluster samples
-        cluster_samples = await workflow.execute_activity(
-            select_cluster_samples_activity,
-            args=[sampled_embeddings, labels, centroids, inputs.samples_per_cluster],
-            start_to_close_timeout=constants.SELECT_SAMPLES_TIMEOUT,
-            retry_policy=retry_policy,
-        )
-
-        # 6. Emit cluster events
+        # 5. Emit cluster events
         await workflow.execute_activity(
             emit_cluster_events_activity,
             args=[
@@ -157,7 +147,6 @@ class DailyTraceClusteringWorkflow:
                 inertia,
                 labels,
                 sampled_embeddings,
-                cluster_samples,
             ],
             start_to_close_timeout=constants.EMIT_EVENTS_TIMEOUT,
             retry_policy=retry_policy,
@@ -168,7 +157,6 @@ class DailyTraceClusteringWorkflow:
         for cluster_id in range(optimal_k):
             cluster_size = sum(1 for label in labels if label == cluster_id)
             trace_ids = [sampled_embeddings[i].trace_id for i, label in enumerate(labels) if label == cluster_id]
-            samples = cluster_samples.get(cluster_id, [])
 
             from posthog.temporal.llm_analytics.trace_clustering.models import Cluster
 
@@ -177,7 +165,6 @@ class DailyTraceClusteringWorkflow:
                     cluster_id=cluster_id,
                     size=cluster_size,
                     trace_ids=trace_ids,
-                    sample_traces=samples,
                 )
             )
 
