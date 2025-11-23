@@ -5,6 +5,15 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     execute_llm_judge_activity,
     fetch_evaluation_activity,
 )
+from posthog.temporal.llm_analytics.trace_clustering import (
+    DailyTraceClusteringWorkflow,
+    determine_optimal_k_activity,
+    emit_cluster_events_activity,
+    perform_clustering_activity,
+    query_trace_embeddings_activity,
+    sample_embeddings_activity,
+    select_cluster_samples_activity,
+)
 from posthog.temporal.llm_analytics.trace_summarization import (
     BatchTraceSummarizationCoordinatorWorkflow,
     BatchTraceSummarizationWorkflow,
@@ -18,6 +27,7 @@ WORKFLOWS = [
     RunEvaluationWorkflow,
     BatchTraceSummarizationWorkflow,
     BatchTraceSummarizationCoordinatorWorkflow,
+    DailyTraceClusteringWorkflow,
 ]
 
 ACTIVITIES = [
@@ -29,4 +39,10 @@ ACTIVITIES = [
     generate_and_save_summary_activity,
     embed_summaries_activity,
     get_teams_with_recent_traces_activity,
+    query_trace_embeddings_activity,
+    sample_embeddings_activity,
+    determine_optimal_k_activity,
+    perform_clustering_activity,
+    select_cluster_samples_activity,
+    emit_cluster_events_activity,
 ]
