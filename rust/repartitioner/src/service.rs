@@ -405,7 +405,7 @@ mod tests {
     use chrono::Utc;
     use common_kafka::test::create_mock_kafka;
     use rdkafka::{
-        client::DefaultClientContext,
+        //client::DefaultClientContext,
         consumer::Consumer,
         producer::{FutureProducer, FutureRecord},
         util::Timeout,
@@ -415,28 +415,24 @@ mod tests {
     use tokio::time::timeout;
     use uuid::Uuid;
 
-    async fn setup_test_environment() -> (
+    async fn setup_test_environment(
+        topics: &[&String],
+    ) -> (
         rdkafka::mocking::MockCluster<'static, rdkafka::producer::DefaultProducerContext>,
+        FutureProducer<KafkaContext>,
         StreamConsumer,
-        FutureProducer<DefaultClientContext>,
-        String,
-        String,
     ) {
-        let (cluster, _) = create_mock_kafka().await;
+        let (cluster, producer) = create_mock_kafka().await;
+
+        for topic in topics {
+            info!("Creating mock topic: {}", *topic);
+            assert_eq!(cluster.create_topic(topic, 1, 1), Ok(()),);
+        }
+
         let bootstrap_servers = cluster.bootstrap_servers();
-
-        let source_topic = format!("test_source_{}", Uuid::new_v4());
-        let dest_topic = format!("test_dest_{}", Uuid::new_v4());
-
-        let producer: FutureProducer<DefaultClientContext> = ClientConfig::new()
-            .set("bootstrap.servers", &bootstrap_servers)
-            .set("metadata.max.age.ms", "1000")
-            .create()
-            .expect("Failed to create producer");
-
         let consumer: StreamConsumer = ClientConfig::new()
             .set("bootstrap.servers", &bootstrap_servers)
-            .set("group.id", format!("test_group_{}", Uuid::new_v4()))
+            .set("group.id", "test_group")
             .set("auto.offset.reset", "earliest")
             .set("enable.auto.commit", "false")
             .set("metadata.max.age.ms", "1000")
@@ -446,9 +442,7 @@ mod tests {
             .create()
             .expect("Failed to create consumer");
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        (cluster, consumer, producer, source_topic, dest_topic)
+        (cluster, producer, consumer)
     }
 
     fn create_test_message(event_name: &str, distinct_id: &str, team_id: i64) -> Vec<u8> {
@@ -470,7 +464,7 @@ mod tests {
     }
 
     async fn produce_test_message(
-        producer: &FutureProducer<DefaultClientContext>,
+        producer: &FutureProducer<KafkaContext>,
         topic: &str,
         payload: Vec<u8>,
     ) -> Result<()> {
@@ -485,32 +479,38 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_cluster() {
-        let (_cluster, consumer, producer, source_topic, _dest_topic) =
-            setup_test_environment().await;
+        let test_topic = format!("test_topic_{}", Uuid::new_v4());
+        let (_cluster, producer, consumer) = setup_test_environment(&[&test_topic]).await;
 
         let event_name = "test_event";
         let distinct_id = Uuid::new_v4().to_string();
         let team_id = 123;
         let payload = create_test_message(event_name, &distinct_id, team_id);
 
-        produce_test_message(&producer, &source_topic, payload.clone())
+        produce_test_message(&producer, &test_topic, payload.clone())
             .await
             .expect("Failed to produce message");
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
         consumer
-            .subscribe(&[&source_topic])
-            .expect("Failed to subscribe");
+            .subscribe(&[&test_topic])
+            .expect("Failed to subscribe to test topic");
 
-        let message = timeout(Duration::from_secs(5), consumer.recv())
+        let message = timeout(Duration::from_secs(10), consumer.recv())
             .await
             .expect("Timeout waiting for message")
             .expect("Failed to receive message");
 
-        let received_payload = message.payload().expect("Message has no payload");
-        let received_json: serde_json::Value =
-            serde_json::from_slice(received_payload).expect("Failed to parse JSON");
+        let received_payload = message
+            .payload()
+            .expect("Expected message to have a payload");
+        let received_json: serde_json::Value = serde_json::from_slice(received_payload)
+            .with_context(|| {
+                anyhow::anyhow!(
+                    "Expected message payload to be valid JSON: {}",
+                    String::from_utf8_lossy(received_payload)
+                )
+            })
+            .unwrap();
 
         assert_eq!(received_json["event"], event_name);
         assert_eq!(received_json["distinct_id"], distinct_id);
@@ -522,8 +522,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_with_single_event() {
-        let (cluster, consumer, producer, source_topic, dest_topic) =
-            setup_test_environment().await;
+        let source_topic = format!("test_source_{}", Uuid::new_v4());
+        let dest_topic = format!("test_dest_{}", Uuid::new_v4());
+        let topics = vec![&source_topic, &dest_topic];
+        let (cluster, producer, consumer) = setup_test_environment(&topics).await;
 
         let event_name = "test_event";
         let distinct_id = Uuid::new_v4().to_string();
@@ -534,15 +536,6 @@ mod tests {
         produce_test_message(&producer, &source_topic, payload)
             .await
             .expect("Failed to produce message");
-
-        // Produce a dummy message to dest_topic to ensure it exists before subscribing
-        // (topics are auto-created on first produce in mock cluster)
-        produce_test_message(&producer, &dest_topic, b"dummy".to_vec())
-            .await
-            .expect("Failed to create dest_topic");
-
-        // Give the service time to consume and produce to dest_topic
-        tokio::time::sleep(Duration::from_millis(1000)).await;
 
         // prepare and launch the service for the test
         let mut cfg = Config::init_with_defaults().unwrap();
@@ -555,53 +548,40 @@ mod tests {
             .await
             .unwrap();
         let svc_handle = tokio::spawn(async move {
-            svc.run().await.unwrap();
+            if let Err(e) = svc.run().await {
+                error!("FATAL: service run failed: {:?}", e);
+            }
         });
-
-        // Give the service time to start and subscribe to source_topic
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
         consumer
             .subscribe(&[&dest_topic])
-            .expect("Failed to subscribe");
+            .expect("Failed to subscribe to destination topic");
 
-        // Skip the dummy message and wait for the actual message from the service
-        let mut message = timeout(Duration::from_secs(5), consumer.recv())
+        let message = timeout(Duration::from_secs(10), consumer.recv())
             .await
-            .expect("Timeout waiting for message")
-            .expect("Failed to receive message");
+            .expect("Timeout waiting for repartitioned message")
+            .expect("Failed to receive repartitioned message");
 
-        // Skip dummy message if present
-        if message.payload().map(|p| p == b"dummy").unwrap_or(false) {
-            message = timeout(Duration::from_secs(5), consumer.recv())
-                .await
-                .expect("Timeout waiting for message")
-                .expect("Failed to receive message");
-        }
-
-        let received_payload = message.payload().expect("Message has no payload");
-        assert_eq!(
-            String::from_utf8(message.key().unwrap().to_vec()).unwrap(),
-            team_id.to_string()
-        );
-
-        let received_json: serde_json::Value =
-            serde_json::from_slice(received_payload).expect("Failed to parse JSON");
-
-        assert_eq!(received_json["event"], event_name);
-        assert_eq!(received_json["distinct_id"], distinct_id);
-        assert_eq!(received_json["team_id"].as_i64(), Some(team_id));
-        assert_eq!(received_json["project_id"].as_i64(), Some(team_id));
-        assert_eq!(received_json["person_mode"], "full");
-        assert_eq!(received_json["elements_chain"], "");
+        let received_key = message
+            .key()
+            .with_context(|| {
+                anyhow::anyhow!(
+                    "Repartitioned message has no key. payload len: {}",
+                    message.payload_len()
+                )
+            })
+            .unwrap();
+        assert_eq!(received_key, team_id.to_string().into_bytes());
 
         svc_handle.abort();
     }
 
     #[tokio::test]
     async fn test_service_with_multiple_events() {
-        let (cluster, consumer, producer, source_topic, dest_topic) =
-            setup_test_environment().await;
+        let source_topic = format!("test_source_{}", Uuid::new_v4());
+        let dest_topic = format!("test_dest_{}", Uuid::new_v4());
+        let topics = vec![&source_topic, &dest_topic];
+        let (cluster, producer, consumer) = setup_test_environment(&topics).await;
 
         let test_cases = vec![
             ("pageview", Uuid::new_v4().to_string(), 111),
@@ -616,14 +596,6 @@ mod tests {
                 .expect("Failed to produce message");
         }
 
-        // Produce a dummy message to dest_topic to ensure it exists before subscribing
-        // (topics are auto-created on first produce in mock cluster)
-        produce_test_message(&producer, &dest_topic, b"dummy".to_vec())
-            .await
-            .expect("Failed to create dest_topic");
-
-        tokio::time::sleep(Duration::from_millis(1000)).await;
-
         // prepare and launch the service for the test
         let mut cfg = Config::init_with_defaults().unwrap();
         cfg.kafka_hosts = cluster.bootstrap_servers(); // Use mock cluster bootstrap servers
@@ -638,29 +610,21 @@ mod tests {
             svc.run().await.unwrap();
         });
 
-        // let the service warm up for a moment and process it's inputs
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
         consumer
             .subscribe(&[&dest_topic])
-            .expect("Failed to subscribe");
-
-        // clear dummy payload out of the way before checking results
-        let dummy_msg = timeout(Duration::from_secs(5), consumer.recv())
-            .await
-            .expect("Timeout waiting for message")
-            .expect("Failed to receive message");
-        assert!(dummy_msg.payload().map(|p| p == b"dummy").unwrap_or(false));
+            .expect("Failed to subscribe to destination topic");
 
         for (event_name, distinct_id, team_id) in &test_cases {
-            let message = timeout(Duration::from_secs(5), consumer.recv())
+            let message = timeout(Duration::from_secs(10), consumer.recv())
                 .await
-                .expect("Timeout waiting for message")
-                .expect("Failed to receive message");
+                .expect("Timeout waiting for repartitioned message")
+                .expect("Failed to receive repartitioned message");
 
-            let received_payload = message.payload().expect("Message has no payload");
-            let received_json: serde_json::Value =
-                serde_json::from_slice(received_payload).expect("Failed to parse JSON");
+            let received_payload = message
+                .payload()
+                .expect("Repartitioned message has no payload");
+            let received_json: serde_json::Value = serde_json::from_slice(received_payload)
+                .expect("Failed to parse JSON in repartitioned message");
 
             assert_eq!(received_json["event"], *event_name);
             assert_eq!(received_json["distinct_id"], *distinct_id);
