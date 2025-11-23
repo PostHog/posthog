@@ -1,0 +1,382 @@
+"""Activities for trace clustering workflow."""
+
+import random
+import logging
+from datetime import datetime
+from typing import Optional
+
+import numpy as np
+from temporalio import activity
+
+from posthog.temporal.llm_analytics.trace_clustering import constants
+from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
+    determine_optimal_k,
+    perform_kmeans_clustering,
+    select_cluster_representatives,
+)
+from posthog.temporal.llm_analytics.trace_clustering.models import ClusterSample, TraceEmbedding
+
+logger = logging.getLogger(__name__)
+
+
+@activity.defn
+async def query_trace_embeddings_activity(
+    team_id: int,
+    window_start: str,
+    window_end: str,
+) -> list[TraceEmbedding]:
+    """
+    Query trace embeddings from the document_embeddings table.
+
+    Fetches embeddings for traces within the time window, filtering by team_id
+    and rendering type (llma_trace_minimal or llma_trace_detailed).
+
+    Args:
+        team_id: Team ID to query embeddings for
+        window_start: Start of time window (RFC3339)
+        window_end: End of time window (RFC3339)
+
+    Returns:
+        List of TraceEmbedding objects with trace_id, embedding, and metadata
+    """
+    from django.utils.dateparse import parse_datetime
+
+    from posthog.clickhouse.client.connection import Workload
+    from posthog.clickhouse.client.execute import sync_execute
+
+    logger.info(f"Querying trace embeddings for team {team_id} from {window_start} to {window_end}")
+
+    start_dt = parse_datetime(window_start)
+    end_dt = parse_datetime(window_end)
+
+    if not start_dt or not end_dt:
+        raise ValueError(f"Invalid datetime format: {window_start} or {window_end}")
+
+    # Query embeddings from document_embeddings table
+    # Join with events table to get trace metadata
+    query = """
+        SELECT
+            de.document_id as trace_id,
+            de.embedding as embedding,
+            de.timestamp as timestamp,
+            any(properties.$ai_summary_title) as summary,
+            any(properties.$ai_event_count) as span_count,
+            any(properties.$ai_trace_duration_ms) as duration_ms,
+            any(properties.$ai_has_errors) as has_errors
+        FROM document_embeddings de
+        LEFT JOIN events e ON e.properties.$ai_trace_id = de.document_id
+        WHERE de.team_id = %(team_id)s
+            AND de.timestamp >= %(start_dt)s
+            AND de.timestamp < %(end_dt)s
+            AND de.rendering_type IN (%(minimal_rendering)s, %(detailed_rendering)s)
+            AND length(de.embedding) > 0
+        GROUP BY de.document_id, de.embedding, de.timestamp
+        ORDER BY de.timestamp DESC
+    """
+
+    params = {
+        "team_id": team_id,
+        "start_dt": start_dt,
+        "end_dt": end_dt,
+        "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
+        "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+    }
+
+    results = await sync_execute(query, params, workload=Workload.OFFLINE)
+
+    embeddings = []
+    for row in results:
+        trace_id, embedding, timestamp, summary, span_count, duration_ms, has_errors = row
+        embeddings.append(
+            TraceEmbedding(
+                trace_id=trace_id,
+                embedding=embedding,
+                timestamp=timestamp,
+                summary=summary,
+                span_count=span_count,
+                duration_ms=duration_ms,
+                has_errors=has_errors,
+            )
+        )
+
+    logger.info(f"Found {len(embeddings)} trace embeddings")
+
+    return embeddings
+
+
+@activity.defn
+async def sample_embeddings_activity(
+    embeddings: list[TraceEmbedding],
+    max_samples: int,
+    random_seed: Optional[int] = None,
+) -> list[TraceEmbedding]:
+    """
+    Sample embeddings randomly up to max_samples.
+
+    If there are fewer embeddings than max_samples, returns all embeddings.
+    Uses a fixed random seed for reproducibility within a run.
+
+    Args:
+        embeddings: List of trace embeddings
+        max_samples: Maximum number of embeddings to sample
+        random_seed: Random seed for reproducibility (defaults to run ID hash)
+
+    Returns:
+        Sampled list of embeddings
+    """
+    logger.info(f"Sampling up to {max_samples} embeddings from {len(embeddings)} total")
+
+    if len(embeddings) <= max_samples:
+        logger.info(f"Using all {len(embeddings)} embeddings (fewer than max_samples)")
+        return embeddings
+
+    # Use provided seed or generate from current time
+    if random_seed is None:
+        random_seed = int(datetime.now().timestamp())
+
+    random.seed(random_seed)
+    sampled = random.sample(embeddings, max_samples)
+
+    logger.info(f"Sampled {len(sampled)} embeddings with seed {random_seed}")
+
+    return sampled
+
+
+@activity.defn
+async def determine_optimal_k_activity(
+    embeddings: list[TraceEmbedding],
+    min_k: int,
+    max_k: int,
+) -> tuple[int, dict[int, float]]:
+    """
+    Determine optimal number of clusters using silhouette score.
+
+    Tests k values from min_k to max_k and returns the k with highest
+    silhouette score.
+
+    Args:
+        embeddings: List of trace embeddings
+        min_k: Minimum k to test
+        max_k: Maximum k to test
+
+    Returns:
+        Tuple of (optimal_k, scores_dict)
+    """
+    logger.info(f"Determining optimal k from {min_k} to {max_k} for {len(embeddings)} embeddings")
+
+    # Convert to numpy array
+    embedding_matrix = np.array([e.embedding for e in embeddings])
+
+    optimal_k, scores = determine_optimal_k(embedding_matrix, min_k, max_k)
+
+    logger.info(f"Optimal k: {optimal_k} (scores: {scores})")
+
+    return optimal_k, scores
+
+
+@activity.defn
+async def perform_clustering_activity(
+    embeddings: list[TraceEmbedding],
+    k: int,
+) -> tuple[list[int], list[list[float]], float]:
+    """
+    Perform k-means clustering on embeddings.
+
+    Args:
+        embeddings: List of trace embeddings
+        k: Number of clusters
+
+    Returns:
+        Tuple of (labels, centroids, inertia)
+        - labels: Cluster assignment for each embedding
+        - centroids: Cluster centroids as lists
+        - inertia: Sum of squared distances to nearest centroid
+    """
+    logger.info(f"Performing k-means clustering with k={k} on {len(embeddings)} embeddings")
+
+    # Convert to numpy array
+    embedding_matrix = np.array([e.embedding for e in embeddings])
+
+    labels_array, centroids_array, inertia = perform_kmeans_clustering(embedding_matrix, k)
+
+    # Convert to lists for serialization
+    labels = labels_array.tolist()
+    centroids = centroids_array.tolist()
+
+    logger.info(f"Clustering complete: {k} clusters, inertia={inertia:.2f}")
+
+    return labels, centroids, inertia
+
+
+@activity.defn
+async def select_cluster_samples_activity(
+    embeddings: list[TraceEmbedding],
+    labels: list[int],
+    centroids: list[list[float]],
+    samples_per_cluster: int,
+) -> dict[int, list[ClusterSample]]:
+    """
+    Select representative samples for each cluster.
+
+    For each cluster, selects samples_per_cluster traces:
+    - 5 closest to centroid (most representative)
+    - 2 random (for diversity)
+
+    Args:
+        embeddings: List of trace embeddings with metadata
+        labels: Cluster assignment for each embedding
+        centroids: Cluster centroids
+        samples_per_cluster: Number of samples per cluster
+
+    Returns:
+        Dictionary mapping cluster_id to list of ClusterSample objects
+    """
+    logger.info(f"Selecting {samples_per_cluster} samples per cluster")
+
+    # Convert to numpy arrays
+    embedding_matrix = np.array([e.embedding for e in embeddings])
+    labels_array = np.array(labels)
+    centroids_array = np.array(centroids)
+    trace_ids = [e.trace_id for e in embeddings]
+
+    # Calculate split (e.g., 7 = 5 closest + 2 random)
+    n_closest = max(1, int(samples_per_cluster * 5 / 7))
+    n_random = samples_per_cluster - n_closest
+
+    # Get representative trace IDs per cluster
+    representatives = select_cluster_representatives(
+        embedding_matrix, labels_array, centroids_array, trace_ids, n_closest, n_random
+    )
+
+    # Build ClusterSample objects with full metadata
+    cluster_samples = {}
+    for cluster_id, rep_trace_ids in representatives.items():
+        samples = []
+        for trace_id in rep_trace_ids:
+            # Find the embedding object for this trace_id
+            embedding_obj = next((e for e in embeddings if e.trace_id == trace_id), None)
+            if embedding_obj:
+                samples.append(
+                    ClusterSample(
+                        trace_id=trace_id,
+                        summary=embedding_obj.summary or "",
+                        timestamp=embedding_obj.timestamp.isoformat(),
+                        span_count=embedding_obj.span_count or 0,
+                        duration_ms=embedding_obj.duration_ms or 0.0,
+                        has_errors=embedding_obj.has_errors or False,
+                    )
+                )
+        cluster_samples[cluster_id] = samples
+
+    logger.info(f"Selected samples for {len(cluster_samples)} clusters")
+
+    return cluster_samples
+
+
+@activity.defn
+async def emit_cluster_events_activity(
+    team_id: int,
+    clustering_run_id: str,
+    window_start: str,
+    window_end: str,
+    total_traces: int,
+    sampled_traces: int,
+    optimal_k: int,
+    silhouette_score: float,
+    inertia: float,
+    labels: list[int],
+    embeddings: list[TraceEmbedding],
+    cluster_samples: dict[int, list[ClusterSample]],
+) -> int:
+    """
+    Emit $ai_trace_clusters event to ClickHouse.
+
+    Creates a single event containing all clusters with their samples
+    and trace IDs.
+
+    Args:
+        team_id: Team ID
+        clustering_run_id: Unique ID for this clustering run
+        window_start: Start of time window
+        window_end: End of time window
+        total_traces: Total traces analyzed
+        sampled_traces: Number of traces sampled
+        optimal_k: Number of clusters
+        silhouette_score: Clustering quality score
+        inertia: K-means inertia
+        labels: Cluster assignments
+        embeddings: All embeddings (for getting trace IDs per cluster)
+        cluster_samples: Sample traces per cluster
+
+    Returns:
+        Number of events emitted (always 1)
+    """
+
+    logger.info(f"Emitting cluster event for team {team_id}, run {clustering_run_id}")
+
+    # Build clusters array
+    clusters = []
+    for cluster_id in range(optimal_k):
+        # Get all trace IDs in this cluster
+        cluster_trace_ids = [embeddings[i].trace_id for i, label in enumerate(labels) if label == cluster_id]
+
+        # Get samples for this cluster
+        samples = cluster_samples.get(cluster_id, [])
+
+        clusters.append(
+            {
+                "cluster_id": cluster_id,
+                "size": len(cluster_trace_ids),
+                "trace_ids": cluster_trace_ids,
+                "sample_traces": [
+                    {
+                        "trace_id": s.trace_id,
+                        "summary": s.summary,
+                        "timestamp": s.timestamp,
+                        "span_count": s.span_count,
+                        "duration_ms": s.duration_ms,
+                        "has_errors": s.has_errors,
+                    }
+                    for s in samples
+                ],
+            }
+        )
+
+    # Build event properties (for future implementation)
+    # properties = {
+    #     "$ai_clustering_version": constants.CLUSTERING_VERSION,
+    #     "$ai_clustering_run_id": clustering_run_id,
+    #     "$ai_team_id": team_id,
+    #     "$ai_timestamp": datetime.now().isoformat(),
+    #     "$ai_window_start": window_start,
+    #     "$ai_window_end": window_end,
+    #     "$ai_total_traces_analyzed": total_traces,
+    #     "$ai_sampled_traces_count": sampled_traces,
+    #     "$ai_optimal_k": optimal_k,
+    #     "$ai_silhouette_score": silhouette_score,
+    #     "$ai_inertia": inertia,
+    #     "$ai_clusters": clusters,
+    # }
+
+    # TODO: Implement proper event emission once we have the event schema set up
+    # For now, just log what we would emit
+    logger.info(
+        f"Would emit event: {constants.EVENT_NAME} with {optimal_k} clusters, "
+        f"{len(clusters)} cluster objects, {sampled_traces} total traces"
+    )
+
+    # Placeholder for actual event emission:
+    # from posthog.client import sync_execute
+    # sync_execute(
+    #     "INSERT INTO events ...",
+    #     {
+    #         "team_id": team_id,
+    #         "event": constants.EVENT_NAME,
+    #         "properties": properties,
+    #         "timestamp": datetime.now(),
+    #     }
+    # )
+
+    logger.info("Cluster event placeholder completed successfully")
+
+    return 1
