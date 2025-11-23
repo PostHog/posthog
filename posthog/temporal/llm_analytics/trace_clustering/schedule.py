@@ -17,7 +17,6 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_MAX_K,
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_K,
-    DEFAULT_SAMPLES_PER_CLUSTER,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs
 
@@ -55,7 +54,6 @@ async def create_trace_clustering_schedule(
                 max_samples=max_samples,
                 min_k=DEFAULT_MIN_K,
                 max_k=DEFAULT_MAX_K,
-                samples_per_cluster=DEFAULT_SAMPLES_PER_CLUSTER,
             ),
             id=workflow_id_prefix,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,

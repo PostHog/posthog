@@ -7,7 +7,6 @@ DEFAULT_LOOKBACK_DAYS = 7
 DEFAULT_MAX_SAMPLES = 2000
 DEFAULT_MIN_K = 3
 DEFAULT_MAX_K = 6
-DEFAULT_SAMPLES_PER_CLUSTER = 7  # 5 closest + 2 random
 
 # Minimum traces required for clustering
 MIN_TRACES_FOR_CLUSTERING = 20
@@ -18,7 +17,6 @@ QUERY_EMBEDDINGS_TIMEOUT = timedelta(minutes=5)
 SAMPLE_EMBEDDINGS_TIMEOUT = timedelta(minutes=1)
 DETERMINE_OPTIMAL_K_TIMEOUT = timedelta(minutes=10)
 PERFORM_CLUSTERING_TIMEOUT = timedelta(minutes=5)
-SELECT_SAMPLES_TIMEOUT = timedelta(minutes=3)
 EMIT_EVENTS_TIMEOUT = timedelta(minutes=1)
 
 # Activity retry configuration

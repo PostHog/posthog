@@ -73,7 +73,7 @@ async def query_trace_embeddings_activity(
         "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
     }
 
-    results = await sync_execute(query, params, workload=Workload.OFFLINE)
+    results = sync_execute(query, params, workload=Workload.OFFLINE)
 
     embeddings = []
     for row in results:
