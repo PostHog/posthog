@@ -1,13 +1,18 @@
 """Activities for trace clustering workflow."""
 
+import json
+import uuid
 import random
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 import numpy as np
 from temporalio import activity
 
+from posthog.models.event.util import create_event
+from posthog.models.team import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
     determine_optimal_k,
@@ -56,11 +61,11 @@ async def query_trace_embeddings_activity(
         SELECT
             document_id as trace_id,
             embedding
-        FROM document_embeddings
+        FROM posthog_document_embeddings
         WHERE team_id = %(team_id)s
             AND timestamp >= %(start_dt)s
             AND timestamp < %(end_dt)s
-            AND rendering_type IN (%(minimal_rendering)s, %(detailed_rendering)s)
+            AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
             AND length(embedding) > 0
         ORDER BY timestamp DESC
     """
@@ -206,12 +211,13 @@ async def emit_cluster_events_activity(
     silhouette_score: float,
     inertia: float,
     labels: list[int],
+    centroids: list[list[float]],
     embeddings: list[TraceEmbedding],
 ) -> int:
     """
     Emit $ai_trace_clusters event to ClickHouse.
 
-    Creates a single event containing all clusters with trace IDs.
+    Creates a single event containing all clusters with trace IDs and centroids.
     The UI can fetch metadata for individual traces as needed.
 
     Args:
@@ -225,6 +231,7 @@ async def emit_cluster_events_activity(
         silhouette_score: Clustering quality score
         inertia: K-means inertia
         labels: Cluster assignments
+        centroids: Cluster centroids (center points in embedding space)
         embeddings: All embeddings (for getting trace IDs per cluster)
 
     Returns:
@@ -233,55 +240,87 @@ async def emit_cluster_events_activity(
 
     logger.info(f"Emitting cluster event for team {team_id}, run {clustering_run_id}")
 
-    # Build clusters array
-    clusters = []
-    for cluster_id in range(optimal_k):
-        # Get all trace IDs in this cluster
-        cluster_trace_ids = [embeddings[i].trace_id for i, label in enumerate(labels) if label == cluster_id]
+    def _emit():
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            logger.exception("Team not found", team_id=team_id)
+            raise ValueError(f"Team {team_id} not found")
 
-        clusters.append(
-            {
-                "cluster_id": cluster_id,
-                "size": len(cluster_trace_ids),
-                "trace_ids": cluster_trace_ids,
-            }
+        # Convert centroids to numpy for efficient distance computation
+        centroids_array = np.array(centroids)
+        embeddings_array = np.array([e.embedding for e in embeddings])
+
+        # Compute distances from each trace to all centroids
+        # Shape: (num_traces, num_clusters)
+        distances_matrix = np.sqrt(
+            ((embeddings_array[:, np.newaxis, :] - centroids_array[np.newaxis, :, :]) ** 2).sum(axis=2)
         )
 
-    # Build event properties (for future implementation)
-    # properties = {
-    #     "$ai_clustering_version": constants.CLUSTERING_VERSION,
-    #     "$ai_clustering_run_id": clustering_run_id,
-    #     "$ai_team_id": team_id,
-    #     "$ai_timestamp": datetime.now().isoformat(),
-    #     "$ai_window_start": window_start,
-    #     "$ai_window_end": window_end,
-    #     "$ai_total_traces_analyzed": total_traces,
-    #     "$ai_sampled_traces_count": sampled_traces,
-    #     "$ai_optimal_k": optimal_k,
-    #     "$ai_silhouette_score": silhouette_score,
-    #     "$ai_inertia": inertia,
-    #     "$ai_clusters": clusters,
-    # }
+        # Build clusters array with centroids and trace distances
+        clusters = []
+        trace_distances = {}  # Map trace_id -> distances to all centroids
 
-    # TODO: Implement proper event emission once we have the event schema set up
-    # For now, just log what we would emit
-    logger.info(
-        f"Would emit event: {constants.EVENT_NAME} with {optimal_k} clusters, "
-        f"{len(clusters)} cluster objects, {sampled_traces} total traces"
-    )
+        for i, embedding in enumerate(embeddings):
+            trace_distances[embedding.trace_id] = distances_matrix[i].tolist()
 
-    # Placeholder for actual event emission:
-    # from posthog.client import sync_execute
-    # sync_execute(
-    #     "INSERT INTO events ...",
-    #     {
-    #         "team_id": team_id,
-    #         "event": constants.EVENT_NAME,
-    #         "properties": properties,
-    #         "timestamp": datetime.now(),
-    #     }
-    # )
+        for cluster_id in range(optimal_k):
+            # Get all trace IDs in this cluster with their distances
+            cluster_traces = []
+            for i, label in enumerate(labels):
+                if label == cluster_id:
+                    cluster_traces.append(
+                        {
+                            "trace_id": embeddings[i].trace_id,
+                            "distance_to_centroid": distances_matrix[i][cluster_id],
+                            "distances_to_all_centroids": distances_matrix[i].tolist(),
+                        }
+                    )
 
-    logger.info("Cluster event placeholder completed successfully")
+            clusters.append(
+                {
+                    "cluster_id": cluster_id,
+                    "size": len(cluster_traces),
+                    "traces": cluster_traces,
+                    "centroid": centroids[cluster_id],
+                }
+            )
 
-    return 1
+        event_uuid = uuid.uuid4()
+        event_timestamp = datetime.now(UTC)
+
+        # Build event properties
+        properties = {
+            "$ai_clustering_version": constants.CLUSTERING_VERSION,
+            "$ai_clustering_run_id": clustering_run_id,
+            "$ai_team_id": team_id,
+            "$ai_timestamp": event_timestamp.isoformat(),
+            "$ai_window_start": window_start,
+            "$ai_window_end": window_end,
+            "$ai_total_traces_analyzed": total_traces,
+            "$ai_sampled_traces_count": sampled_traces,
+            "$ai_optimal_k": optimal_k,
+            "$ai_silhouette_score": silhouette_score,
+            "$ai_inertia": inertia,
+            "$ai_clusters": json.dumps(clusters),
+        }
+
+        # Emit event
+        create_event(
+            event_uuid=event_uuid,
+            event=constants.EVENT_NAME,
+            team=team,
+            distinct_id=f"trace_clustering_{team_id}",
+            timestamp=event_timestamp,
+            properties=properties,
+            person_id=None,
+        )
+
+        logger.info(
+            f"Emitted {constants.EVENT_NAME} event with {optimal_k} clusters, "
+            f"{len(clusters)} cluster objects, {sampled_traces} total traces"
+        )
+
+        return 1
+
+    return await database_sync_to_async(_emit, thread_sensitive=False)()
