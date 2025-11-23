@@ -36,3 +36,7 @@ ALLOWED_TEAM_IDS: list[int] = [
     2,  # Internal PostHog project
     112495,  # Dogfooding project
 ]
+
+# Cluster labeling configuration
+DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING = 7  # Number of representative traces to use for LLM labeling
+GENERATE_LABELS_TIMEOUT = timedelta(minutes=2)  # Timeout for LLM label generation activity

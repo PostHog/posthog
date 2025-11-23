@@ -213,11 +213,12 @@ async def emit_cluster_events_activity(
     labels: list[int],
     centroids: list[list[float]],
     embeddings: list[TraceEmbedding],
+    cluster_labels: dict[int, dict[str, str]],
 ) -> int:
     """
     Emit $ai_trace_clusters event to ClickHouse.
 
-    Creates a single event containing all clusters with trace IDs and centroids.
+    Creates a single event containing all clusters with trace IDs, centroids, and LLM-generated labels.
     The UI can fetch metadata for individual traces as needed.
 
     Args:
@@ -233,6 +234,7 @@ async def emit_cluster_events_activity(
         labels: Cluster assignments
         centroids: Cluster centroids (center points in embedding space)
         embeddings: All embeddings (for getting trace IDs per cluster)
+        cluster_labels: Dict mapping cluster_id -> {title, description}
 
     Returns:
         Number of events emitted (always 1)
@@ -277,10 +279,17 @@ async def emit_cluster_events_activity(
                         }
                     )
 
+            # Get labels for this cluster (with fallback)
+            cluster_label = cluster_labels.get(cluster_id, {})
+            title = cluster_label.get("title", f"Cluster {cluster_id}")
+            description = cluster_label.get("description", "")
+
             clusters.append(
                 {
                     "cluster_id": cluster_id,
                     "size": len(cluster_traces),
+                    "title": title,
+                    "description": description,
                     "traces": cluster_traces,
                     "centroid": centroids[cluster_id],
                 }
@@ -324,3 +333,200 @@ async def emit_cluster_events_activity(
         return 1
 
     return await database_sync_to_async(_emit, thread_sensitive=False)()
+
+
+@activity.defn
+async def generate_cluster_labels_activity(
+    team_id: int,
+    embeddings: list[TraceEmbedding],
+    labels: list[int],
+    centroids: list[list[float]],
+    optimal_k: int,
+    traces_per_cluster: int,
+) -> dict[int, dict[str, str]]:
+    """
+    Generate titles and descriptions for all clusters using LLM.
+
+    Strategy:
+    1. For each cluster, select N traces nearest to centroid
+    2. Fetch summaries for those traces from $ai_trace_summary events
+    3. Send all clusters to LLM in one call for better global context
+    4. LLM generates title + description for each cluster
+
+    Args:
+        team_id: Team ID
+        embeddings: All trace embeddings (includes trace_id)
+        labels: Cluster assignments for each embedding
+        centroids: Cluster centroids
+        optimal_k: Number of clusters
+        traces_per_cluster: Number of representative traces to use per cluster
+
+    Returns:
+        Dict mapping cluster_id -> {title, description}
+    """
+    logger.info(f"Generating labels for {optimal_k} clusters using {traces_per_cluster} traces per cluster")
+
+    def _generate():
+        from posthog.clickhouse.client.connection import Workload
+        from posthog.clickhouse.client.execute import sync_execute
+
+        # Convert to numpy for distance computation
+        centroids_array = np.array(centroids)
+        embeddings_array = np.array([e.embedding for e in embeddings])
+
+        # Compute distances from each trace to all centroids
+        distances_matrix = np.sqrt(
+            ((embeddings_array[:, np.newaxis, :] - centroids_array[np.newaxis, :, :]) ** 2).sum(axis=2)
+        )
+
+        # For each cluster, find representative traces (nearest to centroid)
+        cluster_trace_ids = {}
+        for cluster_id in range(optimal_k):
+            # Get indices of traces in this cluster
+            cluster_indices = [i for i, label in enumerate(labels) if label == cluster_id]
+
+            if not cluster_indices:
+                cluster_trace_ids[cluster_id] = []
+                continue
+
+            # Get distances to this cluster's centroid for traces in the cluster
+            cluster_distances = [(idx, distances_matrix[idx][cluster_id]) for idx in cluster_indices]
+
+            # Sort by distance (nearest first) and take top N
+            cluster_distances.sort(key=lambda x: x[1])
+            representative_indices = [idx for idx, _ in cluster_distances[:traces_per_cluster]]
+
+            cluster_trace_ids[cluster_id] = [embeddings[idx].trace_id for idx in representative_indices]
+
+        # Fetch summaries for all representative traces
+        all_trace_ids = []
+        for trace_ids in cluster_trace_ids.values():
+            all_trace_ids.extend(trace_ids)
+
+        if not all_trace_ids:
+            logger.warning("No representative traces found, returning empty labels")
+            return {}
+
+        # Query $ai_trace_summary events for these traces
+        query = """
+            SELECT
+                properties.$ai_trace_id as trace_id,
+                properties.$ai_summary_title as title,
+                properties.$ai_summary_text_repr as summary
+            FROM events
+            WHERE team_id = %(team_id)s
+                AND event = '$ai_trace_summary'
+                AND properties.$ai_trace_id IN %(trace_ids)s
+        """
+
+        results = sync_execute(query, {"team_id": team_id, "trace_ids": all_trace_ids}, workload=Workload.OFFLINE)
+
+        # Build trace_id -> summary mapping
+        trace_summaries = {row[0]: {"title": row[1], "summary": row[2]} for row in results}
+
+        logger.info(f"Found {len(trace_summaries)} trace summaries for {len(all_trace_ids)} trace IDs")
+
+        # Build prompt with all clusters
+        clusters_data = []
+        for cluster_id in range(optimal_k):
+            trace_ids = cluster_trace_ids[cluster_id]
+            cluster_size = sum(1 for label in labels if label == cluster_id)
+
+            # Get summaries for this cluster's representative traces
+            representative_traces = []
+            for trace_id in trace_ids:
+                if trace_id in trace_summaries:
+                    representative_traces.append(
+                        {
+                            "trace_id": trace_id,
+                            "title": trace_summaries[trace_id]["title"],
+                            "summary": trace_summaries[trace_id]["summary"][:500],  # Truncate long summaries
+                        }
+                    )
+
+            clusters_data.append(
+                {"cluster_id": cluster_id, "size": cluster_size, "representative_traces": representative_traces}
+            )
+
+        # Build LLM prompt
+        prompt = f"""You are analyzing {optimal_k} clusters of similar LLM traces. For each cluster, provide a short title and description that captures what makes traces in that cluster similar.
+
+Having context about ALL clusters helps you create more distinctive and useful labels that differentiate between clusters.
+
+Here are the {optimal_k} clusters with their representative traces:
+
+"""
+
+        for cluster in clusters_data:
+            prompt += f"\n## Cluster {cluster['cluster_id']} ({cluster['size']} traces)\n\n"
+            prompt += "Representative traces (closest to cluster center):\n\n"
+
+            for i, trace in enumerate(cluster["representative_traces"], 1):
+                prompt += f"{i}. **{trace['title']}**\n"
+                prompt += f"   Summary: {trace['summary']}\n\n"
+
+        prompt += """
+Based on these representative traces, provide a title and description for each cluster:
+
+1. **Title**: 3-5 words that capture the main pattern (e.g., "PDF Generation Errors", "Authentication Flows", "Data Pipeline Processing")
+2. **Description**: 1-2 sentences explaining what traces in this cluster have in common - focus on functionality, error patterns, API usage, or workflows
+
+Respond with JSON in this exact format:
+{
+  "clusters": [
+    {
+      "cluster_id": 0,
+      "title": "Short Pattern Title",
+      "description": "Brief description of what these traces have in common."
+    },
+    {
+      "cluster_id": 1,
+      "title": "Another Pattern",
+      "description": "What makes this cluster distinct from others."
+    }
+  ]
+}
+
+Make titles and descriptions distinctive - users need to quickly understand how clusters differ from each other.
+"""
+
+        # Call LLM (using PostHog's LLM infrastructure)
+        from posthog.tasks.llm.llm_client import llm_client_factory
+
+        llm_client = llm_client_factory(
+            model="gpt-4o-mini",  # Cheaper model for this task
+            team_id=team_id,
+        )
+
+        try:
+            response = llm_client.chat(
+                messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}
+            )
+
+            result = json.loads(response)
+
+            # Convert to dict[cluster_id -> {title, description}]
+            labels_dict = {}
+            for cluster in result.get("clusters", []):
+                cluster_id = cluster.get("cluster_id")
+                if cluster_id is not None:
+                    labels_dict[cluster_id] = {
+                        "title": cluster.get("title", f"Cluster {cluster_id}"),
+                        "description": cluster.get("description", ""),
+                    }
+
+            logger.info(f"Generated labels for {len(labels_dict)} clusters")
+            return labels_dict
+
+        except Exception as e:
+            logger.exception(f"Failed to generate cluster labels: {e}")
+            # Return fallback labels
+            return {
+                cluster_id: {
+                    "title": f"Cluster {cluster_id}",
+                    "description": f"Cluster of {sum(1 for label in labels if label == cluster_id)} similar traces",
+                }
+                for cluster_id in range(optimal_k)
+            }
+
+    return await database_sync_to_async(_generate, thread_sensitive=False)()

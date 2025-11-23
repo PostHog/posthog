@@ -11,6 +11,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.llm_analytics.trace_clustering.activities import (
         determine_optimal_k_activity,
         emit_cluster_events_activity,
+        generate_cluster_labels_activity,
         perform_clustering_activity,
         query_trace_embeddings_activity,
         sample_embeddings_activity,
@@ -141,8 +142,25 @@ class DailyTraceClusteringWorkflow:
         )
         logger.info(f"✅ Clustering complete, inertia={inertia:.2f}")
 
-        # 5. Emit cluster events
-        logger.info(f"📤 Step 5: Emitting cluster events")
+        # 5. Generate cluster labels
+        logger.info(f"🏷️  Step 5: Generating cluster labels using LLM")
+        cluster_labels = await workflow.execute_activity(
+            generate_cluster_labels_activity,
+            args=[
+                inputs.team_id,
+                sampled_embeddings,
+                labels,
+                centroids,
+                optimal_k,
+                constants.DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING,
+            ],
+            start_to_close_timeout=constants.GENERATE_LABELS_TIMEOUT,
+            retry_policy=retry_policy,
+        )
+        logger.info(f"✅ Generated labels for {len(cluster_labels)} clusters")
+
+        # 6. Emit cluster events
+        logger.info(f"📤 Step 6: Emitting cluster events")
         await workflow.execute_activity(
             emit_cluster_events_activity,
             args=[
@@ -158,6 +176,7 @@ class DailyTraceClusteringWorkflow:
                 labels,
                 centroids,
                 sampled_embeddings,
+                cluster_labels,
             ],
             start_to_close_timeout=constants.EMIT_EVENTS_TIMEOUT,
             retry_policy=retry_policy,
