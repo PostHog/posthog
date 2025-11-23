@@ -37,51 +37,21 @@ def find_teams_with_embeddings(lookback_days: int = 7, min_embeddings: int = 20)
     Returns:
         List of team IDs with sufficient embeddings
     """
-    from django.utils import timezone
+    from posthog.temporal.llm_analytics.trace_clustering.coordinator import query_teams_with_embeddings
 
-    from posthog.clickhouse.client.connection import Workload
-    from posthog.clickhouse.client.execute import sync_execute
+    team_ids = query_teams_with_embeddings(lookback_days, min_embeddings)
 
-    end_dt = timezone.now()
-    start_dt = end_dt - timezone.timedelta(days=lookback_days)
-
-    query = """
-        SELECT
-            team_id,
-            count(DISTINCT document_id) as embedding_count
-        FROM document_embeddings
-        WHERE timestamp >= %(start_dt)s
-            AND timestamp < %(end_dt)s
-            AND rendering_type IN (%(minimal_rendering)s, %(detailed_rendering)s)
-            AND length(embedding) > 0
-        GROUP BY team_id
-        HAVING embedding_count >= %(min_embeddings)s
-        ORDER BY embedding_count DESC
-    """
-
-    params = {
-        "start_dt": start_dt,
-        "end_dt": end_dt,
-        "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
-        "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
-        "min_embeddings": min_embeddings,
-    }
-
-    results = sync_execute(query, params, workload=Workload.OFFLINE)
-
-    if not results:
+    if not team_ids:
         print(f"\nNo teams found with at least {min_embeddings} embeddings in the last {lookback_days} days.")
         print("You need to run the batch trace summarization workflow first to generate embeddings.")
         return []
 
     print(f"\nTeams with embeddings (last {lookback_days} days):")
     print("=" * 60)
-    for team_id, count in results:
-        print(f"Team ID: {team_id:4d}  |  Embeddings: {count:5d}")
+    print(f"Found {len(team_ids)} team(s): {team_ids}")
     print("=" * 60)
-    print(f"Total teams: {len(results)}")
 
-    return [team_id for team_id, _ in results]
+    return team_ids
 
 
 def trigger_clustering(
@@ -90,7 +60,6 @@ def trigger_clustering(
     max_samples: int | None = None,
     min_k: int | None = None,
     max_k: int | None = None,
-    samples_per_cluster: int | None = None,
     window_start: str | None = None,
     window_end: str | None = None,
     wait: bool = True,
@@ -104,7 +73,6 @@ def trigger_clustering(
         max_samples: Maximum embeddings to sample (default: 2000)
         min_k: Minimum k to test (default: 3)
         max_k: Maximum k to test (default: 6)
-        samples_per_cluster: Representative traces per cluster (default: 7)
         window_start: Explicit window start in RFC3339 format (overrides lookback_days)
         window_end: Explicit window end in RFC3339 format (overrides lookback_days)
         wait: Wait for workflow to complete (default: True)
@@ -120,9 +88,6 @@ def trigger_clustering(
         max_samples=max_samples if max_samples is not None else constants.DEFAULT_MAX_SAMPLES,
         min_k=min_k if min_k is not None else constants.DEFAULT_MIN_K,
         max_k=max_k if max_k is not None else constants.DEFAULT_MAX_K,
-        samples_per_cluster=(
-            samples_per_cluster if samples_per_cluster is not None else constants.DEFAULT_SAMPLES_PER_CLUSTER
-        ),
         window_start=window_start,
         window_end=window_end,
     )
@@ -136,7 +101,6 @@ def trigger_clustering(
     print(f"  - Lookback days: {inputs.lookback_days}")
     print(f"  - Max samples: {inputs.max_samples}")
     print(f"  - K range: [{inputs.min_k}, {inputs.max_k}]")
-    print(f"  - Samples per cluster: {inputs.samples_per_cluster}")
     if window_start:
         print(f"  - Window: {window_start} to {window_end}")
     print("=" * 60)

@@ -1,9 +1,4 @@
-"""Schedule configuration for daily trace clustering.
-
-Note: Currently, schedules must be created per-team. In the future, we could add
-a coordinator workflow similar to batch_trace_summarization_coordinator to
-automatically discover and process all teams with embeddings.
-"""
+"""Schedule configuration for daily trace clustering coordinator."""
 
 from datetime import timedelta
 
@@ -11,49 +6,57 @@ from django.conf import settings
 
 from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleIntervalSpec, ScheduleSpec
 
-from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_MAX_K,
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_K,
+    MIN_TRACES_FOR_CLUSTERING,
 )
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs
+from posthog.temporal.llm_analytics.trace_clustering.coordinator import TraceClusteringCoordinatorInputs
 
 
-async def create_trace_clustering_schedule(
+async def create_trace_clustering_coordinator_schedule(
     client: Client,
-    team_id: int,
     interval_days: int = 1,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     max_samples: int = DEFAULT_MAX_SAMPLES,
+    min_k: int = DEFAULT_MIN_K,
+    max_k: int = DEFAULT_MAX_K,
+    min_embeddings: int = MIN_TRACES_FOR_CLUSTERING,
 ):
-    """Create or update the schedule for trace clustering for a specific team.
+    """Create or update the schedule for the trace clustering coordinator.
+
+    The coordinator automatically discovers teams with sufficient embeddings
+    and spawns child workflows to cluster traces for each team.
 
     Args:
         client: Temporal client
-        team_id: Team ID to create schedule for
         interval_days: How often to run clustering (1 for daily, 3 for every 3 days, etc.)
         lookback_days: Days of trace history to analyze
-        max_samples: Maximum embeddings to sample
+        max_samples: Maximum embeddings to sample per team
+        min_k: Minimum number of clusters to test
+        max_k: Maximum number of clusters to test
+        min_embeddings: Minimum embeddings required to run clustering
 
     Example:
         >>> from posthog.temporal.common.client import connect
         >>> client = await connect()
-        >>> await create_trace_clustering_schedule(client, team_id=1, interval_days=1)
+        >>> await create_trace_clustering_coordinator_schedule(client, interval_days=1)
     """
-    schedule_id = f"trace-clustering-schedule-team-{team_id}"
-    workflow_id_prefix = f"trace-clustering-team-{team_id}"
+    schedule_id = "trace-clustering-coordinator-schedule"
+    workflow_id_prefix = "trace-clustering-coordinator"
 
-    trace_clustering_schedule = Schedule(
+    coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            "daily-trace-clustering",
-            ClusteringInputs(
-                team_id=team_id,
+            "trace-clustering-coordinator",
+            TraceClusteringCoordinatorInputs(
                 lookback_days=lookback_days,
                 max_samples=max_samples,
-                min_k=DEFAULT_MIN_K,
-                max_k=DEFAULT_MAX_K,
+                min_k=min_k,
+                max_k=max_k,
+                min_embeddings=min_embeddings,
             ),
             id=workflow_id_prefix,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
@@ -62,24 +65,21 @@ async def create_trace_clustering_schedule(
     )
 
     if await a_schedule_exists(client, schedule_id):
-        await a_update_schedule(client, schedule_id, trace_clustering_schedule)
+        await a_update_schedule(client, schedule_id, coordinator_schedule)
     else:
         await a_create_schedule(
             client,
             schedule_id,
-            trace_clustering_schedule,
+            coordinator_schedule,
             trigger_immediately=False,
         )
 
 
-async def delete_trace_clustering_schedule(client: Client, team_id: int):
-    """Delete the trace clustering schedule for a specific team.
+async def delete_trace_clustering_coordinator_schedule(client: Client):
+    """Delete the trace clustering coordinator schedule.
 
     Args:
         client: Temporal client
-        team_id: Team ID to delete schedule for
     """
-    from posthog.temporal.common.schedule import a_delete_schedule
-
-    schedule_id = f"trace-clustering-schedule-team-{team_id}"
+    schedule_id = "trace-clustering-coordinator-schedule"
     await a_delete_schedule(client, schedule_id)

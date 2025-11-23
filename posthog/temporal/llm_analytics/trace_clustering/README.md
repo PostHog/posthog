@@ -7,11 +7,12 @@ Automated workflow for clustering LLM traces based on their semantic embeddings,
 ```text
 posthog/temporal/llm_analytics/trace_clustering/
 ├── workflow.py              # Daily clustering workflow (main orchestrator)
+├── coordinator.py           # Coordinator workflow (discovers teams and spawns child workflows)
 ├── models.py                # Data models (ClusteringInputs, ClusterResult, etc.)
 ├── constants.py             # Configuration constants (timeouts, defaults, k range)
 ├── activities.py            # All clustering activities
 ├── clustering_utils.py      # K-means implementation and optimal k selection
-├── schedule.py              # Temporal schedule configuration (daily/3-day runs)
+├── schedule.py              # Temporal schedule configuration (coordinator runs daily)
 ├── manual_trigger.py        # Helper functions for manual workflow triggers
 ├── test_workflow.py         # Workflow and activity tests
 └── README.md                # This file
@@ -218,21 +219,26 @@ See `manual_trigger.py` for more examples and helper functions.
 
 ### Scheduled Execution (Automatic)
 
-**The trace clustering runs automatically via a schedule (daily or every 3 days).**
+**The trace clustering runs automatically via a coordinator workflow on a schedule (daily or every 3 days).**
 
-The workflow:
+#### Coordinator Workflow
 
-- Runs daily (or every 3 days) via Temporal schedules (configured in `schedule.py`)
-- Processes each team independently
-- Teams without sufficient embeddings are skipped (need minimum traces for clustering)
+The coordinator workflow (`trace-clustering-coordinator`) automatically:
 
-**No manual setup is required** - the schedule is created automatically when Temporal starts.
+1. **Discovers teams** - Queries for teams with sufficient trace embeddings (≥20 by default)
+2. **Spawns child workflows** - Launches a clustering workflow for each team
+3. **Handles failures** - Continues processing other teams if one fails
+4. **Reports results** - Returns total teams processed, clusters created, and any failures
+
+The coordinator runs on a schedule (configured in `schedule.py`) and processes all teams with embeddings in a single run.
+
+**No manual setup is required** - the coordinator schedule is created automatically when Temporal starts.
 
 You can verify the schedule is running:
 
 ```bash
 # Check Temporal UI at http://localhost:8233
-# Look for schedule: "trace-clustering-schedule"
+# Look for schedule: "trace-clustering-coordinator-schedule"
 ```
 
 **Team allowlist:**
@@ -247,9 +253,32 @@ ALLOWED_TEAM_IDS: list[int] = [
 ]
 ```
 
-- Non-empty list: Only specified teams will be processed
+- Non-empty list: Only specified teams will be processed by the coordinator
 - Empty list (`[]`): All teams with embeddings will be processed
 - Manual triggers can target any team regardless of allowlist
+
+#### Schedule Configuration
+
+To create or update the coordinator schedule:
+
+```python
+from posthog.temporal.common.client import connect
+from posthog.temporal.llm_analytics.trace_clustering.schedule import create_trace_clustering_coordinator_schedule
+
+client = await connect()
+
+# Daily clustering with default parameters
+await create_trace_clustering_coordinator_schedule(client, interval_days=1)
+
+# Custom configuration
+await create_trace_clustering_coordinator_schedule(
+    client,
+    interval_days=3,  # Run every 3 days
+    lookback_days=14,  # Analyze last 14 days
+    max_samples=5000,  # Sample up to 5000 traces
+    min_embeddings=50,  # Require at least 50 embeddings
+)
+```
 
 ### Configuration
 
