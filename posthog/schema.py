@@ -2424,6 +2424,13 @@ class PathCleaningFilter(BaseModel):
     regex: str | None = None
 
 
+class SdkConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    recorder_script: Optional[str] = None
+
+
 class PathType(StrEnum):
     FIELD_PAGEVIEW = "$pageview"
     FIELD_SCREEN = "$screen"

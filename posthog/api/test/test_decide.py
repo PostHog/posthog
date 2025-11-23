@@ -625,6 +625,22 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 {"scriptConfig": {"script": "new-recorder"}},
                 True,
             ],
+            [
+                "sdk_config overrides global setting",
+                "new-recorder",
+                ["*"],
+                {"scriptConfig": {"script": "team-recorder"}},
+                False,
+                {"recorder_script": "team-recorder"},
+            ],
+            [
+                "sdk_config bypasses allowlist",
+                "new-recorder",
+                [],
+                {"scriptConfig": {"script": "team-recorder"}},
+                False,
+                {"recorder_script": "team-recorder"},
+            ],
         ]
     )
     def test_session_recording_script_config(
@@ -634,12 +650,24 @@ class TestDecide(BaseTest, QueryMatchingTest):
         team_allow_list: list[str] | None,
         expected: dict,
         include_team_in_allowlist: bool,
+        sdk_config: dict | None = None,
     ) -> None:
+        from django.core.cache import cache
+
+        cache.clear()
+
         self._update_team(
             {
                 "session_recording_opt_in": True,
+                "sdk_config": sdk_config,
             }
         )
+
+        self.team.refresh_from_db()
+
+        from posthog.models.team.team_caching import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
 
         if team_allow_list and include_team_in_allowlist:
             team_allow_list.append(f"{self.team.id}")

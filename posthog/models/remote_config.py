@@ -203,7 +203,12 @@ class RemoteConfig(UUIDTModel):
 
             rrweb_script_config = None
 
-            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
+            recorder_script = team.sdk_config.get("recorder_script") if team.sdk_config else None
+            if recorder_script:
+                rrweb_script_config = {
+                    "script": recorder_script,
+                }
+            elif (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
                 "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
                 or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
             ):
