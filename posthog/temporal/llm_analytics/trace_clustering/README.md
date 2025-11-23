@@ -25,8 +25,9 @@ This workflow implements **Phase 4** of the clustering MVP (see [issue #40787](h
 2. **Sample embeddings** - Random sample of up to 2000 traces (if fewer available, use all)
 3. **Determine optimal k** - Test k=3,4,5,6 clusters and pick best using silhouette score
 4. **Perform clustering** - Run k-means clustering with optimal k
-5. **Select representatives** - Pick 5-7 sample traces per cluster (closest to centroid + diversity)
-6. **Emit events** - Store results as `$ai_trace_clusters` events in ClickHouse
+5. **Emit events** - Store results as `$ai_trace_clusters` events in ClickHouse
+
+The workflow only fetches trace IDs and embeddings for clustering. Trace metadata (summaries, span counts, etc.) can be fetched separately by the UI when displaying clusters.
 
 The workflow is designed to run on a schedule (daily or every 3 days) and is **versioned** - each run creates a fresh clustering that can be tracked over time.
 
@@ -48,8 +49,7 @@ graph TB
     subgraph "Clustering Pipeline"
         SAMPLE --> OPTIMAL[Determine Optimal K]
         OPTIMAL --> CLUSTER[Perform K-Means]
-        CLUSTER --> SELECT[Select Representatives]
-        SELECT --> EMIT[Emit Cluster Events]
+        CLUSTER --> EMIT[Emit Cluster Events]
     end
 
     subgraph "Storage"
@@ -85,33 +85,30 @@ graph TB
 - `max_samples` (optional): Maximum embeddings to sample (default: 2000)
 - `min_k` (optional): Minimum number of clusters to test (default: 3)
 - `max_k` (optional): Maximum number of clusters to test (default: 6)
-- `samples_per_cluster` (optional): Representative traces per cluster (default: 7)
 - `window_start` (optional): Explicit window start in RFC3339 format (overrides lookback_days)
 - `window_end` (optional): Explicit window end in RFC3339 format (overrides lookback_days)
 
 **Flow**:
 
-1. Queries document embeddings for traces from the last 7 days
+1. Queries trace IDs and embeddings from the last 7 days (no metadata)
 2. Randomly samples up to 2000 embeddings (uses all if fewer available)
 3. Tests k=3,4,5,6 and picks optimal k using silhouette score
 4. Performs k-means clustering with optimal k
-5. Selects 5 closest to centroid + 2 random traces per cluster
-6. Emits one `$ai_trace_clusters` event with all results
+5. Emits one `$ai_trace_clusters` event with cluster assignments
 
 ### Activities
 
 1. **`query_trace_embeddings_activity`**
    - Queries `document_embeddings` table for traces with embeddings
    - Filters by team_id and time window (last 7 days by default)
-   - Joins with trace summaries to get metadata
-   - Returns list of (trace_id, embedding_vector, metadata)
+   - Returns only trace_id and embedding_vector (no metadata)
    - Timeout: 5 minutes
 
 2. **`sample_embeddings_activity`**
    - Random sampling of up to 2000 embeddings
    - If fewer than 2000 available, uses all
    - Ensures reproducibility with fixed random seed per run
-   - Returns sampled embeddings with metadata
+   - Returns sampled list of (trace_id, embedding_vector)
    - Timeout: 1 minute
 
 3. **`determine_optimal_k_activity`**
@@ -127,18 +124,10 @@ graph TB
    - Returns cluster assignments and centroids
    - Timeout: 5 minutes
 
-5. **`select_cluster_samples_activity`**
-   - For each cluster, selects representative traces:
-     - 5 closest to cluster centroid (most representative)
-     - 2 random (for diversity)
-   - Fetches full trace metadata and summaries
-   - Returns list of sample traces per cluster
-   - Timeout: 3 minutes
-
-6. **`emit_cluster_events_activity`**
+5. **`emit_cluster_events_activity`**
    - Emits single `$ai_trace_clusters` event with all clusters
    - Includes clustering_run_id for versioning
-   - Stores all trace_ids per cluster + sample details
+   - Stores cluster_id, size, and all trace_ids per cluster
    - Timeout: 1 minute
 
 ### Output Events
@@ -169,22 +158,18 @@ Each clustering run generates one `$ai_trace_clusters` event:
             "cluster_id": 0,
             "size": 523,
             "trace_ids": ["trace_1", "trace_2", ...],  # All traces in cluster
-            "sample_traces": [
-                {
-                    "trace_id": "trace_1",
-                    "summary": "User authentication flow with OAuth...",
-                    "timestamp": "2025-01-22T14:30:00Z",
-                    "span_count": 12,
-                    "duration_ms": 345.2,
-                    "has_errors": false,
-                },
-                # ... 6 more samples
-            ]
         },
-        # ... 3 more clusters
+        {
+            "cluster_id": 1,
+            "size": 412,
+            "trace_ids": ["trace_50", "trace_51", ...],
+        },
+        # ... more clusters
     ]
 }
 ```
+
+**Note**: Trace metadata (summaries, span counts, durations, etc.) is not included in the event. The UI can fetch this information separately for traces within a cluster when displaying details.
 
 ## Usage
 
@@ -274,7 +259,6 @@ Key constants in `constants.py`:
 - `DEFAULT_MAX_SAMPLES = 2000` - Maximum embeddings to sample (balance between quality and performance)
 - `DEFAULT_MIN_K = 3` - Minimum number of clusters to test
 - `DEFAULT_MAX_K = 6` - Maximum number of clusters to test
-- `DEFAULT_SAMPLES_PER_CLUSTER = 7` - Representative traces per cluster (5 closest + 2 random)
 - `MIN_TRACES_FOR_CLUSTERING = 20` - Minimum traces needed to perform clustering
 - `WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 30` - Max time for workflow
 - `ALLOWED_TEAM_IDS` - Team allowlist for scheduled runs (empty list = all teams allowed)
@@ -285,7 +269,7 @@ Key constants in `constants.py`:
 1. **Query Embeddings** (< 5 min)
    - Query `document_embeddings` table for last 7 days
    - Filter by team_id and rendering type (llma_trace_*)
-   - Join with trace summaries for metadata
+   - Fetch only trace_id and embedding_vector (no metadata)
 
 2. **Sample** (< 1 min)
    - Random sample of up to 2000 embeddings
@@ -303,15 +287,10 @@ Key constants in `constants.py`:
    - Reproducible with fixed random_state
    - Get cluster assignments and centroids
 
-5. **Select Representatives** (< 3 min)
-   - For each cluster, pick 7 representative traces
-   - 5 closest to centroid + 2 random
-   - Fetch full metadata and summaries
-
-6. **Emit Event** (< 1 min)
+5. **Emit Event** (< 1 min)
    - Create single event with all clusters
-   - Include trace_ids for all traces in each cluster
-   - Include detailed samples for exploration
+   - Include cluster_id, size, and trace_ids for each cluster
+   - UI can fetch trace metadata separately as needed
 
 ## Error Handling
 
@@ -322,7 +301,6 @@ Key constants in `constants.py`:
   - Sample embeddings: 1 minute
   - Determine optimal k: 10 minutes
   - Perform clustering: 5 minutes
-  - Select representatives: 3 minutes
   - Emit events: 1 minute
 - **Workflow-level timeout**: 30 minutes
 
@@ -393,7 +371,6 @@ Test coverage:
 - ✅ Sampling with different data sizes
 - ✅ Optimal k selection with silhouette scores
 - ✅ K-means clustering with reproducibility
-- ✅ Representative selection (closest + random)
 - ✅ Event emission with correct schema
 - ✅ Error handling for insufficient data
 - ✅ Workflow input parsing
