@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
@@ -6,6 +6,7 @@ import { beforeUnload, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema/schema-general'
@@ -34,6 +35,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         filters: batchExportConfig.filters,
         integration_id:
             batchExportConfig.destination.type === 'Databricks' ? batchExportConfig.destination.integration : undefined,
+        saved_query_id: batchExportConfig.saved_query_id,
         ...batchExportConfig.destination.config,
     }
 
@@ -566,6 +568,13 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
     },
 }
 
+const savedQueryModel: DatabaseSchemaBatchExportTable = {
+    type: 'batch_export',
+    id: 'Saved Query',
+    name: 'saved_query',
+    fields: {},
+}
+
 export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicType>([
     props({ id: null, service: null } as BatchExportConfigurationLogicProps),
     key(({ service, id }: BatchExportConfigurationLogicProps) => {
@@ -575,6 +584,10 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         return `NEW:${service}`
     }),
     path((id) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', id]),
+    connect({
+        values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading']],
+        actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries']],
+    }),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
@@ -604,6 +617,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         filters,
                         json_config_file,
                         integration_id,
+                        saved_query_id,
                         // Redshift COPY configuration
                         mode,
                         authorization_mode,
@@ -655,13 +669,14 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                     const data: Omit<
                         BatchExportConfiguration,
                         'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'
-                    > = {
+                    > & { saved_query_id?: string } = {
                         paused,
                         name,
                         interval,
                         model,
                         filters,
                         destination: destinationObj,
+                        saved_query_id,
                     }
                     if (props.id) {
                         const res = await api.batchExports.update(props.id, data)
@@ -797,7 +812,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
     reducers(({ props }) => ({
         tables: [
             props.service
-                ? [getEventTable(props.service), personsTable, sessionsTable]
+                ? [getEventTable(props.service), personsTable, sessionsTable, savedQueryModel]
                 : ([] as DatabaseSchemaBatchExportTable[]),
             {
                 loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
@@ -805,14 +820,24 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         return state
                     }
 
-                    return [getEventTable(batchExportConfig.destination.type), personsTable, sessionsTable]
+                    return [
+                        getEventTable(batchExportConfig.destination.type),
+                        personsTable,
+                        sessionsTable,
+                        savedQueryModel,
+                    ]
                 },
                 updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
                     if (!batchExportConfig) {
                         return state
                     }
 
-                    return [getEventTable(batchExportConfig.destination.type), personsTable, sessionsTable]
+                    return [
+                        getEventTable(batchExportConfig.destination.type),
+                        personsTable,
+                        sessionsTable,
+                        savedQueryModel,
+                    ]
                 },
             },
         ],
@@ -888,6 +913,10 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             (s) => [s.batchExportConfigLoading, s.batchExportConfigTestLoading],
             (batchExportConfigLoading, batchExportConfigTestLoading) =>
                 batchExportConfigLoading || batchExportConfigTestLoading,
+        ],
+        materializedViews: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (dataWarehouseSavedQueries) => dataWarehouseSavedQueries?.filter((query) => query.is_materialized) ?? [],
         ],
         requiredFields: [
             (s) => [s.service, s.isNew, s.configuration],

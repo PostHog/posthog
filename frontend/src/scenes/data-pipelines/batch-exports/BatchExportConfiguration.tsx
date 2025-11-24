@@ -42,6 +42,8 @@ export function BatchExportConfiguration(): JSX.Element {
         batchExportConfig,
         selectedModel,
         runningStep,
+        materializedViews,
+        dataWarehouseSavedQueriesLoading,
     } = useValues(logic)
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -232,6 +234,27 @@ export function BatchExportConfiguration(): JSX.Element {
                                             </LemonField>
                                         </div>
                                     </>
+                                ) : null}
+                                {selectedModel === 'saved_query' ? (
+                                    <div className="flex flex-col gap-2 min-h-16">
+                                        <LemonLabel>Saved query</LemonLabel>
+                                        <p className="mb-0 text-xs text-secondary">
+                                            Select a materialized view to export.
+                                        </p>
+                                        <LemonSelect
+                                            options={materializedViews.map((view) => ({
+                                                value: view.id,
+                                                label: view.name,
+                                            }))}
+                                            value={configuration.saved_query_id}
+                                            onChange={(value) => {
+                                                setConfigurationValue('saved_query_id', value)
+                                            }}
+                                            placeholder="Select a materialized view"
+                                            loading={dataWarehouseSavedQueriesLoading}
+                                            fullWidth
+                                        />
+                                    </div>
                                 ) : null}
                             </div>
                         </div>

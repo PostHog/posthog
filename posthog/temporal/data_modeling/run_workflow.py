@@ -1368,9 +1368,13 @@ async def trigger_batch_exports_activity(inputs: TriggerBatchExportsActivityInpu
     for saved_query_id in inputs.saved_query_ids:
         # check if any batch exports are using this model
         related_batch_exports = await database_sync_to_async(
-            BatchExport.objects.filter(team_id=inputs.team_id, saved_query_pk=saved_query_id).all
+            BatchExport.objects.select_related("destination")
+            .select_related("team")
+            .filter(team_id=inputs.team_id, saved_query_id=saved_query_id)
+            .all
         )()
-        batch_exports_to_run.extend(related_batch_exports)
+        batch_exports_list = await database_sync_to_async(list)(related_batch_exports)
+        batch_exports_to_run.extend(batch_exports_list)
 
     for batch_export in batch_exports_to_run:
         await start_batch_export_workflow(batch_export)

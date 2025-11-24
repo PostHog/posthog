@@ -14,6 +14,8 @@ from temporalio import activity
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 
+from products.batch_exports.backend.temporal.spmc import wait_for_delta_past_data_interval_end
+
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
@@ -33,7 +35,6 @@ from products.batch_exports.backend.temporal.spmc import (
     generate_query_ranges,
     is_5_min_batch_export,
     use_distributed_events_recent_table,
-    wait_for_delta_past_data_interval_end,
 )
 from products.batch_exports.backend.temporal.sql import (
     EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
@@ -375,6 +376,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
     if is_5_min_batch_export(full_range):
         delta = dt.timedelta(seconds=30)
     else:
+        # TODO: update, otherwise there is a too long delay for materialized views
         delta = dt.timedelta(minutes=1)
     end_at = full_range[1]
     await wait_for_delta_past_data_interval_end(end_at, delta)

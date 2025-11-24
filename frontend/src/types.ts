@@ -5160,6 +5160,7 @@ export type BatchExportConfiguration = {
     model: string
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
+    saved_query_id?: string
 }
 
 export type BatchExportConfigurationTestStepStatus = 'Passed' | 'Failed'

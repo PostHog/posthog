@@ -1257,7 +1257,7 @@ def test_creating_batch_export_for_saved_query(
         },
         "interval": "hour",
         "model": "saved_query",
-        "saved_query": saved_query.pk,
+        "saved_query_id": saved_query.pk,
     }
 
     client.force_login(user)
@@ -1272,5 +1272,14 @@ def test_creating_batch_export_for_saved_query(
     # Batch exports for saved queries are triggered by the materialized view workflow and therefore don't need a
     # Temporal schedule. Therefore we verify that one hasn't been created.
     data = response.json()
+
+    assert data["model"] == "saved_query"
+    assert data["saved_query_id"] == str(saved_query.pk)
+
     with pytest.raises(RPCError):
         describe_schedule(temporal, data["id"])
+
+    # check the batch export in the DB
+    batch_export = BatchExport.objects.get(id=data["id"])
+    assert batch_export.model == BatchExport.Model.SAVED_QUERY
+    assert batch_export.saved_query_id == saved_query.pk

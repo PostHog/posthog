@@ -989,15 +989,17 @@ async def start_workflow(batch_export: BatchExport) -> None:
         if batch_export.destination.type == "HTTP"
         else settings.BATCH_EXPORTS_TASK_QUEUE
     )
-    workflow_inputs(
+    inputs = workflow_inputs(
         team_id=batch_export.team.id,
         batch_export_id=str(batch_export.id),
         # TODO - should we make this optional or in the case of saved queries, use the sync frequency interval?
         interval=str(batch_export.interval),
+        # workaround (apparently we need this)
+        data_interval_end=dt.datetime.now(dt.UTC).isoformat(),
         batch_export_model=BatchExportModel(
             name="saved_query",
             schema=None,
-            saved_query_id=batch_export.saved_query.id,
+            saved_query_id=batch_export.saved_query_id,
         ),
         # TODO: This field is deprecated, but we still set it for backwards compatibility.
         # New exports created will always have `batch_export_schema` set to `None`, but existing
@@ -1031,7 +1033,7 @@ async def start_workflow(batch_export: BatchExport) -> None:
     try:
         await client.start_workflow(
             workflow,
-            workflow_inputs,
+            inputs,
             id=workflow_id,
             task_queue=task_queue,
             # TODO - decide on this

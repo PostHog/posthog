@@ -52,6 +52,7 @@ from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
+from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
@@ -350,6 +351,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
     latest_runs = BatchExportRunSerializer(many=True, read_only=True)
     interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
     hogql_query = HogQLSelectQueryField(required=False)
+    saved_query_id = serializers.PrimaryKeyRelatedField(
+        queryset=DataWarehouseSavedQuery.objects.all(),
+        source="saved_query",
+        required=False,
+        allow_null=True,
+    )
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Convert saved_query object to just its ID for the response
+        if instance.saved_query:
+            data["saved_query_id"] = str(instance.saved_query.id)
+        else:
+            data["saved_query_id"] = None
+        return data
 
     class Meta:
         model = BatchExport
@@ -370,6 +386,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "hogql_query",
             "schema",
             "filters",
+            "saved_query_id",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
