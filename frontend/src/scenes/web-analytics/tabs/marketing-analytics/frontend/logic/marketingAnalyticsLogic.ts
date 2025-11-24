@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
@@ -6,7 +6,9 @@ import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSo
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     CompareFilter,
     ConversionGoalFilter,
@@ -170,6 +172,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['sources_map', 'conversion_goals'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+        ],
+        actions: [
+            dataWarehouseSettingsLogic,
+            ['loadSources', 'loadSourcesSuccess'],
+            dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
+            ['reloadAll'],
         ],
     })),
     actions({
@@ -614,7 +622,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             }
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         saveDraftConversionGoal: () => {
             // Create a new local conversion goal with new id
             actions.resetConversionGoalInput()
@@ -623,5 +631,25 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             // Clear the draft goal when resetting local goal
             actions.setDraftConversionGoal(null)
         },
+        loadSourcesSuccess: () => {
+            // Clean up integrationFilter if it contains IDs of sources that no longer exist
+            const currentFilter = values.integrationFilter
+            if (currentFilter.integrationSourceIds && currentFilter.integrationSourceIds.length > 0) {
+                const availableSourceIds = values.allAvailableSources.map((s) => s.id)
+                const validFilterIds = currentFilter.integrationSourceIds.filter((id) =>
+                    availableSourceIds.includes(id)
+                )
+
+                if (validFilterIds.length !== currentFilter.integrationSourceIds.length) {
+                    actions.setIntegrationFilter({ integrationSourceIds: validFilterIds })
+                }
+            }
+
+            // Reload all queries to reflect the updated sources
+            actions.reloadAll()
+        },
     })),
+    afterMount(({ actions }) => {
+        actions.loadSources(null)
+    }),
 ])

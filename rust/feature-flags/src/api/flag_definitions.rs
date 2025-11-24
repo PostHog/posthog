@@ -105,8 +105,7 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
     let token_str = token.to_string();
 
     team_operations::fetch_team_from_redis_with_fallback(
-        state.redis_reader.clone(),
-        state.redis_writer.clone(),
+        state.redis_client.clone(),
         token,
         Some(state.config.team_cache_ttl_seconds),
         || async move {
@@ -143,7 +142,7 @@ async fn get_from_cache(
     }
 
     // Create HyperCacheReader with the Redis client from state
-    let hypercache_reader = HyperCacheReader::new(state.redis_reader.clone(), config)
+    let hypercache_reader = HyperCacheReader::new(state.redis_client.clone(), config)
         .await
         .map_err(|e| {
             warn!(team_id = team.id, error = %e, "Failed to create HyperCacheReader");

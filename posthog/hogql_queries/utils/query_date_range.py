@@ -147,8 +147,8 @@ class QueryDateRange:
     def now_with_timezone(self) -> datetime:
         return self._now_without_timezone.astimezone(self._timezone_info)
 
-    def format_date(self, datetime) -> str:
-        return datetime.strftime("%Y-%m-%d %H:%M:%S")
+    def format_date(self, date_value: datetime) -> str:
+        return date_value.strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
     def date_to_str(self) -> str:

@@ -38,6 +38,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.utils import str_to_bool
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -158,10 +159,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
 
-        # check if all saved metrics exist
-        saved_metrics = ExperimentSavedMetric.objects.filter(id__in=[saved_metric["id"] for saved_metric in value])
+        # check if all saved metrics exist and belong to the same team
+        saved_metrics = ExperimentSavedMetric.objects.filter(
+            id__in=[saved_metric["id"] for saved_metric in value], team_id=self.context["team_id"]
+        )
         if saved_metrics.count() != len(value):
-            raise ValidationError("Saved metric does not exist")
+            raise ValidationError("Saved metric does not exist or does not belong to this project")
 
         return value
 
@@ -518,7 +521,14 @@ class EnterpriseExperimentsViewSet(
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         """Override to filter out deleted experiments and apply filters."""
-        queryset = queryset.exclude(deleted=True)
+        include_deleted = False
+        if self.action in ("partial_update", "update") and hasattr(self, "request"):
+            deleted_value = self.request.data.get("deleted")
+            if deleted_value is not None:
+                include_deleted = not str_to_bool(deleted_value)
+
+        if not include_deleted:
+            queryset = queryset.exclude(deleted=True)
 
         # Only apply filters for list view, not detail view
         if self.action == "list":
@@ -911,10 +921,16 @@ class EnterpriseExperimentsViewSet(
         latest_completed_at = None
 
         # Create mapping from query_to to result, deriving the day in project timezone
+        # Note: query_to is the EXCLUSIVE end of the time range
+        # Example: Data for 2025-11-09 has query_to = 2025-11-10T00:00:00 (recalculation)
+        #          or query_to = 2025-11-09T02:00:00 (regular DAG)
+        # To find which day the data represents, subtract 1 microsecond to get the last included moment
         results_by_date = {}
         for result in metric_results:
-            # Convert UTC query_to to project timezone to determine which day this result belongs to
-            day_in_project_tz = result.query_to.astimezone(project_tz).date()
+            # Subtract 1 microsecond to convert exclusive boundary to inclusive
+            query_to_adjusted = result.query_to - timedelta(microseconds=1)
+            query_to_in_project_tz = query_to_adjusted.astimezone(project_tz)
+            day_in_project_tz = query_to_in_project_tz.date()
             results_by_date[day_in_project_tz] = result
 
         for experiment_date in experiment_dates:
@@ -1102,6 +1118,12 @@ class EnterpriseExperimentsViewSet(
 def handle_experiment_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    if before_update and after_update:
+        before_deleted = getattr(before_update, "deleted", None)
+        after_deleted = getattr(after_update, "deleted", None)
+        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
+            activity = "restored" if after_deleted is False else "deleted"
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,

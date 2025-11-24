@@ -1,8 +1,9 @@
+import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
 import { deleteKeysWithPrefix } from '../../_tests/redis'
-import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherService, HogWatcherState } from './hog-watcher.service'
@@ -17,7 +18,7 @@ describe('HogWatcher', () => {
     let hub: Hub
     let watcher: HogWatcherService
     let onStateChangeSpy: jest.SpyInstance
-    let redis: CdpRedis
+    let redis: RedisV2
     const hogFunctionId: string = 'hog-function-id'
     let hogFunction: HogFunctionType
 
@@ -33,7 +34,7 @@ describe('HogWatcher', () => {
         } as Team
         hub = await createHub()
         jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(team)
-        redis = createCdpRedisPool(hub)
+        redis = createRedisV2Pool(hub, 'cdp')
         process.env.CDP_HOG_WATCHER_2_ENABLED = 'true'
         process.env.CDP_HOG_WATCHER_2_CAPTURE_ENABLED = 'true'
     })
