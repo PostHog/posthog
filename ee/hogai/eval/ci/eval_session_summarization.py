@@ -33,33 +33,34 @@ def call_root_for_replay_sessions(demo_org_team_user):
         include_search_session_recordings_context: bool,
         include_current_session_id: bool = False,
     ) -> AssistantMessage:
-        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        initial_state = AssistantState(
-            messages=[HumanMessage(content=messages)] if isinstance(messages, str) else messages
-        )
-        # Conditionally include session replay page context
-        if include_search_session_recordings_context:
-            context: dict[str, Any] = {}
-            context["current_filters"] = {"date_from": "-7d", "filter_test_accounts": True}
-            if include_current_session_id:
-                context["current_session_id"] = "0192e8a1-b7c3-4d5e-9f6a-8b2c1d3e4f5a"
-            contextual_tools = {"search_session_recordings": context}
-        else:
-            contextual_tools = {}
-        config = {
-            "configurable": {
-                "thread_id": conversation.id,
-                "contextual_tools": contextual_tools,
+        with patch("ee.hogai.utils.feature_flags.has_agent_modes_feature_flag", return_value=False):
+            conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
+            initial_state = AssistantState(
+                messages=[HumanMessage(content=messages)] if isinstance(messages, str) else messages,
+            )
+            # Conditionally include session replay page context
+            if include_search_session_recordings_context:
+                context: dict[str, Any] = {}
+                context["current_filters"] = {"date_from": "-7d", "filter_test_accounts": True}
+                if include_current_session_id:
+                    context["current_session_id"] = "0192e8a1-b7c3-4d5e-9f6a-8b2c1d3e4f5a"
+                contextual_tools = {"search_session_recordings": context}
+            else:
+                contextual_tools = {}
+            config = {
+                "configurable": {
+                    "thread_id": conversation.id,
+                    "contextual_tools": contextual_tools,
+                }
             }
-        }
-        raw_state = await graph.ainvoke(initial_state, config)
-        state = AssistantState.model_validate(raw_state)
-        for message in reversed(state.messages):
-            if isinstance(message, AssistantMessage):
-                return message
-        raise AssertionError(
-            f"No AssistantMessage found in state. Last message was: {state.messages[-1] if state.messages else 'no messages'}"
-        )
+            raw_state = await graph.ainvoke(initial_state, config)
+            state = AssistantState.model_validate(raw_state)
+            for message in reversed(state.messages):
+                if isinstance(message, AssistantMessage):
+                    return message
+            raise AssertionError(
+                f"No AssistantMessage found in state. Last message was: {state.messages[-1] if state.messages else 'no messages'}"
+            )
 
     return callable
 
