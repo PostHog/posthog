@@ -861,7 +861,7 @@ class SnowflakeClient:
         for column in column_names:
             if column not in final_table_column_names and column.upper() in final_table_column_names:
                 aliases[column] = column.upper()
-            else:
+            elif column in final_table_column_names:
                 aliases[column] = column
         update_when_matched = [field for field in update_when_matched if field[0] in aliases.keys()]
 
