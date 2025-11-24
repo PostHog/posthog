@@ -2,25 +2,37 @@
 
 from datetime import timedelta
 
+from temporalio.common import RetryPolicy
+
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_MAX_SAMPLES = 100  # Reduced for dev - was 2000
-DEFAULT_MIN_K = 2  # Reduced for dev - was 3
-DEFAULT_MAX_K = 4  # Reduced for dev - was 6
+DEFAULT_MAX_SAMPLES = 2000
+DEFAULT_MIN_K = 3
+DEFAULT_MAX_K = 6
 
 # Minimum traces required for clustering
-MIN_TRACES_FOR_CLUSTERING = 5  # Reduced for dev - was 20
+MIN_TRACES_FOR_CLUSTERING = 20
 
-# Workflow timeouts (reduced for dev)
-WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=5)  # Reduced for dev - was 30
-QUERY_EMBEDDINGS_TIMEOUT = timedelta(minutes=2)  # Reduced for dev - was 5
-SAMPLE_EMBEDDINGS_TIMEOUT = timedelta(seconds=30)  # Reduced for dev - was 1 min
-DETERMINE_OPTIMAL_K_TIMEOUT = timedelta(minutes=2)  # Reduced for dev - was 10
-PERFORM_CLUSTERING_TIMEOUT = timedelta(minutes=1)  # Reduced for dev - was 5
-EMIT_EVENTS_TIMEOUT = timedelta(seconds=30)  # Reduced for dev - was 1 min
+# Workflow timeouts
+WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
+QUERY_EMBEDDINGS_TIMEOUT = timedelta(minutes=5)
+SAMPLE_EMBEDDINGS_TIMEOUT = timedelta(minutes=1)
+DETERMINE_OPTIMAL_K_TIMEOUT = timedelta(minutes=10)
+PERFORM_CLUSTERING_TIMEOUT = timedelta(minutes=5)
+EMIT_EVENTS_TIMEOUT = timedelta(minutes=1)
 
 # Activity retry configuration
 MAX_ACTIVITY_RETRIES = 2
+ACTIVITY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=MAX_ACTIVITY_RETRIES + 1,
+    initial_interval=timedelta(seconds=1),
+    maximum_interval=timedelta(seconds=10),
+    backoff_coefficient=2.0,
+)
+
+# Coordinator retry policies
+COORDINATOR_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event properties
 CLUSTERING_VERSION = "v1"

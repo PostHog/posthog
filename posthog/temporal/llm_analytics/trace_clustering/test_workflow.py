@@ -93,10 +93,10 @@ class TestClusteringUtils:
 
     def test_determine_optimal_k_insufficient_data(self):
         """Test optimal k with insufficient data."""
-        embeddings = np.random.rand(4, 384)  # Only 4 samples (less than MIN_TRACES_FOR_CLUSTERING=5)
+        embeddings = np.random.rand(10, 384)  # Only 10 samples (less than MIN_TRACES_FOR_CLUSTERING=20)
 
         with pytest.raises(ValueError, match="Insufficient traces"):
-            determine_optimal_k(embeddings, min_k=2, max_k=4)
+            determine_optimal_k(embeddings, min_k=3, max_k=6)
 
     def test_perform_kmeans_clustering(self, sample_embeddings):
         """Test k-means clustering execution."""
@@ -217,17 +217,17 @@ class TestDetermineOptimalKActivity:
     @pytest.mark.asyncio
     async def test_determine_optimal_k_insufficient_data(self):
         """Test with insufficient data."""
-        # Create only 4 embeddings (less than MIN_TRACES_FOR_CLUSTERING=5)
+        # Create only 10 embeddings (less than MIN_TRACES_FOR_CLUSTERING=20)
         embeddings = [
             TraceEmbedding(
                 trace_id=f"trace_{i}",
                 embedding=np.random.rand(384).tolist(),
             )
-            for i in range(4)
+            for i in range(10)
         ]
 
         with pytest.raises(ValueError):
-            await determine_optimal_k_activity(embeddings, min_k=2, max_k=4)
+            await determine_optimal_k_activity(embeddings, min_k=3, max_k=6)
 
 
 class TestPerformClusteringActivity:
@@ -287,9 +287,9 @@ class TestWorkflowInputs:
 
         assert inputs.team_id == 1
         assert inputs.lookback_days == 7
-        assert inputs.max_samples == 100
-        assert inputs.min_k == 2
-        assert inputs.max_k == 4
+        assert inputs.max_samples == 2000
+        assert inputs.min_k == 3
+        assert inputs.max_k == 6
 
     def test_clustering_inputs_custom(self):
         """Test ClusteringInputs with custom values."""
