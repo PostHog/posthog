@@ -43,6 +43,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models import DataWarehouseTable
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -333,6 +334,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
             DATA_WAREHOUSE_REDIS_HOST="localhost",
             DATA_WAREHOUSE_REDIS_PORT="6379",
+            DATAWAREHOUSE_BUCKET=BUCKET_NAME,
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -2934,3 +2936,43 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
 
     # We should early exit on the first attempt with a non-retryable error
     assert mock_get_rows.call_count == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_cdp_producer(team, stripe_customer, mock_stripe_client, minio_client):
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "stripe.customer"}]},
+    )
+
+    _, inputs = await _run(
+        team=team,
+        schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+        table_name="stripe_customer",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_customer["data"],
+    )
+
+    @sync_to_async
+    def get_jobs():
+        jobs = ExternalDataJob.objects.filter(
+            team_id=team.pk,
+            pipeline_id=inputs.external_data_source_id,
+        ).order_by("-created_at")
+
+        return list(jobs)
+
+    jobs = await get_jobs()
+    assert len(jobs) > 0
+    job = jobs[0]
+
+    path = f"cdp_producer/{team.id}/{inputs.external_data_schema_id}/{job.id}/"
+
+    files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=path)
+
+    assert len(files["Contents"]) == 1
+    file = files["Contents"][0]
+    assert file["Key"] == f"{path}chunk_0.parquet"

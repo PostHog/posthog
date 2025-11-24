@@ -9,15 +9,13 @@ import pyarrow.parquet as pq
 from pyarrow.parquet import write_table
 from structlog.types import FilteringBoundLogger
 
-from posthog.schema import DatabaseSchemaDataWarehouseTable
-
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models.hog_functions import HogFunction
+from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
@@ -79,26 +77,18 @@ class CDPProducer:
     @property
     def should_produce_table(self) -> bool:
         schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
-        table_id = str(schema.table_id)
-        if table_id is None:
-            raise ValueError(f"CDPProducer: Schema {schema.name} ({self.schema_id}) does not have a table_id")
 
-        hogql_database = Database.create_for(team_id=self.team_id)
-        serialized_db = hogql_database.serialize(HogQLContext(team_id=self.team_id, database=hogql_database))
-        tables = [
-            n for n in serialized_db.values() if isinstance(n, DatabaseSchemaDataWarehouseTable) and n.id == table_id
-        ]
-        table = tables[0] if tables else None
-        if table is None:
-            raise ValueError(f"CDPProducer: Table {table_id} (schema: {schema.name}) not found in hogql database")
+        raw_table_name = build_table_name(schema.source, schema.name)
+        dot_notated_table_name = get_data_warehouse_table_name(schema.source, raw_table_name)
 
-        self.logger.debug(f"Checking if table {table.name} is used in any HogQL functions")
-        self.logger.debug(f"Using table_name = {table.name}, source = data-warehouse")
+        self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any HogQL functions")
+        self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = data-warehouse")
 
         return HogFunction.objects.filter(
             team_id=self.team_id,
+            enabled=True,
             filters__source="data-warehouse",
-            filters__data_warehouse__contains=[{"table_name": table.name}],
+            filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
         ).exists()
 
     def clear_s3_chunks(self):
