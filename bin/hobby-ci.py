@@ -159,6 +159,8 @@ runcmd:
             'echo "$LOG_PREFIX Cloning PostHog repository"',
             "git clone https://github.com/PostHog/posthog.git",
             "cd posthog",
+            f'echo "$LOG_PREFIX Fetching commit: {safe_sha}"',
+            f"git fetch origin {safe_sha}",
             f'echo "$LOG_PREFIX Checking out commit: {safe_sha}"',
             f"git checkout {safe_sha}",
             "CURRENT_COMMIT=$(git rev-parse HEAD)",
