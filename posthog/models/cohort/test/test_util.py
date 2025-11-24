@@ -1,10 +1,15 @@
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 
+from parameterized import parameterized
+
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import (
+    CohortErrorCode,
     get_all_cohort_dependencies,
+    get_friendly_error_message,
+    parse_error_code,
     print_cohort_hogql_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
@@ -629,3 +634,119 @@ class TestSortCohortsTopologically(BaseTest):
         result = sort_cohorts_topologically(all_cohort_ids, seen_cohorts_cache)
 
         self.assertEqual(result, [cohort.pk])
+
+
+class TestParseErrorCode(BaseTest):
+    @parameterized.expand(
+        [
+            ("capacity", "ClickHouseAtCapacity", CohortErrorCode.CAPACITY),
+            ("socket_timeout", "SocketTimeoutError", CohortErrorCode.INTERRUPTED),
+            ("query_timeout", "ClickHouseQueryTimeOut", CohortErrorCode.TIMEOUT),
+            ("estimated_timeout", "EstimatedQueryExecutionTimeTooLong", CohortErrorCode.TIMEOUT),
+            ("memory_limit", "ClickHouseQueryMemoryLimitExceeded", CohortErrorCode.MEMORY_LIMIT),
+            ("query_size", "QuerySizeExceeded", CohortErrorCode.QUERY_SIZE),
+            ("pydantic_validation", "PydanticValidationError", CohortErrorCode.VALIDATION_ERROR),
+            ("drf_validation", "DRFValidationError", CohortErrorCode.VALIDATION_ERROR),
+            ("value_error", "ValueError", CohortErrorCode.UNKNOWN),
+            ("clickhouse_regex", "ClickHouseRegexError", CohortErrorCode.INVALID_REGEX),
+            ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
+            ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
+            ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
+            ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
+        ]
+    )
+    def test_parse_error_code(self, _name: str, exception_type: str, expected_code: str):
+        exception = self._create_exception(exception_type)
+        result = parse_error_code(exception)
+        self.assertEqual(result, expected_code)
+
+    def _create_exception(self, exception_type: str) -> Exception:
+        from clickhouse_driver.errors import SocketTimeoutError
+        from pydantic import ValidationError as PydanticValidationError
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
+        from posthog.exceptions import (
+            ClickHouseAtCapacity,
+            ClickHouseQueryMemoryLimitExceeded,
+            ClickHouseQueryTimeOut,
+            EstimatedQueryExecutionTimeTooLong,
+            QuerySizeExceeded,
+        )
+
+        match exception_type:
+            case "ClickHouseAtCapacity":
+                return ClickHouseAtCapacity("test")
+            case "SocketTimeoutError":
+                return SocketTimeoutError("test")
+            case "ClickHouseQueryTimeOut":
+                return ClickHouseQueryTimeOut("test")
+            case "EstimatedQueryExecutionTimeTooLong":
+                return EstimatedQueryExecutionTimeTooLong()
+            case "ClickHouseQueryMemoryLimitExceeded":
+                return ClickHouseQueryMemoryLimitExceeded("test")
+            case "QuerySizeExceeded":
+                return QuerySizeExceeded("test")
+            case "PydanticValidationError":
+                try:
+                    from pydantic import BaseModel
+
+                    class TestModel(BaseModel):
+                        value: int
+
+                    TestModel(value="not_an_int")  # type: ignore
+                except PydanticValidationError as e:
+                    return e
+                raise AssertionError("Expected PydanticValidationError")
+            case "DRFValidationError":
+                return DRFValidationError("test")
+            case "ValueError":
+                return ValueError("test")
+            case "ClickHouseRegexError":
+                e = Exception("regex error")
+                e.code_name = "CANNOT_COMPILE_REGEXP"  # type: ignore
+                return e
+            case "ClickHouseMemoryError":
+                e = Exception("memory error")
+                e.code_name = "MEMORY_LIMIT_EXCEEDED"  # type: ignore
+                return e
+            case "ClickHouseTimeoutError":
+                e = Exception("timeout error")
+                e.code_name = "TIMEOUT_EXCEEDED"  # type: ignore
+                return e
+            case "ClickHouseTypeError":
+                e = Exception("type error")
+                e.code_name = "NO_COMMON_TYPE"  # type: ignore
+                return e
+            case "Exception":
+                return Exception("test")
+            case _:
+                raise ValueError(f"Unknown exception type: {exception_type}")
+
+
+class TestGetFriendlyErrorMessage(BaseTest):
+    @parameterized.expand(
+        [
+            (CohortErrorCode.CAPACITY, "system was busy"),
+            (CohortErrorCode.INTERRUPTED, "interrupted"),
+            (CohortErrorCode.TIMEOUT, "terminated for taking too long"),
+            (CohortErrorCode.MEMORY_LIMIT, "terminated for using too much memory"),
+            (CohortErrorCode.QUERY_SIZE, "query that was too large"),
+            (CohortErrorCode.VALIDATION_ERROR, "an error occurred"),
+            (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
+            (CohortErrorCode.INCOMPATIBLE_TYPES, "an error occurred"),
+            (CohortErrorCode.NO_PROPERTIES, "no matching criteria"),
+            (CohortErrorCode.UNKNOWN, "an error occurred"),
+        ]
+    )
+    def test_get_friendly_error_message(self, error_code: str, expected_substring: str):
+        message = get_friendly_error_message(error_code)
+        self.assertIsNotNone(message)
+        self.assertIn(expected_substring, message.lower())
+
+    def test_get_friendly_error_message_none(self):
+        self.assertIsNone(get_friendly_error_message(None))
+
+    def test_get_friendly_error_message_unknown_code(self):
+        message = get_friendly_error_message("some_unknown_code")
+        self.assertIsNotNone(message)
+        self.assertIn("an error occurred", message.lower())

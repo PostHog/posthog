@@ -378,6 +378,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    last_error_message = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohort
@@ -394,6 +395,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "created_at",
             "last_calculation",
             "errors_calculating",
+            "last_error_message",
             "count",
             "is_static",
             "cohort_type",
@@ -408,9 +410,29 @@ class CohortSerializer(serializers.ModelSerializer):
             "created_at",
             "last_calculation",
             "errors_calculating",
+            "last_error_message",
             "count",
             "experiment_set",
         ]
+
+    def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
+        from posthog.models.cohort.util import get_friendly_error_message
+
+        if hasattr(cohort, "last_error_code"):
+            if cohort.last_error_code:
+                return get_friendly_error_message(cohort.last_error_code)
+            return None
+
+        last_failed_calculation = (
+            CohortCalculationHistory.objects.filter(cohort=cohort)
+            .exclude(error__isnull=True)
+            .exclude(error="")
+            .order_by("-started_at")
+            .first()
+        )
+        if last_failed_calculation:
+            return get_friendly_error_message(last_failed_calculation.error_code)
+        return None
 
     def validate_cohort_type(self, value):
         """Validate that the cohort type matches the filters"""
@@ -978,7 +1000,21 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
 
-        return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
+        last_error_code_subquery = Subquery(
+            CohortCalculationHistory.objects.filter(
+                cohort=OuterRef("pk"),
+                error__isnull=False,
+            )
+            .exclude(error="")
+            .order_by("-started_at")
+            .values("error_code")[:1]
+        )
+
+        return (
+            queryset.annotate(last_error_code=last_error_code_subquery)
+            .prefetch_related("experiment_set", "created_by", "team")
+            .order_by("-created_at")
+        )
 
     def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
         """
