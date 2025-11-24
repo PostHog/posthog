@@ -79,61 +79,43 @@ class EventIngestionRestrictionConfig(UUIDTModel):
         return f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{self.restriction_type}"
 
 
-@receiver(post_save, sender=EventIngestionRestrictionConfig)
-def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
+def regenerate_redis_for_restriction_type(restriction_type: str):
+    """Regenerate the Redis cache for a specific restriction type by fetching all configs from the database"""
     redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
-    redis_key = instance.get_redis_key()
+    redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{restriction_type}"
 
-    existing_config = redis_client.get(redis_key)
-    data = json.loads(existing_config) if existing_config else []
+    # Fetch all restrictions of this type from the database
+    configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type))
 
-    # Remove existing entries for this token (both simple and distinct_id based)
-    data = [
-        entry
-        for entry in data
-        if not (
-            (isinstance(entry, str) and (entry == instance.token or entry.startswith(f"{instance.token}:")))
-            or (isinstance(entry, dict) and entry.get("token") == instance.token)
-        )
-    ]
+    if not configs:
+        # No configs exist, delete the Redis key
+        redis_client.delete(redis_key)
+        return
 
-    # Add new entries with pipeline information
-    entry_base = {
-        "token": instance.token,
-        "pipelines": instance.pipelines or [],
-    }
+    # Build the new data array from all configs in the database
+    data = []
+    for config in configs:
+        entry_base = {
+            "token": config.token,
+            "pipelines": config.pipelines or [],
+        }
 
-    if instance.distinct_ids:
-        for distinct_id in instance.distinct_ids:
-            entry = entry_base.copy()
-            entry["distinct_id"] = distinct_id
-            data.append(entry)
-    else:
-        data.append(entry_base)
+        if config.distinct_ids:
+            for distinct_id in config.distinct_ids:
+                entry = entry_base.copy()
+                entry["distinct_id"] = distinct_id
+                data.append(entry)
+        else:
+            data.append(entry_base)
 
     redis_client.set(redis_key, json.dumps(data))
 
 
+@receiver(post_save, sender=EventIngestionRestrictionConfig)
+def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
+    regenerate_redis_for_restriction_type(instance.restriction_type)
+
+
 @receiver(post_delete, sender=EventIngestionRestrictionConfig)
 def delete_redis_cache_with_config(sender, instance, **kwargs):
-    redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
-    redis_key = instance.get_redis_key()
-
-    existing_data = redis_client.get(redis_key)
-    if existing_data:
-        data = json.loads(existing_data)
-
-        # Remove entries for this token (handle both old string format and new dict format)
-        data = [
-            entry
-            for entry in data
-            if not (
-                (isinstance(entry, str) and (entry == instance.token or entry.startswith(f"{instance.token}:")))
-                or (isinstance(entry, dict) and entry.get("token") == instance.token)
-            )
-        ]
-
-        if data:
-            redis_client.set(redis_key, json.dumps(data))
-        else:
-            redis_client.delete(redis_key)
+    regenerate_redis_for_restriction_type(instance.restriction_type)
