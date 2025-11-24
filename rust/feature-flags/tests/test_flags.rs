@@ -2291,7 +2291,6 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     Ok(())
 }
 
-
 #[tokio::test]
 async fn test_config_comprehensive_enterprise_team() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
