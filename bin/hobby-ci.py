@@ -321,8 +321,38 @@ ssh_authorized_keys:
                 print(f"Connection failed: {type(e).__name__}", flush=True)
 
                 # Fetch logs periodically (every 60 seconds) to show progress
+                # Also check cloud-init status to fail fast if deployment failed
                 if int(elapsed) - last_log_fetch > 60:
+                    # Check if cloud-init has finished
+                    finished, success, status = self.check_cloud_init_status()
+                    if finished and not success:
+                        # Cloud-init failed - stop immediately
+                        print("\n❌ Cloud-init deployment FAILED", flush=True)
+                        if status:
+                            print(f"   Status: {status.get('status')}", flush=True)
+                            errors = status.get("errors", [])
+                            if errors:
+                                print(f"   Errors: {errors}", flush=True)
+
+                        # Fetch full logs to show what went wrong
+                        print("\n📋 Cloud-init failure logs:", flush=True)
+                        logs = self.fetch_cloud_init_logs()
+                        if logs:
+                            log_lines = logs.strip().split("\n")[-50:]
+                            for line in log_lines:
+                                print(f"  {line}", flush=True)
+
+                        print(
+                            f"\n📍 For debugging, SSH to: ssh root@{self.droplet.ip_address}",
+                            flush=True,
+                        )
+                        return False
+
+                    # Show progress logs
                     print("\n📋 Cloud-init progress:", flush=True)
+                    if finished and success:
+                        print("  ✅ Cloud-init completed successfully, waiting for service...", flush=True)
+
                     logs = self.fetch_cloud_init_logs()
                     if logs:
                         # Show last 10 lines of cloud-init log
@@ -533,6 +563,57 @@ ssh_authorized_keys:
         except Exception as e:
             print(f"  ({type(e).__name__}: {str(e)[:100]})", flush=True)
             return None
+
+    def check_cloud_init_status(self):
+        """Check if cloud-init has finished and whether it succeeded or failed.
+        Returns: tuple of (finished: bool, success: bool, result_json: dict or None)
+        """
+        if not self.droplet:
+            return (False, False, None)
+        if not self.ssh_private_key:
+            return (False, False, None)
+
+        try:
+            # Write SSH private key to temp file
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".pem") as f:
+                f.write(self.ssh_private_key)
+                key_file = f.name
+
+            os.chmod(key_file, 0o600)
+
+            # Check cloud-init status using cloud-init status --format=json
+            result = subprocess.run(
+                [
+                    "ssh",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "ConnectTimeout=5",
+                    "-i",
+                    key_file,
+                    f"root@{self.droplet.ip_address}",
+                    "cloud-init status --format=json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            os.unlink(key_file)
+
+            if result.returncode == 0:
+                import json
+
+                status = json.loads(result.stdout)
+                # status contains: {"status": "done", "errors": [], ...}
+                finished = status.get("status") in ["done", "error"]
+                success = status.get("status") == "done" and len(status.get("errors", [])) == 0
+                return (finished, success, status)
+            return (False, False, None)
+        except subprocess.TimeoutExpired:
+            return (False, False, None)
+        except Exception:
+            return (False, False, None)
 
     def export_droplet(self):
         if not self.droplet:
