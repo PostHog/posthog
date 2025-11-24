@@ -1,7 +1,9 @@
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -63,6 +65,7 @@ export const settingsLogic = kea<settingsLogicType>([
         closeCompactNavigation: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
+        loadSettingsAsOf: (at: string, scope?: string | string[]) => ({ at, scope }),
     }),
 
     reducers(({ props }) => ({
@@ -124,6 +127,39 @@ export const settingsLogic = kea<settingsLogicType>([
                     ...state,
                     [level]: false,
                 }),
+            },
+        ],
+    })),
+
+    loaders(({ values }) => ({
+        settingsSnapshot: [
+            null as Record<string, any> | null,
+            {
+                loadSettingsAsOf: async ({ at, scope }: { at: string; scope?: string | string[] }) => {
+                    const scopeArray = Array.isArray(scope)
+                        ? scope.filter((s): s is string => !!s)
+                        : scope
+                          ? [scope]
+                          : undefined
+                    if (!at) {
+                        const team = values.currentTeam
+                        if (!team) {
+                            return {}
+                        }
+                        if (scopeArray?.length) {
+                            const picked: Record<string, any> = {}
+                            for (const key of scopeArray) {
+                                if (key in team) {
+                                    picked[key] = (team as any)[key]
+                                }
+                            }
+                            return picked
+                        }
+                        // Return shallow copy of current team settings if no scope specified
+                        return { ...team }
+                    }
+                    return await api.teamSettings.asOf(at, scopeArray)
+                },
             },
         ],
     })),

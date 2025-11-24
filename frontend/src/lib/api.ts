@@ -4312,6 +4312,17 @@ const api = {
             return await new ApiRequest().addProductIntent().update({ data })
         },
     },
+    teamSettings: {
+        async asOf(at: string, scope?: string | string[]): Promise<Record<string, any>> {
+            const params: Record<string, any> = { at, ...(scope !== undefined ? { scope } : {}) }
+            return await new ApiRequest()
+                .environments()
+                .current()
+                .withAction('settings_as_of')
+                .withQueryString(toParams(params, true))
+                .get()
+        },
+    },
 
     coreMemory: {
         async list(): Promise<PaginatedResponse<CoreMemory>> {
