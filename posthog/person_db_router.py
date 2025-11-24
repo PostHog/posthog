@@ -18,12 +18,24 @@ PERSONS_DB_MODELS = {
     "grouptypemapping",
 }
 
+
 # Database connections for persons-related operations
 # In tests, use persons_db_writer for reads to ensure transaction visibility
 # (both aliases point to same DB but are separate connections with separate transactions)
 # In production, use persons_db_reader for read scaling
-PERSONS_DB_FOR_READ = "persons_db_writer" if settings.TEST or settings.DEBUG else "persons_db_reader"
-PERSONS_DB_FOR_WRITE = "persons_db_writer"
+# For hobby deployments without separate persons DB, fallback to default
+def _get_persons_db_for_read():
+    if settings.TEST or settings.DEBUG:
+        return "persons_db_writer" if "persons_db_writer" in settings.DATABASES else "default"
+    return "persons_db_reader" if "persons_db_reader" in settings.DATABASES else "default"
+
+
+def _get_persons_db_for_write():
+    return "persons_db_writer" if "persons_db_writer" in settings.DATABASES else "default"
+
+
+PERSONS_DB_FOR_READ = _get_persons_db_for_read()
+PERSONS_DB_FOR_WRITE = _get_persons_db_for_write()
 
 
 class PersonDBRouter:
