@@ -137,7 +137,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 self._schema.update_sync_type_config_for_reset_pipeline()
 
             # If the schema has no DWH table (or it's soft-deleted), it's a first ever sync
-            is_first_ever_sync: bool = self._schema.table is None or self._schema.table.deleted
+            is_first_ever_sync: bool = self._schema.table is None or bool(self._schema.table.deleted)
 
             for item in self._resource.items():
                 py_table = None
