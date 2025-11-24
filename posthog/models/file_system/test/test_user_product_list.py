@@ -262,7 +262,7 @@ class TestUserProductList(BaseTest):
             items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
             if len(items) == 0:
                 break
-            items.extend(created_items)
+            created_items.extend(items)
 
         created_paths = {item.product_path for item in created_items}
         assert "Product analytics" not in created_paths
