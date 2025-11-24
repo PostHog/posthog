@@ -110,6 +110,34 @@ class HobbyTester:
         except Exception as e:
             print(f"⚠️  Failed to generate SSH key: {e}", flush=True)
 
+    def _get_wait_for_image_script(self):
+        """Return bash script to wait for docker image on DockerHub with fallback to build"""
+        return """
+# Wait for image to be available on DockerHub (up to 20 minutes)
+WAIT_TIMEOUT=1200  # 20 minutes
+WAIT_INTERVAL=30   # Check every 30 seconds
+END_TIME=$(($(date +%s) + WAIT_TIMEOUT))
+IMAGE_FOUND=false
+
+while [ $(date +%s) -lt $END_TIME ]; do
+    MINS_LEFT=$(( (END_TIME - $(date +%s)) / 60 ))
+    if curl -s "https://hub.docker.com/v2/repositories/posthog/posthog/tags/$CURRENT_COMMIT" | grep -q '"name":"'$CURRENT_COMMIT'"'; then
+        echo "$LOG_PREFIX ✅ Docker image found on DockerHub ($MINS_LEFT mins waited)"
+        IMAGE_FOUND=true
+        break
+    fi
+    echo "$LOG_PREFIX ⏳ Image not yet available, checking again in 30s... ($MINS_LEFT mins remaining)"
+    sleep $WAIT_INTERVAL
+done
+
+if [ "$IMAGE_FOUND" = false ]; then
+    echo "$LOG_PREFIX ⚠️  Image not found after 20 mins, building locally..."
+    cd posthog
+    docker build -t posthog/posthog:$CURRENT_COMMIT .
+    cd ..
+fi
+"""
+
     def _build_user_data(self):
         """Build cloud-init user_data script with SSH pubkey in cloud-config"""
         cloud_config = f"""#cloud-config
@@ -117,7 +145,7 @@ runcmd:
   - set -e
 """
         # Sanitize inputs to prevent command injection
-        safe_branch = shlex.quote(self.branch)
+        safe_sha = shlex.quote(self.sha) if self.sha else "unknown"
         safe_hostname = shlex.quote(self.hostname)
 
         # Add runcmd commands with logging
@@ -131,13 +159,13 @@ runcmd:
             'echo "$LOG_PREFIX Cloning PostHog repository"',
             "git clone https://github.com/PostHog/posthog.git",
             "cd posthog",
-            f'echo "$LOG_PREFIX Using branch: {safe_branch}"',
-            f"git checkout {safe_branch}",
+            f'echo "$LOG_PREFIX Checking out commit: {safe_sha}"',
+            f"git checkout {safe_sha}",
             "CURRENT_COMMIT=$(git rev-parse HEAD)",
             'echo "$LOG_PREFIX Current commit: $CURRENT_COMMIT"',
             "cd ..",
-            'echo "$LOG_PREFIX Building Docker image for current code"',
-            "docker build -t posthog/posthog:$CURRENT_COMMIT posthog/",
+            'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
+            self._get_wait_for_image_script(),
             "chmod +x posthog/bin/deploy-hobby",
             'echo "$LOG_PREFIX Starting deployment script"',
             f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {safe_hostname} 1",
