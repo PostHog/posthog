@@ -16,6 +16,7 @@ import {
     IconLlmAnalytics,
     IconMessage,
     IconNotebook,
+    IconNotification,
     IconPeople,
     IconPieChart,
     IconPiggyBank,
@@ -372,6 +373,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Home',
                             icon: <IconHome />,
                             to: urls.projectRoot(),
+                        },
+                        {
+                            identifier: Scene.Feed,
+                            label: 'Feed',
+                            icon: <IconNotification />,
+                            to: urls.feed(),
                         },
                         {
                             identifier: Scene.Dashboards,

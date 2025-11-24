@@ -30,6 +30,7 @@ import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavP
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -139,6 +140,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
         }
+        if (itemIdentifier === 'Feed' && currentPath === '/feed') {
+            return true
+        }
         if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
             return true
         }
@@ -169,6 +173,14 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             to: urls.projectRoot(),
             onClick: () => handleStaticNavbarItemClick(urls.projectRoot(), true),
             collapsedTooltip: 'Home',
+        },
+        {
+            identifier: 'ProjectFeed',
+            label: 'Feed',
+            icon: <IconMenu />,
+            to: urls.feed(),
+            onClick: () => handleStaticNavbarItemClick(urls.feed(), true),
+            collapsedTooltip: 'Feed',
         },
         {
             identifier: 'Products',
