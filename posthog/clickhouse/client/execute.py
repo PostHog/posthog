@@ -199,6 +199,9 @@ def sync_execute(
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
 
+    if tags.product == Product.ENDPOINTS:
+        ch_user = ClickHouseUser.ENDPOINTS
+
     while True:
         settings = {
             **core_settings,

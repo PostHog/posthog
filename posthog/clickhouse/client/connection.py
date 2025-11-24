@@ -62,6 +62,7 @@ class ClickHouseUser(StrEnum):
     HOGQL = "hogql"
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"
+    ENDPOINTS = "endpoints"
 
     # Dev Operations - do not normally use
     OPS = "ops"
