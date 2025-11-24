@@ -105,10 +105,7 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
         if exported_asset.insight is not None:
-            show_legend = False
-            if exported_asset.export_context:
-                show_legend = exported_asset.export_context.get("show_legend", False)
-
+            show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
             url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}")
             wait_for_css_selector = ".ExportedInsight"

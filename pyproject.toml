@@ -1,3 +1,5 @@
+
+
 [project]
 name = "posthog"
 version = "0.0.0"
@@ -60,7 +62,7 @@ dependencies = [
     "google-genai==1.46.0",
     "granian[uvloop,reload,pname]==2.5.5",
     "gspread==6.2.1",
-    "hogql-parser==1.2.11",
+    "hogql-parser==1.2.12",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
     "kafka-python==2.0.6",
@@ -179,6 +181,7 @@ dependencies = [
     "cachetools>=5.5.2",
     "textcase>=0.4.5",
     "gitpython>=3.1.44",
+    "duckdb>=1.3.0",
 ]
 
 [dependency-groups]

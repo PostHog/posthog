@@ -833,6 +833,14 @@ export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
+    /** Filter sessions by event name - sessions that contain this event */
+    event?: string | null
+    /**
+     * Filter sessions by action - sessions that contain events matching this action
+     */
+    actionId?: integer
+    /** Event property filters - only applies when event or actionId is set */
+    eventProperties?: AnyPropertyFilter[]
 }
 
 /**
@@ -1645,22 +1653,32 @@ export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
-    // Sync the `refresh` description here with the two instances in posthog/api/insight.py
     /**
      * Whether results should be calculated sync or async, and how much to rely on the cache:
      * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
-     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
      * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
-     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
-     * Background calculation can be tracked using the `query_status` response field.
      * @default 'blocking'
      */
     refresh?: RefreshType
+    /**
+     * A map for overriding insight query filters.
+     *
+     * Tip: Use to get data for a specific customer or user.
+     */
     filters_override?: DashboardFilter
-    variables_override?: Record<string, Record<string, any>>
-    variables_values?: Record<string, any>
+    /**
+     * A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value.
+     * Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date})
+     * For example: {"from_date": "1970-01-01"}
+     */
+    variables?: Record<string, any>
+    /**
+     * Map of Insight query keys to be overridden at execution time.
+     * For example:
+     *   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}
+     *   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}
+     *   The query executed will return the count of $identify events, instead of $pageview's
+     */
     query_override?: Record<string, any>
 }
 
@@ -4560,4 +4578,91 @@ export enum ProductKey {
     TEAMS = 'teams',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',
+}
+
+export enum ProductIntentContext {
+    // Onboarding
+    ONBOARDING_PRODUCT_SELECTED_PRIMARY = 'onboarding product selected - primary',
+    ONBOARDING_PRODUCT_SELECTED_SECONDARY = 'onboarding product selected - secondary',
+    QUICK_START_PRODUCT_SELECTED = 'quick start product selected',
+
+    // Data Warehouse
+    SELECTED_CONNECTOR = 'selected connector',
+    SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
+    DATA_WAREHOUSE_SOURCES_TABLE = 'data warehouse sources table',
+
+    // Experiments
+    EXPERIMENT_CREATED = 'experiment created',
+    EXPERIMENT_ANALYZED = 'experiment analyzed',
+
+    // Feature Flags
+    FEATURE_FLAG_CREATED = 'feature flag created',
+
+    // Session Replay
+    SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
+
+    // Error Tracking
+    ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
+    ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
+    ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
+    ERROR_TRACKING_ISSUE_EXPLAINED = 'error_tracking_issue_explained',
+
+    // LLM Analytics
+    LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
+    LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
+
+    // Product Analytics
+    TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
+    CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create_experiment_from_funnel_button',
+
+    // Web Analytics
+    WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',
+    WEB_VITALS_INSIGHT = 'web_vitals_insight',
+    WEB_ANALYTICS_RECORDINGS = 'web_analytics_recordings',
+    WEB_ANALYTICS_ERROR_TRACKING = 'web_analytics_error_tracking',
+    WEB_ANALYTICS_ERRORS = 'web_analytics_errors',
+    WEB_ANALYTICS_FRUSTRATING_PAGES = 'web_analytics_frustrating_pages',
+
+    // Actions
+    ACTION_VIEW_RECORDINGS = 'action_view_recordings',
+
+    // Persons
+    PERSON_VIEW_RECORDINGS = 'person_view_recordings',
+
+    // Feature Flags
+    FEATURE_FLAG_CREATE_INSIGHT = 'feature_flag_create_insight',
+    FEATURE_FLAG_VIEW_RECORDINGS = 'feature_flag_view_recordings',
+
+    // Early Access Features
+    EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = 'early_access_feature_view_recordings',
+
+    // Data Warehouse -> Revenue Analytics Cross-sell
+    DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
+
+    // Surveys
+    SURVEYS_VIEWED = 'surveys_viewed', // accessed surveys page
+    SURVEY_CREATED = 'survey_created',
+    SURVEY_LAUNCHED = 'survey_launched',
+    SURVEY_VIEWED = 'survey_viewed',
+    SURVEY_COMPLETED = 'survey_completed', // stop survey
+    SURVEY_RESUMED = 'survey_resumed',
+    SURVEY_ARCHIVED = 'survey_archived',
+    SURVEY_UNARCHIVED = 'survey_unarchived',
+    SURVEY_DELETED = 'survey_deleted',
+    SURVEY_DUPLICATED = 'survey_duplicated',
+    SURVEY_BULK_DUPLICATED = 'survey_bulk_duplicated',
+    SURVEY_EDITED = 'survey_edited',
+    SURVEY_ANALYZED = 'survey_analyzed',
+
+    // Revenue Analytics
+    REVENUE_ANALYTICS_VIEWED = 'revenue_analytics_viewed',
+    REVENUE_ANALYTICS_ONBOARDING_COMPLETED = 'revenue_analytics_onboarding_completed',
+    REVENUE_ANALYTICS_EVENT_CREATED = 'revenue_analytics_event_created',
+    REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = 'revenue_analytics_data_source_connected',
+
+    // Nav Panel Advertisement
+    NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',
+
+    // Used by the backend but defined here for type safety
+    VERCEL_INTEGRATION = 'vercel_integration',
 }

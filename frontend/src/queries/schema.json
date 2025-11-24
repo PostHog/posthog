@@ -343,6 +343,16 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
+        "AgentArtifactContent": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DocumentArtifactContent"
+                },
+                {
+                    "$ref": "#/definitions/VisualizationArtifactContent"
+                }
+            ]
+        },
         "AgentMode": {
             "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
@@ -10731,6 +10741,32 @@
             ],
             "type": "string"
         },
+        "DocumentArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "blocks": {
+                    "items": {
+                        "$ref": "#/definitions/DocumentBlock"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["blocks"],
+            "type": "object"
+        },
+        "DocumentBlock": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/MarkdownBlock"
+                },
+                {
+                    "$ref": "#/definitions/VisualizationBlock"
+                },
+                {
+                    "$ref": "#/definitions/SessionReplayBlock"
+                }
+            ]
+        },
         "DocumentSimilarityQuery": {
             "additionalProperties": false,
             "properties": {
@@ -11063,23 +11099,20 @@
                     "type": "string"
                 },
                 "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter"
+                    "$ref": "#/definitions/DashboardFilter",
+                    "description": "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
                 },
                 "query_override": {
+                    "description": "Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {\"kind\": \"TrendsQuery\", \"series\": [{\"kind\": \"EventsNode\",\"name\": \"$pageview\",\"event\": \"$pageview\",\"math\": \"total\"}]}   If query_override = {\"series\": [{\"kind\": \"EventsNode\",\"name\": \"$identify\",\"event\": \"$identify\",\"math\": \"total\"}]}   The query executed will return the count of $identify events, instead of $pageview's",
                     "type": "object"
                 },
                 "refresh": {
                     "$ref": "#/definitions/RefreshType",
                     "default": "blocking",
-                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
+                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached"
                 },
-                "variables_override": {
-                    "additionalProperties": {
-                        "type": "object"
-                    },
-                    "type": "object"
-                },
-                "variables_values": {
+                "variables": {
+                    "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
                     "type": "object"
                 }
             },
@@ -17493,6 +17526,20 @@
             "required": ["results"],
             "type": "object"
         },
+        "MarkdownBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "markdown",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
         "MarketingAnalyticsAggregatedQuery": {
             "additionalProperties": false,
             "properties": {
@@ -19391,6 +19438,60 @@
                 "personal_api_key"
             ],
             "type": "object"
+        },
+        "ProductIntentContext": {
+            "enum": [
+                "onboarding product selected - primary",
+                "onboarding product selected - secondary",
+                "quick start product selected",
+                "selected connector",
+                "sql editor empty state",
+                "data warehouse sources table",
+                "experiment created",
+                "experiment analyzed",
+                "feature flag created",
+                "session_replay_set_filters",
+                "error_tracking_exception_autocapture_enabled",
+                "error_tracking_issue_sorting",
+                "error_tracking_docs_viewed",
+                "error_tracking_issue_explained",
+                "llm_analytics_viewed",
+                "llm_analytics_docs_viewed",
+                "taxonomic filter empty state",
+                "create_experiment_from_funnel_button",
+                "web_analytics_insight",
+                "web_vitals_insight",
+                "web_analytics_recordings",
+                "web_analytics_error_tracking",
+                "web_analytics_errors",
+                "web_analytics_frustrating_pages",
+                "action_view_recordings",
+                "person_view_recordings",
+                "feature_flag_create_insight",
+                "feature_flag_view_recordings",
+                "early_access_feature_view_recordings",
+                "data_warehouse_stripe_source_created",
+                "surveys_viewed",
+                "survey_created",
+                "survey_launched",
+                "survey_viewed",
+                "survey_completed",
+                "survey_resumed",
+                "survey_archived",
+                "survey_unarchived",
+                "survey_deleted",
+                "survey_duplicated",
+                "survey_bulk_duplicated",
+                "survey_edited",
+                "survey_analyzed",
+                "revenue_analytics_viewed",
+                "revenue_analytics_onboarding_completed",
+                "revenue_analytics_event_created",
+                "revenue_analytics_data_source_connected",
+                "nav_panel_advertisement_clicked",
+                "vercel_integration"
+            ],
+            "type": "string"
         },
         "ProductItem": {
             "additionalProperties": false,
@@ -26214,9 +26315,33 @@
             "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
+        "SessionReplayBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "session_id": {
+                    "type": "string"
+                },
+                "timestamp_ms": {
+                    "type": "number"
+                },
+                "title": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "session_replay",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "session_id", "timestamp_ms"],
+            "type": "object"
+        },
         "SessionsQuery": {
             "additionalProperties": false,
             "properties": {
+                "actionId": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Filter sessions by action - sessions that contain events matching this action"
+                },
                 "after": {
                     "description": "Only fetch sessions that started after this timestamp",
                     "type": "string"
@@ -26224,6 +26349,17 @@
                 "before": {
                     "description": "Only fetch sessions that started before this timestamp",
                     "type": "string"
+                },
+                "event": {
+                    "description": "Filter sessions by event name - sessions that contain this event",
+                    "type": ["string", "null"]
+                },
+                "eventProperties": {
+                    "description": "Event property filters - only applies when event or actionId is set",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -28745,6 +28881,49 @@
                 }
             },
             "required": ["id", "distance"],
+            "type": "object"
+        },
+        "VisualizationArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AssistantTrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantFunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantRetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantHogQLQuery"
+                        }
+                    ]
+                }
+            },
+            "required": ["query"],
+            "type": "object"
+        },
+        "VisualizationBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "visualization",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id"],
             "type": "object"
         },
         "VisualizationItem": {

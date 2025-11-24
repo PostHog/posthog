@@ -1917,6 +1917,14 @@ class OrderBy3(StrEnum):
     EARLIEST = "earliest"
 
 
+class MarkdownBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["markdown"] = "markdown"
+
+
 class MarketingAnalyticsBaseColumns(StrEnum):
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
@@ -2304,6 +2312,58 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     team_name: str
     user_email: str
     user_id: str
+
+
+class ProductIntentContext(StrEnum):
+    ONBOARDING_PRODUCT_SELECTED___PRIMARY = "onboarding product selected - primary"
+    ONBOARDING_PRODUCT_SELECTED___SECONDARY = "onboarding product selected - secondary"
+    QUICK_START_PRODUCT_SELECTED = "quick start product selected"
+    SELECTED_CONNECTOR = "selected connector"
+    SQL_EDITOR_EMPTY_STATE = "sql editor empty state"
+    DATA_WAREHOUSE_SOURCES_TABLE = "data warehouse sources table"
+    EXPERIMENT_CREATED = "experiment created"
+    EXPERIMENT_ANALYZED = "experiment analyzed"
+    FEATURE_FLAG_CREATED = "feature flag created"
+    SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
+    ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = "error_tracking_exception_autocapture_enabled"
+    ERROR_TRACKING_ISSUE_SORTING = "error_tracking_issue_sorting"
+    ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
+    ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
+    LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
+    LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
+    TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
+    CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
+    WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
+    WEB_VITALS_INSIGHT = "web_vitals_insight"
+    WEB_ANALYTICS_RECORDINGS = "web_analytics_recordings"
+    WEB_ANALYTICS_ERROR_TRACKING = "web_analytics_error_tracking"
+    WEB_ANALYTICS_ERRORS = "web_analytics_errors"
+    WEB_ANALYTICS_FRUSTRATING_PAGES = "web_analytics_frustrating_pages"
+    ACTION_VIEW_RECORDINGS = "action_view_recordings"
+    PERSON_VIEW_RECORDINGS = "person_view_recordings"
+    FEATURE_FLAG_CREATE_INSIGHT = "feature_flag_create_insight"
+    FEATURE_FLAG_VIEW_RECORDINGS = "feature_flag_view_recordings"
+    EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = "early_access_feature_view_recordings"
+    DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = "data_warehouse_stripe_source_created"
+    SURVEYS_VIEWED = "surveys_viewed"
+    SURVEY_CREATED = "survey_created"
+    SURVEY_LAUNCHED = "survey_launched"
+    SURVEY_VIEWED = "survey_viewed"
+    SURVEY_COMPLETED = "survey_completed"
+    SURVEY_RESUMED = "survey_resumed"
+    SURVEY_ARCHIVED = "survey_archived"
+    SURVEY_UNARCHIVED = "survey_unarchived"
+    SURVEY_DELETED = "survey_deleted"
+    SURVEY_DUPLICATED = "survey_duplicated"
+    SURVEY_BULK_DUPLICATED = "survey_bulk_duplicated"
+    SURVEY_EDITED = "survey_edited"
+    SURVEY_ANALYZED = "survey_analyzed"
+    REVENUE_ANALYTICS_VIEWED = "revenue_analytics_viewed"
+    REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
+    REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
+    REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
+    NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
+    VERCEL_INTEGRATION = "vercel_integration"
 
 
 class ProductKey(StrEnum):
@@ -2737,6 +2797,16 @@ class Storage(StrEnum):
     OBJECT_STORAGE = "object_storage"
 
 
+class SessionReplayBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: str
+    timestamp_ms: float
+    title: Optional[str] = None
+    type: Literal["session_replay"] = "session_replay"
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3124,6 +3194,14 @@ class VectorSearchResponseItem(BaseModel):
     )
     distance: float
     id: str
+
+
+class VisualizationBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str
+    type: Literal["visualization"] = "visualization"
 
 
 class ActionsPie(BaseModel):
@@ -8900,6 +8978,13 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     url_pattern: str
 
 
+class DocumentArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[Union[MarkdownBlock, VisualizationBlock, SessionReplayBlock]]
+
+
 class DocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8934,24 +9019,38 @@ class EndpointRunRequest(BaseModel):
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
-    filters_override: Optional[DashboardFilter] = None
-    query_override: Optional[dict[str, Any]] = None
+    filters_override: Optional[DashboardFilter] = Field(
+        default=None,
+        description=(
+            "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
+        ),
+    )
+    query_override: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            'Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {"kind":'
+            ' "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math":'
+            ' "total"}]}   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event":'
+            ' "$identify","math": "total"}]}   The query executed will return the count of $identify events, instead of'
+            " $pageview's"
+        ),
+    )
     refresh: Optional[RefreshType] = Field(
         default=RefreshType.BLOCKING,
         description=(
             "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
             " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
-            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
-            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
-            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
-            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
-            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
-            " completes immediately as it never calculates Background calculation can be tracked using the"
-            " `query_status` response field."
+            " the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached"
         ),
     )
-    variables_override: Optional[dict[str, dict[str, Any]]] = None
-    variables_values: Optional[dict[str, Any]] = None
+    variables: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "A map for overriding HogQL query variables, where the key is the variable name and the value is the"
+            " variable value. Variable must be set on the endpoint's query between curly braces (i.e."
+            ' {variable.from_date}) For example: {"from_date": "1970-01-01"}'
+        ),
+    )
 
 
 class EntityNode(BaseModel):
@@ -12188,6 +12287,15 @@ class VectorSearchQueryResponse(BaseModel):
     )
 
 
+class VisualizationArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    name: Optional[str] = None
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+
+
 class WebAnalyticsAssistantFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12524,6 +12632,10 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     response: Optional[ActorsPropertyTaxonomyQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class AgentArtifactContent(RootModel[Union[DocumentArtifactContent, VisualizationArtifactContent]]):
+    root: Union[DocumentArtifactContent, VisualizationArtifactContent]
 
 
 class AnyResponseType(
@@ -14699,8 +14811,38 @@ class SessionsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actionId: Optional[int] = Field(
+        default=None, description="Filter sessions by action - sessions that contain events matching this action"
+    )
     after: Optional[str] = Field(default=None, description="Only fetch sessions that started after this timestamp")
     before: Optional[str] = Field(default=None, description="Only fetch sessions that started before this timestamp")
+    event: Optional[str] = Field(
+        default=None, description="Filter sessions by event name - sessions that contain this event"
+    )
+    eventProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Event property filters - only applies when event or actionId is set")
     filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
     fixedProperties: Optional[
         list[

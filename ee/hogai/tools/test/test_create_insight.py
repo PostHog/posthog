@@ -13,8 +13,8 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.tools.create_insight import INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, CreateInsightTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import AssistantNodeName, NodePath
