@@ -121,22 +121,11 @@ COPY ./plugin-server/tests/ ./plugin-server/tests/
 COPY ./plugin-server/assets/ ./plugin-server/assets/
 COPY ./plugin-server/bin/ ./plugin-server/bin/
 
-# Build cyclotron first with increased memory
+# Build cyclotron first
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
-# Then build the plugin server with increased memory
+# Then build the plugin server
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server build
-
-# After moving to pnpm v10 for some reason it is failing to execute install step saying that parcel was not found (during hogvm build).
-# It is interesting because above that we are executing hogvm build and it works just fine.
-# This will increase size but it is ok for now. Maybe someone figures out how to fix it.
-
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-# RUN corepack enable && \
-#     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server install --frozen-lockfile --prod && \
-#     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
-
 
 #
 # ---------------------------------------------------------
