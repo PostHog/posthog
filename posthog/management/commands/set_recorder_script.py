@@ -19,7 +19,7 @@ class Command(BaseCommand):
             "--script",
             type=str,
             required=True,
-            help="The recorder script name to set in sdk_config",
+            help="The recorder script name to set in extra_settings",
         )
         parser.add_argument(
             "--sample-rate",
@@ -44,15 +44,13 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING("DRY RUN MODE - No changes will be made"))
 
-        # Get all teams that don't already have a recorder_script set
-        teams = Team.objects.filter(Q(sdk_config__isnull=True) | ~Q(sdk_config__has_key="recorder_script")).only(
-            "id", "sdk_config"
-        )
+        teams = Team.objects.filter(
+            Q(extra_settings__isnull=True) | ~Q(extra_settings__has_key="recorder_script")
+        ).only("id", "extra_settings")
 
         total_teams = teams.count()
         self.stdout.write(f"Found {total_teams} teams without recorder_script set")
 
-        # Sample teams based on team ID and update as we go
         updated_count = 0
         sampled_count = 0
 
@@ -61,20 +59,19 @@ class Command(BaseCommand):
                 sampled_count += 1
 
                 if not dry_run:
-                    if team.sdk_config is None:
-                        team.sdk_config = {}
-                    team.sdk_config["recorder_script"] = script
-                    team.save(update_fields=["sdk_config"])
+                    if team.extra_settings is None:
+                        team.extra_settings = {}
+                    team.extra_settings["recorder_script"] = script
+                    # Using save() to trigger post_save signals for cache invalidation
+                    team.save(update_fields=["extra_settings"])
                     updated_count += 1
 
                     if updated_count % 1000 == 0:
                         self.stdout.write(f"Updated {updated_count} teams so far...")
 
+        percentage = (sampled_count / total_teams * 100) if total_teams > 0 else 0
         self.stdout.write(
-            self.style.SUCCESS(
-                f"Sampled {sampled_count} teams ({sampled_count / total_teams * 100:.1f}%) "
-                f"using sample rate {sample_rate}"
-            )
+            self.style.SUCCESS(f"Sampled {sampled_count} teams ({percentage:.1f}%) using sample rate {sample_rate}")
         )
 
         if dry_run:

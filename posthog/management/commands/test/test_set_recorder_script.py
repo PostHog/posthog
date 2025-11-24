@@ -29,8 +29,8 @@ class TestSetRecorderScriptCommand(BaseTest):
 
         team1.refresh_from_db()
         team2.refresh_from_db()
-        assert team1.sdk_config is None
-        assert team2.sdk_config is None
+        assert team1.extra_settings is None
+        assert team2.extra_settings is None
 
     def test_sets_recorder_script_for_all_teams(self):
         team1 = Team.objects.create(organization=self.organization, name="Team 1")
@@ -49,12 +49,11 @@ class TestSetRecorderScriptCommand(BaseTest):
 
         team1.refresh_from_db()
         team2.refresh_from_db()
-        assert team1.sdk_config == {"recorder_script": "test-recorder"}
-        assert team2.sdk_config == {"recorder_script": "test-recorder"}
+        assert team1.extra_settings == {"recorder_script": "test-recorder"}
+        assert team2.extra_settings == {"recorder_script": "test-recorder"}
 
     def test_skips_teams_with_existing_recorder_script(self):
-        # BaseTest creates self.team, so we need to set its script
-        self.team.sdk_config = {"recorder_script": "existing"}
+        self.team.extra_settings = {"recorder_script": "existing"}
         self.team.save()
 
         team_without = Team.objects.create(organization=self.organization, name="Team without")
@@ -72,11 +71,11 @@ class TestSetRecorderScriptCommand(BaseTest):
 
         self.team.refresh_from_db()
         team_without.refresh_from_db()
-        assert self.team.sdk_config == {"recorder_script": "existing"}
-        assert team_without.sdk_config == {"recorder_script": "new-recorder"}
+        assert self.team.extra_settings == {"recorder_script": "existing"}
+        assert team_without.extra_settings == {"recorder_script": "new-recorder"}
 
-    def test_preserves_other_sdk_config_fields(self):
-        team = Team.objects.create(organization=self.organization, name="Team", sdk_config={"other_field": "value"})
+    def test_preserves_other_extra_settings_fields(self):
+        team = Team.objects.create(organization=self.organization, name="Team", extra_settings={"other_field": "value"})
 
         call_command(
             "set_recorder_script",
@@ -85,7 +84,7 @@ class TestSetRecorderScriptCommand(BaseTest):
         )
 
         team.refresh_from_db()
-        assert team.sdk_config == {"other_field": "value", "recorder_script": "test-recorder"}
+        assert team.extra_settings == {"other_field": "value", "recorder_script": "test-recorder"}
 
     @parameterized.expand(
         [
@@ -116,7 +115,7 @@ class TestSetRecorderScriptCommand(BaseTest):
             "--sample-rate=0.5",
         )
 
-        updated_teams = Team.objects.filter(sdk_config__has_key="recorder_script").count()
+        updated_teams = Team.objects.filter(extra_settings__has_key="recorder_script").count()
 
         assert 30 < updated_teams < 70, f"Expected roughly 50 teams updated, got {updated_teams}"
 
@@ -136,5 +135,5 @@ class TestSetRecorderScriptCommand(BaseTest):
         assert "Updated 1000 teams so far..." in output
         assert "Updated 2000 teams so far..." in output
 
-        updated_teams = Team.objects.filter(sdk_config__has_key="recorder_script").count()
+        updated_teams = Team.objects.filter(extra_settings__has_key="recorder_script").count()
         assert updated_teams > 2400
