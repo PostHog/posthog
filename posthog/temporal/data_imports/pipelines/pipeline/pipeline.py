@@ -136,8 +136,8 @@ class PipelineNonDLT(Generic[ResumableData]):
                 self._delta_table_helper.reset_table()
                 self._schema.update_sync_type_config_for_reset_pipeline()
 
-            # If the schema has no DWH table, it's a first ever sync
-            is_first_ever_sync: bool = self._schema.table is None
+            # If the schema has no DWH table (or it's soft-deleted), it's a first ever sync
+            is_first_ever_sync: bool = self._schema.table is None or self._schema.table.deleted
 
             for item in self._resource.items():
                 py_table = None
@@ -349,7 +349,9 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._resource_name,
             file_uris,
             delete_existing=True,
-            existing_queryable_folder=self._schema.table.queryable_folder if self._schema.table else None,
+            existing_queryable_folder=self._schema.table.queryable_folder
+            if self._schema.table and not self._schema.table.deleted
+            else None,
             logger=self._logger,
         )
 

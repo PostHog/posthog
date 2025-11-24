@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
@@ -70,7 +70,7 @@ def validate_schema_and_update_table_sync(
     row_count: int,
     table_format: DataWarehouseTable.TableFormat,
     queryable_folder: str,
-    table_schema_dict: Optional[dict[str, str]] = None,
+    table_schema_dict: dict[str, str] | None = None,
 ) -> None:
     """
 
@@ -130,6 +130,11 @@ def validate_schema_and_update_table_sync(
 
             # create or update
             table_created: DataWarehouseTable | None = external_data_schema.table
+            # Check if the table exists and is not soft-deleted
+            if table_created and table_created.deleted:
+                logger.info(f"Table {table_created.id} is soft-deleted, treating as non-existent")
+                table_created = None
+
             if table_created:
                 table_created.credential = table_params["credential"]
                 table_created.format = table_params["format"]
