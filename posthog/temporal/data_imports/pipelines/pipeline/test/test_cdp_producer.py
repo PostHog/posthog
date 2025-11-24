@@ -37,7 +37,7 @@ def test_should_produce_table_with_matching_hog_function(team):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_should_produce_table_with_disabled_matching_hog_function(team):
+def test_should_not_produce_table_with_disabled_matching_hog_function(team):
     source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES)
     table = DataWarehouseTable.objects.create(team=team, name="postgres_table_1", external_data_source=source)
     schema = ExternalDataSchema.objects.create(team=team, name="table_1", source=source, table=table)
@@ -45,6 +45,23 @@ def test_should_produce_table_with_disabled_matching_hog_function(team):
     HogFunction.objects.create(
         team=team,
         enabled=False,
+        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "postgres.table_1"}]},
+    )
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.MagicMock())
+    assert producer.should_produce_table is False
+
+
+@pytest.mark.django_db(transaction=True)
+def test_should_not_produce_table_with_deleted_matching_hog_function(team):
+    source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES)
+    table = DataWarehouseTable.objects.create(team=team, name="postgres_table_1", external_data_source=source)
+    schema = ExternalDataSchema.objects.create(team=team, name="table_1", source=source, table=table)
+
+    HogFunction.objects.create(
+        team=team,
+        enabled=True,
+        deleted=True,
         filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "postgres.table_1"}]},
     )
 
