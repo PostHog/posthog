@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import cast
 from uuid import UUID, uuid4
 
@@ -5,17 +6,17 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
     ArtifactContentType,
-    ArtifactMessage,
     ArtifactSource,
     VisualizationArtifactContent,
     VisualizationArtifactMessage,
+    VisualizationMessage,
 )
 
 from posthog.models import Insight, User
 from posthog.models.team import Team
 
 from ee.hogai.core.mixins import AssistantContextMixin
-from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessageUnion
+from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, ArtifactMessage, AssistantMessageUnion
 from ee.models.assistant import AgentArtifact
 
 
@@ -29,19 +30,17 @@ class ArtifactManager(AssistantContextMixin):
         self._user = user
         self._config = config or {}
 
-    def create_artifact_message(
+    # -------------------------------------------------------------------------
+    # Creation
+    # -------------------------------------------------------------------------
+
+    def create_message(
         self,
         artifact_id: str,
         source: ArtifactSource = ArtifactSource.ARTIFACT,
         content_type: ArtifactContentType = ArtifactContentType.VISUALIZATION,
     ) -> ArtifactMessage:
-        """
-        Create an artifact message.
-
-        Args:
-            artifact_id: The short_id of the artifact
-            source: The source of the artifact
-        """
+        """Create an artifact message."""
         return ArtifactMessage(
             content_type=content_type,
             artifact_id=artifact_id,
@@ -49,21 +48,12 @@ class ArtifactManager(AssistantContextMixin):
             id=str(uuid4()),
         )
 
-    async def create_visualization_artifact(
+    async def create(
         self,
         content: VisualizationArtifactContent,
         name: str,
     ) -> AgentArtifact:
-        """
-        Create a visualization artifact.
-
-        Args:
-            content: The visualization content (query, name, description)
-            name: Display name for the artifact
-
-        Returns:
-            The created AgentArtifact
-        """
+        """Create and persist an artifact."""
         if not self._config:
             raise ValueError("Config is required")
 
@@ -80,125 +70,124 @@ class ArtifactManager(AssistantContextMixin):
 
         return artifact
 
-    async def aget_by_short_id(self, short_id: str) -> AgentArtifact:
-        """
-        Retrieve an artifact by short_id.
+    # -------------------------------------------------------------------------
+    # Content retrieval
+    # -------------------------------------------------------------------------
 
-        Args:
-            short_id: The short_id of the artifact
+    async def aget_content_by_short_id(self, short_id: str) -> VisualizationArtifactContent:
+        """Retrieve visualization content from an artifact by short_id."""
+        contents = await self._afetch_artifact_contents([short_id])
+        content = contents.get(short_id)
+        if content is None:
+            raise AgentArtifact.DoesNotExist(f"Artifact with short_id={short_id} not found")
+        return content
 
-        Returns:
-            The AgentArtifact
-        """
-        return await AgentArtifact.objects.aget(short_id=short_id, team=self._team)
-
-    async def aget_by_short_ids(self, short_ids: list[str]) -> dict[str, AgentArtifact]:
-        """
-        Batch fetch artifacts by short_ids.
-
-        Args:
-            short_ids: List of short_ids to fetch
-
-        Returns:
-            Dict mapping short_id to AgentArtifact
-        """
-        if not short_ids:
-            return {}
-
-        artifacts = AgentArtifact.objects.filter(short_id__in=short_ids, team=self._team)
-        return {artifact.short_id: artifact async for artifact in artifacts}
-
-    def get_from_messages(
-        self, messages: list[AssistantMessageUnion], filter_by_type: AgentArtifact.Type | None = None
-    ) -> list[AgentArtifact]:
-        """
-        Retrieve artifacts from messages.
-
-        Note: This method is intentionally synchronous as it's only called from
-        synchronous contexts. If you need to call this from async code, consider
-        adding an async variant (aget_artifacts_from_messages).
-        """
-        short_ids: list[str] = [
-            message.artifact_id
-            for message in messages
-            if isinstance(message, ArtifactMessage) and message.source == ArtifactSource.ARTIFACT
-        ]
-        query = AgentArtifact.objects.filter(short_id__in=short_ids, team=self._team)
-        if filter_by_type:
-            query = query.filter(type=filter_by_type)
-        return list(query.all())
-
-    async def aget_visualization_content_by_short_id(self, short_id: str) -> VisualizationArtifactContent:
-        """
-        Retrieve and validate visualization content from an artifact.
-
-        Args:
-            short_id: The short_id of the artifact
-
-        Returns:
-            The validated VisualizationArtifactContent
-        """
-        artifact = await self.aget_by_short_id(short_id)
-        if artifact.type != AgentArtifact.Type.VISUALIZATION:
-            raise ValueError(f"Expected a visualization artifact, found {artifact.type}")
-        return VisualizationArtifactContent.model_validate(artifact.data)
-
-    async def aget_visualization_content_by_insight_short_id(
-        self, short_id: str
-    ) -> VisualizationArtifactContent | None:
-        """
-        Retrieve and validate visualization content from a saved insight.
-
-        Args:
-            reference_id: The short_id of the insight
-
-        Returns:
-            The validated VisualizationArtifactContent, or None if insight doesn't exist or has no valid query
-        """
-        try:
-            insight = await Insight.objects.aget(short_id=short_id, team=self._team)
-        except Insight.DoesNotExist:
-            return None
-
-        query = insight.query
-
-        if not query:
-            return None
-
-        # Insights store queries wrapped in InsightVizNode, extract the inner query
-        if isinstance(query, dict) and query.get("kind") == "InsightVizNode":
-            query = query.get("source")
-            if not query:
-                return None
-
-        return VisualizationArtifactContent(
-            query=cast(AnyAssistantSupportedQuery, query),
-            name=insight.name or insight.derived_name,
-            description=insight.description,
-        )
-
-    async def aget_visualization_artifact_message(
-        self, message: ArtifactMessage
+    async def aget_enriched_message(
+        self,
+        message: ArtifactMessage,
+        state_messages: Sequence[AssistantMessageUnion] | None = None,
     ) -> VisualizationArtifactMessage | None:
         """
-        Convert an artifact message to a visualization artifact message ready to be streamed.
-        Fetches content from either draft artifact or saved insight based on source.
-
-        Returns:
-            The VisualizationArtifactMessage, or None if the artifact/insight no longer exists
+        Convert an artifact message to a visualization artifact message.
+        Fetches content based on source: State (from messages), Artifact (from DB), or Insight (from DB).
         """
-        if message.source == ArtifactSource.ARTIFACT:
-            # Draft artifact - fetch from AgentArtifact
-            content = await self.aget_visualization_content_by_short_id(message.artifact_id)
-        elif message.source == ArtifactSource.INSIGHT:
-            # Reference to saved insight - fetch from Insight
-            maybe_content = await self.aget_visualization_content_by_insight_short_id(message.artifact_id)
-            if maybe_content is None:
-                return None
-            content = maybe_content
+        if message.source == ArtifactSource.STATE:
+            if state_messages is None:
+                raise ValueError("state_messages required for State source")
+            messages_for_lookup: Sequence[AssistantMessageUnion] = state_messages
         else:
-            raise ValueError(f"Invalid artifact source: {message.source}")
+            messages_for_lookup = [message]
 
+        contents = await self.aget_contents_by_message_id(messages_for_lookup)
+        content = contents.get(message.id or "")
+
+        if content is None:
+            return None
+
+        return self._to_visualization_artifact_message(message, content)
+
+    async def aget_contents_by_message_id(
+        self, messages: Sequence[AssistantMessageUnion]
+    ) -> dict[str, VisualizationArtifactContent]:
+        """
+        Get artifact content for all artifact messages, keyed by message ID.
+        """
+        result: dict[str, VisualizationArtifactContent] = {}
+
+        # Collect IDs by source
+        artifact_ids: list[str] = []
+        insight_ids: list[str] = []
+        artifact_id_to_message_id: dict[str, str] = {}
+        insight_id_to_message_id: dict[str, str] = {}
+
+        for message in messages:
+            if not isinstance(message, ArtifactMessage) or not message.id:
+                continue
+            if message.source == ArtifactSource.STATE:
+                content = self._content_from_state(message.artifact_id, messages)
+                if content:
+                    result[message.id] = content
+            elif message.source == ArtifactSource.ARTIFACT:
+                artifact_ids.append(message.artifact_id)
+                artifact_id_to_message_id[message.artifact_id] = message.id
+            elif message.source == ArtifactSource.INSIGHT:
+                insight_ids.append(message.artifact_id)
+                insight_id_to_message_id[message.artifact_id] = message.id
+
+        # Batch fetch from DB
+        artifact_contents = await self._afetch_artifact_contents(artifact_ids)
+        insight_contents = await self._afetch_insight_contents(insight_ids)
+
+        for artifact_id, content in artifact_contents.items():
+            if message_id := artifact_id_to_message_id.get(artifact_id):
+                result[message_id] = content
+        for insight_id, content in insight_contents.items():
+            if message_id := insight_id_to_message_id.get(insight_id):
+                result[message_id] = content
+
+        return result
+
+    async def aenrich_messages(
+        self, messages: Sequence[AssistantMessageUnion], artifacts_only: bool = False
+    ) -> list[AssistantMessageUnion]:
+        """
+        Enrich state messages with artifact content.
+        """
+        contents_by_id = await self.aget_contents_by_message_id(messages)
+
+        result: list[AssistantMessageUnion] = []
+        for message in messages:
+            if isinstance(message, ArtifactMessage) and message.content_type == ArtifactContentType.VISUALIZATION:
+                content = contents_by_id.get(message.id or "")
+                if content:
+                    result.append(self._to_visualization_artifact_message(message, content))
+            elif not isinstance(message, VisualizationMessage) and not artifacts_only:
+                # Pass through non-artifact messages, but skip VisualizationMessage (they are already filtered in the state, just a precaution)
+                result.append(message)
+
+        return result
+
+    # -------------------------------------------------------------------------
+    # Private helpers
+    # -------------------------------------------------------------------------
+
+    def _content_from_state(
+        self, artifact_id: str, messages: Sequence[AssistantMessageUnion]
+    ) -> VisualizationArtifactContent | None:
+        """Extract content from a VisualizationMessage in state."""
+        for msg in messages:
+            if isinstance(msg, VisualizationMessage) and msg.id == artifact_id:
+                return VisualizationArtifactContent(
+                    query=msg.answer,
+                    name=msg.query,
+                    description=msg.plan,
+                )
+        return None
+
+    def _to_visualization_artifact_message(
+        self, message: ArtifactMessage, content: VisualizationArtifactContent
+    ) -> VisualizationArtifactMessage:
+        """Convert an ArtifactMessage to a VisualizationArtifactMessage."""
         return VisualizationArtifactMessage(
             id=message.id,
             parent_tool_call_id=message.parent_tool_call_id,
@@ -208,92 +197,34 @@ class ArtifactManager(AssistantContextMixin):
             content=content,
         )
 
-    async def aenrich_messages(self, messages: list[AssistantMessageUnion]) -> list[AssistantMessageUnion]:
-        """
-        Enrich state messages with artifact content.
-        Returns a dict keyed by message.id with enriched messages (or None if not found).
-        """
-        enriched_artifact_messages: dict[str, VisualizationArtifactMessage | None] = {}
+    async def _afetch_artifact_contents(self, artifact_ids: list[str]) -> dict[str, VisualizationArtifactContent]:
+        """Batch fetch artifact contents from the database."""
+        if not artifact_ids:
+            return {}
+        artifacts = AgentArtifact.objects.filter(short_id__in=artifact_ids, team=self._team)
+        return {
+            artifact.short_id: VisualizationArtifactContent.model_validate(artifact.data)
+            async for artifact in artifacts
+            if artifact.type == AgentArtifact.Type.VISUALIZATION
+        }
 
-        artifact_source_messages = []
-        insight_source_messages = []
-        for message in messages:
-            if isinstance(message, ArtifactMessage):
-                if message.content_type == ArtifactContentType.VISUALIZATION:
-                    if message.source == ArtifactSource.ARTIFACT:
-                        artifact_source_messages.append(message)
-                    elif message.source == ArtifactSource.INSIGHT:
-                        insight_source_messages.append(message)
-
-        enriched_artifact_messages.update(await self._aenrich_artifact_visualization_messages(artifact_source_messages))
-        enriched_artifact_messages.update(await self._aenrich_insight_visualization_messages(insight_source_messages))
-
-        # Build result using batch-enriched artifacts
-        result: list[AssistantMessageUnion] = []
-        for message in messages:
-            if isinstance(message, ArtifactMessage):
-                enriched = enriched_artifact_messages.get(cast(str, message.id))
-                if enriched:
-                    result.append(enriched)
-            else:
-                result.append(message)
-
-        return result
-
-    async def _aenrich_artifact_visualization_messages(
-        self, messages: list[ArtifactMessage]
-    ) -> dict[str, VisualizationArtifactMessage | None]:
-        result: dict[str, VisualizationArtifactMessage | None] = {}
-        draft_ids = [m.artifact_id for m in messages]
-        if draft_ids:
-            artifacts = await self.aget_by_short_ids(draft_ids)
-            for msg in messages:
-                artifact = artifacts.get(msg.artifact_id)
-                if artifact:
-                    content = VisualizationArtifactContent.model_validate(artifact.data)
-                    result[cast(str, msg.id)] = VisualizationArtifactMessage(
-                        id=msg.id,
-                        parent_tool_call_id=msg.parent_tool_call_id,
-                        content_type="visualization",
-                        artifact_id=msg.artifact_id,
-                        source=msg.source,
-                        content=content,
-                    )
-                else:
-                    result[cast(str, msg.id)] = None
-        return result
-
-    async def _aenrich_insight_visualization_messages(
-        self, messages: list[ArtifactMessage]
-    ) -> dict[str, VisualizationArtifactMessage | None]:
-        result: dict[str, VisualizationArtifactMessage | None] = {}
-        # Batch fetch saved insights
-        saved_ids = [m.artifact_id for m in messages]
-        if saved_ids:
-            insights = {i.short_id: i async for i in Insight.objects.filter(short_id__in=saved_ids, team=self._team)}
-            for msg in messages:
-                insight = insights.get(msg.artifact_id)
-                if insight and insight.query:
-                    query = insight.query
-                    # Insights store queries wrapped in InsightVizNode, extract the inner query
-                    if isinstance(query, dict) and query.get("kind") == "InsightVizNode":
-                        query = query.get("source")
-                    if query:
-                        content = VisualizationArtifactContent(
-                            query=cast(AnyAssistantSupportedQuery, query),
-                            name=insight.name or insight.derived_name,
-                            description=insight.description,
-                        )
-                        result[cast(str, msg.id)] = VisualizationArtifactMessage(
-                            id=msg.id,
-                            parent_tool_call_id=msg.parent_tool_call_id,
-                            content_type="visualization",
-                            artifact_id=msg.artifact_id,
-                            source=msg.source,
-                            content=content,
-                        )
-                    else:
-                        result[cast(str, msg.id)] = None
-                else:
-                    result[cast(str, msg.id)] = None
+    async def _afetch_insight_contents(self, insight_ids: list[str]) -> dict[str, VisualizationArtifactContent]:
+        """Batch fetch insight contents from the database."""
+        if not insight_ids:
+            return {}
+        insights = Insight.objects.filter(short_id__in=insight_ids, team=self._team)
+        result: dict[str, VisualizationArtifactContent] = {}
+        async for insight in insights:
+            query = insight.query
+            if not query:
+                continue
+            # Insights store queries wrapped in InsightVizNode, extract the inner query
+            if isinstance(query, dict) and query.get("kind") == "InsightVizNode":
+                query = query.get("source")
+            if query:
+                result[insight.short_id] = VisualizationArtifactContent(
+                    query=cast(AnyAssistantSupportedQuery, query),
+                    name=insight.name or insight.derived_name,
+                    description=insight.description,
+                )
         return result

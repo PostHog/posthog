@@ -768,38 +768,9 @@
             "enum": ["visualization", "notebook"],
             "type": "string"
         },
-        "ArtifactMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "artifact_id": {
-                    "description": "The ID of the artifact (short_id for both drafts and saved insights)",
-                    "type": "string"
-                },
-                "content_type": {
-                    "$ref": "#/definitions/ArtifactContentType",
-                    "description": "Type of artifact content"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "parent_tool_call_id": {
-                    "type": "string"
-                },
-                "source": {
-                    "$ref": "#/definitions/ArtifactSource",
-                    "description": "Source of artifact - determines which model to fetch from"
-                },
-                "type": {
-                    "const": "ai/artifact",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "artifact_id", "source", "content_type"],
-            "type": "object"
-        },
         "ArtifactSource": {
             "description": "Source of artifact - determines which model to fetch from",
-            "enum": ["artifact", "insight"],
+            "enum": ["artifact", "insight", "state"],
             "type": "string"
         },
         "AssistantArrayPropertyFilter": {
@@ -30054,7 +30025,7 @@
                     "type": "string"
                 }
             },
-            "required": ["artifact_id", "content", "content_type", "source", "type"],
+            "required": ["type", "artifact_id", "source", "content_type", "content"],
             "type": "object"
         },
         "VisualizationBlock": {

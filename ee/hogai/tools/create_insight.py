@@ -513,6 +513,7 @@ InsightType = Literal["trends", "funnel", "retention"]
 
 
 class CreateInsightToolArgs(BaseModel):
+    title: str = Field(description="A short title for the insight.")
     query_description: str = Field(description="A plan of the query to generate based on the template.")
     insight_type: InsightType = Field(description="The type of insight to generate.")
 
@@ -541,7 +542,7 @@ class CreateInsightTool(MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, query_description: str, insight_type: InsightType
+        self, title: str, query_description: str, insight_type: InsightType
     ) -> tuple[str, ToolMessagesArtifact | None]:
         graph_builder = InsightsGraph(self._team, self._user)
         match insight_type:
@@ -563,6 +564,7 @@ class CreateInsightTool(MaxTool):
             update={
                 "root_tool_call_id": self.tool_call_id,
                 "plan": query_description,
+                "visualization_title": title,
             },
             deep=True,
         )
@@ -589,7 +591,7 @@ class CreateInsightTool(MaxTool):
         if not is_visualization_artifact_message(maybe_viz_message):
             return "", ToolMessagesArtifact(messages=[tool_call_message])
 
-        visualization_content = await self._context_manager.artifacts.aget_visualization_content_by_short_id(
+        visualization_content = await self._context_manager.artifacts.aget_content_by_short_id(
             maybe_viz_message.artifact_id
         )
         # If the contextual tool is available, we're editing an insight.

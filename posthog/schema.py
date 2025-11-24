@@ -76,6 +76,7 @@ class ArtifactContentType(StrEnum):
 class ArtifactSource(StrEnum):
     ARTIFACT = "artifact"
     INSIGHT = "insight"
+    STATE = "state"
 
 
 class AssistantArrayPropertyFilterOperator(StrEnum):
@@ -3669,18 +3670,6 @@ class AlertCondition(BaseModel):
         extra="forbid",
     )
     type: AlertConditionType
-
-
-class ArtifactMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    artifact_id: str = Field(..., description="The ID of the artifact (short_id for both drafts and saved insights)")
-    content_type: ArtifactContentType = Field(..., description="Type of artifact content")
-    id: Optional[str] = None
-    parent_tool_call_id: Optional[str] = None
-    source: ArtifactSource = Field(..., description="Source of artifact - determines which model to fetch from")
-    type: Literal["ai/artifact"] = "ai/artifact"
 
 
 class AssistantArrayPropertyFilter(BaseModel):
