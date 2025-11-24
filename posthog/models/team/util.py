@@ -45,7 +45,11 @@ def delete_bulky_postgres_data(team_ids: list[int]):
 
 def _raw_delete(queryset: Any):
     "Issues a single DELETE statement for the queryset"
-    queryset._raw_delete(queryset.db)
+    from django.db import router
+
+    # Use db_for_write to ensure we get a writable connection (not read-only replica)
+    db_alias = router.db_for_write(queryset.model)
+    queryset._raw_delete(db_alias)
 
 
 def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
