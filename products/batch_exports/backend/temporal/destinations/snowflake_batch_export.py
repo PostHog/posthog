@@ -855,21 +855,33 @@ class SnowflakeClient:
         # handle the case where the final table doesn't contain all the fields present in the stage table
         # (for example, if we've added new fields to the person model)
         final_table_column_names = await self.aget_table_columns(final_table)
-        update_when_matched = [field for field in update_when_matched if field[0] in final_table_column_names]
+        # handle the case where the final table columns are in uppercase
+        column_names = [field[0] for field in update_when_matched]
+        aliases = {}
+        for column in column_names:
+            if column not in final_table_column_names and column.upper() in final_table_column_names:
+                aliases[column] = column.upper()
+            elif column in final_table_column_names:
+                aliases[column] = column
+        update_when_matched = [field for field in update_when_matched if field[0] in aliases.keys()]
 
         merge_condition = "ON "
 
         for n, field in enumerate(merge_key):
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f'final."{field[0]}" = stage."{field[0]}"'
+            # to account for the case where the final table columns are in uppercase
+            final_field_name = aliases[field[0]]
+            merge_condition += f'final."{final_field_name}" = stage."{field[0]}"'
 
         update_condition = "AND ("
 
         for index, field_name in enumerate(update_key):
             if index > 0:
                 update_condition += " OR "
-            update_condition += f'final."{field_name}" < stage."{field_name}"'
+            # to account for the case where the final table columns are in uppercase
+            final_field_name = aliases[field_name]
+            update_condition += f'final."{final_field_name}" < stage."{field_name}"'
         update_condition += ")"
 
         update_clause = ""
@@ -880,10 +892,13 @@ class SnowflakeClient:
                 update_clause += ", "
                 values += ", "
                 field_names += ", "
+            field_name = field[0]
+            # to account for the case where the final table columns are in uppercase
+            final_field_name = aliases[field_name]
 
-            update_clause += f'final."{field[0]}" = stage."{field[0]}"'
-            field_names += f'"{field[0]}"'
-            values += f'stage."{field[0]}"'
+            update_clause += f'final."{final_field_name}" = stage."{field_name}"'
+            field_names += f'"{final_field_name}"'
+            values += f'stage."{field_name}"'
 
         merge_query = f"""
         MERGE INTO "{final_table}" AS final
