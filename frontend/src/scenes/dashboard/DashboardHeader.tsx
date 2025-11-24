@@ -37,7 +37,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -122,7 +122,6 @@ export function DashboardHeader(): JSX.Element | null {
     }, [dashboard, dashboardLoading])
 
     const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
-    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     const exportOptions: ExportButtonItem[] = [
         {
@@ -251,11 +250,10 @@ export function DashboardHeader(): JSX.Element | null {
                         <AppShortcut
                             name="ToggleEditMode"
                             scope={Scene.Dashboard}
-                            keybind={keyBinds.edit}
+                            keybind={[keyBinds.edit]}
                             intent="Toggle edit mode"
                             interaction="click"
                             asChild
-                            disabled={!useAppShortcuts}
                         >
                             <ButtonPrimitive
                                 onClick={() => {
@@ -268,11 +266,11 @@ export function DashboardHeader(): JSX.Element | null {
                                 menuItem
                                 active={dashboardMode === DashboardMode.Edit}
                                 data-attr={`${RESOURCE_TYPE}-edit-layout`}
-                                tooltip={useAppShortcuts ? 'Toggle edit mode' : null}
+                                tooltip="Toggle edit mode"
                                 tooltipPlacement="left"
                             >
                                 <IconGridMasonry />
-                                Edit layout {useAppShortcuts ? null : <KeyboardShortcut e />}
+                                Edit layout
                             </ButtonPrimitive>
                         </AppShortcut>
                     )}
@@ -427,12 +425,11 @@ export function DashboardHeader(): JSX.Element | null {
                                 </LemonButton>
                                 <AppShortcut
                                     name="SaveDashboard"
-                                    keybind={keyBinds.save}
+                                    keybind={[keyBinds.save]}
                                     intent="Save dashboard"
                                     interaction="click"
                                     scope={Scene.Dashboard}
                                     asChild
-                                    disabled={!useAppShortcuts}
                                 >
                                     <LemonButton
                                         data-attr="dashboard-edit-mode-save"
@@ -490,11 +487,10 @@ export function DashboardHeader(): JSX.Element | null {
                                             <AppShortcut
                                                 name="AddTextTileToDashboard"
                                                 scope={Scene.Dashboard}
-                                                keybind={keyBinds.dashboardAddTextTile}
+                                                keybind={[keyBinds.dashboardAddTextTile]}
                                                 intent="Add text card"
                                                 interaction="click"
                                                 asChild
-                                                disabled={!useAppShortcuts}
                                             >
                                                 <LemonButton
                                                     onClick={() => {
@@ -503,7 +499,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="add-text-tile-to-dashboard"
                                                     type="secondary"
                                                     size="small"
-                                                    tooltip={useAppShortcuts ? 'Add text card' : null}
+                                                    tooltip="Add text card"
                                                     tooltipPlacement="top"
                                                 >
                                                     Add text card
@@ -522,6 +518,14 @@ export function DashboardHeader(): JSX.Element | null {
                                                       }
                                                     : undefined,
                                             }}
+                                            contextDescription={
+                                                dashboard
+                                                    ? {
+                                                          text: dashboard.name,
+                                                          icon: iconForType('dashboard'),
+                                                      }
+                                                    : undefined
+                                            }
                                             active={!!dashboard && canEditDashboard}
                                             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                             position="top-right"
@@ -537,7 +541,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="dashboard-add-graph-header"
                                                     size="small"
                                                 >
-                                                    Add insight
+                                                    <span className="pr-3">Add insight</span>
                                                 </LemonButton>
                                             </AccessControlAction>
                                         </MaxTool>

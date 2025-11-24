@@ -12,7 +12,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { OnboardingStepKey, ProductKey, type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
 import { onboardingLogic } from '../onboardingLogic'

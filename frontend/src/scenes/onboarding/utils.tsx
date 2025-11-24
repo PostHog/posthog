@@ -1,7 +1,8 @@
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { type AvailableOnboardingProducts, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { type AvailableOnboardingProducts } from '~/types'
 
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {
