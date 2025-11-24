@@ -116,6 +116,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
     def test_property_name_accepts_nonstandard_names(self):
         """Non-standard property names (e.g., starting with numbers, containing spaces) should be accepted
         to support grandfathered property names that are already in use."""
+        max_length_name = "a" * 200
         response = self.client.post(
             f"/api/projects/{self.project.id}/schema_property_groups/",
             {
@@ -125,6 +126,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
                     {"name": "has spaces", "property_type": "String"},
                     {"name": "has-dashes", "property_type": "String"},
                     {"name": "$special_prefix", "property_type": "String"},
+                    {"name": max_length_name, "property_type": "String"},
                 ],
             },
         )
@@ -136,6 +138,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         assert "has spaces" in property_names
         assert "has-dashes" in property_names
         assert "$special_prefix" in property_names
+        assert max_length_name in property_names
 
     def test_property_name_rejects_empty(self):
         """Empty property names should be rejected."""
@@ -168,23 +171,6 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "200 characters or less" in str(response.json())
-
-    def test_property_name_accepts_max_length(self):
-        """Property names of exactly 200 characters should be accepted."""
-        max_length_name = "a" * 200
-        response = self.client.post(
-            f"/api/projects/{self.project.id}/schema_property_groups/",
-            {
-                "name": "Test Group",
-                "properties": [
-                    {"name": max_length_name, "property_type": "String"},
-                ],
-            },
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        data = response.json()
-        assert data["properties"][0]["name"] == max_length_name
 
     def test_delete_property_group(self):
         property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="To Delete")
