@@ -1,8 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { IconPlus, IconTrash, IconWarning } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonTextArea,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -23,11 +31,11 @@ function isPropertyNameTooLong(name: string): boolean {
     return Boolean(name && name.trim().length > MAX_PROPERTY_NAME_LENGTH)
 }
 
-function hasStandardPropertyName(name: string): boolean {
+function isNonStandardPropertyName(name: string): boolean {
     if (!name || !name.trim()) {
-        return true
+        return false
     }
-    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name.trim())
+    return !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name.trim())
 }
 
 interface PropertyGroupModalProps {
@@ -43,7 +51,6 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
         propertyGroupForm,
         isPropertyGroupFormSubmitting,
         propertyGroupFormValidationError,
-        propertyGroupFormWarning,
     } = useValues(logic)
     const {
         setPropertyGroupModalOpen,
@@ -66,19 +73,24 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             title: 'Name',
             key: 'name',
             render: (_, property, index) => (
-                <LemonInput
-                    value={property.name}
-                    onChange={(value) => updatePropertyInForm(index, { name: value })}
-                    placeholder="Property name"
-                    status={
-                        !hasPropertyName(property.name) || isPropertyNameTooLong(property.name)
-                            ? 'danger'
-                            : !hasStandardPropertyName(property.name)
-                              ? 'warning'
-                              : undefined
-                    }
-                    fullWidth
-                />
+                <div className="flex items-center gap-1.5">
+                    <LemonInput
+                        value={property.name}
+                        onChange={(value) => updatePropertyInForm(index, { name: value })}
+                        placeholder="Property name"
+                        status={
+                            !hasPropertyName(property.name) || isPropertyNameTooLong(property.name)
+                                ? 'danger'
+                                : undefined
+                        }
+                        fullWidth
+                    />
+                    {isNonStandardPropertyName(property.name) && (
+                        <Tooltip title="Property names should start with a letter or underscore and contain only letters, numbers, and underscores. Non-standard names may not work correctly with type safety features. Only use if already in use.">
+                            <IconWarning className="text-warning text-lg flex-shrink-0" />
+                        </Tooltip>
+                    )}
+                </div>
             ),
         },
         {
@@ -171,9 +183,6 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                             />
                             {propertyGroupFormValidationError && (
                                 <div className="text-danger text-sm mt-2">{propertyGroupFormValidationError}</div>
-                            )}
-                            {!propertyGroupFormValidationError && propertyGroupFormWarning && (
-                                <div className="text-warning text-sm mt-2">{propertyGroupFormWarning}</div>
                             )}
                         </>
                     ) : (

@@ -273,23 +273,6 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                 return null
             },
         ],
-        propertyGroupFormWarning: [
-            (s) => [s.propertyGroupForm],
-            (form): string | null => {
-                if (form.properties.length === 0) {
-                    return null
-                }
-
-                const nonStandardProperties = form.properties.filter(
-                    (prop) => prop.name && prop.name.trim() && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prop.name.trim())
-                )
-                if (nonStandardProperties.length > 0) {
-                    return 'Property names should start with a letter or underscore and contain only letters, numbers, and underscores. Non-standard names may not work correctly with type safety features. Only use non-standard names if they are already in use.'
-                }
-
-                return null
-            },
-        ],
     }),
     listeners(({ actions }) => ({
         deletePropertyGroup: async ({ id }) => {
