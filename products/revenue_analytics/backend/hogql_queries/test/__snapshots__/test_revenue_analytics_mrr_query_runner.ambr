@@ -26,7 +26,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -222,7 +222,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -397,7 +397,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -593,7 +593,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -817,7 +817,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1061,7 +1061,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1308,7 +1308,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1504,7 +1504,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1728,7 +1728,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -1922,7 +1922,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2025-02-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2144,7 +2144,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2397,7 +2397,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2649,7 +2649,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -2854,7 +2854,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3083,7 +3083,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3279,7 +3279,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2026-05-01 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3503,7 +3503,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2024-12-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3699,7 +3699,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-12-01 00:00:00.000000', 6, 'UTC')), toDateTime64('2024-12-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -3923,7 +3923,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4119,7 +4119,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4343,7 +4343,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4540,7 +4540,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4764,7 +4764,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -4969,7 +4969,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5198,7 +5198,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5394,7 +5394,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5618,7 +5618,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -5823,7 +5823,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -6052,7 +6052,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
@@ -6257,7 +6257,7 @@
        (SELECT map_query.breakdown_by AS breakdown_by,
                map_query.customer_id AS customer_id,
                map_query.subscription_id AS subscription_id,
-               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('2024-11-30 00:00:00.000000', 6, 'UTC')), toDateTime64('2025-05-31 23:59:59.999999', 6, 'UTC')), 1)))) AS date,
+               arrayJoin(arrayMap(x -> toStartOfDay(addDays(toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), x)), range(minus(0, 60), plus(dateDiff('day', toStartOfDay(toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 1)))) AS date,
                ROW_NUMBER() OVER (PARTITION BY breakdown_by,
                                                customer_id,
                                                subscription_id
