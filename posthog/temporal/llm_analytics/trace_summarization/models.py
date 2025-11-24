@@ -41,3 +41,29 @@ class BatchSummarizationInputs:
     # Optional explicit window (if not provided, uses window_minutes from now)
     window_start: str | None = None  # RFC3339 format
     window_end: str | None = None  # RFC3339 format
+
+
+@dataclass
+class BatchSummarizationResult:
+    """Results from batch trace summarization workflow."""
+
+    batch_run_id: str
+    traces_queried: int
+    summaries_requested: int
+    summaries_failed: int
+    summaries_generated: int
+    events_emitted: int
+    embeddings_requested: int
+    embeddings_failed: int
+    duration_seconds: float
+
+
+@dataclass
+class CoordinatorResult:
+    """Results from coordinator workflow."""
+
+    teams_processed: int
+    teams_failed: int
+    failed_team_ids: list[int]
+    total_traces: int
+    total_summaries: int

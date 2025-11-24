@@ -1,5 +1,7 @@
 """Activity for generating embeddings for trace summaries."""
 
+import asyncio
+
 import structlog
 import temporalio
 
@@ -46,6 +48,134 @@ def format_summary_for_embedding(summary: TraceSummary) -> str:
             parts.append(f"• {note.text}")
 
     return "\n".join(parts)
+
+
+@temporalio.activity.defn
+async def embed_summaries_from_events_activity(
+    trace_ids: list[str],
+    team_id: int,
+    mode: str,
+    workflow_start_time: str | None = None,
+) -> dict[str, int]:
+    """
+    Fetch summaries from ClickHouse events and generate embeddings.
+
+    Args:
+        trace_ids: List of trace IDs to fetch summaries for
+        team_id: Team ID
+        mode: Rendering mode (minimal or detailed)
+        workflow_start_time: ISO timestamp of workflow start for efficient querying
+
+    Returns:
+        Dict with embeddings_requested and embeddings_failed counts
+    """
+    from posthog.clickhouse.client.connection import Workload
+    from posthog.clickhouse.client.execute import sync_execute
+    from posthog.models import Team
+    from posthog.temporal.llm_analytics.trace_summarization import constants
+
+    from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_DOCUMENT_TYPE, LLM_TRACES_SUMMARIES_PRODUCT
+    from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
+
+    def _fetch_summaries_and_setup():
+        """Fetch summaries from ClickHouse and setup embedder (sync operations)."""
+        from datetime import datetime, timedelta
+
+        # Build timestamp filter for efficiency
+        # Events are written during workflow execution, so look from 5 min before start to 10 min after
+        timestamp_filter = ""
+        if workflow_start_time:
+            timestamp_filter = "AND timestamp >= %(time_from)s AND timestamp <= %(time_to)s"
+
+        # Fetch summaries from ClickHouse events
+        query = f"""
+            SELECT
+                JSONExtractString(properties, '$ai_trace_id') as trace_id,
+                JSONExtractString(properties, '$ai_summary_title') as title,
+                JSONExtractString(properties, '$ai_summary_flow_diagram') as flow_diagram,
+                JSONExtractString(properties, '$ai_summary_bullets') as bullets,
+                JSONExtractString(properties, '$ai_summary_interesting_notes') as notes
+            FROM events
+            WHERE team_id = %(team_id)s
+                AND event = %(event_name)s
+                AND JSONExtractString(properties, '$ai_trace_id') IN %(trace_ids)s
+                {timestamp_filter}
+            ORDER BY timestamp DESC
+        """
+
+        params = {
+            "team_id": team_id,
+            "event_name": constants.EVENT_NAME_TRACE_SUMMARY,
+            "trace_ids": trace_ids,
+        }
+
+        # Add timestamp params if filter is active
+        if workflow_start_time:
+            start_dt = datetime.fromisoformat(workflow_start_time.replace("Z", "+00:00"))
+            params["time_from"] = (start_dt - timedelta(minutes=5)).isoformat()
+            params["time_to"] = (start_dt + timedelta(minutes=10)).isoformat()
+
+        results = sync_execute(query, params, workload=Workload.OFFLINE)
+
+        team = Team.objects.get(id=team_id)
+        embedder = LLMTracesSummarizerEmbedder(team=team)
+        rendering = f"llma_trace_{mode}"
+
+        return results, embedder, rendering
+
+    # Fetch data and setup embedder (sync operations wrapped)
+    results, embedder, rendering = await database_sync_to_async(_fetch_summaries_and_setup, thread_sensitive=False)()
+
+    # Process all embeddings in parallel
+    async def generate_single_embedding(row):
+        """Helper to generate a single embedding with error handling."""
+        trace_id, title, flow_diagram, bullets, notes = row
+
+        # Format summary text for embedding
+        parts = []
+        if title:
+            parts.append(f"Title: {title}")
+        if flow_diagram:
+            parts.append(f"\nFlow:\n{flow_diagram}")
+        if bullets:
+            parts.append(f"\nSummary:\n{bullets}")
+        if notes:
+            parts.append(f"\nInteresting Notes:\n{notes}")
+
+        summary_text = "\n".join(parts)
+
+        try:
+            # Use embedder's _embed_document method to send to Kafka
+            await database_sync_to_async(embedder._embed_document, thread_sensitive=False)(
+                content=summary_text,
+                document_id=trace_id,
+                document_type=LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
+                rendering=rendering,
+                product=LLM_TRACES_SUMMARIES_PRODUCT,
+            )
+            return {"success": True, "trace_id": trace_id}
+        except Exception as e:
+            logger.exception(
+                "Failed to generate embedding",
+                trace_id=trace_id,
+                error=str(e),
+            )
+            return {"success": False, "trace_id": trace_id, "error": str(e)}
+
+    # Execute all embedding tasks in parallel
+    embedding_results = await asyncio.gather(
+        *[generate_single_embedding(row) for row in results],
+        return_exceptions=False,  # We handle exceptions in the helper
+    )
+
+    # Count successes and failures
+    embeddings_requested = len(embedding_results)
+    embeddings_failed = sum(1 for r in embedding_results if not r["success"])
+
+    return {
+        "embeddings_requested": embeddings_requested,
+        "embeddings_failed": embeddings_failed,
+    }
 
 
 @temporalio.activity.defn
@@ -131,15 +261,6 @@ async def embed_summaries_activity(
                 )
 
             embeddings_requested = len(summarized_traces)
-
-            logger.info(
-                "Embedding requests sent to Kafka",
-                team_id=team_id,
-                embeddings_requested=embeddings_requested,
-                embeddings_failed=failed_count,
-                mode=mode,
-                rendering=rendering,
-            )
 
             return {
                 "embeddings_requested": embeddings_requested,

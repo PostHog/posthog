@@ -6,17 +6,16 @@ child workflows to process traces for each team.
 """
 
 import dataclasses
-from datetime import timedelta
-from typing import Any
+from datetime import datetime, timedelta
 
 import structlog
 import temporalio
-from temporalio.common import RetryPolicy
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.llm_analytics.trace_summarization import constants
 from posthog.temporal.llm_analytics.trace_summarization.constants import WORKFLOW_EXECUTION_TIMEOUT_MINUTES
-from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
+from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, CoordinatorResult
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -28,7 +27,7 @@ class BatchTraceSummarizationCoordinatorInputs:
 
     max_traces: int = 500
     batch_size: int = 10
-    mode: str = "minimal"
+    mode: str = "detailed"
     window_minutes: int = 60
     model: str | None = None
     lookback_hours: int = 24  # How far back to look for team activity
@@ -41,13 +40,21 @@ class TeamsWithTracesResult:
     team_ids: list[int]
 
 
-def query_teams_with_traces(lookback_hours: int) -> list[int]:
+def query_teams_with_traces(lookback_hours: int, reference_time: datetime | None = None) -> list[int]:
     """
     Query ClickHouse for teams that have LLM trace events in the lookback window.
 
     Shared logic used by both the coordinator activity and manual trigger script.
+
+    Args:
+        lookback_hours: How many hours back to look from reference_time
+        reference_time: Reference timestamp to query from (defaults to now() for idempotency in tests)
     """
     from posthog.clickhouse.client import sync_execute
+
+    # Use provided timestamp or default to current time
+    if reference_time is None:
+        reference_time = datetime.now()
 
     result = sync_execute(
         """
@@ -57,10 +64,10 @@ def query_teams_with_traces(lookback_hours: int) -> list[int]:
             '$ai_trace', '$ai_span', '$ai_generation',
             '$ai_embedding', '$ai_metric', '$ai_feedback'
         )
-          AND timestamp >= now() - INTERVAL %(lookback_hours)s HOUR
+          AND timestamp >= %(reference_time)s - INTERVAL %(lookback_hours)s HOUR
         ORDER BY team_id
         """,
-        {"lookback_hours": lookback_hours},
+        {"lookback_hours": lookback_hours, "reference_time": reference_time},
     )
     return [row[0] for row in result]
 
@@ -68,13 +75,19 @@ def query_teams_with_traces(lookback_hours: int) -> list[int]:
 @temporalio.activity.defn
 async def get_teams_with_recent_traces_activity(
     inputs: BatchTraceSummarizationCoordinatorInputs,
+    reference_time: datetime,
 ) -> TeamsWithTracesResult:
-    """Query for teams that have LLM trace events in the lookback window."""
+    """Query for teams that have LLM trace events in the lookback window.
+
+    Args:
+        inputs: Coordinator inputs with lookback configuration
+        reference_time: Reference timestamp from workflow for idempotent queries
+    """
     from posthog.temporal.llm_analytics.trace_summarization.constants import ALLOWED_TEAM_IDS
 
     @database_sync_to_async
     def get_teams():
-        return query_teams_with_traces(inputs.lookback_hours)
+        return query_teams_with_traces(inputs.lookback_hours, reference_time)
 
     team_ids = await get_teams()
 
@@ -116,8 +129,10 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         )
 
     @temporalio.workflow.run
-    async def run(self, inputs: BatchTraceSummarizationCoordinatorInputs) -> dict[str, Any]:
+    async def run(self, inputs: BatchTraceSummarizationCoordinatorInputs) -> CoordinatorResult:
         """Execute coordinator workflow."""
+        workflow_time = temporalio.workflow.now()
+
         logger.info(
             "Starting batch trace summarization coordinator",
             max_traces=inputs.max_traces,
@@ -128,18 +143,20 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         # Step 1: Get teams with recent trace activity
         result = await temporalio.workflow.execute_activity(
             get_teams_with_recent_traces_activity,
-            inputs,
+            args=[inputs, workflow_time],
             schedule_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            retry_policy=constants.COORDINATOR_ACTIVITY_RETRY_POLICY,
         )
 
         if not result.team_ids:
             logger.info("No teams with recent trace activity found")
-            return {
-                "teams_processed": 0,
-                "total_traces": 0,
-                "total_summaries": 0,
-            }
+            return CoordinatorResult(
+                teams_processed=0,
+                teams_failed=0,
+                failed_team_ids=[],
+                total_traces=0,
+                total_summaries=0,
+            )
 
         # Step 2: Spawn child workflows for each team
         total_traces = 0
@@ -160,36 +177,21 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     ),
                     id=f"batch-summarization-team-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
+                    retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                 )
 
-                total_traces += workflow_result.get("traces_queried", 0)
-                total_summaries += workflow_result.get("summaries_generated", 0)
-
-                logger.info(
-                    "Completed batch summarization for team",
-                    team_id=team_id,
-                    traces=workflow_result.get("traces_queried", 0),
-                    summaries=workflow_result.get("summaries_generated", 0),
-                )
+                total_traces += workflow_result.traces_queried
+                total_summaries += workflow_result.summaries_generated
 
             except Exception as e:
                 logger.exception("Failed to process team", team_id=team_id, error=str(e))
                 failed_teams.append(team_id)
                 # Continue with other teams
 
-        logger.info(
-            "Batch trace summarization coordinator completed",
+        return CoordinatorResult(
             teams_processed=len(result.team_ids),
             teams_failed=len(failed_teams),
+            failed_team_ids=failed_teams,
             total_traces=total_traces,
             total_summaries=total_summaries,
         )
-
-        return {
-            "teams_processed": len(result.team_ids),
-            "teams_failed": len(failed_teams),
-            "failed_team_ids": failed_teams,
-            "total_traces": total_traces,
-            "total_summaries": total_summaries,
-        }

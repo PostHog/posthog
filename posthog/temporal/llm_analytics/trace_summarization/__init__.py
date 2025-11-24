@@ -14,23 +14,21 @@ from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     BatchTraceSummarizationCoordinatorInputs,
     BatchTraceSummarizationCoordinatorWorkflow,
 )
-from posthog.temporal.llm_analytics.trace_summarization.events import emit_trace_summary_events_activity
-from posthog.temporal.llm_analytics.trace_summarization.fetching import fetch_trace_hierarchy_activity
+from posthog.temporal.llm_analytics.trace_summarization.embedding import embed_summaries_from_events_activity
 
 # Export models
-from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, TraceSummary
+from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
 from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.schedule import create_batch_trace_summarization_schedule
-from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_summary_activity
+from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
 
 # Export workflows
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
 __all__ = [
     # Activities
-    "emit_trace_summary_events_activity",
-    "fetch_trace_hierarchy_activity",
-    "generate_summary_activity",
+    "embed_summaries_from_events_activity",
+    "generate_and_save_summary_activity",
     "query_traces_in_window_activity",
     # Constants
     "DEFAULT_BATCH_SIZE",

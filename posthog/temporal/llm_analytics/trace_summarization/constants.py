@@ -1,5 +1,7 @@
 """Constants for batch trace summarization workflows."""
 
+from temporalio.common import RetryPolicy
+
 # Window processing configuration
 DEFAULT_MAX_TRACES_PER_WINDOW = 100  # Max traces to process per window (conservative for worst-case 30s/trace)
 DEFAULT_BATCH_SIZE = 10  # Number of traces to process in parallel per batch
@@ -22,6 +24,18 @@ MAX_RETRY_ATTEMPTS_SAMPLE = 3  # Retries for sampling activity
 MAX_RETRY_ATTEMPTS_FETCH = 3  # Retries for fetching trace hierarchy
 MAX_RETRY_ATTEMPTS_SUMMARIZE = 2  # Retries for LLM summarization (fewer due to cost)
 MAX_RETRY_ATTEMPTS_EMIT = 3  # Retries for event emission
+
+# Retry policies
+SAMPLE_RETRY_POLICY = RetryPolicy(maximum_attempts=MAX_RETRY_ATTEMPTS_SAMPLE)
+SUMMARIZE_RETRY_POLICY = RetryPolicy(maximum_attempts=MAX_RETRY_ATTEMPTS_SUMMARIZE)
+EMBED_RETRY_POLICY = RetryPolicy(maximum_attempts=MAX_RETRY_ATTEMPTS_EMIT)
+
+# Coordinator retry policies
+COORDINATOR_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
+
+# Error threshold for workflow failure
+MAX_ERROR_RATE_THRESHOLD = 0.5  # Fail workflow if >50% of summaries fail
 
 # Event schema
 EVENT_NAME_TRACE_SUMMARY = "$ai_trace_summary"  # Event name for summary storage

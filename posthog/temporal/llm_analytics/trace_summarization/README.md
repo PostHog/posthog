@@ -9,12 +9,10 @@ posthog/temporal/llm_analytics/trace_summarization/
 ├── workflow.py              # Per-team batch summarization workflow (main orchestrator)
 ├── coordinator.py           # Multi-team coordinator workflow (spawns child workflows)
 ├── schedule.py              # Temporal schedule configuration (hourly automatic runs)
-├── models.py                # Data models (TraceSummary, BatchSummarizationInputs, etc.)
-├── constants.py             # Configuration constants (timeouts, defaults, limits, rendering types)
+├── models.py                # Data models (TraceSummary, BatchSummarizationInputs, BatchSummarizationResult, CoordinatorResult)
+├── constants.py             # Configuration constants (timeouts, defaults, limits, rendering types, retry policies)
 ├── sampling.py              # Query traces from time window using TracesQueryRunner
-├── fetching.py              # Fetch full trace hierarchies using TraceQueryRunner
-├── summarization.py         # Generate text repr and call LLM summarization API
-├── events.py                # Emit $ai_trace_summary events to ClickHouse
+├── summarization.py         # Fetch trace, generate text repr, call LLM API, and emit events to ClickHouse
 ├── embedding.py             # Generate embeddings for summaries via Kafka/Rust worker
 ├── manual_trigger.py        # Helper functions for manual workflow triggers (dev/testing)
 ├── test_workflow.py         # Workflow and activity tests
@@ -25,18 +23,26 @@ posthog/temporal/llm_analytics/trace_summarization/
 
 This workflow implements **Phases 2 & 3** of the clustering MVP (see [issue #40787](https://github.com/PostHog/posthog/issues/40787)):
 
-1. **Query traces from time window** - Process all traces from the last N minutes (default: 60), up to a maximum count (default: 100)
-2. **Summarize them** - Use text repr and LLM summarization to generate concise summaries
-3. **Save as events** - Store generated summaries as `$ai_trace_summary` events in ClickHouse
+This is a **daily batch workflow** that:
+
+1. Queries N recent traces from a time window (default: last 60 minutes)
+2. For each trace:
+   - Fetches full trace data from ClickHouse
+   - Generates text representation and summary using LLM
+   - Generates embedding for the summary
+   - Stores results as `$ai_trace_summary` events
+
+> **Note**: The workflow uses Temporal best practices by passing only trace IDs through workflow history. Heavy data (full trace objects) is fetched directly within activities to avoid payload size limits.
+
 4. **Generate embeddings** - Create semantic embeddings from summaries and store in `document_embeddings` table
 
-The workflow is designed to run on a schedule (e.g., hourly) and is **idempotent** - rerunning on the same time window will regenerate the same summaries and embeddings.
+The workflow runs on a schedule (e.g., hourly) and is **idempotent** - rerunning on the same time window will regenerate the same summaries and embeddings. The workflow uses Temporal workflow time (`temporalio.workflow.now()`) for all timestamp-based queries, ensuring deterministic behavior across retries.
 
-The summaries and embeddings will then be used as input for:
+The summaries and embeddings are used for:
 
-- **Phase 4**: Daily clustering jobs (using embeddings for KMeans)
-- **Phase 5**: Clustering UI/reports
-- **Future**: Semantic search across trace summaries
+- Daily clustering jobs (using embeddings for KMeans)
+- Clustering UI and reports
+- Semantic search across trace summaries
 
 ## Architecture
 
@@ -62,7 +68,7 @@ graph TB
         F --> H[(Document Embeddings Table)]
     end
 
-    subgraph "Future: Clustering"
+    subgraph "Downstream: Clustering"
         H --> I[Daily KMeans Clustering]
         I --> J[Clustering UI]
     end
@@ -76,8 +82,8 @@ graph TB
     style F fill:#e8f5e9
     style G fill:#f3e5f5
     style H fill:#f3e5f5
-    style I fill:#eeeeee,stroke-dasharray: 5 5
-    style J fill:#eeeeee,stroke-dasharray: 5 5
+    style I fill:#e3f2fd
+    style J fill:#e3f2fd
 ```
 
 ## Workflow Details
@@ -97,10 +103,19 @@ graph TB
 
 **Flow**:
 
-1. Queries for teams with LLM trace events in the last 24 hours
-2. Spawns child `batch-trace-summarization` workflow for each team
-3. Aggregates results across all teams
-4. Teams without traces are skipped efficiently
+1. Captures workflow start time via `temporalio.workflow.now()` for idempotent queries
+2. Queries for teams with LLM trace events in the lookback window (using workflow time for deterministic results)
+3. Spawns child `batch-trace-summarization` workflow for each team
+4. Aggregates results into typed `CoordinatorResult` with team/trace/summary counts
+5. Teams without traces are skipped
+
+**Returns**: `CoordinatorResult` dataclass with fields:
+
+- `teams_processed`: Total number of teams with trace activity
+- `teams_failed`: Number of teams that failed to process
+- `failed_team_ids`: List of team IDs that encountered errors
+- `total_traces`: Sum of traces queried across all teams
+- `total_summaries`: Sum of summaries generated across all teams
 
 ### Per-Team Workflow
 
@@ -117,6 +132,18 @@ graph TB
 - `window_start` (optional): Explicit window start in RFC3339 format (overrides window_minutes)
 - `window_end` (optional): Explicit window end in RFC3339 format (overrides window_minutes)
 
+**Returns**: `BatchSummarizationResult` dataclass with fields:
+
+- `batch_run_id`: Unique identifier for this batch run (format: `team_id_timestamp`)
+- `traces_queried`: Number of traces fetched from window
+- `summaries_requested`: Number of summaries attempted
+- `summaries_failed`: Number that failed to generate
+- `summaries_generated`: Number successfully generated
+- `events_emitted`: Number of `$ai_trace_summary` events written to ClickHouse
+- `embeddings_requested`: Number of embedding requests sent to Kafka
+- `embeddings_failed`: Number that failed to queue for embedding
+- `duration_seconds`: Total workflow execution time
+
 ### Activities
 
 1. **`query_traces_in_window_activity`**
@@ -126,28 +153,22 @@ graph TB
    - Returns list of trace metadata (trace_id, timestamp, team_id)
    - Idempotent - same window returns same traces
 
-2. **`fetch_trace_hierarchy_activity`**
-   - Uses `TraceQueryRunner` to fetch full trace data (reuses frontend query logic)
-   - Creates 15-minute time window around trace timestamp to ensure capture
-   - Converts `LLMTrace` format to text repr format
-   - Returns trace metadata and hierarchy suitable for text repr
-
-3. **`generate_summary_activity`**
+2. **`generate_and_save_summary_activity`**
+   - Uses `TraceQueryRunner` to fetch full trace data (creates 15-minute window around trace timestamp)
    - Generates line-numbered text representation using existing formatters
    - Calls LLM summarization API
-   - Returns `TraceSummary` with text_repr, summary, and metadata
+   - Immediately emits `$ai_trace_summary` event to ClickHouse (atomically)
+   - Returns success status with trace_id and metadata
 
-4. **`emit_trace_summary_events_activity`**
-   - Emits `$ai_trace_summary` events to ClickHouse
-   - Includes batch run ID for tracking
-   - Stores text repr, summary components, and metadata
-
-5. **`embed_summaries_activity`**
+3. **`embed_summaries_from_events_activity`**
+   - Waits 3 seconds for ClickHouse ingestion to complete
+   - Fetches `$ai_trace_summary` events from ClickHouse using timestamp filtering
+     - Uses workflow start time to create narrow query window (±5-10 minutes)
+     - Prevents full table scans on large event tables
    - Formats summaries for embedding (excludes line references, includes title + flow + bullets + notes)
-   - Sends embedding requests to Kafka (`document_embeddings_input` topic)
+   - Sends embedding requests to Kafka (`document_embeddings_input` topic) in parallel
    - Rust embedding worker processes requests asynchronously (calls OpenAI API)
    - Embeddings stored in ClickHouse `document_embeddings` table with rendering type (`llma_trace_minimal` or `llma_trace_detailed`)
-   - Tracks failure rate and fails workflow if >10% of summaries fail formatting
    - Returns count of embeddings requested and failed
 
 ### Output Events
@@ -220,16 +241,16 @@ See `manual_trigger.py` for more examples and helper functions.
 
 ### Scheduled Execution (Automatic)
 
-**The batch trace summarization runs automatically via a coordinator workflow that is scheduled hourly.**
+The batch trace summarization runs automatically via a coordinator workflow scheduled hourly.
 
 The coordinator workflow (`batch-trace-summarization-coordinator`):
 
 - Runs every hour via Temporal schedules (configured in `schedule.py`)
-- Automatically discovers teams with LLM trace activity in the last 24 hours
+- Discovers teams with LLM trace activity in the last 24 hours
 - Spawns a child workflow for each team to process their traces
-- Teams without traces are skipped (no wasted compute)
+- Teams without traces are skipped
 
-**No manual setup is required** - the schedule is created automatically when Temporal starts.
+The schedule is created automatically when Temporal starts.
 
 You can verify the schedule is running:
 
@@ -240,7 +261,7 @@ You can verify the schedule is running:
 
 **Team allowlist:**
 
-By default, the workflow is limited to specific teams via `ALLOWED_TEAM_IDS` in `constants.py`:
+The workflow can be limited to specific teams via `ALLOWED_TEAM_IDS` in `constants.py`:
 
 ```python
 ALLOWED_TEAM_IDS: list[int] = [
@@ -254,9 +275,9 @@ ALLOWED_TEAM_IDS: list[int] = [
 - Empty list (`[]`): All teams with trace activity will be processed
 - Manual triggers can still target any team regardless of allowlist
 
-**Manual schedule for specific team (advanced):**
+**Custom schedule for specific team:**
 
-If you need to create a separate schedule for a specific team:
+To create a separate schedule for a specific team:
 
 ```python
 from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleSpec, ScheduleIntervalSpec
@@ -292,16 +313,35 @@ The workflow is idempotent, so rerunning on the same window is safe.
 
 Key constants in `constants.py`:
 
+**Processing defaults:**
+
 - `DEFAULT_MAX_TRACES_PER_WINDOW = 100` - Max traces to process per window (conservative for worst-case 30s/trace)
 - `DEFAULT_BATCH_SIZE = 10` - Batch size for processing
 - `DEFAULT_MODE = "detailed"` - Summary detail level (detailed provides more context for embeddings/clustering)
 - `DEFAULT_WINDOW_MINUTES = 60` - Time window to query (matches schedule frequency)
 - `DEFAULT_WORKFLOW_MODEL = "gpt-5-mini"` - Default LLM model (slower but better quality than UI default)
+
+**Timeouts:**
+
 - `WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 90` - Max time for single team workflow (worst case: 100 traces × 30s ≈ 58min)
+- `SAMPLE_TIMEOUT_SECONDS = 300` - Timeout for trace sampling activity (5 minutes)
+- `GENERATE_SUMMARY_TIMEOUT_SECONDS = 120` - Timeout for summary generation activity (2 minutes)
+- `EMBED_TIMEOUT_SECONDS = 60` - Timeout for embedding generation activity
+
+**Retry policies (centralized for consistency):**
+
+- `SAMPLE_RETRY_POLICY` - Retry configuration for trace sampling activity
+- `SUMMARIZE_RETRY_POLICY` - Retry configuration for summary generation activity
+- `EMBED_RETRY_POLICY` - Retry configuration for embedding activity
+- `COORDINATOR_ACTIVITY_RETRY_POLICY` - Retry configuration for coordinator activities
+- `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` - Retry configuration for child workflows
+
+**Other:**
+
 - `ALLOWED_TEAM_IDS` - Team allowlist for coordinator (empty list = all teams allowed)
 - `LLMA_TRACE_MINIMAL_RENDERING = "llma_trace_minimal"` - Rendering type for minimal mode embeddings
 - `LLMA_TRACE_DETAILED_RENDERING = "llma_trace_detailed"` - Rendering type for detailed mode embeddings
-- `EMBED_TIMEOUT_SECONDS = 60` - Timeout for embedding generation activity
+- `MAX_ERROR_RATE_THRESHOLD = 0.5` - Fail workflow if >50% of summaries fail
 
 ## Processing Flow
 
@@ -311,41 +351,43 @@ Key constants in `constants.py`:
    - Idempotent - same window returns same traces
 
 2. **Batch Processing** (variable, depends on trace count and LLM latency)
-   - Process traces in batches of 10 (configurable)
-   - For each trace:
+   - Process traces with controlled concurrency using asyncio semaphore
+   - Batch size controls max concurrent activities (default: 10)
+   - For each trace (in parallel up to batch_size limit):
      - Fetch full hierarchy from ClickHouse (~30s timeout)
      - Generate text representation (instant)
      - Call LLM for summarization (~1-5s per trace, 2min timeout)
-   - Continue on individual failures (logged but don't fail batch)
+     - Immediately emit `$ai_trace_summary` event to ClickHouse
+   - Continue on individual failures (logged but don't fail workflow)
 
-3. **Storage** (< 1 min per batch)
-   - Emit `$ai_trace_summary` events to ClickHouse
-   - Batch writes for efficiency
-   - Events include `$ai_batch_run_id` for idempotency tracking
-
-4. **Embedding Generation** (< 1 min per batch)
+3. **Embedding Generation** (< 1 min)
+   - Wait 3 seconds for ClickHouse to ingest summary events
+   - Query ClickHouse for `$ai_trace_summary` events using narrow timestamp window
    - Format summaries (exclude line refs)
-   - Send to Kafka for async processing
-   - Rust worker generates embeddings via OpenAI API
+   - Send all embedding requests to Kafka in parallel
+   - Rust worker generates embeddings via OpenAI API asynchronously
    - Stored in `document_embeddings` table
 
 ## Error Handling
 
-- **Individual trace failures**: Logged but don't fail the batch
-- **Activity retries**: 2-3 retries with exponential backoff
+- **Individual trace failures**: Logged but don't fail the workflow (continue processing remaining traces)
+- **Workflow failure threshold**: Workflow fails if >50% of summaries fail (`MAX_ERROR_RATE_THRESHOLD`)
+- **Activity retries**: Configured via centralized retry policies in constants.py
+  - Exponential backoff with configurable max attempts
+  - Different policies for sampling, summarization, embedding, and coordinator activities
 - **Activity-level timeouts**:
-  - Sampling: 5 minutes
-  - Fetch hierarchy: 30 seconds per trace
-  - Generate summary: 2 minutes per trace
-  - Emit events: 1 minute per batch
-  - Generate embeddings: 1 minute per batch (Kafka is async)
+  - Sampling: 5 minutes (`SAMPLE_TIMEOUT_SECONDS`)
+  - Generate summary: 2 minutes (`GENERATE_SUMMARY_TIMEOUT_SECONDS`)
+  - Generate embeddings: 1 minute (`EMBED_TIMEOUT_SECONDS`)
 - **Workflow-level timeouts**:
-  - Single team workflow: 90 minutes
+  - Single team workflow: 90 minutes (`WORKFLOW_EXECUTION_TIMEOUT_MINUTES`)
   - Coordinator workflow: 2 hours (manual triggers only)
 
 ## Monitoring
 
-Workflow outputs:
+### Per-Team Workflow Output
+
+Returns `BatchSummarizationResult` with:
 
 ```json
 {
@@ -358,6 +400,20 @@ Workflow outputs:
   "embeddings_requested": 98,
   "embeddings_failed": 0,
   "duration_seconds": 315.23
+}
+```
+
+### Coordinator Workflow Output
+
+Returns `CoordinatorResult` with:
+
+```json
+{
+  "teams_processed": 5,
+  "teams_failed": 0,
+  "failed_team_ids": [],
+  "total_traces": 450,
+  "total_summaries": 447
 }
 ```
 
@@ -389,21 +445,21 @@ This provides a representative sample for clustering while keeping costs bounded
 - Processing in predictable batches for stable resource usage
 - Feeding consistent volumes to downstream embedding and clustering workflows
 
-## Next Steps
+## Downstream Use Cases
 
-After this workflow is in production:
+The summaries and embeddings produced by this workflow enable:
 
-1. **Phase 4: Clustering Pipeline** (see issue #40787)
+1. **Clustering Pipeline**
    - Daily KMeans clustering on embeddings from `document_embeddings` table
-   - LLM-generated cluster names/descriptions from cluster centroids
-   - Store cluster metadata and assignments
+   - LLM-generated cluster names and descriptions from cluster centroids
+   - Cluster metadata and trace assignments
 
-2. **Phase 5: Clustering UI**
-   - Display clusters in LLMA dashboard
+2. **Clustering UI**
+   - Cluster visualization in LLMA dashboard
    - Trace exploration within clusters
    - Property filters and cluster-based analytics
 
-3. **Future Enhancements**
+3. **Additional Applications**
    - Semantic search across trace summaries using embeddings
    - Anomaly detection by comparing new traces to cluster patterns
    - Automated issue detection from recurring error patterns
@@ -433,23 +489,38 @@ The implementation is split into focused, single-responsibility modules:
 
 **Core workflows:**
 
-- `workflow.py` - Per-team workflow orchestration (~180 lines)
-- `coordinator.py` - Coordinator workflow for multi-team processing (~150 lines)
+- `workflow.py` - Per-team workflow orchestration (~225 lines)
+  - Returns typed `BatchSummarizationResult` with comprehensive metrics
+  - Uses asyncio semaphore for controlled concurrency
+  - Passes workflow start time to embedding activity for efficient queries
+- `coordinator.py` - Coordinator workflow for multi-team processing (~200 lines)
+  - Returns typed `CoordinatorResult` with aggregated metrics
+  - Uses workflow time for idempotent queries (not database `now()`)
+  - Spawns child workflows with proper retry policies
 - `schedule.py` - Temporal schedule configuration for hourly runs (~40 lines)
-- `models.py` - Data models: `TraceSummary`, `BatchSummarizationInputs`, `BatchTraceSummarizationCoordinatorInputs`
-- `constants.py` - Configuration constants (timeouts, defaults, property names)
+- `models.py` - Type-safe data models
+  - `TraceSummary`, `BatchSummarizationInputs`, `BatchSummarizationResult`
+  - `CoordinatorResult`, `BatchTraceSummarizationCoordinatorInputs`
+- `constants.py` - Configuration constants
+  - Timeouts, defaults, property names, rendering types
+  - Centralized retry policies for all activities and child workflows
 
 **Activity modules:**
 
 - `sampling.py` - Window-based trace querying using `TracesQueryRunner` (~80 lines)
-- `fetching.py` - Trace hierarchy fetching using `TraceQueryRunner` (~80 lines)
-- `summarization.py` - Text repr generation and LLM summarization (~60 lines)
-- `events.py` - Event emission to ClickHouse (~80 lines)
-- `embedding.py` - Summary formatting and embedding generation via Kafka (~150 lines)
+- `summarization.py` - Trace fetching, text repr generation, LLM summarization, and event emission (~165 lines)
+  - Generates and saves summaries atomically within single activity
+  - No large objects passed through workflow history
+- `embedding.py` - Summary formatting and embedding generation via Kafka (~180 lines)
+  - Fetches summaries from ClickHouse with timestamp filtering for efficiency
+  - Processes embeddings in parallel using asyncio
+  - Returns comprehensive success/failure metrics
 
 **Coordinator activities:**
 
 - `coordinator.py:get_teams_with_recent_traces_activity` - Query teams with LLM activity
+  - Uses workflow time parameter for idempotent, deterministic queries
+  - Filters by allowlist if configured
 
 **Dependencies (reused code):**
 
@@ -463,7 +534,5 @@ The implementation is split into focused, single-responsibility modules:
 
 ## References
 
-- Main clustering issue: [#40787](https://github.com/PostHog/posthog/issues/40787)
+- Clustering issue: [#40787](https://github.com/PostHog/posthog/issues/40787)
 - Summarization MVP: [#41010](https://github.com/PostHog/posthog/issues/41010)
-- Text repr PR: https://github.com/PostHog/posthog/pull/41004
-- Summarization backend PR: https://github.com/PostHog/posthog/pull/41006
