@@ -19,13 +19,13 @@ ARG BIN
 RUN apt-get update && apt-get install build-essential libssl-dev cmake libclang-dev -y
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
+RUN CI=1 --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo chef cook --release --recipe-path recipe.json --bin $BIN
 
 COPY . .
-RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
+RUN CI=1 --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
     --mount=type=secret,id=SCCACHE_WEBDAV_TOKEN,required=false \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
