@@ -415,7 +415,7 @@ export function SessionGroupSummary(): JSX.Element {
                     iconType: 'notebook',
                 }}
             />
-            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted mb-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
                 <div className="flex items-center gap-3">
                     <span>{totalSessions} sessions analyzed</span>
                     <span className="hidden sm:inline">·</span>
