@@ -250,7 +250,6 @@ mod tests {
             id: 1,
             name: "Test Team".to_string(),
             api_token: "test-token".to_string(),
-            project_id: Some(1),
             uuid: Uuid::new_v4(),
             organization_id: None,
             autocapture_opt_out: None,

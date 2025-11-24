@@ -28,7 +28,7 @@ use crate::utils::graph_utils::{
 };
 use anyhow::Result;
 use common_metrics::{inc, timing_guard};
-use common_types::{PersonId, ProjectId, TeamId};
+use common_types::{PersonId, TeamId};
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::hash_map::Entry;
@@ -164,8 +164,6 @@ pub struct FeatureFlagMatcher {
     pub distinct_id: String,
     /// Team ID for scoping flag evaluations
     pub team_id: TeamId,
-    /// Project ID for scoping flag evaluations
-    pub project_id: ProjectId,
     /// Router for database connections across persons/non-persons pools
     pub router: PostgresRouter,
     /// Cache manager for cohort definitions and memberships
@@ -188,7 +186,6 @@ impl FeatureFlagMatcher {
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
-        project_id: ProjectId,
         router: PostgresRouter,
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
@@ -197,11 +194,10 @@ impl FeatureFlagMatcher {
         FeatureFlagMatcher {
             distinct_id,
             team_id,
-            project_id,
             router,
             cohort_cache,
             group_type_mapping_cache: group_type_mapping_cache
-                .unwrap_or_else(|| GroupTypeMappingCache::new(project_id)),
+                .unwrap_or_else(|| GroupTypeMappingCache::new(team_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
         }
@@ -219,7 +215,7 @@ impl FeatureFlagMatcher {
     /// ## Returns
     ///
     /// * `FlagsResponse` - The result containing flag evaluations and any errors.
-    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id, flags_len = feature_flags.flags.len()))]
+    #[instrument(skip_all, fields(team_id = %self.team_id, distinct_id = %self.distinct_id, flags_len = feature_flags.flags.len()))]
     pub async fn evaluate_all_feature_flags(
         &mut self,
         feature_flags: FeatureFlagList,
@@ -288,7 +284,7 @@ impl FeatureFlagMatcher {
     /// Returns a tuple containing:
     /// - Option<HashMap<String, String>>: The hash key overrides if successfully retrieved, None if there was an error
     /// - bool: Whether there was an error during processing (true = error occurred)
-    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id))]
+    #[instrument(skip_all, fields(team_id = %self.team_id, distinct_id = %self.distinct_id))]
     async fn process_hash_key_override(
         &self,
         hash_key: String,
@@ -298,7 +294,6 @@ impl FeatureFlagMatcher {
             &self.router,
             self.team_id,
             self.distinct_id.clone(),
-            self.project_id,
             hash_key.clone(),
         )
         .await
@@ -306,8 +301,8 @@ impl FeatureFlagMatcher {
             Ok(should_write) => should_write,
             Err(e) => {
                 error!(
-                    "Failed to check if hash key override should be written for team {} project {} distinct_id {}: {:?}",
-                    self.team_id, self.project_id, self.distinct_id, e
+                    "Failed to check if hash key override should be written for team {} distinct_id {}: {:?}",
+                    self.team_id, self.distinct_id, e
                 );
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
@@ -327,12 +322,11 @@ impl FeatureFlagMatcher {
                 &self.router,
                 self.team_id,
                 target_distinct_ids.clone(),
-                self.project_id,
                 hash_key.clone(),
             )
             .await
             {
-                error!("Failed to set feature flag hash key overrides for team {} project {} distinct_id {} hash_key {}: {:?}", self.team_id, self.project_id, self.distinct_id, hash_key, e);
+                error!("Failed to set feature flag hash key overrides for team {} distinct_id {} hash_key {}: {:?}", self.team_id, self.distinct_id, hash_key, e);
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -371,7 +365,7 @@ impl FeatureFlagMatcher {
         {
             Ok(overrides) => (Some(overrides), false),
             Err(e) => {
-                error!("Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
+                error!("Failed to get feature flag hash key overrides for team {} distinct_id {}: {:?}", self.team_id, self.distinct_id, e);
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -545,7 +539,7 @@ impl FeatureFlagMatcher {
 
     /// Prepares evaluation state for flags that require database properties.
     /// Returns true if there were errors during preparation.
-    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id))]
+    #[instrument(skip_all, fields(team_id = %self.team_id, distinct_id = %self.distinct_id))]
     async fn prepare_evaluation_state_if_needed(
         &mut self,
         feature_flags: &FeatureFlagList,
@@ -595,8 +589,8 @@ impl FeatureFlagMatcher {
         }));
 
         error!(
-            "Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}",
-            self.team_id, self.project_id, self.distinct_id, error
+            "Error preparing flag evaluation state for team {} distinct_id {}: {:?}",
+            self.team_id, self.distinct_id, error
         );
 
         inc(
@@ -610,7 +604,7 @@ impl FeatureFlagMatcher {
     ///
     /// This function is designed to be used as part of a level-based evaluation strategy
     /// (e.g., Kahn's algorithm) for handling flag dependencies.
-    #[instrument(skip_all, fields(team_id = %self.team_id, project_id = %self.project_id, distinct_id = %self.distinct_id))]
+    #[instrument(skip_all, fields(team_id = %self.team_id, distinct_id = %self.distinct_id))]
     async fn evaluate_flags_in_level(
         &mut self,
         flags: &[&FeatureFlag],
@@ -1305,7 +1299,7 @@ impl FeatureFlagMatcher {
         flags: &[&FeatureFlag],
     ) -> Result<(), FlagError> {
         // Get cohorts first since we need the IDs
-        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
+        let cohorts = self.cohort_cache.get_cohorts(self.team_id).await?;
         self.flag_evaluation_state.set_cohorts(cohorts.clone());
 
         // Get static cohort IDs
@@ -1341,8 +1335,8 @@ impl FeatureFlagMatcher {
             }
             Err(e) => {
                 error!(
-                    "Error fetching properties for team {} project {} distinct_id {}: {:?}",
-                    self.team_id, self.project_id, self.distinct_id, e
+                    "Error fetching properties for team {} distinct_id {}: {:?}",
+                    self.team_id, self.distinct_id, e
                 );
                 db_fetch_timer.label("outcome", "error").fin();
                 Err(e)
@@ -1487,8 +1481,8 @@ impl FeatureFlagMatcher {
                             Ok(overrides) => (Some(overrides), false),
                             Err(e) => {
                                 error!(
-                                    "Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}",
-                                    self.team_id, self.project_id, self.distinct_id, e
+                                    "Failed to get feature flag hash key overrides for team {} distinct_id {}: {:?}",
+                                    self.team_id, self.distinct_id, e
                                 );
                                 (None, true)
                             }
