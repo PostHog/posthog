@@ -6,7 +6,7 @@ import time
 
 import duckdb
 
-from ducklake_common import (
+from posthog.ducklake.common import (
     attach_catalog,
     configure_connection,
     get_config,
