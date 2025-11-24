@@ -237,7 +237,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=12&end_blob_key=33"
 
-        response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        response = self.client.get(url, headers={"authorization": f"Bearer {personal_api_key}"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "Cannot request more than 20 blob keys at once" in response.json()["detail"]
 
