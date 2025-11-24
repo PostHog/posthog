@@ -1139,10 +1139,6 @@
                 "prompt_token": 0.000003,
                 "completion_token": 0.000007
             },
-            "google-vertex": {
-                "prompt_token": 0.00000135,
-                "completion_token": 0.0000054
-            },
             "hyperbolic": {
                 "prompt_token": 0.000003,
                 "completion_token": 0.000003
@@ -3247,12 +3243,12 @@
         "model": "mistralai/mistral-small-3.1-24b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 5e-8,
-                "completion_token": 2.2e-7
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "chutes-bf16": {
-                "prompt_token": 5e-8,
-                "completion_token": 2.2e-7
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "cloudflare": {
                 "prompt_token": 3.5e-7,

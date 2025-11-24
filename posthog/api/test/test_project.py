@@ -225,3 +225,35 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         # Clean up orphaned person using raw delete to bypass signals
         Person.objects.filter(id=person_id)._raw_delete(Person.objects.db)
+
+    def test_complete_product_onboarding_requires_product_type(self):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/complete_product_onboarding/",
+            {"intent_context": "onboarding product selected - primary", "metadata": {}},
+            headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "product_type is required")
+
+    def test_complete_product_onboarding_rejects_invalid_product_type(self):
+        from posthog.schema import ProductKey
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/complete_product_onboarding/",
+            {
+                "product_type": "invalid_product",
+                "intent_context": "onboarding product selected - primary",
+                "metadata": {},
+            },
+            headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_message = response.json()["error"]
+        self.assertIn("invalid product_type", error_message)
+        self.assertIn("expected one of", error_message)
+
+        # Verify it lists valid ProductKey values in the error message
+        valid_keys = list(ProductKey)
+        self.assertIn(valid_keys[0].value, error_message)  # Check at least one valid key is mentioned

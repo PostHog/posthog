@@ -6,7 +6,6 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { getExperimentMetricFromInsight } from 'scenes/experiments/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -14,7 +13,7 @@ import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPick
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { FunnelVizType, type QueryBasedInsightModel } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {

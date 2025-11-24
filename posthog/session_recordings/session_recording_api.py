@@ -42,6 +42,8 @@ from posthog.schema import (
     MatchedRecordingEvent,
     MatchingEventsResponse,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     QueryTiming,
@@ -1084,8 +1086,8 @@ class SessionRecordingViewSet(
 
             ProductIntent.register(
                 team=team,
-                product_type="session_replay",
-                context="session_replay_set_filters",
+                product_type=ProductKey.SESSION_REPLAY,
+                context=ProductIntentContext.SESSION_REPLAY_SET_FILTERS,
                 user=cast(User, request.user),
                 metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )

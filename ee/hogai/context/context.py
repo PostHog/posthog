@@ -34,14 +34,15 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
+    CONTEXT_INITIAL_MODE_PROMPT,
     CONTEXT_MODE_PROMPT,
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
@@ -431,4 +432,8 @@ class AssistantContextManager(AssistantContextMixin):
         return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)
 
     def _get_mode_prompt(self, mode: AgentMode | None) -> str:
-        return format_prompt_string(CONTEXT_MODE_PROMPT, mode=mode.value if mode else AgentMode.PRODUCT_ANALYTICS.value)
+        return format_prompt_string(
+            CONTEXT_MODE_PROMPT,
+            initial_mode_prompt=CONTEXT_INITIAL_MODE_PROMPT,
+            mode=mode.value if mode else AgentMode.PRODUCT_ANALYTICS.value,
+        )
