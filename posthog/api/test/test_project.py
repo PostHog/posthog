@@ -32,7 +32,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             scoped_organizations=[other_org.id],
         )
 
-        response = self.client.get("/api/projects/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        response = self.client.get("/api/projects/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(

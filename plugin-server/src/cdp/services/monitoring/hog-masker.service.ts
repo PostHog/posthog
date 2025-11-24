@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 
-import { CdpRedis } from '../../redis'
+import { RedisV2 } from '~/common/redis/redis-v2'
+
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -84,7 +85,7 @@ function getEntityId(invocation: CyclotronJobInvocation): string {
 
 // Hog masker is meant to be done per batch
 export class HogMaskerService {
-    constructor(private redis: CdpRedis) {}
+    constructor(private redis: RedisV2) {}
 
     public async filterByMasking<T extends CyclotronJobInvocation>(
         invocations: T[]
