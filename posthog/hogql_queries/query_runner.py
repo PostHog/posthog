@@ -1433,6 +1433,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.query.dateRange.date_from = dashboard_filter.date_from
             self.query.dateRange.date_to = dashboard_filter.date_to
 
+            if dashboard_filter.explicitDate is not None:
+                self.query.dateRange.explicitDate = dashboard_filter.explicitDate
+
         if dashboard_filter.breakdown_filter:
             if hasattr(self.query, "breakdownFilter"):
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter

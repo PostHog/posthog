@@ -341,6 +341,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     AGENT_MODES: 'phai-agent-modes', // owner: @skoob13 #team-posthog-ai
     SURVEYS_FUNNELS_CROSS_SELL: 'survey-funnels-cross-sell', // owner: @adboio #team-surveys
+    DATE_PICKER_EXPLICIT_DATE_TOGGLE: 'date-picker-explicit-date-toggle', // owner: @gesh #team-product-analytics
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
