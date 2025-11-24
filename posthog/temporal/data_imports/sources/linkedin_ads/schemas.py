@@ -56,7 +56,7 @@ class ResourceSchema(TypedDict):
     filter_field_names: NotRequired[list[tuple[str, IncrementalFieldType]]]
     partition_keys: list[str]
     partition_mode: Literal["md5", "numerical", "datetime"] | None
-    partition_format: Literal["month", "day"] | None
+    partition_format: Literal["month", "week", "day"] | None
     partition_size: int
     is_stats: bool
 
@@ -94,7 +94,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "primary_key": ["id"],
         "partition_keys": ["created_time"],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "is_stats": False,
         "partition_size": 1,
     },
@@ -112,7 +112,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         "primary_key": ["id"],
         "partition_keys": ["created_time"],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "is_stats": False,
         "partition_size": 1,
     },
@@ -138,7 +138,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         ],
         "partition_keys": ["date_start"],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "is_stats": True,
         "partition_size": 1,
     },
@@ -164,7 +164,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
         ],
         "partition_keys": ["date_start"],
         "partition_mode": "datetime",
-        "partition_format": "month",
+        "partition_format": "week",
         "is_stats": True,
         "partition_size": 1,
     },
