@@ -2290,3 +2290,22 @@ export const formatPercentage = (x: number, options?: { precise?: boolean }): st
     }
     return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
 }
+
+/**
+ * Checks if a string matches the canonical UUID/UUID-like format.
+ *
+ * This function only checks the structure:
+ *  - 8-4-4-4-12 hexadecimal characters
+ *  - 4 dashes in the correct positions
+ * It does not enforce UUID version or variant.
+ *
+ * Examples:
+ *  - ✅ "0199ed4a-5c03-0000-3220-df21df612e95"
+ *  - ❌ "not-a-uuid"
+ *
+ * @param candidate - The string to test.
+ * @returns True if the string matches the UUID-like structure.
+ */
+export function isUUIDLike(candidate: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)
+}

@@ -6,6 +6,7 @@ from posthog.settings import EE_AVAILABLE
 
 ColumnName = str
 TablesWithMaterializedColumns = TableWithProperties
+MATERIALIZATION_VALID_TABLES = {"events", "person", "groups"}
 
 
 class MaterializedColumn(Protocol):

@@ -59,7 +59,6 @@ import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConf
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import {
     NetworkCaptureSettings,
-    ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayDataRetentionSettings,
     ReplayGeneral,
@@ -417,12 +416,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 allowForTeam: (t) => !!t?.recording_domains?.length,
             },
             {
-                id: 'replay-ai-config',
-                title: 'AI recording summary',
-                component: <ReplayAISettings />,
-                flag: 'AI_SESSION_PERMISSIONS',
-            },
-            {
                 id: 'replay-retention',
                 title: (
                     <>
@@ -696,7 +689,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
                         PostHog AI features, such as the PostHog AI chat, use{' '}
-                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
                             <dfn>external AI services</dfn>
                         </Tooltip>{' '}
                         for data analysis.

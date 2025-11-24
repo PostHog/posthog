@@ -125,7 +125,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                         },
                                         editingView.id,
                                         currentDraft?.id || undefined,
-                                        activeTab
+                                        activeTab ?? undefined
                                     )
                                 } else {
                                     saveOrUpdateDraft(
@@ -135,7 +135,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                         },
                                         undefined,
                                         currentDraft?.id || undefined,
-                                        activeTab
+                                        activeTab ?? undefined
                                     )
                                 }
                             }}

@@ -5,12 +5,12 @@ import { useMemo } from 'react'
 import { IconAI } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 5
 

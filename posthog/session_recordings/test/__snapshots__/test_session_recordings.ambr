@@ -4047,6 +4047,19 @@
          AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.17
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user_one_0')
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  '''
+# ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.2
   '''
   SELECT "posthog_team"."id",

@@ -17,25 +17,3 @@
                     2)/* ... */)
   '''
 # ---
-# name: TestTeamAPI.test_delete_bulky_postgres_data.2
-  '''
-  DELETE
-  FROM "posthog_personlessdistinctid"
-  WHERE "posthog_personlessdistinctid"."team_id" IN (1,
-                                                     2,
-                                                     3,
-                                                     4,
-                                                     5 /* ... */)
-  '''
-# ---
-# name: TestTeamAPI.test_delete_bulky_postgres_data.3
-  '''
-  DELETE
-  FROM "posthog_personoverride"
-  WHERE "posthog_personoverride"."team_id" IN (1,
-                                               2,
-                                               3,
-                                               4,
-                                               5 /* ... */)
-  '''
-# ---

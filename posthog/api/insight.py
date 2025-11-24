@@ -349,6 +349,7 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
+    resolved_date_range = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
 
@@ -389,6 +390,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_status",
             "hogql",
             "types",
+            "resolved_date_range",
             "_create_in_folder",
             "alerts",
             "last_viewed_at",
@@ -648,6 +650,9 @@ class InsightSerializer(InsightBasicSerializer):
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
+    def get_resolved_date_range(self, insight: Insight):
+        return self.insight_result(insight).resolved_date_range
+
     def get_alerts(self, insight: Insight):
         if not are_alerts_supported_for_insight(insight):
             return []
@@ -840,7 +845,7 @@ class InsightSerializer(InsightBasicSerializer):
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""
-Whether to refresh the retrieved insights, how aggresively, and if sync or async:
+Whether to refresh the retrieved insights, how aggressively, and if sync or async:
 - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
 - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
 - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache

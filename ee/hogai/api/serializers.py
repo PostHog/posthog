@@ -8,9 +8,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 
-from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
-from ee.hogai.graph.deep_research.types import DeepResearchState
-from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
@@ -18,10 +16,8 @@ from ee.models.assistant import Conversation
 
 _conversation_fields = ["id", "status", "title", "user", "created_at", "updated_at", "type"]
 
-MaxGraphType = DeepResearchAssistantGraph | AssistantGraph
 
-CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[MaxGraphType], type[AssistantMaxGraphState]]] = {
-    Conversation.Type.DEEP_RESEARCH: (DeepResearchAssistantGraph, DeepResearchState),
+CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[AssistantGraph], type[AssistantMaxGraphState]]] = {
     Conversation.Type.ASSISTANT: (AssistantGraph, AssistantState),
     Conversation.Type.TOOL_CALL: (AssistantGraph, AssistantState),
 }

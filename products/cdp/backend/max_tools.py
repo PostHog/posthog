@@ -28,7 +28,7 @@ from products.cdp.backend.prompts import (
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
 )
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
