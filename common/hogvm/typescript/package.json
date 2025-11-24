@@ -54,5 +54,10 @@
     },
     "dependencies": {
         "luxon": "^3.4.4"
+    },
+    "pnpm": {
+        "onlyBuildDependencies": [
+            "re2"
+        ]
     }
 }

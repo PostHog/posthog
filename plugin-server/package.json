@@ -177,5 +177,10 @@
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
         "version": "0.1.12"
+    },
+    "pnpm": {
+        "onlyBuildDependencies": [
+            "re2"
+        ]
     }
 }
