@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
     AgentMode,
+    ArtifactMessage,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -41,6 +42,7 @@ from posthog.schema import (
     TaskExecutionMessage,
     TaskExecutionStatus,
     TrendsQuery,
+    VisualizationArtifactMessage,
     VisualizationMessage,
 )
 
@@ -49,6 +51,7 @@ from ee.models import Conversation
 AIMessageUnion = Union[
     AssistantMessage,
     VisualizationMessage,
+    ArtifactMessage,
     FailureMessage,
     AssistantToolCallMessage,
     MultiVisualizationMessage,
@@ -56,7 +59,9 @@ AIMessageUnion = Union[
     PlanningMessage,
     TaskExecutionMessage,
 ]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
+AssistantMessageUnion = Union[
+    HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage, VisualizationArtifactMessage
+]
 AssistantResultUnion = Union[AssistantMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
@@ -85,6 +90,8 @@ ASSISTANT_MESSAGE_TYPES = (
     NotebookUpdateMessage,
     AssistantMessage,
     VisualizationMessage,
+    ArtifactMessage,
+    VisualizationArtifactMessage,
     FailureMessage,
     AssistantToolCallMessage,
     MultiVisualizationMessage,

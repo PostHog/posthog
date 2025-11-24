@@ -11,7 +11,7 @@ from posthog.schema import (
     AssistantToolCallMessage,
     HumanMessage,
     TaskExecutionStatus,
-    VisualizationMessage,
+    VisualizationArtifactContent,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -20,6 +20,7 @@ from posthog.models.user import User
 
 from ee.hogai.chat_agent.insights.nodes import InsightSearchNode
 from ee.hogai.chat_agent.parallel_task_execution.prompts import AGENT_TASK_PROMPT_TEMPLATE
+from ee.hogai.context import AssistantContextManager
 from ee.hogai.utils.dispatcher import AssistantDispatcher
 from ee.hogai.utils.helpers import extract_stream_update
 from ee.hogai.utils.state import is_value_update
@@ -32,6 +33,7 @@ from ee.hogai.utils.types import (
     TaskArtifact,
     TaskResult,
 )
+from ee.models import AgentArtifact
 
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +42,7 @@ class WithInsightCreationTaskExecution:
     _team: Team
     _user: User
     _parent_tool_call_id: str | None
+    _context_manager: AssistantContextManager
 
     @property
     def dispatcher(self) -> AssistantDispatcher:
@@ -149,17 +152,21 @@ class WithInsightCreationTaskExecution:
     ) -> Sequence[InsightArtifact]:
         """Extract artifacts from insights subgraph execution results."""
 
-        artifacts: list[InsightArtifact] = []
-        for message in subgraph_result_messages:
-            if isinstance(message, VisualizationMessage) and message.id:
-                artifact = InsightArtifact(
+        task_artifacts: list[InsightArtifact] = []
+        artifacts = self._context_manager.artifacts.get_from_messages(
+            subgraph_result_messages, filter_by_type=AgentArtifact.Type.VISUALIZATION
+        )
+        for artifact in artifacts:
+            visualization_content = VisualizationArtifactContent.model_validate(artifact.data)
+            task_artifacts.append(
+                InsightArtifact(
                     task_id=tool_call.id,
-                    id=None,  # The InsightsGraph does not create the insight objects
-                    content="",
-                    query=cast(AnyAssistantGeneratedQuery, message.answer),
+                    id=artifact.id,
+                    content=visualization_content.description or "No description provided",
+                    query=cast(AnyAssistantGeneratedQuery, visualization_content.query),
                 )
-                artifacts.append(artifact)
-        return artifacts
+            )
+        return task_artifacts
 
     def _get_model(self) -> ChatOpenAI:
         return ChatOpenAI(

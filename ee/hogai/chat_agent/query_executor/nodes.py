@@ -1,31 +1,35 @@
+from typing import cast
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage, VisualizationMessage
+from posthog.schema import ArtifactMessage, AssistantMessage, AssistantToolCallMessage, FailureMessage
 
+from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery
 
 
 class QueryExecutorNode(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        viz_message = state.messages[-1]
-        if isinstance(viz_message, FailureMessage):
+        last_message = state.messages[-1]
+        if isinstance(last_message, FailureMessage):
             return None  # Exit early - something failed earlier
-        if not isinstance(viz_message, VisualizationMessage):
-            raise ValueError(f"Expected a visualization message, found {type(viz_message)}")
-        if viz_message.answer is None:
-            raise ValueError("Did not find query in the visualization message")
+
+        if not is_visualization_artifact_message(last_message):
+            return None
+
+        query = await self._extract_query(last_message)
 
         tool_call_id = state.root_tool_call_id
         if not tool_call_id:
             return None
 
         try:
-            formatted_query_result = await execute_and_format_query(self._team, viz_message.answer)
+            formatted_query_result = await execute_and_format_query(self._team, query)
         except MaxToolRetryableError as err:
             # Handle known query execution errors (exposed to users)
             return PartialAssistantState(
@@ -48,3 +52,9 @@ class QueryExecutorNode(AssistantNode):
             root_tool_insight_type=None,
             rag_context=None,
         )
+
+    async def _extract_query(self, message: ArtifactMessage) -> AnyAssistantGeneratedQuery:
+        if not message.artifact_id:
+            raise ValueError("ArtifactMessage must have a artifact_id")
+        content = await self.context_manager.artifacts.aget_visualization_content_by_short_id(message.artifact_id)
+        return cast(AnyAssistantGeneratedQuery, content.query)

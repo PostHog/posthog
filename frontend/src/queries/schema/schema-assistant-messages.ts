@@ -48,10 +48,27 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     MultiVisualization = 'ai/multi_viz',
+    Artifact = 'ai/artifact',
     Failure = 'ai/failure',
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
+}
+
+/** Source of artifact - determines which model to fetch from */
+export enum ArtifactSource {
+    /** Artifact created by the agent (stored in AgentArtifact) */
+    Artifact = 'artifact',
+    /** Reference to a saved insight (stored in Insight model) */
+    Insight = 'insight',
+}
+
+/** Type of artifact content */
+export enum ArtifactContentType {
+    /** Visualization artifact (chart, graph, etc.) */
+    Visualization = 'visualization',
+    /** Notebook */
+    Notebook = 'notebook',
 }
 
 export interface BaseAssistantMessage {
@@ -242,9 +259,31 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
     commentary?: string
 }
 
+export interface ArtifactMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Artifact
+    /** The ID of the artifact (short_id for both drafts and saved insights) */
+    artifact_id: string
+    /** Source of artifact - determines which model to fetch from */
+    source: ArtifactSource
+    /** Type of artifact content */
+    content_type: ArtifactContentType
+}
+
+export interface VisualizationArtifactContent {
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    name?: string | null
+    description?: string | null
+}
+
+export interface VisualizationArtifactMessage extends ArtifactMessage {
+    content_type: ArtifactContentType.Visualization
+    content: VisualizationArtifactContent
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
     | MultiVisualizationMessage
+    | VisualizationArtifactMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage

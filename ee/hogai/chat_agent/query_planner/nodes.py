@@ -25,6 +25,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
+from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.core.mixins import TaxonomyUpdateDispatcherNodeMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
@@ -206,6 +207,22 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                 if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_table_names()
             )
         )
+        artifacts = self.context_manager.artifacts.get_from_messages(list(state.messages))
+        history_messages = []
+        for message in state.messages:
+            if isinstance(message, VisualizationMessage) or is_visualization_artifact_message(message):
+                if isinstance(message, VisualizationMessage):
+                    plan = message.plan or "_No generated plan._"
+                    query = message.query or "_No query description provided._"
+                else:
+                    content = next(
+                        (artifact for artifact in artifacts if artifact.short_id == message.artifact_id), None
+                    )
+                    if not content:
+                        raise ValueError(f"Artifact {message.artifact_id} not found")
+                    query = content.data.query or "_No query description provided._"
+                    plan = content.data.description or "_No generated plan._"
+                history_messages.extend([("human", query), ("assistant", plan)])
         conversation = ChatPromptTemplate(
             [
                 (
@@ -220,16 +237,8 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                         {"type": "text", "text": EVENT_DEFINITIONS_PROMPT},
                     ],
                 ),
-                # Include inputs and plans for up to 10 previously generated insights in thread
-                *[
-                    item
-                    for message in state.messages
-                    if isinstance(message, VisualizationMessage)
-                    for item in [
-                        ("human", message.query or "_No query description provided._"),
-                        ("assistant", message.plan or "_No generated plan._"),
-                    ]
-                ][-20:],
+                # Include inputs and plans for up to 20 previously generated insights in thread
+                *history_messages[-20:],
                 # The description of a new insight is added to the end of the conversation.
                 ("human", state.root_tool_insight_plan or "_No query description provided._"),
             ],
