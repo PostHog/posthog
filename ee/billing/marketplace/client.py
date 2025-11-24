@@ -21,9 +21,8 @@ class MarketplaceClient:
         self._config_id = integration.integration_id
         self._access_token = self._extract_access_token(integration)
 
-    def submit(self, endpoint_template: str, payload: dict) -> None:
+    def submit(self, endpoint: str, payload: dict) -> None:
         """Submit payload to marketplace API endpoint."""
-        endpoint = endpoint_template.format(config_id=self._config_id)
         url = f"{VERCEL_API_BASE_URL}{endpoint}"
 
         response = requests.post(

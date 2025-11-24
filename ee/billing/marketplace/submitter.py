@@ -38,22 +38,24 @@ class MarketplaceSubmitter:
     def submit_invoice(self, invoice_id: str) -> None:
         self._execute(
             hydrate=lambda ctx: ctx.billing_manager.get_marketplace_invoice(ctx.organization, invoice_id),
+            endpoint_path="/billing/invoices",
             context={"invoice_id": invoice_id},
         )
 
     def submit_usage(self) -> None:
         self._execute(
             hydrate=lambda ctx: ctx.billing_manager.get_marketplace_usage(ctx.organization),
+            endpoint_path="/billing",
             context={},
         )
 
-    def _execute(self, hydrate: Callable[[MarketplaceContext], dict], context: dict) -> None:
+    def _execute(self, hydrate: Callable[[MarketplaceContext], dict], endpoint_path: str, context: dict) -> None:
         log_context = {"organization_id": self._organization_id, **context}
 
         try:
             ctx = self._build_context()
             hydration = hydrate(ctx)
-            self._submit(ctx.integration, hydration)
+            self._submit(ctx.integration, hydration, endpoint_path)
             logger.info("Marketplace submission succeeded", **log_context)
 
         except OrganizationNotFound:
@@ -101,12 +103,18 @@ class MarketplaceSubmitter:
             raise LicenseNotConfigured()
         return BillingManager(license)
 
-    def _submit(self, integration: OrganizationIntegration, hydration: dict) -> None:
-        endpoint = hydration.get("endpoint")
+    def _submit(self, integration: OrganizationIntegration, hydration: dict, endpoint_path: str) -> None:
         payload = hydration.get("payload")
+        is_test = hydration.get("test", False)
 
-        if not endpoint or payload is None:
-            raise ValueError("Hydration response missing endpoint or payload")
+        if payload is None:
+            raise ValueError("Hydration response missing payload")
+
+        if is_test:
+            payload["test"] = {"validate": True, "result": "paid"}
+
+        config_id = integration.integration_id
+        endpoint = f"/v1/installations/{config_id}{endpoint_path}"
 
         client = MarketplaceClient(integration)
         client.submit(endpoint, payload)
