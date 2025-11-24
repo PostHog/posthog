@@ -68,8 +68,9 @@ class HobbyTester:
         if not ssh_private_key:
             self._generate_ssh_key()
 
-        # Build user_data with SSH pubkey included (only needed for droplet creation)
-        if not ssh_private_key:
+        # Build user_data with SSH pubkey included (only for droplet creation, not test-only runs)
+        # Only build if we don't already have a droplet (i.e., creating a new one)
+        if not droplet_id:
             self.user_data = self._build_user_data()
         else:
             self.user_data = None
@@ -147,7 +148,9 @@ runcmd:
         for cmd in commands:
             # YAML needs quotes around commands containing colons to avoid parsing as dict
             if ":" in cmd:
-                cloud_config += f'  - "{cmd}"\n'
+                # Escape inner quotes for YAML
+                escaped_cmd = cmd.replace('"', '\\"')
+                cloud_config += f'  - "{escaped_cmd}"\n'
             else:
                 cloud_config += f"  - {cmd}\n"
 
