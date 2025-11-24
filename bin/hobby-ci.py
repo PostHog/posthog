@@ -145,7 +145,11 @@ runcmd:
         ]
 
         for cmd in commands:
-            cloud_config += f"  - {cmd}\n"
+            # YAML needs quotes around commands containing colons to avoid parsing as dict
+            if ":" in cmd:
+                cloud_config += f'  - "{cmd}"\n'
+            else:
+                cloud_config += f"  - {cmd}\n"
 
         # Add SSH pubkey if generated
         if self.ssh_public_key:
