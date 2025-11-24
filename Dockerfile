@@ -121,10 +121,10 @@ COPY ./plugin-server/tests/ ./plugin-server/tests/
 COPY ./plugin-server/assets/ ./plugin-server/assets/
 COPY ./plugin-server/bin/ ./plugin-server/bin/
 
-# Build cyclotron first with increased memory
+# Build cyclotron first
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
-# Then build the plugin server with increased memory
+# Then build the plugin server
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server build
 
 #
