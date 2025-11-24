@@ -445,7 +445,11 @@ ssh_authorized_keys:
 
     def fetch_cloud_init_logs(self):
         """Fetch cloud-init logs via SSH"""
-        if not self.droplet or not self.ssh_private_key:
+        if not self.droplet:
+            print("  (no droplet)", flush=True)
+            return None
+        if not self.ssh_private_key:
+            print("  (no SSH key)", flush=True)
             return None
 
         try:
@@ -479,8 +483,16 @@ ssh_authorized_keys:
             if result.returncode == 0:
                 return result.stdout
             else:
+                print(
+                    f"  (SSH failed: {result.returncode}, {result.stderr[:100] if result.stderr else 'no error'})",
+                    flush=True,
+                )
                 return None
-        except Exception:
+        except subprocess.TimeoutExpired:
+            print("  (SSH timeout)", flush=True)
+            return None
+        except Exception as e:
+            print(f"  ({type(e).__name__}: {str(e)[:100]})", flush=True)
             return None
 
     def export_droplet(self):
