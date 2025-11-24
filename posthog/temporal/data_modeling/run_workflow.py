@@ -44,6 +44,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
+from posthog.temporal.utils import DuckLakeCopyModelInput, DuckLakeCopyWorkflowInputs
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.models import (
@@ -56,6 +57,11 @@ from products.data_warehouse.backend.models.data_modeling_job import DataModelin
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 LOGGER = get_logger(__name__)
+
+
+def _build_model_table_uri(team_id: int, model_label: str, normalized_name: str) -> str:
+    return f"{settings.BUCKET_URL}/team_{team_id}_model_{model_label}/modeling/{normalized_name}"
+
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -134,9 +140,10 @@ class QueueMessage:
     status: ModelStatus
     label: str
     error: str | None = None
+    ducklake_model: DuckLakeCopyModelInput | None = None
 
 
-Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_failed"))
+Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_failed", "ducklake_models"))
 
 NullablePattern = re.compile(r"Nullable\((.*)\)")
 
@@ -179,6 +186,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     completed = set()
     ancestor_failed = set()
     failed = set()
+    ducklake_models: list[DuckLakeCopyModelInput] = []
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
 
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
@@ -213,7 +221,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
 
-                case QueueMessage(status=ModelStatus.COMPLETED, label=label):
+                case QueueMessage(status=ModelStatus.COMPLETED, label=label, ducklake_model=ducklake_model):
                     await logger.adebug(f"Handling queue message COMPLETED. label={label}")
                     node = inputs.dag[label]
                     completed.add(node.label)
@@ -230,6 +238,9 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
                     task = asyncio.create_task(put_models_in_queue(to_queue, queue))
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
+
+                    if ducklake_model is not None:
+                        ducklake_models.append(ducklake_model)
 
                     queue.task_done()
 
@@ -263,7 +274,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
         await logger.adebug(
             f"run_dag_activity finished. completed={len(completed)}. failed={len(failed)}. ancestor_failed={len(ancestor_failed)}"
         )
-        return Results(completed, failed, ancestor_failed)
+        return Results(completed, failed, ancestor_failed, ducklake_models)
 
 
 async def put_models_in_queue(models: collections.abc.Iterable[ModelNode], queue: asyncio.Queue[QueueMessage]) -> None:
@@ -310,6 +321,9 @@ async def handle_model_ready(
         queue: The execution queue where we will report back results.
     """
 
+    ducklake_model: DuckLakeCopyModelInput | None = None
+    job: DataModelingJob | None = None
+
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
@@ -317,6 +331,11 @@ async def handle_model_ready(
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
             await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
+            ducklake_model = DuckLakeCopyModelInput(
+                model_label=model.label,
+                saved_query_id=str(saved_query.id),
+                table_uri=_build_model_table_uri(team.pk, model.label, saved_query.normalized_name),
+            )
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s", logger)
@@ -334,13 +353,13 @@ async def handle_model_ready(
         await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s", logger)
     else:
         await logger.ainfo("Materialized model %s", model.label)
-        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
+        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label, ducklake_model=ducklake_model))
     finally:
         queue.task_done()
 
 
 async def handle_error(
-    job: DataModelingJob,
+    job: DataModelingJob | None,
     model: ModelNode,
     queue: asyncio.Queue[QueueMessage],
     error: Exception,
@@ -357,7 +376,7 @@ async def handle_error(
 
 
 async def handle_cancelled(
-    job: DataModelingJob,
+    job: DataModelingJob | None,
     model: ModelNode,
     queue: asyncio.Queue[QueueMessage],
     error: Exception,
@@ -433,7 +452,7 @@ async def materialize_model(
     try:
         row_count = 0
 
-        table_uri = f"{settings.BUCKET_URL}/team_{team.pk}_model_{model_label}/modeling/{saved_query.normalized_name}"
+        table_uri = _build_model_table_uri(team.pk, model_label, saved_query.normalized_name)
         storage_options = _get_credentials()
 
         await logger.adebug(f"Delta table URI = {table_uri}")
@@ -1375,6 +1394,8 @@ class RunWorkflow(PostHogWorkflow):
     makes up the model, and the path or paths to the model through all of its ancestors.
     """
 
+    ducklake_copy_inputs: DuckLakeCopyWorkflowInputs | None = None
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunWorkflowInputs:
         """Parse inputs from the management command CLI."""
@@ -1483,7 +1504,19 @@ class RunWorkflow(PostHogWorkflow):
             )
             raise
 
-        completed, failed, ancestor_failed = results
+        completed, failed, ancestor_failed, ducklake_models = results
+
+        self.ducklake_copy_inputs = DuckLakeCopyWorkflowInputs(
+            team_id=inputs.team_id,
+            job_id=job_id,
+            models=ducklake_models,
+        )
+        temporalio.workflow.logger.debug(
+            "Prepared DuckLake copy inputs",
+            team_id=self.ducklake_copy_inputs.team_id,
+            job_id=self.ducklake_copy_inputs.job_id,
+            models=len(self.ducklake_copy_inputs.models),
+        )
 
         # publish metrics
         if failed or ancestor_failed:
