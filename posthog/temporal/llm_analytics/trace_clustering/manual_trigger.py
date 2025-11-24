@@ -31,7 +31,7 @@ from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs
 
 
-def find_teams_with_embeddings(lookback_days: int = 7, min_embeddings: int = 20):
+def find_teams_with_embeddings(lookback_days: int = 7, min_embeddings: int = 5):
     """Find teams that have trace embeddings in the lookback window.
 
     Args:
@@ -74,9 +74,9 @@ def trigger_clustering(
     Args:
         team_id: Team ID to cluster traces for
         lookback_days: Days of trace history to analyze (default: 7)
-        max_samples: Maximum embeddings to sample (default: 2000)
-        min_k: Minimum k to test (default: 3)
-        max_k: Maximum k to test (default: 6)
+        max_samples: Maximum embeddings to sample (default: 100)
+        min_k: Minimum k to test (default: 2)
+        max_k: Maximum k to test (default: 4)
         window_start: Explicit window start in RFC3339 format (overrides lookback_days)
         window_end: Explicit window end in RFC3339 format (overrides lookback_days)
         wait: Wait for workflow to complete (default: True)
