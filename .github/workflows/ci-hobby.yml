@@ -17,7 +17,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: false
+    cancel-in-progress: true
 
 jobs:
     changes:
