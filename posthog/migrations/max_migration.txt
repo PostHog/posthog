@@ -1,1 +1,1 @@
-0917_alter_survey_linked_insight
+0918_add_column_configurator
