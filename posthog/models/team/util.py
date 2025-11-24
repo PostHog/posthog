@@ -59,7 +59,7 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
     Uses tuple IN clause (id, team_id) IN ((...), (...)) to ensure accurate
     deletion of specific record combinations rather than a Cartesian product.
     """
-    from django.db import connections
+    from django.db import connections, router
 
     while True:
         # Get tuples of (id, team_id) to ensure accurate deletion
@@ -70,7 +70,9 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
 
         # Use raw SQL with tuple IN clause for accurate deletion
         # Format: DELETE FROM table WHERE (id, team_id) IN ((1, 1), (2, 1), ...)
-        db_connection = connections[queryset.db]
+        # Use db_for_write to ensure we get a writable connection (not read-only replica)
+        db_alias = router.db_for_write(queryset.model)
+        db_connection = connections[db_alias]
         with db_connection.cursor() as cursor:
             table_name = queryset.model._meta.db_table
             # Build tuple placeholders: (%s, %s), (%s, %s), ...
