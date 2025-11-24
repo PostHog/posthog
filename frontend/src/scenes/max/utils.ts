@@ -6,6 +6,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 import {
     AnyAssistantGeneratedQuery,
     AnyAssistantSupportedQuery,
+    ArtifactContentType,
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
@@ -14,6 +15,7 @@ import {
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     RootAssistantMessage,
+    VisualizationArtifactMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -40,6 +42,12 @@ export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
 ): message is MultiVisualizationMessage {
     return message?.type === AssistantMessageType.MultiVisualization
+}
+
+export function isVisualizationArtifactMessage(
+    message: RootAssistantMessage | undefined | null
+): message is VisualizationArtifactMessage {
+    return message?.type === AssistantMessageType.Artifact && message.content_type === ArtifactContentType.Visualization
 }
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {

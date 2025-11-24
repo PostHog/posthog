@@ -17,6 +17,7 @@ from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.schema import (
+    ArtifactMessage,
     AssistantForm,
     AssistantFormOption,
     AssistantMessage,
@@ -34,6 +35,7 @@ from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQu
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.utils import human_list
 
+from ee.hogai.artifacts.utils import is_visualization
 from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.node import AssistantNode
@@ -431,23 +433,33 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         node_messages = state.memory_collection_messages or []
 
         filtered_messages = filter_and_merge_messages(
-            state.messages, entity_filter=(HumanMessage, AssistantMessage, VisualizationMessage)
+            state.messages, entity_filter=(HumanMessage, AssistantMessage, VisualizationMessage, ArtifactMessage)
         )
         conversation: list[BaseMessage] = []
 
+        artifacts = self.context_manager.artifacts.get_from_messages(filtered_messages)
         for message in filtered_messages:
             if isinstance(message, HumanMessage):
                 conversation.append(LangchainHumanMessage(content=message.content, id=message.id))
             elif isinstance(message, AssistantMessage):
                 conversation.append(LangchainAIMessage(content=message.content, id=message.id))
-            elif isinstance(message, VisualizationMessage) and message.answer:
+            elif is_visualization(message):
+                if isinstance(message, VisualizationMessage):
+                    schema = message.answer.model_dump_json(exclude_unset=True, exclude_none=True)
+                else:
+                    content = next(
+                        (artifact for artifact in artifacts if artifact.short_id == message.artifact_id), None
+                    )
+                    if not content:
+                        raise ValueError(f"Artifact {message.artifact_id} not found")
+                    schema = content.data.query.model_dump_json(exclude_unset=True, exclude_none=True)
                 conversation += ChatPromptTemplate.from_messages(
                     [
                         ("assistant", MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT),
                     ],
                     template_format="mustache",
                 ).format_messages(
-                    schema=message.answer.model_dump_json(exclude_unset=True, exclude_none=True),
+                    schema=schema,
                 )
 
         # Trim messages to keep only last 10 messages.
