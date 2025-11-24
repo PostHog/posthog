@@ -204,18 +204,18 @@ def safe_extract_text(content: Any) -> str:
             if text_parts:
                 return "\n".join(text_parts)
 
-        # Fallback with data preservation for debugging
+        # Fallback to string representation
         data_repr = repr(content)[:MAX_UNABLE_TO_PARSE_REPR_LENGTH]
         if len(repr(content)) > MAX_UNABLE_TO_PARSE_REPR_LENGTH:
             data_repr += "..."
-        return f"[UNABLE_TO_PARSE: {type(content).__name__}] {data_repr}"
+        return data_repr
     except Exception as e:
         # Handle any unexpected errors during extraction
         try:
             data_repr = repr(content)[:MAX_UNABLE_TO_PARSE_REPR_LENGTH]
-            return f"[PARSE_ERROR: {type(content).__name__}] {str(e)} | Data: {data_repr}"
+            return data_repr
         except Exception:
-            return f"[PARSE_ERROR: {type(content).__name__}] {str(e)}"
+            return f"[Error: {str(e)}]"
 
 
 def _is_special_block(block: Any) -> bool:
@@ -298,10 +298,8 @@ def extract_text_content(content: Any) -> str:
             for block in content:
                 if isinstance(block, dict):
                     formatted = _format_special_block(block)
-                    if formatted is not None:
-                        # Skip empty strings and UNABLE_TO_PARSE markers from non-text blocks
-                        if formatted and not formatted.startswith("[UNABLE_TO_PARSE"):
-                            text_parts.append(formatted)
+                    if formatted is not None and formatted:
+                        text_parts.append(formatted)
                 # Handle non-dict items in list
                 elif isinstance(block, str):
                     text_parts.append(block)

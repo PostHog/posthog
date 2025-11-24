@@ -16,7 +16,7 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from dags.common import JobOwners, redis
+from dags.common import JobOwners, get_all_team_ids_op, redis
 from dags.sdk_doctor.github_sdk_versions import SDK_TYPES
 
 default_logger = structlog.get_logger(__name__)
@@ -113,34 +113,6 @@ def get_and_cache_team_sdk_versions(
         logger.exception(f"[SDK Doctor] Failed to get and cache SDK versions for team {team_id}")
         capture_exception(e)
         return None
-
-
-@dagster.op(
-    out=dagster.DynamicOut(list[int]),
-    config_schema={
-        "team_ids": dagster.Field(
-            dagster.Array(dagster.Int),
-            default_value=[],
-            is_required=False,
-            description="Specific team IDs to process. If empty, processes all teams.",
-        )
-    },
-)
-def get_all_team_ids_op(context: dagster.OpExecutionContext):
-    """Fetch all team IDs to process in batches of BATCH_SIZE."""
-    override_team_ids = context.op_config["team_ids"]
-
-    if override_team_ids:
-        team_ids = override_team_ids
-        context.log.info(f"Processing {len(team_ids)} configured teams: {team_ids}")
-    else:
-        # We have a team with id 0, but HogQL doesn't support it, so let's just skip it
-        team_ids = list(Team.objects.exclude(id=0).values_list("id", flat=True))
-        context.log.info(f"Processing all {len(team_ids)} teams")
-
-    for i in range(0, len(team_ids), BATCH_SIZE):
-        batch = team_ids[i : i + BATCH_SIZE]
-        yield dagster.DynamicOutput(batch, mapping_key=f"batch_{i // BATCH_SIZE}")
 
 
 @dataclass(kw_only=True)

@@ -9,8 +9,8 @@ from posthog.schema import AssistantHogQLQuery, AssistantToolCall
 
 from products.data_warehouse.backend.max_tools import FinalAnswerArgs, HogQLGeneratorTool
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.graph.sql.mixins import SQLSchemaGeneratorOutput
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.chat_agent.sql.mixins import SQLSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState
 
 
@@ -244,7 +244,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         with (
             patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
-            patch("ee.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
+            patch("ee.hogai.chat_agent.sql.mixins.parse_pydantic_structured_output") as mock_parse,
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT count() FROM events;"
@@ -280,7 +280,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         with (
             patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
-            patch("ee.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
+            patch("ee.hogai.chat_agent.sql.mixins.parse_pydantic_structured_output") as mock_parse,
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT count() FROM events;;;"
@@ -316,7 +316,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         with (
             patch("products.data_warehouse.backend.max_tools.HogQLGeneratorGraph.compile_full_graph") as mock_compile,
-            patch("ee.hogai.graph.sql.mixins.parse_pydantic_structured_output") as mock_parse,
+            patch("ee.hogai.chat_agent.sql.mixins.parse_pydantic_structured_output") as mock_parse,
         ):
             mock_parse_result = Mock()
             mock_parse_result.query = "SELECT 'hello;world' FROM events;"

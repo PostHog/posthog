@@ -422,7 +422,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     placeholder={placeholder}
                     autoFocus
                     autoComplete="off"
-                    className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg"
+                    className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg shadow-none"
                     onFocus={() => {
                         setIsFocused(true)
                     }}
