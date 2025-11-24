@@ -10,7 +10,7 @@ export function getIssueTags(event: IssueTaggable): JSX.Element[] {
     const tags: JSX.Element[] = []
     if (event.exception) {
         tags.push(
-            <LemonTag key="exception" size="medium" type={event.exception === 'blocking' ? 'option' : 'option'}>
+            <LemonTag key="exception" size="medium" type="option">
                 {event.exception === 'blocking' ? 'blocking error' : 'non-blocking error'}
             </LemonTag>
         )
