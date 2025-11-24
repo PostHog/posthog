@@ -93,10 +93,10 @@ class TestClusteringUtils:
 
     def test_determine_optimal_k_insufficient_data(self):
         """Test optimal k with insufficient data."""
-        embeddings = np.random.rand(10, 384)  # Only 10 samples
+        embeddings = np.random.rand(4, 384)  # Only 4 samples (less than MIN_TRACES_FOR_CLUSTERING=5)
 
         with pytest.raises(ValueError, match="Insufficient traces"):
-            determine_optimal_k(embeddings, min_k=3, max_k=6)
+            determine_optimal_k(embeddings, min_k=2, max_k=4)
 
     def test_perform_kmeans_clustering(self, sample_embeddings):
         """Test k-means clustering execution."""
@@ -217,17 +217,17 @@ class TestDetermineOptimalKActivity:
     @pytest.mark.asyncio
     async def test_determine_optimal_k_insufficient_data(self):
         """Test with insufficient data."""
-        # Create only 10 embeddings
+        # Create only 4 embeddings (less than MIN_TRACES_FOR_CLUSTERING=5)
         embeddings = [
             TraceEmbedding(
                 trace_id=f"trace_{i}",
                 embedding=np.random.rand(384).tolist(),
             )
-            for i in range(10)
+            for i in range(4)
         ]
 
         with pytest.raises(ValueError):
-            await determine_optimal_k_activity(embeddings, min_k=3, max_k=6)
+            await determine_optimal_k_activity(embeddings, min_k=2, max_k=4)
 
 
 class TestPerformClusteringActivity:
@@ -256,19 +256,24 @@ class TestEmitClusterEventsActivity:
         end_dt = datetime.now(UTC)
         start_dt = end_dt - timedelta(days=7)
 
-        result = await emit_cluster_events_activity(
-            team_id=mock_team.id,
-            clustering_run_id=f"team_{mock_team.id}_{end_dt.isoformat()}",
-            window_start=start_dt.isoformat(),
-            window_end=end_dt.isoformat(),
-            total_traces=len(sample_embeddings),
-            sampled_traces=len(sample_embeddings),
-            optimal_k=3,
-            silhouette_score=0.5,
-            inertia=inertia,
-            labels=labels,
-            embeddings=sample_embeddings,
-        )
+        with patch("posthog.models.team.Team.objects.get") as mock_get_team:
+            mock_get_team.return_value = mock_team
+
+            result = await emit_cluster_events_activity(
+                team_id=mock_team.id,
+                clustering_run_id=f"team_{mock_team.id}_{end_dt.isoformat()}",
+                window_start=start_dt.isoformat(),
+                window_end=end_dt.isoformat(),
+                total_traces=len(sample_embeddings),
+                sampled_traces=len(sample_embeddings),
+                optimal_k=3,
+                silhouette_score=0.5,
+                inertia=inertia,
+                labels=labels,
+                centroids=centroids,
+                embeddings=sample_embeddings,
+                cluster_labels={},
+            )
 
         assert result == 1  # Should return 1 event emitted
 
@@ -282,9 +287,9 @@ class TestWorkflowInputs:
 
         assert inputs.team_id == 1
         assert inputs.lookback_days == 7
-        assert inputs.max_samples == 2000
-        assert inputs.min_k == 3
-        assert inputs.max_k == 6
+        assert inputs.max_samples == 100
+        assert inputs.min_k == 2
+        assert inputs.max_k == 4
 
     def test_clustering_inputs_custom(self):
         """Test ClusteringInputs with custom values."""

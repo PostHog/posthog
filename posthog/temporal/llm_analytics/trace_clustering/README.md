@@ -23,8 +23,8 @@ posthog/temporal/llm_analytics/trace_clustering/
 This workflow implements **Phase 4** of the clustering MVP (see [issue #40787](https://github.com/PostHog/posthog/issues/40787)):
 
 1. **Query embeddings** - Fetch trace embeddings from the last 7 days for a specific team
-2. **Sample embeddings** - Random sample of up to 2000 traces (if fewer available, use all)
-3. **Determine optimal k** - Test k=3,4,5,6 clusters and pick best using silhouette score
+2. **Sample embeddings** - Random sample of up to 100 traces (if fewer available, use all)
+3. **Determine optimal k** - Test k=2,3,4 clusters and pick best using silhouette score
 4. **Perform clustering** - Run k-means clustering with optimal k
 5. **Emit events** - Store results as `$ai_trace_clusters` events in ClickHouse
 
@@ -83,17 +83,17 @@ graph TB
 
 - `team_id` (required): Team ID to cluster traces for
 - `lookback_days` (optional): Days of trace history to analyze (default: 7)
-- `max_samples` (optional): Maximum embeddings to sample (default: 2000)
-- `min_k` (optional): Minimum number of clusters to test (default: 3)
-- `max_k` (optional): Maximum number of clusters to test (default: 6)
+- `max_samples` (optional): Maximum embeddings to sample (default: 100)
+- `min_k` (optional): Minimum number of clusters to test (default: 2)
+- `max_k` (optional): Maximum number of clusters to test (default: 4)
 - `window_start` (optional): Explicit window start in RFC3339 format (overrides lookback_days)
 - `window_end` (optional): Explicit window end in RFC3339 format (overrides lookback_days)
 
 **Flow**:
 
 1. Queries trace IDs and embeddings from the last 7 days (no metadata)
-2. Randomly samples up to 2000 embeddings (uses all if fewer available)
-3. Tests k=3,4,5,6 and picks optimal k using silhouette score
+2. Randomly samples up to 100 embeddings (uses all if fewer available)
+3. Tests k=2,3,4 and picks optimal k using silhouette score
 4. Performs k-means clustering with optimal k
 5. Emits one `$ai_trace_clusters` event with cluster assignments
 
@@ -106,14 +106,14 @@ graph TB
    - Timeout: 5 minutes
 
 2. **`sample_embeddings_activity`**
-   - Random sampling of up to 2000 embeddings
-   - If fewer than 2000 available, uses all
+   - Random sampling of up to 100 embeddings
+   - If fewer than 100 available, uses all
    - Ensures reproducibility with fixed random seed per run
    - Returns sampled list of (trace_id, embedding_vector)
    - Timeout: 1 minute
 
 3. **`determine_optimal_k_activity`**
-   - Tests k=3,4,5,6 using k-means initialization
+   - Tests k=2,3,4 using k-means initialization
    - Calculates silhouette score for each k
    - Picks k with highest silhouette score
    - Returns optimal k and quality metrics
@@ -148,7 +148,7 @@ Each clustering run generates one `$ai_trace_clusters` event:
     "$ai_window_start": "2025-01-16T00:00:00Z",
     "$ai_window_end": "2025-01-23T00:00:00Z",
     "$ai_total_traces_analyzed": 1847,
-    "$ai_sampled_traces_count": 1847,  # or 2000 if more available
+    "$ai_sampled_traces_count": 100,  # or fewer if less available
     "$ai_optimal_k": 4,
 
     # Quality metrics
@@ -256,7 +256,7 @@ See `manual_trigger.py` for more examples and helper functions.
 
 The coordinator workflow (`trace-clustering-coordinator`) automatically:
 
-1. **Discovers teams** - Queries for teams with sufficient trace embeddings (≥20 by default)
+1. **Discovers teams** - Queries for teams with sufficient trace embeddings (≥5 by default)
 2. **Spawns child workflows** - Launches a clustering workflow for each team
 3. **Handles failures** - Continues processing other teams if one fails
 4. **Reports results** - Returns total teams processed, clusters created, and any failures
@@ -316,10 +316,10 @@ await create_trace_clustering_coordinator_schedule(
 Key constants in `constants.py`:
 
 - `DEFAULT_LOOKBACK_DAYS = 7` - Days of trace history to analyze
-- `DEFAULT_MAX_SAMPLES = 2000` - Maximum embeddings to sample (balance between quality and performance)
-- `DEFAULT_MIN_K = 3` - Minimum number of clusters to test
-- `DEFAULT_MAX_K = 6` - Maximum number of clusters to test
-- `MIN_TRACES_FOR_CLUSTERING = 20` - Minimum traces needed to perform clustering
+- `DEFAULT_MAX_SAMPLES = 100` - Maximum embeddings to sample (reduced for dev)
+- `DEFAULT_MIN_K = 2` - Minimum number of clusters to test
+- `DEFAULT_MAX_K = 4` - Maximum number of clusters to test
+- `MIN_TRACES_FOR_CLUSTERING = 5` - Minimum traces needed to perform clustering
 - `WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 30` - Max time for workflow
 - `ALLOWED_TEAM_IDS` - Team allowlist for scheduled runs (empty list = all teams allowed)
 - `CLUSTERING_VERSION = "v1"` - Version identifier for clustering algorithm
@@ -332,15 +332,15 @@ Key constants in `constants.py`:
    - Fetch only trace_id and embedding_vector (no metadata)
 
 2. **Sample** (< 1 min)
-   - Random sample of up to 2000 embeddings
+   - Random sample of up to 100 embeddings
    - Fixed random seed for reproducibility
-   - Skip sampling if fewer than 2000 traces
+   - Skip sampling if fewer than 100 traces
 
 3. **Determine Optimal K** (< 10 min)
-   - Test k=3,4,5,6 with k-means initialization
+   - Test k=2,3,4 with k-means initialization
    - Calculate silhouette score for each k
    - Pick k with best score
-   - Skip if insufficient traces (< 20)
+   - Skip if insufficient traces (< 5)
 
 4. **Cluster** (< 5 min)
    - Run k-means with optimal k
@@ -357,7 +357,7 @@ Key constants in `constants.py`:
 
 ## Error Handling
 
-- **Insufficient data**: If fewer than 20 traces with embeddings, skip clustering gracefully
+- **Insufficient data**: If fewer than 5 traces with embeddings, skip clustering gracefully
 - **Activity retries**: 2-3 retries with exponential backoff
 - **Activity-level timeouts**:
   - Query embeddings: 5 minutes
@@ -442,7 +442,7 @@ Test coverage:
 
 For daily clustering runs per team:
 
-- **Compute**: K-means on 2000 embeddings × 4 k-tests ≈ 8000 clustering operations/day/team
+- **Compute**: K-means on 100 embeddings × 3 k-tests ≈ 300 clustering operations/day/team
 - **Storage**: One event per day per team (~50KB with all trace_ids)
 - **No LLM calls**: Uses pre-computed embeddings from summarization workflow
 
