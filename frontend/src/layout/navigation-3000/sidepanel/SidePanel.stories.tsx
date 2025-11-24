@@ -14,6 +14,7 @@ import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@cu
 import { SidePanelTab } from '~/types'
 
 import { sidePanelDocsLogic } from './panels/sidePanelDocsLogic'
+import { INCIDENT_IO_STATUS_PAGE_BASE } from './panels/sidePanelStatusIncidentIoLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const meta: Meta = {
@@ -138,7 +139,7 @@ export const SidePanelStatusWarning: StoryFn = () => {
 
     useStorybookMocks({
         get: {
-            'https://www.posthogstatus.com/api/v1/summary': summary,
+            [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: summary,
         },
     })
 
@@ -153,7 +154,7 @@ export const SidePanelStatusCritical: StoryFn = () => {
 
     useStorybookMocks({
         get: {
-            'https://www.posthogstatus.com/api/v1/summary': summary,
+            [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: summary,
         },
     })
 

@@ -14,6 +14,7 @@ import {
 
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
+import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/sidepanel/panels/sidePanelStatusIncidentIoLogic'
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
 import { SharingConfigurationType } from '~/types'
@@ -190,7 +191,7 @@ export const defaultMocks: Mocks = {
         '/api/billing/spend/': { results: [] },
         '/api/billing/usage/': { results: [] },
         'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
-        'https://www.posthogstatus.com/api/v1/summary': incidentIoStatusPageAllOK,
+        [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: incidentIoStatusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
         '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
