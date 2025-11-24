@@ -18,6 +18,7 @@
 !frontend/types
 !frontend/babel.config.js
 !frontend/webpack.config.js
+**/__snapshots__
 !gunicorn.config.py
 !manage.py
 !turbo.json

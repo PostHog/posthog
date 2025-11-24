@@ -20,6 +20,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
+                  filter: blob:none
 
             - name: Check if common/hogql_parser/ has changed
               id: changed-files

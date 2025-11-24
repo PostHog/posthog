@@ -31,6 +31,7 @@ jobs:
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
                   ref: ${{ github.event.pull_request.head.ref }}
                   fetch-depth: 0
+                  filter: blob:none
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
