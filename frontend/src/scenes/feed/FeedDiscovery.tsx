@@ -12,16 +12,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 const DISCOVERY_PROMPTS = [
-    // TODO: placeholder for Abe to eventually add "teams like yours" card
-    // {
-    //     title: 'Teams like yours use error tracking',
-    //     subtitle:
-    //         'Teams like yours use error tracking to monitor and fix issues. Try enabling the feature to get started.',
-    //     placeholder: 'e.g., "frontend errors with user_id"',
-    //     promptPrefix: 'Generate log instrumentation for ',
-    //     icon: <IconSparkles style={{ color: '#F7B955' }} />,
-    //     buttonText: 'Go to error tracking',
-    // },
+    // TODO: Abe to add "teams like yours" card
     {
         title: 'Create a new insight',
         subtitle: 'Try something like "show me user signups over the last 30 days"',

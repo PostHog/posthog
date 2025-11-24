@@ -70,7 +70,6 @@ export const feedLogic = kea<feedLogicType>([
         groupedFeedItems: [
             (s) => [s.feedItems, s.searchQuery, s.selectedTypes],
             (items, searchQuery, selectedTypes): Record<string, Record<string, FeedItem[]>> => {
-                // Filter items based on search query (name, author, description only - NOT type)
                 let filteredItems = searchQuery
                     ? items.filter((item) => {
                           const query = searchQuery.toLowerCase()
