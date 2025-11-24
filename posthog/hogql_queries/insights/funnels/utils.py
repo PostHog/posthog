@@ -24,12 +24,14 @@ def use_udf(funnelsFilter: FunnelsFilter, team: Team):
 
 
 def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
-    from posthog.hogql_queries.insights.funnels import Funnel, FunnelStrict, FunnelUDF
+    from posthog.hogql_queries.insights.funnels import Funnel, FunnelUDF
 
-    if use_udf or funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+    if (
+        use_udf
+        or funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED
+        or funnelsFilter.funnelOrderType == StepOrderValue.STRICT
+    ):
         return FunnelUDF
-    elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-        return FunnelStrict
     return Funnel
 
 
