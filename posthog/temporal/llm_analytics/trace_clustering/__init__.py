@@ -5,8 +5,6 @@ from posthog.temporal.llm_analytics.trace_clustering.activities import (
     emit_cluster_events_activity,
     generate_cluster_labels_activity,
     perform_clustering_activity,
-    query_trace_embeddings_activity,
-    sample_embeddings_activity,
 )
 from posthog.temporal.llm_analytics.trace_clustering.coordinator import (
     TraceClusteringCoordinatorWorkflow,
@@ -17,8 +15,6 @@ from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceC
 __all__ = [
     "DailyTraceClusteringWorkflow",
     "TraceClusteringCoordinatorWorkflow",
-    "query_trace_embeddings_activity",
-    "sample_embeddings_activity",
     "determine_optimal_k_activity",
     "perform_clustering_activity",
     "generate_cluster_labels_activity",

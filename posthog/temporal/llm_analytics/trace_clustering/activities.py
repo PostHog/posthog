@@ -2,10 +2,8 @@
 
 import json
 import uuid
-import random
 import logging
 from datetime import UTC, datetime
-from typing import Optional
 
 import numpy as np
 from temporalio import activity
@@ -20,7 +18,6 @@ from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
     perform_kmeans_clustering,
     select_cluster_representatives,
 )
-from posthog.temporal.llm_analytics.trace_clustering.models import TraceEmbedding
 
 logger = logging.getLogger(__name__)
 
@@ -111,108 +108,6 @@ async def select_traces_for_clustering_activity(
     logger.info(f"Selected {len(trace_ids)} trace IDs")
 
     return trace_ids
-
-
-@activity.defn
-async def query_trace_embeddings_activity(
-    team_id: int,
-    window_start: str,
-    window_end: str,
-) -> list[TraceEmbedding]:
-    """
-    DEPRECATED: Use select_traces_for_clustering_activity instead.
-
-    This activity is kept for backward compatibility but should not be used
-    in new workflows as it passes large embedding objects through workflow history.
-    """
-    from django.utils.dateparse import parse_datetime
-
-    from posthog.clickhouse.client.connection import Workload
-    from posthog.clickhouse.client.execute import sync_execute
-
-    logger.info(f"Querying trace embeddings for team {team_id} from {window_start} to {window_end}")
-
-    start_dt = parse_datetime(window_start)
-    end_dt = parse_datetime(window_end)
-
-    if not start_dt or not end_dt:
-        raise ValueError(f"Invalid datetime format: {window_start} or {window_end}")
-
-    # Query only trace_id and embedding - metadata can be fetched by UI later
-    query = """
-        SELECT
-            document_id as trace_id,
-            embedding
-        FROM posthog_document_embeddings
-        WHERE team_id = %(team_id)s
-            AND timestamp >= %(start_dt)s
-            AND timestamp < %(end_dt)s
-            AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
-            AND length(embedding) > 0
-        ORDER BY timestamp DESC
-    """
-
-    params = {
-        "team_id": team_id,
-        "start_dt": start_dt,
-        "end_dt": end_dt,
-        "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
-        "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
-    }
-
-    results = sync_execute(query, params, workload=Workload.OFFLINE)
-
-    embeddings = []
-    for row in results:
-        trace_id, embedding = row
-        embeddings.append(
-            TraceEmbedding(
-                trace_id=trace_id,
-                embedding=embedding,
-            )
-        )
-
-    logger.info(f"Found {len(embeddings)} trace embeddings")
-
-    return embeddings
-
-
-@activity.defn
-async def sample_embeddings_activity(
-    embeddings: list[TraceEmbedding],
-    max_samples: int,
-    random_seed: Optional[int] = None,
-) -> list[TraceEmbedding]:
-    """
-    Sample embeddings randomly up to max_samples.
-
-    If there are fewer embeddings than max_samples, returns all embeddings.
-    Uses a fixed random seed for reproducibility within a run.
-
-    Args:
-        embeddings: List of trace embeddings
-        max_samples: Maximum number of embeddings to sample
-        random_seed: Random seed for reproducibility (defaults to run ID hash)
-
-    Returns:
-        Sampled list of embeddings
-    """
-    logger.info(f"Sampling up to {max_samples} embeddings from {len(embeddings)} total")
-
-    if len(embeddings) <= max_samples:
-        logger.info(f"Using all {len(embeddings)} embeddings (fewer than max_samples)")
-        return embeddings
-
-    # Use provided seed or generate from current time
-    if random_seed is None:
-        random_seed = int(datetime.now().timestamp())
-
-    random.seed(random_seed)
-    sampled = random.sample(embeddings, max_samples)
-
-    logger.info(f"Sampled {len(sampled)} embeddings with seed {random_seed}")
-
-    return sampled
 
 
 @activity.defn
