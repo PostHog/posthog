@@ -25,7 +25,6 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -42,7 +41,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import {
     CyclotronJobFiltersType,
     EarlyAccessFeatureStage,
@@ -50,7 +49,6 @@ import {
     EarlyAccessFeatureType,
     FilterLogicalOperator,
     PersonPropertyFilter,
-    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,

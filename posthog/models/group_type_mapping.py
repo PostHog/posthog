@@ -19,8 +19,11 @@ GROUP_TYPE_MAPPING_SERIALIZER_FIELDS = [
 # This table is responsible for mapping between group types for a Team/Project and event columns
 # to add group keys
 class GroupTypeMapping(RootTeamMixin, models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    project = models.ForeignKey("Project", on_delete=models.CASCADE)
+    # DO_NOTHING: Team/Project deletion handled manually via GroupTypeMapping.objects.filter(team_id=...).delete()
+    # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
+    # db_constraint=False: No database FK constraint - GroupTypeMapping may live in separate database from Team/Project
+    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_constraint=False)
+    project = models.ForeignKey("Project", on_delete=models.DO_NOTHING, db_constraint=False)
     group_type = models.CharField(max_length=400, null=False, blank=False)
     group_type_index = models.IntegerField(null=False, blank=False)
     # Used to display in UI
@@ -29,7 +32,10 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
 
     default_columns = ArrayField(models.TextField(), null=True, blank=True)
 
-    detail_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    # DO_NOTHING + db_constraint=False: Dashboard deletion handled manually, may be cross-database
+    detail_dashboard = models.ForeignKey(
+        "Dashboard", on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True
+    )
     created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

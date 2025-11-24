@@ -77,7 +77,11 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     }, [textProps.value])
 
     return (
-        <div className="flex flex-col">
+        <div
+            className={cn('flex flex-col rounded', {
+                'animate-input-focus-pulse': textProps.autoFocus,
+            })}
+        >
             <TextareaAutosize
                 minRows={minRows}
                 ref={textRef}

@@ -10,7 +10,6 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { ActivityScoreLabel } from 'scenes/session-recordings/components/RecordingRow'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -19,7 +18,8 @@ import { urls } from 'scenes/urls'
 import { ReplayTile } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { ProductKey, ReplayTabs, SessionRecordingType } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ReplayTabs, SessionRecordingType } from '~/types'
 
 export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.Element {
     const { layout } = tile

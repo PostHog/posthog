@@ -33,6 +33,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1109,6 +1110,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1516,6 +1518,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -2492,6 +2495,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -3836,6 +3840,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -4030,6 +4035,19 @@
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.16
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user_one_0')
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.17
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
@@ -4427,6 +4445,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -5018,6 +5037,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -5609,6 +5629,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -5996,6 +6017,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -6785,6 +6807,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -7383,6 +7406,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -7634,6 +7658,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -8482,6 +8507,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -9303,6 +9329,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -10533,6 +10560,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -11324,6 +11352,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -12064,6 +12093,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -12888,6 +12918,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"

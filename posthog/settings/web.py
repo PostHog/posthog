@@ -47,6 +47,7 @@ PRODUCTS_APPS = [
     "products.live_debugger.backend.apps.LiveDebuggerConfig",
     "products.experiments.backend.apps.ExperimentsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
+    "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -165,7 +166,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "posthog.wsgi.application"
-
 
 ####
 # Authentication
@@ -397,7 +397,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
     )
 )
 
-
 ####
 # Prometheus Django metrics settings, see
 # https://github.com/korfuri/django-prometheus for more details
@@ -482,7 +481,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
-
 ####
 # Livestream
 
@@ -507,12 +505,10 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Comma-separated list of team IDs that should receive the digest
 HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
 
-
 ####
 # OAuth
 
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
-
 
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
@@ -524,14 +520,15 @@ OAUTH2_PROVIDER = {
         "openid": "OpenID Connect scope",
         "profile": "Access to user's profile",
         "email": "Access to user's email address",
+        "introspection": "Access to introspect tokens",
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
     # Allow both http and https schemes to support localhost callbacks
     # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses (localhost, 127.0.0.0/8) in production
     "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
-    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60
-    * 5,  # client has 5 minutes to complete the OAuth flow before the authorization code expires
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
+    # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],
     "ACCESS_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_access_token",
     "REFRESH_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_refresh_token",
@@ -546,7 +543,6 @@ OAUTH2_PROVIDER = {
     "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 1000,
     "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 1,
 }
-
 
 OAUTH2_PROVIDER_APPLICATION_MODEL = "posthog.OAuthApplication"
 OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"

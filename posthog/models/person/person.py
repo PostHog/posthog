@@ -140,7 +140,10 @@ class Person(models.Model):
     # used for evaluating if we need to override the value or not (value: set or set_once)
     properties_last_operation = models.JSONField(null=True, blank=True)
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    # DO_NOTHING: Team deletion handled manually via Person.objects.filter(team_id=...).delete()
+    # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
+    # db_constraint=False: No database FK constraint - Person may live in separate database from Team
+    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_constraint=False)
     properties = models.JSONField(default=dict)
     is_user = models.IntegerField(null=True, blank=True, db_column="is_user_id")
     is_identified = models.BooleanField(default=False)
@@ -285,7 +288,8 @@ class Person(models.Model):
 
 class PersonDistinctId(models.Model):
     id = models.BigAutoField(primary_key=True)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
+    # DO_NOTHING + db_constraint=False: Team deletion handled manually, may be cross-database
+    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_index=False, db_constraint=False)
     person = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id = models.CharField(max_length=400)
 
@@ -300,7 +304,8 @@ class PersonDistinctId(models.Model):
 
 class PersonlessDistinctId(models.Model):
     id = models.BigAutoField(primary_key=True)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
+    # DO_NOTHING + db_constraint=False: Team deletion handled manually, may be cross-database
+    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_index=False, db_constraint=False)
     distinct_id = models.CharField(max_length=400)
     is_merged = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
@@ -332,7 +337,8 @@ class PersonOverride(models.Model):
     # XXX: NOT USED, see https://github.com/PostHog/posthog/pull/23616
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    # DO_NOTHING + db_constraint=False: Team deletion handled manually, may be cross-database
+    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_constraint=False)
 
     old_person_id = models.ForeignKey(
         "PersonOverrideMapping",

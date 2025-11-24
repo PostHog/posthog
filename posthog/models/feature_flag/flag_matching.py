@@ -746,6 +746,8 @@ class FeatureFlagMatcher:
             # NB: A flag with 0.0 hash will always evaluate to false
             return 0
         hash_key = f"{prefix}{hash_identifier}{salt}"
+        # this hash is for uniform distribution and has no security impact
+        # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 

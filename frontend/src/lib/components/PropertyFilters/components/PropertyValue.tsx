@@ -11,11 +11,12 @@ import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/compon
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
+import { formatDate, isOperatorBetween, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -67,6 +68,7 @@ export function PropertyValue({
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
+    const isBetweenProperty = operator && isOperatorBetween(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
     const isDurationProperty =
@@ -153,6 +155,10 @@ export function PropertyValue({
 
     if (isDurationProperty) {
         return <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />
+    }
+
+    if (isBetweenProperty) {
+        return <PropertyFilterBetween value={value ?? null} onSet={setValue} size={size} />
     }
 
     if (isDateTimeProperty) {
