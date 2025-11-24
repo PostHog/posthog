@@ -69,8 +69,6 @@ jobs:
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
-              env:
-                  CI: 'true' # Needed for pnpm to not fail to build
 
     deploy_preview:
         name: Deploy preview environment

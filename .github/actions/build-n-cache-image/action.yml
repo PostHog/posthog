@@ -41,6 +41,9 @@ outputs:
         description: The ID of the build
         value: ${{ steps.build.outputs.build-id }}
 
+env:
+    CI: 'true'
+
 runs:
     using: 'composite'
     steps:
@@ -103,3 +106,4 @@ runs:
               no-cache: ${{ inputs.no-cache }}
           env:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
+              CI: 'true'
