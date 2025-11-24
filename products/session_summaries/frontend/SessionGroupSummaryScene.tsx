@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconSearch, IconShare, IconSort } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, LemonInput, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonCollapse,
+    LemonInput,
+    LemonSkeleton,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -121,28 +129,25 @@ function FilterBar({
                     fullWidth
                 />
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
                 {(
                     [
-                        ['blocking_error', 'Blocking error'],
-                        ['non_blocking_error', 'Non-blocking error'],
+                        ['blocking_error', 'Blocking'],
+                        ['non_blocking_error', 'Non-blocking'],
                         ['abandonment', 'Abandonment'],
                         ['confusion', 'Confusion'],
                     ] as const
                 ).map(([key, label]) => {
                     const isActive = issueTypeFilters.has(key)
                     return (
-                        <LemonButton
+                        <LemonCheckbox
                             key={key}
+                            checked={isActive}
+                            onChange={() => onIssueTypeFilterChange(key)}
+                            label={label}
                             size="small"
-                            type={isActive ? 'primary' : 'secondary'}
-                            onClick={() => onIssueTypeFilterChange(key)}
-                            center
-                            className={`w-40 relative ${!isActive ? 'opacity-50' : ''}`}
-                        >
-                            {isActive && <IconCheck className="absolute left-2" />}
-                            {label}
-                        </LemonButton>
+                            bordered
+                        />
                     )
                 })}
             </div>
