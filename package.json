@@ -43,7 +43,10 @@
         "storybook": "pnpm turbo --filter=@posthog/storybook start",
         "// DEPRECATED - use hogli start instead": "",
         "start": "./bin/start",
-        "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true"
+        "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true",
+        "lint": "pnpm lint:js && pnpm lint:css",
+        "lint:js": "oxlint --quiet",
+        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\""
     },
     "dependencies": {
         "concurrently": "^5.3.0",
