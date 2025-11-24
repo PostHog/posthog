@@ -2704,8 +2704,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
-        # we will have three logged activities (in reverse order) undelete, delete, create
-        assert [a["activity"] for a in activity] == ["updated", "updated", "created"]
+        # we will have three logged activities (in reverse order) restore, delete, create
+        assert [a["activity"] for a in activity] == ["restored", "deleted", "created"]
         undelete_change_log = activity[0]["detail"]["changes"][0]
         assert undelete_change_log == {
             "action": "changed",

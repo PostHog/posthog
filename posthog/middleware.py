@@ -29,7 +29,8 @@ from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
@@ -80,7 +81,7 @@ class AllowIPMiddleware:
         self.get_response = get_response
 
     def get_forwarded_for(self, request: HttpRequest):
-        forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        forwarded_for = request.headers.get("x-forwarded-for")
         if forwarded_for is not None:
             return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
         else:
@@ -317,8 +318,8 @@ class CHQueries:
             route_id=route.route,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
-            http_referer=request.META.get("HTTP_REFERER"),
-            http_user_agent=request.META.get("HTTP_USER_AGENT"),
+            http_referer=request.headers.get("referer"),
+            http_user_agent=request.headers.get("user-agent"),
         )
 
         try:
@@ -404,8 +405,8 @@ class ShortCircuitMiddleware:
                     kind="request",
                     id=request.path,
                     route_id=resolve(request.path).route,
-                    http_referer=request.META.get("HTTP_REFERER"),
-                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
+                    http_referer=request.headers.get("referer"),
+                    http_user_agent=request.headers.get("user-agent"),
                 )
                 if self.decide_throttler.allow_request(request, None):
                     return get_decide(request)
@@ -447,9 +448,9 @@ def per_request_logging_context_middleware(
         # header from NGINX, but we really want to have a way to get to the
         # team_id given a host header, and we can't do that with NGINX.
         structlog.contextvars.bind_contextvars(
-            host=request.META.get("HTTP_HOST", ""),
+            host=request.headers.get("host", ""),
             container_hostname=settings.CONTAINER_HOSTNAME,
-            x_forwarded_for=request.META.get("HTTP_X_FORWARDED_FOR", ""),
+            x_forwarded_for=request.headers.get("x-forwarded-for", ""),
         )
 
         return get_response(request)
@@ -495,7 +496,14 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
     def process_response(self, request, response):
         response = super().process_response(request, response)
 
-        if not is_cloud():
+        if settings.TEST:
+            pass
+        elif is_dev_mode():
+            # for local development
+            default_cookie_options["domain"] = None
+            default_cookie_options["secure"] = False
+        elif not is_cloud():
+            # skip adding cookies for self-hosted instance
             return response
 
         # skip adding the cookie on API requests
@@ -507,39 +515,54 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             # clears the cookies that were previously set, except for ph_current_instance as that is used for the website login button
             response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
-        if request.user and request.user.is_authenticated and request.user.team:
-            response.set_cookie(
-                key="ph_current_project_token",
-                value=request.user.team.api_token,
-                max_age=365 * 24 * 60 * 60,
-                expires=default_cookie_options["expires"],
-                path=default_cookie_options["path"],
-                domain=default_cookie_options["domain"],
-                secure=default_cookie_options["secure"],
-                samesite=default_cookie_options["samesite"],
-            )
+        if request.user and request.user.is_authenticated:
+            if request.user.team:
+                response.set_cookie(
+                    key="ph_current_project_token",
+                    value=request.user.team.api_token,
+                    max_age=default_cookie_options["max_age"],
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
 
-            response.set_cookie(
-                key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
-                value=request.user.team.name.encode("utf-8").decode("latin-1"),
-                max_age=365 * 24 * 60 * 60,
-                expires=default_cookie_options["expires"],
-                path=default_cookie_options["path"],
-                domain=default_cookie_options["domain"],
-                secure=default_cookie_options["secure"],
-                samesite=default_cookie_options["samesite"],
-            )
+                response.set_cookie(
+                    key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
+                    value=request.user.team.name.encode("utf-8").decode("latin-1"),
+                    max_age=default_cookie_options["max_age"],
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
 
-            response.set_cookie(
-                key="ph_current_instance",
-                value=SITE_URL,
-                max_age=365 * 24 * 60 * 60,
-                expires=default_cookie_options["expires"],
-                path=default_cookie_options["path"],
-                domain=default_cookie_options["domain"],
-                secure=default_cookie_options["secure"],
-                samesite=default_cookie_options["samesite"],
-            )
+                response.set_cookie(
+                    key="ph_current_instance",
+                    value=SITE_URL,
+                    max_age=default_cookie_options["max_age"],
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
+
+            auth_backend = request.session.get("_auth_user_backend")
+            login_method = AUTH_BACKEND_KEYS.get(auth_backend)
+            if login_method:
+                response.set_cookie(
+                    key="ph_last_login_method",
+                    value=login_method,
+                    max_age=default_cookie_options["max_age"],
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
 
         return response
 

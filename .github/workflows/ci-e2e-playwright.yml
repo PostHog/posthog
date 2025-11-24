@@ -40,12 +40,19 @@ env:
     PGUSER: posthog
     PGPASSWORD: posthog
     PGPORT: 5432
+    OIDC_RSA_PRIVATE_KEY: ${{ secrets.OIDC_RSA_PRIVATE_KEY }}
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
+    AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
+    AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # This is so that the workflow run isn't canceled when a screenshot update is pushed within it by posthog-bot
-    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
-    cancel-in-progress: false
+    # Cancel in-progress runs when new commits are pushed
+    # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
+    cancel-in-progress: true
 
 jobs:
     changes:
@@ -104,10 +111,10 @@ jobs:
                     echo "Workflow triggered by: $AUTHOR"
                     if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
                       echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
+                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
                       echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "✓ Running in UPDATE mode - snapshots can be updated"
+                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
                     fi
                   fi
 
@@ -120,7 +127,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 50 # Need enough history for flap detection to find last human commit
@@ -134,7 +141,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.6.9.98
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.11.66
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
@@ -298,24 +305,24 @@ jobs:
                   echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
                   echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
 
-                  # Build and run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
-                  docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
-                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest all
+                  # Run Rust migrations for persons database
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
 
-                  # Build and run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
-                  docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
-                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest all
+                  # Run Rust migrations for e2e test database
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
+                    sqlx migrate run --source rust/persons_migrations/
 
                   python manage.py setup_dev
                   wait
@@ -328,7 +335,7 @@ jobs:
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
-                  python manage.py runserver 8000 &> /tmp/server.log &
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 1 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -495,7 +502,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
             - name: Download screenshot patches
@@ -535,8 +542,33 @@ jobs:
                   workflow-type: playwright
                   patch-path: /tmp/screenshot-patches/
                   snapshot-path: playwright/
-                  commit-message: Update E2E screenshots (Playwright)
+                  commit-message: 'test(e2e): update screenshots'
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
+                  branch-name: ${{ github.event.pull_request.head.ref }}
                   github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+
+    # Job to collate the status of the matrix jobs for requiring passing status
+    # Must depend on handle-screenshots to prevent auto-merge before commits complete
+    playwright_tests:
+        needs: [playwright, handle-screenshots]
+        name: Playwright tests pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  # Check playwright matrix result
+                  if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
+                    echo "One or more jobs in the Playwright test matrix failed."
+                    exit 1
+                  fi
+
+                  # Check handle-screenshots result (OK if skipped, but fail if it failed)
+                  if [[ "${{ needs.handle-screenshots.result }}" == "failure" ]]; then
+                    echo "Screenshot commit job failed."
+                    exit 1
+                  fi
+
+                  echo "All jobs passed or were skipped successfully."

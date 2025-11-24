@@ -225,6 +225,8 @@ function LiquidSupportedText({
     const { templatingEngine } = useValues(emailTemplaterLogic)
     const { setTemplatingEngine } = useActions(emailTemplaterLogic)
 
+    const templating = templatingEngine ?? 'hog'
+
     return (
         <span className="flex grow group relative justify-between">
             <span className="absolute top-0 right-2 z-20 p-px opacity-0 transition-opacity group-hover:opacity-100">
@@ -237,7 +239,14 @@ function LiquidSupportedText({
                     }}
                 />
             </span>
-            <CodeEditorInline embedded className="flex-1" globals={globals} value={value} onChange={onChange} />
+            <CodeEditorInline
+                embedded
+                className="flex-1"
+                globals={globals}
+                value={value}
+                language={templating === 'hog' ? 'hogTemplate' : 'liquid'}
+                onChange={onChange}
+            />
         </span>
     )
 }

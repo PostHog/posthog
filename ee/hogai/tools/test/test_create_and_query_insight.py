@@ -13,8 +13,9 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_and_query_insight import (
     INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT,
     CreateAndQueryInsightTool,
@@ -63,7 +64,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[viz_message, tool_call_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
@@ -77,27 +78,28 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(artifact.messages[1], AssistantToolCallMessage)
 
     async def test_schema_generation_exception_returns_formatted_error(self):
-        """Test SchemaGenerationException is caught and returns formatted error message."""
+        """Test SchemaGenerationException is caught and raises MaxToolRetryableError."""
         tool = self._create_tool()
 
         exception = SchemaGenerationException(
             llm_output="Invalid query structure", validation_message="Missing required field: series"
         )
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(side_effect=exception)
             mock_compile.return_value = mock_graph
 
-            result_text, artifact = await tool._arun_impl(query_description="test description")
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await tool._arun_impl(query_description="test description")
 
-        self.assertIsNone(artifact)
-        self.assertIn("Invalid query structure", result_text)
-        self.assertIn("Missing required field: series", result_text)
-        self.assertIn(INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, result_text)
+        error_message = str(context.exception)
+        self.assertIn("Invalid query structure", error_message)
+        self.assertIn("Missing required field: series", error_message)
+        self.assertIn(INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, error_message)
 
     async def test_invalid_tool_call_message_type_returns_error(self):
-        """Test when the last message is not AssistantToolCallMessage, returns error."""
+        """Test when the last message is not AssistantToolCallMessage, raises MaxToolRetryableError."""
         tool = self._create_tool()
 
         viz_message = VisualizationMessage(query="test query", answer=AssistantTrendsQuery(series=[]), plan="test plan")
@@ -106,16 +108,17 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[viz_message, invalid_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
 
-            result_text, artifact = await tool._arun_impl(query_description="test description")
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await tool._arun_impl(query_description="test description")
 
-        self.assertIsNone(artifact)
-        self.assertIn("unknown error", result_text)
-        self.assertIn(INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, result_text)
+        error_message = str(context.exception)
+        self.assertIn("unknown error", error_message)
+        self.assertIn(INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, error_message)
 
     async def test_human_feedback_requested_returns_only_tool_call_message(self):
         """Test when visualization message is not present, returns only tool call message."""
@@ -127,7 +130,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[some_message, tool_call_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
@@ -151,7 +154,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[viz_message, tool_call_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
@@ -182,7 +185,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         mock_state = AssistantState(messages=[viz_message, tool_call_message])
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
@@ -216,7 +219,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             invoked_state = state
             return mock_state.model_dump()
 
-        with patch("ee.hogai.graph.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
+        with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
             mock_graph.ainvoke = AsyncMock(side_effect=capture_invoked_state)
             mock_compile.return_value = mock_graph

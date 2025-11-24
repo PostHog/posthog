@@ -9,8 +9,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 
 import structlog
-from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from prometheus_client import CollectorRegistry, generate_latest, multiprocess
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -101,11 +101,11 @@ def home(request, *args, **kwargs):
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.GET.get("redirect"):
         return HttpResponse("You need to pass a url to ?redirect=", status=400)
-    if not request.META.get("HTTP_REFERER"):
+    if not request.headers.get("referer"):
         return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
 
     current_team = cast(User, request.user).team
-    referer_url = urlparse(request.META["HTTP_REFERER"])
+    referer_url = urlparse(request.headers["referer"])
     redirect_url = urlparse(request.GET["redirect"])
     is_forum_login = request.GET.get("forum_login", "").lower() == "true"
 
@@ -180,6 +180,8 @@ urlpatterns = [
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
     path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),
     path("", include(tf_urls)),
+    opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
+    opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
@@ -247,10 +249,29 @@ urlpatterns = [
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
-    # that in production we expose these metrics on a separate port, to ensure
-    # external clients cannot see them. See the gunicorn setup for details on
-    # what we do.
-    urlpatterns.append(path("_metrics", ExportToDjangoView))
+    # that in production we expose these metrics on a separate port (8001), to ensure
+    # external clients cannot see them. See bin/granian_metrics.py and bin/unit_metrics.py
+    # for details on the production metrics setup.
+
+    # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)
+    import os
+
+    def metrics_view(request):
+        """Metrics endpoint that aggregates from all processes using multiprocess mode."""
+        registry = CollectorRegistry()
+        # If prometheus_multiproc_dir is set, collect from all processes
+        if "prometheus_multiproc_dir" in os.environ or "PROMETHEUS_MULTIPROC_DIR" in os.environ:
+            multiprocess.MultiProcessCollector(registry)
+        else:
+            # Fallback to default registry if multiprocess not configured
+            from prometheus_client import REGISTRY
+
+            registry = REGISTRY
+
+        metrics_output = generate_latest(registry)
+        return HttpResponse(metrics_output, content_type="text/plain; charset=utf-8; version=0.0.4")
+
+    urlpatterns.append(path("_metrics", metrics_view))
     # Temporal codec server endpoint for UI decryption - locally only for now
     urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 

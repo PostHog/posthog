@@ -9,6 +9,8 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -17,7 +19,6 @@ import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -32,11 +33,12 @@ export interface SceneTabsProps {
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
-    const { tabs } = useValues(sceneLogic)
+    const { tabs, firstTabIsActive } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+    // Get the focus action from the newTabSceneLogic for the active tab
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
@@ -53,7 +55,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     }
     const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
 
-    const showRoundedCorner = !isLayoutPanelVisible
+    const showRoundedCorner = !isLayoutPanelVisible && !firstTabIsActive
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -109,7 +111,10 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             {/* Rounded corner on the left edge of the tabs to curve the line above into the navbar right border */}
             {showRoundedCorner && (
                 <>
-                    <div className="hidden lg:block absolute bottom-[-11px] left-[-1px] w-[11px] h-[11px] z-10 rounded-tl-lg border-l border-t border-primary" />
+                    {/* background to match the navbar  */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)]" />
+                    {/* corner to match the main */}
+                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-surface-tertiary" />
                 </>
             )}
 
@@ -120,7 +125,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div
-                            className={cn('scene-tab-row grid min-w-0 pl-[5px] lg:pl-5 gap-1 items-center h-[36px]')}
+                            className={cn('scene-tab-row grid min-w-0 gap-1 items-center')}
                             style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab, index) => {
@@ -137,28 +142,32 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 )
                             })}
                         </div>
-                        <Link
-                            to={urls.newTab()}
-                            data-attr="scene-tab-new-button"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                newTab()
-                            }}
-                            buttonProps={{
-                                size: 'sm',
-                                className:
-                                    'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
-                                iconOnly: true,
-                            }}
-                            tooltip={
-                                <>
-                                    New tab <KeyboardShortcut command b />
-                                </>
-                            }
-                            tooltipPlacement="bottom"
+                        <AppShortcut
+                            name="NewTab"
+                            keybind={[keyBinds.newTab]}
+                            intent="New tab"
+                            interaction="click"
+                            asChild
                         >
-                            <IconPlus className="!ml-0" fontSize={14} />
-                        </Link>
+                            <Link
+                                to={urls.newTab()}
+                                data-attr="scene-tab-new-button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    newTab()
+                                }}
+                                tooltip="New tab"
+                                tooltipCloseDelayMs={0}
+                                buttonProps={{
+                                    size: 'sm',
+                                    className:
+                                        'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
+                                    iconOnly: true,
+                                }}
+                            >
+                                <IconPlus className="!ml-0" fontSize={14} />
+                            </Link>
+                        </AppShortcut>
                     </div>
                 </SortableContext>
             </DndContext>
@@ -200,7 +209,12 @@ function SortableSceneTab({
     return (
         <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
-                <SceneTabComponent tab={tab} isDragging={isDragging} containerClassName={containerClassName} />
+                <SceneTabComponent
+                    tab={tab}
+                    isDragging={isDragging}
+                    containerClassName={containerClassName}
+                    index={index}
+                />
             </SceneTabContextMenu>
         </div>
     )
@@ -211,16 +225,16 @@ interface SceneTabProps {
     className?: string
     isDragging?: boolean
     containerClassName?: string
+    index: number
 }
 
-function SceneTabComponent({ tab, className, isDragging, containerClassName }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
     const canRemoveTab = !isPinned
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
     const { editingTabId } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
-
     const isEditing = editingTabId === tab.id
 
     useEffect(() => {
@@ -243,6 +257,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
             <div
                 className={cn({
                     'scene-tab-active-indicator': tab.active,
+                    'scene-tab-active-indicator--first': index === 0,
                 })}
             />
 
@@ -252,28 +267,30 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                 className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
                 {canRemoveTab && (
-                    <ButtonPrimitive
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            removeTab(tab)
-                        }}
-                        isSideActionRight
-                        iconOnly
-                        size="xs"
-                        className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
-                        tooltip={
-                            tab.active ? (
-                                <>
-                                    Close active tab <KeyboardShortcut shift command b />
-                                </>
-                            ) : (
-                                'Close tab'
-                            )
-                        }
+                    <AppShortcut
+                        name="CloseActiveTab"
+                        keybind={[keyBinds.closeActiveTab]}
+                        intent="Close active tab"
+                        interaction="click"
+                        asChild
+                        disabled={!tab.active}
                     >
-                        <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
-                    </ButtonPrimitive>
+                        <ButtonPrimitive
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                removeTab(tab)
+                            }}
+                            tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
+                            tooltipCloseDelayMs={0}
+                            isSideActionRight
+                            iconOnly
+                            size="xs"
+                            className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
+                        >
+                            <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
+                        </ButtonPrimitive>
+                    </AppShortcut>
                 )}
                 <ButtonPrimitive
                     onClick={(e) => {
@@ -311,7 +328,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName }: S
                         className
                     )}
                     tooltip={
-                        tab.customTitle && tab.customTitle !== 'New tab'
+                        tab.customTitle && tab.customTitle !== 'Search'
                             ? `${tab.customTitle} (${tab.title})`
                             : tab.title
                     }

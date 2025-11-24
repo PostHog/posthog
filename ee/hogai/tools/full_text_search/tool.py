@@ -12,7 +12,7 @@ from posthog.sync import database_sync_to_async
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
-from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.tool import MaxSubtool
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE

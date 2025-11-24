@@ -84,6 +84,7 @@ export interface ErrorTrackingSymbolSet {
     id: string
     ref: string
     team_id: number
+    last_used: string
     created_at: string
     storage_ptr: string | null
     failure_reason: string | null
@@ -141,7 +142,7 @@ export interface ErrorTrackingRelease {
     }
     project?: string // Only present in recent releases (10-11-2025)
     version: string
-    timestamp: string
+    created_at: string
 }
 
 export type SymbolSetStatus = 'valid' | 'invalid'
@@ -150,8 +151,11 @@ export type ErrorEventProperties = EventType['properties']
 export type ErrorEventId = NonNullable<EventType['uuid']>
 
 export type ErrorEventType = {
+    event: '$exception'
     uuid: ErrorEventId
     timestamp: string
+    distinct_id: string
     properties: ErrorEventProperties
     person: PersonType
+    elements?: never
 }

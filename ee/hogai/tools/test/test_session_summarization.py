@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from posthog.schema import AssistantMessage
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.tools.session_summarization import SessionSummarizationTool
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -34,7 +35,10 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
             messages=[AssistantMessage(content="Session summary: 10 sessions analyzed with 5 key patterns found")]
         )
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode", return_value=mock_node_instance):
+        with patch(
+            "ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode",
+            return_value=mock_node_instance,
+        ):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda") as mock_runnable:
                 mock_chain = MagicMock()
                 mock_chain.ainvoke = AsyncMock(return_value=mock_result)
@@ -43,6 +47,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result, artifact = await self.tool._arun_impl(
                     session_summarization_query="summarize all sessions from yesterday",
                     should_use_current_filters=False,
+                    specific_session_ids_to_summarize=[],
                     summary_title="All sessions from yesterday",
                     session_summarization_limit=-1,
                 )
@@ -60,6 +65,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         async def mock_ainvoke(state):
             self.assertEqual(state.session_summarization_query, "analyze mobile user sessions")
             self.assertEqual(state.should_use_current_filters, True)
+            self.assertEqual(state.specific_session_ids_to_summarize, [])
             self.assertEqual(state.summary_title, "Mobile user sessions")
             self.assertEqual(state.root_tool_call_id, self.tool_call_id)
             return mock_result
@@ -67,11 +73,12 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 await self.tool._arun_impl(
                     session_summarization_query="analyze mobile user sessions",
                     should_use_current_filters=True,
+                    specific_session_ids_to_summarize=[],
                     summary_title="Mobile user sessions",
                     session_summarization_limit=-1,
                 )
@@ -81,6 +88,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         async def mock_ainvoke(state):
             self.assertEqual(state.should_use_current_filters, False)
+            self.assertEqual(state.specific_session_ids_to_summarize, [])
             self.assertEqual(state.session_summarization_query, "watch last 300 session recordings")
             self.assertEqual(state.summary_title, "Last 300 sessions")
             return mock_result
@@ -88,11 +96,12 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 await self.tool._arun_impl(
                     session_summarization_query="watch last 300 session recordings",
                     should_use_current_filters=False,
+                    specific_session_ids_to_summarize=[],
                     summary_title="Last 300 sessions",
                     session_summarization_limit=300,
                 )
@@ -104,17 +113,19 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool._arun_impl(
-                    session_summarization_query="test query",
-                    should_use_current_filters=False,
-                    summary_title="Test",
-                    session_summarization_limit=-1,
-                )
+                with self.assertRaises(MaxToolFatalError) as context:
+                    await self.tool._arun_impl(
+                        session_summarization_query="test query",
+                        should_use_current_filters=False,
+                        specific_session_ids_to_summarize=[],
+                        summary_title="Test",
+                        session_summarization_limit=-1,
+                    )
 
-                self.assertEqual(result, "Session summarization failed")
-                self.assertIsNone(artifact)
+                error_message = str(context.exception)
+                self.assertIn("Session summarization failed", error_message)
 
     async def test_execute_returns_failure_message_when_result_has_no_messages(self):
         mock_result = PartialAssistantState(messages=[])
@@ -125,17 +136,19 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool._arun_impl(
-                    session_summarization_query="test query",
-                    should_use_current_filters=False,
-                    summary_title="Test",
-                    session_summarization_limit=-1,
-                )
+                with self.assertRaises(MaxToolFatalError) as context:
+                    await self.tool._arun_impl(
+                        session_summarization_query="test query",
+                        should_use_current_filters=False,
+                        specific_session_ids_to_summarize=[],
+                        summary_title="Test",
+                        session_summarization_limit=-1,
+                    )
 
-                self.assertEqual(result, "Session summarization failed")
-                self.assertIsNone(artifact)
+                error_message = str(context.exception)
+                self.assertIn("Session summarization failed", error_message)
 
     async def test_execute_with_empty_summary_title(self):
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Summary completed")])
@@ -147,11 +160,12 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 result, artifact = await self.tool._arun_impl(
                     session_summarization_query="summarize sessions",
                     should_use_current_filters=False,
+                    specific_session_ids_to_summarize=[],
                     summary_title="",
                     session_summarization_limit=-1,
                 )
@@ -186,11 +200,12 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 await tool._arun_impl(
                     session_summarization_query="new query",
                     should_use_current_filters=True,
+                    specific_session_ids_to_summarize=[],
                     summary_title="New Summary",
                     session_summarization_limit=-1,
                 )

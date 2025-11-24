@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-11-10 10:03:38 UTC
+// Generated at: 2025-11-24 10:03:32 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -12,6 +12,8 @@ export type CanonicalProvider =
     | 'anthropic'
     | 'atlas-cloud-bf16'
     | 'atlas-cloud-fp8'
+    | 'atlas-cloud-int4'
+    | 'avian-bf16'
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
@@ -20,6 +22,7 @@ export type CanonicalProvider =
     | 'chutes'
     | 'chutes-bf16'
     | 'chutes-fp8'
+    | 'chutes-int4'
     | 'cirrascale'
     | 'clarifai-fp4'
     | 'cloudflare'
@@ -40,7 +43,9 @@ export type CanonicalProvider =
     | 'fireworks-fp8'
     | 'friendli'
     | 'gmicloud-bf16'
+    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
+    | 'gmicloud-int4'
     | 'google-ai-studio'
     | 'google-vertex'
     | 'google-vertex-europe'
@@ -58,8 +63,8 @@ export type CanonicalProvider =
     | 'mancer-fp16'
     | 'mancer-fp8'
     | 'mancer-int4'
-    | 'meta-fp8'
     | 'minimax'
+    | 'minimax-fp8'
     | 'mistral'
     | 'modelrun'
     | 'moonshotai'
@@ -89,6 +94,8 @@ export type CanonicalProvider =
     | 'parasail-bf16'
     | 'parasail-fp4'
     | 'parasail-fp8'
+    | 'parasail-int4'
+    | 'parasail-int8'
     | 'perplexity'
     | 'phala'
     | 'relace-fp8'
@@ -97,10 +104,8 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'siliconflow-fp8'
-    | 'stealth'
     | 'switchpoint'
     | 'together'
-    | 'together-fp16'
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'

@@ -7,12 +7,12 @@ import React from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { gradateColor, range } from 'lib/utils'
+import { gradateColor } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { DEFAULT_RETENTION_TOTAL_INTERVALS, OVERALL_MEAN_KEY } from './retentionLogic'
+import { OVERALL_MEAN_KEY, retentionLogic } from './retentionLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
 import { NO_BREAKDOWN_VALUE } from './types'
@@ -30,13 +30,15 @@ export function RetentionTable({
         hideSizeColumn,
         retentionVizOptions,
         theme,
-        retentionFilter,
         expandedBreakdowns,
         retentionMeans,
         breakdownDisplayNames,
+        tableHeaders,
+        retentionFilter,
     } = useValues(retentionTableLogic(insightProps))
-    const { toggleBreakdown, setSelectedInterval, setHoveredColumn } = useActions(retentionTableLogic(insightProps))
+    const { toggleBreakdown, setHoveredColumn } = useActions(retentionTableLogic(insightProps))
     const { hoveredColumn } = useValues(retentionTableLogic(insightProps))
+    const { updateInsightFilter } = useActions(retentionLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
@@ -46,7 +48,6 @@ export function RetentionTable({
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const totalIntervals = retentionFilter?.totalIntervals ?? DEFAULT_RETENTION_TOTAL_INTERVALS
     // only one breakdown value so don't need to highlight using different colors/autoexpand it
     const isSingleBreakdown = Object.keys(tableRowsSplitByBreakdownValue).length === 1
 
@@ -68,25 +69,35 @@ export function RetentionTable({
                 <tr>
                     <th className="bg whitespace-nowrap">Cohort</th>
                     {!hideSizeColumn && <th className="bg">Size</th>}
-                    {range(0, totalIntervals).map((interval) => (
+                    {tableHeaders.map((header, columnIndex) => (
                         <th
-                            key={interval}
-                            className={clsx('bg', {
-                                'cursor-pointer': allowSelectingColumns,
-                                'RetentionTable__SelectedColumn--header': interval === selectedInterval,
-                                'RetentionTable__HoveredColumn--header': interval === hoveredColumn,
+                            key={header}
+                            className={clsx({
+                                'RetentionTable__SelectedColumn--header': columnIndex === selectedInterval,
+                                'RetentionTable__HoveredColumn--header': columnIndex === hoveredColumn,
                             })}
                             onClick={() => {
-                                if (!allowSelectingColumns) {
-                                    return
+                                if (allowSelectingColumns) {
+                                    updateInsightFilter({
+                                        selectedInterval: columnIndex === selectedInterval ? null : columnIndex,
+                                    })
                                 }
-                                const newInterval = selectedInterval === interval ? null : interval
-                                setSelectedInterval(newInterval)
                             }}
-                            onMouseEnter={() => setHoveredColumn(interval)}
-                            onMouseLeave={() => setHoveredColumn(null)}
+                            onMouseEnter={() => {
+                                if (allowSelectingColumns) {
+                                    setHoveredColumn(columnIndex)
+                                }
+                            }}
+                            onMouseLeave={() => {
+                                if (allowSelectingColumns) {
+                                    setHoveredColumn(null)
+                                }
+                            }}
+                            style={{
+                                cursor: allowSelectingColumns ? 'pointer' : 'default',
+                            }}
                         >
-                            {`${retentionFilter?.period} ${interval}`}
+                            {header}
                         </th>
                     ))}
                 </tr>
@@ -133,12 +144,13 @@ export function RetentionTable({
                                     </td>
                                 )}
 
-                                {range(0, totalIntervals).map((interval) => (
+                                {tableHeaders.map((_, interval) => (
                                     <td
                                         key={interval}
                                         className={clsx({
                                             'RetentionTable__SelectedColumn--cell': interval === selectedInterval,
-                                            'RetentionTable__HoveredColumn--cell': interval === hoveredColumn,
+                                            'RetentionTable__HoveredColumn--cell':
+                                                interval === hoveredColumn && interval !== selectedInterval,
                                         })}
                                     >
                                         <CohortDay
@@ -175,7 +187,7 @@ export function RetentionTable({
                                                 <span className="RetentionTable__TextTab">{row.cohortSize}</span>
                                             </td>
                                         )}
-                                        {range(0, totalIntervals).map((columnIndex) => {
+                                        {tableHeaders.map((_, columnIndex) => {
                                             const column = row.values[columnIndex]
                                             return (
                                                 <td

@@ -35,6 +35,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
+    redis_response_timeout_ms: 100,
+    redis_connection_timeout_ms: 5000,
     overflow_enabled: false,
     overflow_preserve_partition_locality: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
@@ -80,6 +82,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_prefix: String::new(),
     healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
+    request_timeout_seconds: Some(10),
 });
 
 static TRACING_INIT: Once = Once::new();
