@@ -226,6 +226,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
                 chunk_received_time = time.time()
                 STREAM_ITERATION_LATENCY_HISTOGRAM.observe(chunk_received_time - last_iteration_time)
+                last_iteration_time = chunk_received_time
 
                 event = await serializer.dumps(chunk)
                 yield event.encode("utf-8")

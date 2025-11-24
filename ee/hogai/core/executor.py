@@ -148,7 +148,7 @@ class AgentExecutor:
             async for chunk in self._redis_stream.read_stream():
                 message = await self._redis_stream_to_assistant_output(chunk)
 
-                temporal_to_code_latency = chunk.timestamp - last_chunk_time
+                temporal_to_code_latency = last_chunk_time - chunk.timestamp
                 if temporal_to_code_latency > 0:
                     STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM.observe(temporal_to_code_latency)
                 last_chunk_time = time.time()
