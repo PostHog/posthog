@@ -25,9 +25,9 @@ logger.setLevel(logging.INFO)
 
 
 @cached(cache={})
-def get_ph_client(*args: Any, **kwargs: Any) -> PostHogClient:
+def get_ph_client() -> PostHogClient:
     """Get a PostHog client instance for capturing events."""
-    return PostHogClient("sTMFPsFhdP1Ssg", *args, **kwargs)
+    return PostHogClient("sTMFPsFhdP1Ssg", sync_mode=True)
 
 
 # AI events dynamically generated from AIEventType enum
@@ -70,6 +70,9 @@ def _execute_split_query(
     Returns:
         Combined query results
     """
+    if num_splits < 1:
+        raise ValueError("num_splits must be at least 1")
+
     # Calculate the time interval for each split
     time_delta = (end - begin) / num_splits
 
@@ -123,7 +126,13 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
 
     # Combine all results
     for results in results_list:
-        for team_id, count in results:
+        for row in results:
+            try:
+                team_id, count = row
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Skipping malformed row in team count results: {row}, error: {e}")
+                continue
+
             if team_id in team_counts:
                 team_counts[team_id] += count
             else:
@@ -147,7 +156,13 @@ def _combine_event_type_results(results_list: list) -> list[tuple[int, str, int]
 
     # Combine all results
     for results in results_list:
-        for team_id, event, count in results:
+        for row in results:
+            try:
+                team_id, event, count = row
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Skipping malformed row in event type results: {row}, error: {e}")
+                continue
+
             key = (team_id, event)
 
             if key in team_event_counts:
@@ -159,13 +174,12 @@ def _combine_event_type_results(results_list: list) -> list[tuple[int, str, int]
     return [(team_id, event, count) for (team_id, event), count in team_event_counts.items()]
 
 
-def _combine_multi_metric_results(results_list: list, num_metrics: int) -> list[tuple]:
+def _combine_multi_metric_results(results_list: list) -> list[tuple]:
     """
     Combine results from queries that return (team_id, metric1, metric2, ...) tuples.
 
     Args:
         results_list: List of query results
-        num_metrics: Number of metrics (excluding team_id)
 
     Returns:
         Combined list of tuples with summed metrics
@@ -175,14 +189,23 @@ def _combine_multi_metric_results(results_list: list, num_metrics: int) -> list[
     # Combine all results
     for results in results_list:
         for row in results:
+            if not row:
+                logger.warning("Skipping empty row in multi metric results")
+                continue
+
             team_id = row[0]
             metrics = row[1:]  # All metrics after team_id
 
             if team_id in team_metrics:
+                existing = team_metrics[team_id]
+
+                # Ensure we don't go out of bounds - extend if new row has more metrics
+                if len(metrics) > len(existing):
+                    existing.extend([0] * (len(metrics) - len(existing)))
+
                 # Sum each metric
                 for i, metric in enumerate(metrics):
-                    team_metrics[team_id][i] += metric or 0
-
+                    existing[i] += metric or 0
             else:
                 # Initialize with current metrics
                 team_metrics[team_id] = [metric or 0 for metric in metrics]
@@ -205,7 +228,13 @@ def _combine_dimension_results(results_list: list) -> list[tuple[int, str, int]]
 
     # Combine all results
     for results in results_list:
-        for team_id, dimension_value, count in results:
+        for row in results:
+            try:
+                team_id, dimension_value, count = row
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Skipping malformed row in dimension results: {row}, error: {e}")
+                continue
+
             key = (team_id, dimension_value)
 
             if key in team_dimension_counts:
@@ -335,7 +364,7 @@ def get_ai_cost_metrics(
         query_template,
         {"ai_events": AI_EVENTS},
         num_splits=3,
-        combine_results_func=lambda r: _combine_multi_metric_results(r, num_metrics=3),
+        combine_results_func=_combine_multi_metric_results,
         team_ids=team_ids,
     )
 
@@ -388,7 +417,7 @@ def get_ai_additional_cost_metrics(
         query_template,
         {"ai_events": AI_EVENTS},
         num_splits=3,
-        combine_results_func=lambda r: _combine_multi_metric_results(r, num_metrics=2),
+        combine_results_func=_combine_multi_metric_results,
         team_ids=team_ids,
     )
 
@@ -441,7 +470,7 @@ def get_ai_token_metrics(
         query_template,
         {"ai_events": AI_EVENTS},
         num_splits=3,
-        combine_results_func=lambda r: _combine_multi_metric_results(r, num_metrics=3),
+        combine_results_func=_combine_multi_metric_results,
         team_ids=team_ids,
     )
 
@@ -495,7 +524,7 @@ def get_ai_additional_token_metrics(
         query_template,
         {"ai_events": AI_EVENTS},
         num_splits=3,
-        combine_results_func=lambda r: _combine_multi_metric_results(r, num_metrics=3),
+        combine_results_func=_combine_multi_metric_results,
         team_ids=team_ids,
     )
 
@@ -930,7 +959,7 @@ def capture_llm_analytics_report(
         raise ValueError("organization_id must be provided")
 
     try:
-        pha_client = get_ph_client(sync_mode=True)
+        pha_client = get_ph_client()
 
         capture_event(
             pha_client=pha_client,
@@ -944,13 +973,18 @@ def capture_llm_analytics_report(
         logger.exception(
             f"LLM Analytics usage report sent to PostHog for organization {organization_id} failed: {str(err)}",
         )
-        pha_client = get_ph_client(sync_mode=True)
-        capture_event(
-            pha_client=pha_client,
-            name="llm analytics usage report failure",
-            organization_id=organization_id,
-            properties={"error": str(err)},
-        )
+
+        try:
+            pha_client = get_ph_client()
+            capture_event(
+                pha_client=pha_client,
+                name="llm analytics usage report failure",
+                organization_id=organization_id,
+                properties={"error": str(err)},
+            )
+        except Exception as capture_err:
+            logger.exception(f"Failed to capture error event: {capture_err}")
+
         raise
 
 
