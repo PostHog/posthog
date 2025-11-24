@@ -737,7 +737,7 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
     auser: User,
     ateam: Team,
 ):
-    """Test that patterns with only non-blocking exceptions don't count as enrichment failures"""
+    """Test that only one event per session per pattern is kept (deduplication logic)"""
     # Create a modified session summary with only non-blocking exceptions for some patterns
     modified_summary_data = dict(mock_enriched_llm_json_response)
     # Clear existing events and add specific test events
@@ -846,13 +846,14 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
         redis_input_key,
     )
     # Mock LLM response that assigns events to patterns
+    # Note: With deduplication logic, only ONE event per session per pattern is kept (first occurrence wins)
     patterns_assignment_yaml = """patterns:
   - pattern_id: 1
-    event_ids: ["nonb0001", "nonb0002"]  # Only non-blocking
+    event_ids: ["nonb0001", "nonb0002"]  # Both from same session, only first will be kept
   - pattern_id: 2
     event_ids: ["block001"]  # Only blocking
   - pattern_id: 3
-    event_ids: ["nonb0001", "block001"]  # Mixed"""
+    event_ids: ["nonb0001", "block001"]  # Both from same session, only first will be kept"""
     mock_llm_response = ChatCompletion(
         id="test_id",
         model="test_model",
@@ -885,26 +886,30 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
         mock_async_connect.return_value = mock_temporal_client
         # Mock LLM call
         mock_call_llm.return_value = mock_llm_response
-        # We provide 3 patters, it should fail if less than 75% of the patterns were successful
-        # It would return just 2, but one pattern is empty through non-blocking exception removal - so, it should not fail
+        # We provide 3 patterns. With deduplication, all 3 should have exactly 1 event each
         result, _ = await assign_events_to_patterns_activity(activity_input)
     # Assertions
     assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
-    # Pattern 1 should be removed (only non-blocking)
+    # All 3 patterns should exist (deduplication keeps first event from each assignment)
+    assert len(result.patterns) == 3, "Should have 3 patterns with valid events"
+
+    # Pattern 1 should have only the first event (nonb0001), second was deduplicated
     pattern_1 = next((p for p in result.patterns if p.pattern_id == 1), None)
-    assert pattern_1 is None, "Pattern 1 with only non-blocking exceptions should be removed"
+    assert pattern_1 is not None, "Pattern 1 should exist"
+    assert len(pattern_1.events) == 1
+    assert pattern_1.events[0].target_event.event_id == "nonb0001"
+
     # Pattern 2 should exist with blocking exception
     pattern_2 = next((p for p in result.patterns if p.pattern_id == 2), None)
     assert pattern_2 is not None, "Pattern 2 should exist"
     assert len(pattern_2.events) == 1
     assert pattern_2.events[0].target_event.event_id == "block001"
-    # Pattern 3 should have only the blocking exception
+
+    # Pattern 3 should have only the first event (nonb0001), second was deduplicated
     pattern_3 = next((p for p in result.patterns if p.pattern_id == 3), None)
     assert pattern_3 is not None, "Pattern 3 should exist"
-    assert len(pattern_3.events) == 1, "Pattern 3 should have only blocking event"
-    assert pattern_3.events[0].target_event.event_id == "block001"
-    # Result should have 2 patterns (patterns 2 and 3)
-    assert len(result.patterns) == 2, "Should have 2 patterns with valid events"
+    assert len(pattern_3.events) == 1, "Pattern 3 should have only first event due to deduplication"
+    assert pattern_3.events[0].target_event.event_id == "nonb0001"
 
 
 class TestSummarizeSessionGroupWorkflow:
