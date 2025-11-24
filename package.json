@@ -83,10 +83,26 @@
             "dayjs@1.11.11": "patches/dayjs@1.11.11.patch",
             "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch"
         },
+        "// Known dependencies that we need preinstall scripts for, add new ones with caution": "",
         "onlyBuiltDependencies": [
             "re2",
             "node-gyp",
-            "node-rdkafka"
+            "node-rdkafka",
+            "@parcel/watcher",
+            "msgpackr-extract",
+            "@swc/core",
+            "esbuild",
+            "core-js-pure",
+            "core-js",
+            "msw",
+            "unrs-resolver",
+            "protobufjs",
+            "cpu-features",
+            "lz4",
+            "workerd",
+            "sharp",
+            "ssh2",
+            "lmdb"
         ]
     },
     "lint-staged": {
