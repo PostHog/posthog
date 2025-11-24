@@ -34,40 +34,42 @@ export function EventConfigModal(): JSX.Element {
             isOpen={isOpen}
             onClose={onClose}
             title="Configure customer analytics events"
+            description={
+                <>
+                    <p className="mb-2">
+                        Configure the events or actions that define different user behaviors for your customer analytics
+                        dashboard
+                    </p>
+                    <div className="flex items-center gap-1 text-muted text-xs">
+                        <IconInfo className="text-base" />
+                        <span>
+                            To track multiple events as activity, you can{' '}
+                            <Link to={urls.createAction()} target="_blank">
+                                create an action
+                            </Link>{' '}
+                            that combines them.
+                        </span>
+                    </div>
+                </>
+            }
+            footer={
+                <div className="flex flex-row gap-2">
+                    <LemonButton type="secondary" onClick={onClose}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={handleSave} disabledReason={hasChanges ? null : 'No changes'}>
+                        Save events
+                    </LemonButton>
+                </div>
+            }
             width={800}
             hasUnsavedInput={hasChanges}
         >
-            <LemonModal.Header>
-                <p className="mb-2">
-                    Configure the events or actions that define different user behaviors for your customer analytics
-                    dashboard
-                </p>
-                <div className="flex items-center gap-1 text-muted text-xs">
-                    <IconInfo className="text-base" />
-                    <span>
-                        To track multiple events as activity, you can{' '}
-                        <Link to={urls.createAction()} target="_blank">
-                            create an action
-                        </Link>{' '}
-                        that combines them.
-                    </span>
-                </div>
-            </LemonModal.Header>
-            <LemonModal.Content>
-                <div className="space-y-4">
-                    {eventSelectors.map((eventSelector, index) => (
-                        <EventSelector key={index} {...eventSelector} />
-                    ))}
-                </div>
-            </LemonModal.Content>
-            <LemonModal.Footer>
-                <LemonButton type="secondary" onClick={onClose}>
-                    Cancel
-                </LemonButton>
-                <LemonButton type="primary" onClick={handleSave} disabledReason={hasChanges ? null : 'No changes'}>
-                    Save events
-                </LemonButton>
-            </LemonModal.Footer>
+            <div className="space-y-2">
+                {eventSelectors.map((eventSelector, index) => (
+                    <EventSelector key={index} {...eventSelector} />
+                ))}
+            </div>
         </LemonModal>
     )
 }
@@ -93,7 +95,7 @@ function EventSelector({ filters, setFilters, title, caption }: EventSelectorPro
                 <ActionFilter
                     hideRename
                     hideDuplicate
-                    hideFilter
+                    hideFilter={false}
                     propertyFiltersPopover
                     filters={filters}
                     setFilters={setFilters}
