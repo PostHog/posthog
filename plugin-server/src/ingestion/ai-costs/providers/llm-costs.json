@@ -1139,10 +1139,6 @@
                 "prompt_token": 0.000003,
                 "completion_token": 0.000007
             },
-            "google-vertex": {
-                "prompt_token": 0.00000135,
-                "completion_token": 0.0000054
-            },
             "hyperbolic": {
                 "prompt_token": 0.000003,
                 "completion_token": 0.000003
@@ -1390,10 +1386,6 @@
                 "prompt_token": 2.8e-7,
                 "completion_token": 4.2e-7,
                 "cache_read_token": 2.8e-8
-            },
-            "gmicloud-fp8": {
-                "prompt_token": 2.7e-7,
-                "completion_token": 4.1e-7
             },
             "novita-fp8": {
                 "prompt_token": 2.7e-7,
@@ -1748,13 +1740,13 @@
                 "prompt_token": 0.000002,
                 "completion_token": 0.000012,
                 "image": 0.067,
-                "image_output": 0.000134
+                "image_output": 0.00012
             },
             "google-vertex": {
                 "prompt_token": 0.000002,
                 "completion_token": 0.000012,
                 "image": 0.067,
-                "image_output": 0.000134
+                "image_output": 0.00012
             }
         }
     },
@@ -2847,10 +2839,6 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
             },
-            "gmicloud-fp8": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000012
-            },
             "google-vertex": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
@@ -3255,12 +3243,12 @@
         "model": "mistralai/mistral-small-3.1-24b-instruct",
         "cost": {
             "default": {
-                "prompt_token": 5e-8,
-                "completion_token": 2.2e-7
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "chutes-bf16": {
-                "prompt_token": 5e-8,
-                "completion_token": 2.2e-7
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "cloudflare": {
                 "prompt_token": 3.5e-7,
@@ -5672,10 +5660,6 @@
                 "prompt_token": 1.5e-7,
                 "completion_token": 5e-7
             },
-            "gmicloud-fp8": {
-                "prompt_token": 1e-7,
-                "completion_token": 6e-7
-            },
             "groq": {
                 "prompt_token": 2.9e-7,
                 "completion_token": 5.9e-7
@@ -5770,10 +5754,6 @@
             "fireworks": {
                 "prompt_token": 4.5000000000000003e-7,
                 "completion_token": 0.0000018000000000000001
-            },
-            "gmicloud-fp8": {
-                "prompt_token": 2.9e-7,
-                "completion_token": 0.0000012
             },
             "google-vertex": {
                 "prompt_token": 0.000001,
@@ -6788,10 +6768,6 @@
             "friendli": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000022
-            },
-            "gmicloud-bf16": {
-                "prompt_token": 6e-7,
-                "completion_token": 0.000002
             },
             "mancer-fp8": {
                 "prompt_token": 4.5e-7,

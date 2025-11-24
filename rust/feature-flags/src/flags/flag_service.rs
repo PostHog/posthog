@@ -24,39 +24,32 @@ pub struct FlagResult {
 
 /// Service layer for handling feature flag operations
 pub struct FlagService {
-    shared_redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    shared_redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    shared_redis_client: Arc<dyn RedisClient + Send + Sync>,
     pg_client: PostgresReader,
     team_cache_ttl_seconds: u64,
     flags_cache: FlagsReadThroughCache,
 }
 
 impl FlagService {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        shared_redis_reader: Arc<dyn RedisClient + Send + Sync>,
-        shared_redis_writer: Arc<dyn RedisClient + Send + Sync>,
-        dedicated_redis_reader: Option<Arc<dyn RedisClient + Send + Sync>>,
-        dedicated_redis_writer: Option<Arc<dyn RedisClient + Send + Sync>>,
+        shared_redis_client: Arc<dyn RedisClient + Send + Sync>,
+        dedicated_redis_client: Option<Arc<dyn RedisClient + Send + Sync>>,
         pg_client: PostgresReader,
         team_cache_ttl_seconds: u64,
         flags_cache_ttl_seconds: u64,
         config: Config,
     ) -> Self {
         // Flags cache uses FlagsReadThroughCache which handles migration logic
-        let flags_cache = FlagsReadThroughCache::from_redis_clients(
-            shared_redis_reader.clone(),
-            shared_redis_writer.clone(),
-            dedicated_redis_reader,
-            dedicated_redis_writer,
+        let flags_cache = FlagsReadThroughCache::from_redis_client(
+            shared_redis_client.clone(),
+            dedicated_redis_client,
             flags_cache_ttl_seconds,
             config,
         );
 
         // Shared Redis for team cache and other non-flags operations (not part of migration)
         Self {
-            shared_redis_reader,
-            shared_redis_writer,
+            shared_redis_client,
             pg_client,
             team_cache_ttl_seconds,
             flags_cache,
@@ -67,7 +60,7 @@ impl FlagService {
     /// If the token is not found in the cache, it will be verified against the database,
     /// and the result will be cached in redis.
     pub async fn verify_token(&self, token: &str) -> Result<String, FlagError> {
-        let (result, cache_hit) = match Team::from_redis(self.shared_redis_reader.clone(), token)
+        let (result, cache_hit) = match Team::from_redis(self.shared_redis_client.clone(), token)
             .await
         {
             Ok(_) => (Ok(token.to_string()), true),
@@ -77,7 +70,7 @@ impl FlagService {
                         inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
                         if let Err(e) = Team::update_redis_cache(
-                            self.shared_redis_writer.clone(),
+                            self.shared_redis_client.clone(),
                             &team,
                             Some(self.team_cache_ttl_seconds),
                         )
@@ -119,14 +112,14 @@ impl FlagService {
     /// Returns the team if found, otherwise an error.
     pub async fn get_team_from_cache_or_pg(&self, token: &str) -> Result<Team, FlagError> {
         let (team_result, cache_hit) =
-            match Team::from_redis(self.shared_redis_reader.clone(), token).await {
+            match Team::from_redis(self.shared_redis_client.clone(), token).await {
                 Ok(team) => (Ok(team), true),
                 Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
                     Ok(team) => {
                         inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // If we have the team in postgres, but not redis, update redis so we're faster next time
                         if Team::update_redis_cache(
-                            self.shared_redis_writer.clone(),
+                            self.shared_redis_client.clone(),
                             &team,
                             Some(self.team_cache_ttl_seconds),
                         )
@@ -216,9 +209,7 @@ mod tests {
 
         let flag_service = FlagService::new(
             redis_client.clone(),
-            redis_client.clone(),
             None, // No dedicated flags Redis in tests
-            None,
             pg_client.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
@@ -260,9 +251,7 @@ mod tests {
 
         let flag_service = FlagService::new(
             redis_client.clone(),
-            redis_client.clone(),
             None, // No dedicated flags Redis in tests
-            None,
             pg_client.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
@@ -285,9 +274,7 @@ mod tests {
 
         let flag_service = FlagService::new(
             redis_client.clone(),
-            redis_client.clone(),
             None, // No dedicated flags Redis in tests
-            None,
             pg_client.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
@@ -407,9 +394,7 @@ mod tests {
 
         let flag_service = FlagService::new(
             redis_client.clone(),
-            redis_client.clone(),
             None, // No dedicated flags Redis in tests
-            None,
             pg_client.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
@@ -497,24 +482,18 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        // Set up mock redis_reader to return Timeout
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
+        // Set up mock redis client to return Timeout on read
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_ret(
             &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id()),
             Err(CustomRedisError::Timeout),
         );
 
-        // Set up mock redis_writer to track SET calls
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
 
         let flag_service = FlagService::new(
-            reader,
-            writer,
+            redis_client,
             None, // No dedicated flags Redis in tests
-            None,
             context.non_persons_reader.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
@@ -531,9 +510,10 @@ mod tests {
         assert!(!flag_result.was_cache_hit);
 
         // Verify SET was NOT called (cache write was skipped)
-        let writer_calls = mock_writer.get_calls();
+        // This is tested via FlagsReadThroughCache behavior
+        let client_calls = mock_client.get_calls();
         assert!(
-            !writer_calls.iter().any(|call| call.op == "set"),
+            !client_calls.iter().any(|call| call.op == "set"),
             "Expected SET to NOT be called for Timeout error, but it was"
         );
     }
@@ -548,9 +528,9 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        // Set up mock redis_reader to return Redis error (maps to RedisUnavailable)
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
+        // Set up mock redis client to return Redis error (maps to RedisUnavailable)
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_ret(
             &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id()),
             Err(CustomRedisError::from_redis_kind(
                 RedisErrorKind::IoError,
@@ -558,17 +538,11 @@ mod tests {
             )),
         );
 
-        // Set up mock redis_writer to track SET calls
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
 
         let flag_service = FlagService::new(
-            reader,
-            writer,
+            redis_client,
             None, // No dedicated flags Redis in tests
-            None,
             context.non_persons_reader.clone(),
             432000, // team_cache_ttl_seconds
             432000, // flags_cache_ttl_seconds
@@ -585,9 +559,10 @@ mod tests {
         assert!(!flag_result.was_cache_hit);
 
         // Verify SET was NOT called (cache write was skipped)
-        let writer_calls = mock_writer.get_calls();
+        // This is tested via FlagsReadThroughCache behavior
+        let client_calls = mock_client.get_calls();
         assert!(
-            !writer_calls.iter().any(|call| call.op == "set"),
+            !client_calls.iter().any(|call| call.op == "set"),
             "Expected SET to NOT be called for RedisUnavailable error, but it was"
         );
     }
@@ -602,25 +577,19 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        // Set up mock redis_reader to return NotFound (cache miss)
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(&team.api_token, Err(CustomRedisError::NotFound));
+        // Set up mock redis client to return NotFound (cache miss) and track setex calls
+        let mut mock_client = MockRedisClient::new();
+        mock_client.get_ret(&team.api_token, Err(CustomRedisError::NotFound));
 
-        // Set up mock redis_writer to track setex calls
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
 
         // Test with custom TTL values (different from default 432000)
         let custom_team_ttl = 7200u64; // 2 hours
         let custom_flags_ttl = 1800u64; // 30 minutes
 
         let flag_service = FlagService::new(
-            reader,
-            writer,
+            redis_client,
             None, // No dedicated flags Redis in tests
-            None,
             context.non_persons_reader.clone(),
             custom_team_ttl,
             custom_flags_ttl,
@@ -633,8 +602,8 @@ mod tests {
             .await;
 
         // Verify setex was called with the custom team TTL
-        let writer_calls = mock_writer.get_calls();
-        let setex_calls: Vec<_> = writer_calls
+        let client_calls = mock_client.get_calls();
+        let setex_calls: Vec<_> = client_calls
             .iter()
             .filter(|call| call.op == "setex")
             .collect();
