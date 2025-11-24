@@ -126,3 +126,4 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
+    use_hive_partitioning: Optional[int] = 0
