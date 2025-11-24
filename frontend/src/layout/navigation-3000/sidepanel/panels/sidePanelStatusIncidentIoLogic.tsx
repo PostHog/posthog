@@ -1,7 +1,7 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import type { sidePanelStatusIncidentioLogicType } from './sidePanelStatusIncidentioLogicType'
+import type { sidePanelStatusIncidentIoLogicType } from './sidePanelStatusIncidentIoLogicType'
 
 // Status types
 export type IncidentIoComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
@@ -122,23 +122,12 @@ function getWorstStatusForRegion(summary: IncidentIoSummary): NormalizedStatus {
     return 'operational'
 }
 
-export const sidePanelStatusIncidentIoLogic = kea<sidePanelStatusIncidentioLogicType>([
+export const sidePanelStatusIncidentIoLogic = kea<sidePanelStatusIncidentIoLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusIncidentIoLogic']),
 
     actions({
         setPageVisibility: (visible: boolean) => ({ visible }),
     }),
-
-    reducers(() => ({
-        status: [
-            'operational' as NormalizedStatus,
-            { persist: true },
-            {
-                loadSummarySuccess: (_, { summary }) => getWorstStatusForRegion(summary),
-                loadSummaryFailure: () => 'operational',
-            },
-        ],
-    })),
 
     loaders(() => ({
         summary: [
@@ -154,6 +143,15 @@ export const sidePanelStatusIncidentIoLogic = kea<sidePanelStatusIncidentioLogic
     })),
 
     selectors({
+        status: [
+            (s) => [s.summary],
+            (summary: IncidentIoSummary | null): NormalizedStatus => {
+                if (!summary) {
+                    return 'operational'
+                }
+                return getWorstStatusForRegion(summary)
+            },
+        ],
         statusDescription: [
             (s) => [s.summary, s.status],
             (summary, status): string | null => {

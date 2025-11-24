@@ -8,6 +8,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import * as incidentIoStatusPageCritical from '~/mocks/fixtures/_incident_io_status_page_critical.json'
+import * as incidentIoStatusPageWarning from '~/mocks/fixtures/_incident_io_status_page_warning.json'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { SidePanelTab } from '~/types'
 
@@ -22,7 +24,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-10-10', // To stabilize relative dates
         pageUrl: urls.dashboards(),
-        featureFlags: [FEATURE_FLAGS.SDK_DOCTOR_BETA],
+        featureFlags: [FEATURE_FLAGS.SDK_DOCTOR_BETA, FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE],
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -127,4 +129,28 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
     })
 
     return <BaseTemplate panel={SidePanelTab.Support} />
+}
+
+export const SidePanelStatusWarning: StoryFn = () => {
+    const summary = Object.assign({}, incidentIoStatusPageWarning)
+
+    useStorybookMocks({
+        get: {
+            'https://www.posthogstatus.com/api/v1/summary': summary,
+        },
+    })
+
+    return <App />
+}
+
+export const SidePanelStatusCritical: StoryFn = () => {
+    const summary = Object.assign({}, incidentIoStatusPageCritical)
+
+    useStorybookMocks({
+        get: {
+            'https://www.posthogstatus.com/api/v1/summary': summary,
+        },
+    })
+
+    return <App />
 }

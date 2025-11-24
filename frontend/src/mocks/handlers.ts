@@ -22,6 +22,7 @@ import { getAvailableProductFeatures } from './features'
 import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
+import * as incidentIoStatusPageAllOK from './fixtures/_incident_io_status_page_all_ok.json'
 import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
 import { MockSignature, Mocks, mocksToHandlers } from './utils'
 
@@ -188,6 +189,7 @@ export const defaultMocks: Mocks = {
         '/api/billing/spend/': { results: [] },
         '/api/billing/usage/': { results: [] },
         'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
+        'https://www.posthogstatus.com/api/v1/summary': incidentIoStatusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
         '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
