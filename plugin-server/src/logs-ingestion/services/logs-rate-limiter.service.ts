@@ -88,8 +88,8 @@ export class LogsRateLimiterService {
                 continue
             }
             const currentCost = teamCosts.get(message.teamId) ?? 0
-            // Cost is in KB (uncompressed bytes / 1024)
-            const costKb = Math.ceil(message.bytesUncompressed / 1024)
+            // Cost is in KB (uncompressed bytes / 1000)
+            const costKb = Math.ceil(message.bytesUncompressed / 1000)
             teamCosts.set(message.teamId, currentCost + costKb)
         }
 
