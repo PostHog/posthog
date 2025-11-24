@@ -492,6 +492,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data, person_ids)
+            # Refresh from DB to get updated count field set by _insert_users_list_with_batching
+            cohort.refresh_from_db()
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
