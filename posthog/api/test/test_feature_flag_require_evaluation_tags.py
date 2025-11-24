@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, Tag
+from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
 from ee.models.license import License, LicenseManager
 
@@ -365,3 +366,34 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         flag = FeatureFlag.objects.get(key="experiment-flag-with-tags", team=self.team)
         eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
         self.assertEqual(eval_tag_names, {"production"})
+
+    def test_filter_by_evaluation_tags(self):
+        """Test filtering feature flags by evaluation tag presence"""
+        # Create flag with evaluation tags
+        flag_with_tags = FeatureFlag.objects.create(
+            key="flag-with-tags", name="Flag With Tags", team=self.team, created_by=self.user
+        )
+        tag = Tag.objects.create(name="production", team_id=self.team.id)
+        FeatureFlagEvaluationTag.objects.create(feature_flag=flag_with_tags, tag=tag)
+
+        # Create flag without evaluation tags
+        FeatureFlag.objects.create(
+            key="flag-without-tags", name="Flag Without Tags", team=self.team, created_by=self.user
+        )
+
+        # Test filtering for flags WITH evaluation tags
+        response = self.client.get(f"{self.feature_flag_url}?has_evaluation_tags=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["key"], "flag-with-tags")
+
+        # Test filtering for flags WITHOUT evaluation tags
+        response = self.client.get(f"{self.feature_flag_url}?has_evaluation_tags=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["key"], "flag-without-tags")
+
+        # Test no filter returns both
+        response = self.client.get(self.feature_flag_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)

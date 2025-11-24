@@ -99,12 +99,21 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
 
     selectors({
         paramsFromFilters: [
-            (s) => [s.filters],
-            (filters: FeatureFlagModalFilters) => ({
-                ...filters,
-                limit: FLAGS_PER_PAGE,
-                offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
-            }),
+            (s) => [s.filters, s.currentTeam],
+            (filters: FeatureFlagModalFilters, currentTeam) => {
+                const params: Record<string, any> = {
+                    ...filters,
+                    limit: FLAGS_PER_PAGE,
+                    offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+                }
+
+                // Add evaluation tags filter if required by team
+                if (currentTeam?.require_evaluation_environment_tags) {
+                    params.has_evaluation_tags = true
+                }
+
+                return params
+            },
         ],
         pagination: [
             (s) => [s.filters, s.featureFlags],

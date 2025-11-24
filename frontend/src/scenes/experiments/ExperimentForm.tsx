@@ -499,13 +499,6 @@ const SelectExistingFeatureFlagModal = ({
         featureFlagModalPagination,
     } = useValues(experimentsLogic)
     const { setFeatureFlagModalFilters, resetFeatureFlagModalFilters } = useActions(experimentsLogic)
-    const { currentTeam } = useValues(teamLogic)
-
-    const isEvaluationTagsRequired = currentTeam?.require_evaluation_environment_tags || false
-
-    const hasEvaluationTags = (flag: FeatureFlagType): boolean => {
-        return (flag.evaluation_tags?.length ?? 0) > 0
-    }
 
     const handleClose = (): void => {
         resetFeatureFlagModalFilters()
@@ -523,14 +516,6 @@ const SelectExistingFeatureFlagModal = ({
         </div>
     )
 
-    // Filter out flags without evaluation tags when requirement is enabled
-    // NOTE: This is client-side filtering which means pagination may show fewer results
-    // than expected (e.g., fetched 10 but filtered to 3). Consider server-side filtering
-    // in the future for better UX with large flag lists.
-    const filteredFlags = isEvaluationTagsRequired
-        ? featureFlagModalFeatureFlags.results.filter((flag) => hasEvaluationTags(flag))
-        : featureFlagModalFeatureFlags.results
-
     return (
         <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag" width="50%">
             <div className="deprecated-space-y-2">
@@ -541,7 +526,7 @@ const SelectExistingFeatureFlagModal = ({
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={filteredFlags}
+                    dataSource={featureFlagModalFeatureFlags.results}
                     loading={featureFlagModalFeatureFlagsLoading}
                     useURLForSorting={false}
                     columns={[

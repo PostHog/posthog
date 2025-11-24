@@ -1328,6 +1328,19 @@ class FeatureFlagViewSet(
                 except (json.JSONDecodeError, TypeError):
                     # If the JSON is invalid, ignore the filter
                     pass
+            elif key == "has_evaluation_tags":
+                from django.db.models import Count
+
+                # Convert string to boolean
+                filter_value = filters[key].lower() in ("true", "1", "yes")
+
+                # Annotate with count of evaluation tags
+                queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
+
+                if filter_value:
+                    queryset = queryset.filter(eval_tag_count__gt=0)
+                else:
+                    queryset = queryset.filter(eval_tag_count=0)
 
         return queryset
 
@@ -1446,6 +1459,14 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="JSON-encoded list of tag names to filter feature flags by.",
+            ),
+            OpenApiParameter(
+                "has_evaluation_tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+                description="Filter feature flags by presence of evaluation environment tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.",
             ),
         ]
     )
