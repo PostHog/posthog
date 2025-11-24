@@ -36,17 +36,17 @@ export const navPanelSalesLedLogic = kea<navPanelSalesLedLogicType>([
 
                 // Find the most recent sales-led product
                 // Not using sort to make this more performant
-                let mostRecentSalesLedProduct: UserProductListItem | null = null
-                let mostRecentSalesLedProductDate: Date | null = null
+                let oldestSalesLedProduct: UserProductListItem | null = null
+                let oldestSalesLedProductDate: Date | null = null
                 for (const product of salesLedProducts) {
                     const productDate = new Date(product.created_at)
-                    if (!mostRecentSalesLedProductDate || productDate > mostRecentSalesLedProductDate) {
-                        mostRecentSalesLedProduct = product
-                        mostRecentSalesLedProductDate = productDate
+                    if (!oldestSalesLedProductDate || productDate < oldestSalesLedProductDate) {
+                        oldestSalesLedProduct = product
+                        oldestSalesLedProductDate = productDate
                     }
                 }
 
-                return mostRecentSalesLedProduct
+                return oldestSalesLedProduct
             },
         ],
     }),
