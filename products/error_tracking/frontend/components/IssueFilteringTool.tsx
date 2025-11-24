@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { IconFilter } from '@posthog/icons'
+
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import MaxTool from 'scenes/max/MaxTool'
 
@@ -103,8 +105,10 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     return (
         <MaxTool
             identifier="filter_error_tracking_issues"
-            context={{
-                current_query: query,
+            context={{ current_query: query }}
+            contextDescription={{
+                text: 'Current filters',
+                icon: <IconFilter />,
             }}
             callback={(toolOutput: ErrorTrackingIssueFilteringToolOutput) => {
                 callback(toolOutput)

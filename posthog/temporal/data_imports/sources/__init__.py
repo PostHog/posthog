@@ -1,4 +1,5 @@
 from .bigquery.source import BigQuerySource
+from .bing_ads.source import BingAdsSource
 from .braze.source import BrazeSource
 from .chargebee.source import ChargebeeSource
 from .common.registry import SourceRegistry
@@ -35,6 +36,7 @@ __all__ = [
     "GithubSource",
     "SourceRegistry",
     "BigQuerySource",
+    "BingAdsSource",
     "BrazeSource",
     "ChargebeeSource",
     "DoItSource",

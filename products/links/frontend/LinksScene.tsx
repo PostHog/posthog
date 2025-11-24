@@ -16,7 +16,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LinkType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { LinkType } from '~/types'
 
 import { LinkMetricSparkline } from './LinkMetricSparkline'
 import { linksLogic } from './linksLogic'

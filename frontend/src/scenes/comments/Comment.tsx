@@ -235,12 +235,14 @@ export function getText(comment: CommentType): string {
               content: [
                   {
                       type: 'paragraph',
-                      content: [
-                          {
-                              type: 'text',
-                              text: comment.content || '',
-                          },
-                      ],
+                      content: comment.content
+                          ? [
+                                {
+                                    type: 'text',
+                                    text: comment.content,
+                                },
+                            ]
+                          : [],
                   },
               ],
           }

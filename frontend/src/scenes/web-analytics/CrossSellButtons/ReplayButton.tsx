@@ -1,11 +1,11 @@
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { WebStatsBreakdown } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, ProductKey, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
+import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
 
 /**
  * Map breakdown types to their corresponding property filter type

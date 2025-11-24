@@ -1,12 +1,13 @@
+# Legacy tool. Will be replaced by CreateInsightTool.
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationMessage
 
+from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
+from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.insights_graph.graph import InsightsGraph
-from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
@@ -154,7 +155,6 @@ class CreateAndQueryInsightTool(MaxTool):
     args_schema: type[BaseModel] = CreateAndQueryInsightToolArgs
     description: str = INSIGHT_TOOL_PROMPT
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
-    thinking_message: str = "Coming up with an insight"
 
     async def _arun_impl(self, query_description: str) -> tuple[str, ToolMessagesArtifact | None]:
         graph = InsightsGraph(self._team, self._user).compile_full_graph()

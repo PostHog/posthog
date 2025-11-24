@@ -73,6 +73,7 @@ def mock_single_session_summary_llm_inputs(
             window_mapping_reversed=mock_window_mapping_reversed,
             session_start_time_str="2025-03-31T18:40:32.302000Z",
             session_duration=5323,
+            distinct_id="test_distinct_id",
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
         )
 
@@ -97,6 +98,7 @@ def mock_session_group_summary_inputs() -> Callable:
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            summary_title="Test summary",
         )
 
     return _create_inputs
@@ -118,6 +120,7 @@ def mock_session_group_summary_of_summaries_inputs() -> Callable:
             team_id=team_id,
             redis_key_base=redis_key_base,
             model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            summary_title="Test summary",
         )
 
     return _create_inputs

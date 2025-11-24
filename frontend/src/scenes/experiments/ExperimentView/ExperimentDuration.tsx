@@ -5,6 +5,7 @@ import { IconArrowRight, IconCalculator, IconPencil } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -78,9 +79,11 @@ const DateButton = ({ date, type, onChange }: DateButtonProps): JSX.Element => {
 }
 
 export const ExperimentDuration = (): JSX.Element => {
-    const { experiment, actualRunningTime } = useValues(experimentLogic)
+    const { experiment, actualRunningTime, featureFlags } = useValues(experimentLogic)
     const { changeExperimentStartDate, changeExperimentEndDate } = useActions(experimentLogic)
     const { openCalculateRunningTimeModal } = useActions(modalsLogic)
+
+    const useNewCalculator = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_CALCULATOR] === 'test'
 
     const { start_date, end_date } = experiment
     const [progressPopoverVisible, setProgressPopoverVisible] = useState(false)
@@ -114,85 +117,92 @@ export const ExperimentDuration = (): JSX.Element => {
                     <IconArrowRight className="text-base" />
                     <DateButton date={end_date} type="end" onChange={changeExperimentEndDate} />
                 </div>
-                <Popover
-                    visible={progressPopoverVisible}
-                    onMouseEnterInside={showPopover}
-                    onMouseLeaveInside={hidePopover}
-                    overlay={
-                        <div className="p-2">
-                            {!recommendedSampleSize || !recommendedRunningTime ? (
-                                <div className="flex justify-center items-center h-full">
-                                    <div className="text-center">
-                                        <IconCalculator className="text-3xl mb-2 text-tertiary" />
-                                        <div className="text-md font-semibold leading-tight mb-3">
-                                            No running time yet
+                {!useNewCalculator && (
+                    <Popover
+                        visible={progressPopoverVisible}
+                        onMouseEnterInside={showPopover}
+                        onMouseLeaveInside={hidePopover}
+                        overlay={
+                            <div className="p-2">
+                                {!recommendedSampleSize || !recommendedRunningTime ? (
+                                    <div className="flex justify-center items-center h-full">
+                                        <div className="text-center">
+                                            <IconCalculator className="text-3xl mb-2 text-tertiary" />
+                                            <div className="text-md font-semibold leading-tight mb-3">
+                                                No running time yet
+                                            </div>
+                                            <div className="flex justify-center">
+                                                <LemonButton
+                                                    icon={<IconPencil fontSize="12" />}
+                                                    size="xsmall"
+                                                    className="flex items-center gap-2"
+                                                    type="secondary"
+                                                    onClick={() => openCalculateRunningTimeModal()}
+                                                >
+                                                    Calculate running time
+                                                </LemonButton>
+                                            </div>
                                         </div>
-                                        <div className="flex justify-center">
+                                    </div>
+                                ) : (
+                                    <>
+                                        <LemonProgress
+                                            className="w-full border"
+                                            bgColor="var(--color-bg-table)"
+                                            size="medium"
+                                            percent={(actualRunningTime / recommendedRunningTime) * 100}
+                                        />
+                                        <div className="text-center mt-2 mb-4 text-xs text-muted">
+                                            {actualRunningTime} of {humanFriendlyNumber(recommendedRunningTime, 0)} days
+                                            completed ({Math.round((actualRunningTime / recommendedRunningTime) * 100)}
+                                            %)
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <div>
+                                                <div className="card-secondary mb-1">Recommended sample size</div>
+                                                <div className="text-sm font-semibold">
+                                                    {humanFriendlyNumber(recommendedSampleSize, 0)} users
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="card-secondary mb-1">Estimated running time</div>
+                                                <div className="text-sm font-semibold">
+                                                    {humanFriendlyNumber(recommendedRunningTime, 0)} days
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="card-secondary mb-1">Minimum detectable effect</div>
+                                                <div className="text-sm font-semibold">{minimumDetectableEffect}%</div>
+                                            </div>
                                             <LemonButton
-                                                icon={<IconPencil fontSize="12" />}
                                                 size="xsmall"
-                                                className="flex items-center gap-2"
+                                                className="flex items-center gap-2 mt-4"
                                                 type="secondary"
                                                 onClick={() => openCalculateRunningTimeModal()}
                                             >
-                                                Calculate running time
+                                                Recalculate
                                             </LemonButton>
                                         </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <>
-                                    <LemonProgress
-                                        className="w-full border"
-                                        bgColor="var(--color-bg-table)"
-                                        size="medium"
-                                        percent={(actualRunningTime / recommendedRunningTime) * 100}
-                                    />
-                                    <div className="text-center mt-2 mb-4 text-xs text-muted">
-                                        {actualRunningTime} of {humanFriendlyNumber(recommendedRunningTime, 0)} days
-                                        completed ({Math.round((actualRunningTime / recommendedRunningTime) * 100)}%)
-                                    </div>
-
-                                    <div className="space-y-3">
-                                        <div>
-                                            <div className="card-secondary mb-1">Recommended sample size</div>
-                                            <div className="text-sm font-semibold">
-                                                {humanFriendlyNumber(recommendedSampleSize, 0)} users
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div className="card-secondary mb-1">Estimated running time</div>
-                                            <div className="text-sm font-semibold">
-                                                {humanFriendlyNumber(recommendedRunningTime, 0)} days
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <div className="card-secondary mb-1">Minimum detectable effect</div>
-                                            <div className="text-sm font-semibold">{minimumDetectableEffect}%</div>
-                                        </div>
-                                        <LemonButton
-                                            size="xsmall"
-                                            className="flex items-center gap-2 mt-4"
-                                            type="secondary"
-                                            onClick={() => openCalculateRunningTimeModal()}
-                                        >
-                                            Recalculate
-                                        </LemonButton>
-                                    </div>
-                                </>
-                            )}
+                                    </>
+                                )}
+                            </div>
+                        }
+                    >
+                        <div
+                            onMouseEnter={showPopover}
+                            onMouseLeave={hidePopover}
+                            style={{ color: 'var(--brand-blue)' }}
+                        >
+                            <LemonProgressCircle
+                                progress={
+                                    recommendedRunningTime ? Math.min(actualRunningTime / recommendedRunningTime, 1) : 0
+                                }
+                                size={22}
+                            />
                         </div>
-                    }
-                >
-                    <div onMouseEnter={showPopover} onMouseLeave={hidePopover} style={{ color: 'var(--brand-blue)' }}>
-                        <LemonProgressCircle
-                            progress={
-                                recommendedRunningTime ? Math.min(actualRunningTime / recommendedRunningTime, 1) : 0
-                            }
-                            size={22}
-                        />
-                    </div>
-                </Popover>
+                    </Popover>
+                )}
             </div>
         </div>
     )

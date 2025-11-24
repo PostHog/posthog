@@ -1,4 +1,5 @@
 from .assistant import (
+    AgentArtifact,
     Conversation,
     ConversationCheckpoint,
     ConversationCheckpointBlob,
@@ -16,6 +17,7 @@ from .session_summaries import SingleSessionSummary
 
 __all__ = [
     "AccessControl",
+    "AgentArtifact",
     "ConversationCheckpoint",
     "ConversationCheckpointBlob",
     "ConversationCheckpointWrite",

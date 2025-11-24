@@ -1,19 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, memo, useMemo, useState } from 'react'
 
-import {
-    IconCalendar,
-    IconCheck,
-    IconClock,
-    IconHourglass,
-    IconInfinity,
-    IconInfo,
-    IconPlus,
-    IconX,
-} from '@posthog/icons'
+import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfinity, IconInfo, IconX } from '@posthog/icons'
 import {
     LemonBanner,
-    LemonButton,
     LemonDialog,
     LemonDivider,
     LemonSegmentedButton,
@@ -27,13 +17,9 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { IconSelectEvents } from 'lib/lemon-ui/icons'
-import { isObject, objectsEqual } from 'lib/utils'
+import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -45,7 +31,6 @@ import { urls } from 'scenes/urls'
 import {
     AccessControlLevel,
     AccessControlResourceType,
-    SessionRecordingAIConfig,
     type SessionRecordingMaskingLevel,
     type SessionRecordingRetentionPeriod,
 } from '~/types'
@@ -499,164 +484,6 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 wildcarded top-level domains cannot be used (for security reasons).
             </p>
             <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} showLaunch={false} allowAdd={false} />
-        </div>
-    )
-}
-
-export function ReplayAISettings(): JSX.Element | null {
-    const { updateCurrentTeam } = useActions(teamLogic)
-
-    const { currentTeam } = useValues(teamLogic)
-
-    if (!currentTeam) {
-        return null
-    }
-
-    const defaultConfig = {
-        opt_in: false,
-        preferred_events: [],
-        excluded_events: ['$feature_flag_called'],
-        included_event_properties: ['elements_chain', '$window_id', '$current_url', '$event_type'],
-        important_user_properties: [],
-    }
-    const sessionReplayConfig = currentTeam.session_replay_config || {}
-    const currentConfig: SessionRecordingAIConfig = sessionReplayConfig.ai_config || defaultConfig
-
-    const updateSummaryConfig = (summaryConfig: SessionRecordingAIConfig): void => {
-        updateCurrentTeam({
-            session_replay_config: { ai_config: summaryConfig },
-        })
-    }
-
-    const { opt_in: _discardCurrentOptIn, ...currentComparable } = currentConfig
-    const { opt_in: _discardDefaultOptIn, ...defaultComparable } = defaultConfig
-
-    return (
-        <div className="flex flex-col gap-2">
-            <div>
-                <p>
-                    We use several machine learning technologies to process sessions. Some of those are powered by{' '}
-                    <Link to="https://openai.com/" target="_blank">
-                        OpenAI
-                    </Link>
-                    . No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
-                    send the data selected below. <strong>Data submitted is not used to train OpenAI's models</strong>
-                </p>
-                <LemonSwitch
-                    checked={currentConfig.opt_in}
-                    onChange={(checked) => {
-                        updateSummaryConfig({
-                            ...currentConfig,
-                            opt_in: checked,
-                        })
-                    }}
-                    bordered
-                    label="Opt in to enable AI processing"
-                />
-            </div>
-            {currentConfig.opt_in && (
-                <>
-                    {!objectsEqual(currentComparable, defaultComparable) && (
-                        <div>
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => updateSummaryConfig({ ...defaultConfig, opt_in: true })}
-                            >
-                                Reset config to default
-                            </LemonButton>
-                        </div>
-                    )}
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Preferred events
-                        </h3>
-                        <p>
-                            These events are treated as more interesting when generating a summary. We recommend you
-                            include events that represent value for your user
-                        </p>
-                        <EventSelect
-                            onChange={(includedEvents) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    preferred_events: includedEvents,
-                                })
-                            }}
-                            selectedEvents={currentConfig.preferred_events || []}
-                            addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                                    Add event
-                                </LemonButton>
-                            }
-                        />
-                    </div>
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Excluded events
-                        </h3>
-                        <p>These events are never submitted even when they are present in the session.</p>
-                        <EventSelect
-                            onChange={(excludedEvents) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    excluded_events: excludedEvents,
-                                })
-                            }}
-                            selectedEvents={currentConfig.excluded_events || []}
-                            addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                                    Exclude event
-                                </LemonButton>
-                            }
-                        />
-                    </div>
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Included event properties
-                        </h3>
-                        <p>
-                            We always send the event name and timestamp. The only event data sent are values of the
-                            properties selected here.
-                        </p>
-                        <PropertySelect
-                            taxonomicFilterGroup={TaxonomicFilterGroupType.EventProperties}
-                            sortable={false}
-                            onChange={(properties: string[]) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    included_event_properties: properties,
-                                })
-                            }}
-                            selectedProperties={currentConfig.included_event_properties || []}
-                            addText="Add property"
-                        />
-                    </div>
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Important user properties
-                        </h3>
-                        <p>
-                            We always send the first and last seen dates. The only user data sent are values of the
-                            properties selected here.
-                        </p>
-                        <PropertySelect
-                            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
-                            sortable={false}
-                            onChange={(properties) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    important_user_properties: properties,
-                                })
-                            }}
-                            selectedProperties={currentConfig.important_user_properties || []}
-                            addText="Add property"
-                        />
-                    </div>
-                </>
-            )}
         </div>
     )
 }

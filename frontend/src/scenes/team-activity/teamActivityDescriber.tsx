@@ -27,6 +27,7 @@ import {
 } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
+import { customerAnalyticsConfigurationDescriber } from './customer_analytics_config/customerAnalyticsConfigurationDescriber'
 import { marketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/marketingAnalyticsConfigurationDescriber'
 import { revenueAnalyticsConfigurationDescriber } from './revenue_analytics_config/revenueAnalyticsConfigurationDescriber'
 
@@ -711,6 +712,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     },
 
     // Complex configs that require a custom describer
+    customer_analytics_config: customerAnalyticsConfigurationDescriber,
     marketing_analytics_config: marketingAnalyticsConfigurationDescriber,
     revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
 

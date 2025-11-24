@@ -40,7 +40,7 @@ COPY .git/HEAD .git/HEAD
 COPY .git/refs/heads .git/refs/heads
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
     corepack enable && pnpm --version && \
-    pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23
+    CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
@@ -105,8 +105,8 @@ ENV BUILD_LIBRDKAFKA=0
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
 # Build the plugin server.
@@ -116,6 +116,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
 COPY ./plugin-server/assets/ ./plugin-server/assets/
+COPY ./plugin-server/bin/ ./plugin-server/bin/
 
 # Build cyclotron first with increased memory
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
@@ -127,7 +128,7 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 --prod && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 --prod && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
 
 #
@@ -303,6 +304,7 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/assets /code/plugin-server/assets
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/bin /code/plugin-server/bin
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
