@@ -93,10 +93,8 @@ async fn process_request_inner(
 
     let result = async {
         let flag_service = FlagService::new(
-            context.state.redis_reader.clone(),
-            context.state.redis_writer.clone(),
-            context.state.dedicated_redis_reader.clone(),
-            context.state.dedicated_redis_writer.clone(),
+            context.state.redis_client.clone(),
+            context.state.dedicated_redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
             context.state.config.team_cache_ttl_seconds,
             context.state.config.flags_cache_ttl_seconds,

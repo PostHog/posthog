@@ -409,6 +409,10 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
     )
 }
 
+export function isOperatorBetween(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Between, PropertyOperator.NotBetween].includes(operator)
+}
+
 /** Compare objects deeply. */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
@@ -1504,7 +1508,7 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
         .trim()
         .split('')
         .forEach((character) => {
-            if (character === '_' || character === '-') {
+            if (character === '_' || character === '-' || character === '/') {
                 if (currentWord) {
                     words.push(currentWord)
                 }
@@ -2285,4 +2289,23 @@ export const formatPercentage = (x: number, options?: { precise?: boolean }): st
         return humanFriendlyLargeNumber(x) + '%'
     }
     return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
+}
+
+/**
+ * Checks if a string matches the canonical UUID/UUID-like format.
+ *
+ * This function only checks the structure:
+ *  - 8-4-4-4-12 hexadecimal characters
+ *  - 4 dashes in the correct positions
+ * It does not enforce UUID version or variant.
+ *
+ * Examples:
+ *  - ✅ "0199ed4a-5c03-0000-3220-df21df612e95"
+ *  - ❌ "not-a-uuid"
+ *
+ * @param candidate - The string to test.
+ * @returns True if the string matches the UUID-like structure.
+ */
+export function isUUIDLike(candidate: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)
 }

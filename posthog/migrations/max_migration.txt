@@ -1,1 +1,1 @@
-0904_alter_dashboard_creation_mode
+0918_add_column_configurator

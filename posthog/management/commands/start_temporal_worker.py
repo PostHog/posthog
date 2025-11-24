@@ -1,8 +1,10 @@
+import os
 import signal
-import typing as t
+import typing
 import asyncio
 import datetime as dt
 import functools
+import threading
 import faulthandler
 from collections import defaultdict
 
@@ -187,7 +189,7 @@ _task_queue_specs = [
 # registered for a shared queue name are combined, ensuring the worker registers
 # everything it should.
 _workflows: defaultdict[str, set[type[PostHogWorkflow]]] = defaultdict(set)
-_activities: defaultdict[str, set[t.Callable[..., t.Any]]] = defaultdict(set)
+_activities: defaultdict[str, set[typing.Callable[..., typing.Any]]] = defaultdict(set)
 for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
     _workflows[task_queue_name].update(workflows_for_queue)  # type: ignore
     _activities[task_queue_name].update(activities_for_queue)
@@ -271,6 +273,16 @@ class Command(BaseCommand):
             default=settings.TEMPORAL_USE_PYDANTIC_CONVERTER,
             help="Use Pydantic data converter for this worker",
         )
+        parser.add_argument(
+            "--target-memory-usage",
+            default=settings.TARGET_MEMORY_USAGE,
+            help="Fraction of available memory to use",
+        )
+        parser.add_argument(
+            "--target-cpu-usage",
+            default=settings.TARGET_CPU_USAGE,
+            help="Fraction of available CPU to use",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -284,6 +296,8 @@ class Command(BaseCommand):
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
         max_concurrent_activities = options.get("max_concurrent_activities", None)
         use_pydantic_converter = options["use_pydantic_converter"]
+        target_memory_usage = options.get("target_memory_usage", None)
+        target_cpu_usage = options.get("target_cpu_usage", None)
 
         try:
             workflows = list(WORKFLOWS_DICT[task_queue])
@@ -330,6 +344,8 @@ class Command(BaseCommand):
                 graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
+                target_memory_usage=target_memory_usage,
+                target_cpu_usage=target_cpu_usage,
             )
             logger.info("Starting Temporal Worker")
 
@@ -354,6 +370,8 @@ class Command(BaseCommand):
                     max_concurrent_activities=max_concurrent_activities,
                     metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
                     use_pydantic_converter=use_pydantic_converter,
+                    target_memory_usage=target_memory_usage,
+                    target_cpu_usage=target_cpu_usage,
                 )
             )
 
@@ -369,3 +387,16 @@ class Command(BaseCommand):
                 logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
+
+        logger.info("Listing active threads at shutdown:")
+        for t in threading.enumerate():
+            logger.info(
+                "Thread still alive at shutdown",
+                thread_name=t.name,
+                daemon=t.daemon,
+                ident=t.ident,
+            )
+
+        # _something_ is preventing clean exit after worker shutdown
+        logger.info("Temporal Worker has shut down, hard exiting")
+        os._exit(0)

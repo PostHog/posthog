@@ -4,7 +4,7 @@ from braintrust import EvalCase
 
 from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery, NodeKind
 
-from ee.hogai.graph.retention.toolkit import RETENTION_SCHEMA
+from ee.hogai.chat_agent.retention.toolkit import RETENTION_SCHEMA
 
 from ..base import MaxPublicEval
 from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy

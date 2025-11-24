@@ -177,7 +177,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     }, [loadAllNotebooks])
 
     return (
-        <div className="flex flex-col flex-1 h-full overflow-hidden">
+        <div className="flex flex-col flex-1 h-full">
             <div className="deprecated-space-y-2 flex-0">
                 <LemonInput
                     type="search"
@@ -185,6 +185,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     value={searchQuery}
                     onChange={(s) => setSearchQuery(s)}
                     fullWidth
+                    autoFocus
                 />
                 <MemberSelect value={createdBy} onChange={(user) => setCreatedBy(user?.uuid ?? null)} />
                 <AccessControlAction
@@ -212,7 +213,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                 </LemonButton>
             </div>
             <LemonDivider />
-            <div className="overflow-y-auto flex-1">
+            <div className="overflow-y-auto overflow-x-hidden flex-1">
                 {notebooksLoading && !notebooksNotContainingResource.length && !notebooksContainingResource.length ? (
                     <div className="px-2 py-1 flex flex-row items-center deprecated-space-x-1">
                         {notebooksLoading ? (

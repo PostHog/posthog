@@ -5,7 +5,8 @@ import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { OnboardingStepKey, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from './OnboardingStep'
 import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'

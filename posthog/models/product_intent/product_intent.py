@@ -6,6 +6,9 @@ from django.db import models
 from celery import shared_task
 from rest_framework import serializers
 
+from posthog.schema import ProductIntentContext, ProductKey
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.dashboard import Dashboard
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -53,9 +56,9 @@ class ProductIntentSerializer(serializers.Serializer):
     This is used when registering new product intents via the API.
     """
 
-    product_type = serializers.CharField(required=True)
     metadata = serializers.DictField(required=False, default=dict)
-    intent_context = serializers.CharField(required=False, default="unknown")
+    product_type = serializers.ChoiceField(required=True, choices=list(ProductKey))
+    intent_context = serializers.ChoiceField(required=False, choices=list(ProductIntentContext))
 
 
 class ProductIntent(UUIDTModel, RootTeamMixin):
@@ -215,13 +218,14 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
     @staticmethod
     def register(
         team: Team,
-        product_type: str,
-        context: str,
+        product_type: ProductKey,
+        context: Optional[ProductIntentContext],
         user: User,
         metadata: Optional[dict] = None,
         is_onboarding: bool = False,
     ) -> "ProductIntent":
         from posthog.event_usage import report_user_action
+        from posthog.models.file_system.user_product_list import UserProductList
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
@@ -262,6 +266,13 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
                 },
                 team=team,
             )
+
+            try:
+                UserProductList.create_from_product_intent(product_intent, user)
+            except Exception as e:
+                capture_exception(
+                    e, additional_properties={"product_type": product_type, "context": context, "user_id": user.id}
+                )
 
         return product_intent
 
