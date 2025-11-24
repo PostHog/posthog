@@ -46,7 +46,7 @@ export function FeatureFlagFiltersSection({
         <div className="flex justify-between gap-2 flex-wrap">
             {config.search && (
                 <LemonInput
-                    className="w-60"
+                    className="w-[335px] !max-w-[335px]"
                     type="search"
                     placeholder={searchPlaceholder}
                     onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}

@@ -105,9 +105,7 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     return (
         <MaxTool
             identifier="filter_error_tracking_issues"
-            context={{
-                current_query: query,
-            }}
+            context={{ current_query: query }}
             contextDescription={{
                 text: 'Current filters',
                 icon: <IconFilter />,

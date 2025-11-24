@@ -27,6 +27,7 @@ import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
 import {
@@ -219,6 +220,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
                 setConversation: (_, { conversation }) => conversation?.type === ConversationType.DeepResearch,
+            },
+        ],
+
+        // Edge case, storing the prompt when askMax is called but AIConsent hasn't been given (yet)
+        pendingPrompt: [
+            null as string | null,
+            {
+                askMax: (_, { prompt }) => prompt,
+                completeThreadGeneration: () => null,
+                stopGeneration: () => null,
             },
         ],
 
@@ -570,6 +581,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (conversation, propsConversationId) => conversation?.id || propsConversationId,
         ],
 
+        isSharedThread: [
+            (s) => [s.conversation, userLogic.selectors.user],
+            (conversation, user): boolean => !!conversation?.user && !!user && conversation.user.uuid !== user.uuid,
+        ],
+
         threadLoading: [
             (s) => [s.conversationLoading, s.streamingActive],
             (conversationLoading, streamingActive) => conversationLoading || streamingActive,
@@ -672,12 +688,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         inputDisabled: [
-            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted],
-            (formPending, threadLoading, dataProcessingAccepted) =>
+            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted, s.isSharedThread],
+            (formPending, threadLoading, dataProcessingAccepted, isSharedThread) =>
                 // Input unavailable when:
                 // - Answer must be provided using a form returned by Max only
                 // - We are awaiting user to approve or reject external AI processing data
-                formPending || (threadLoading && !dataProcessingAccepted),
+                isSharedThread || formPending || (threadLoading && !dataProcessingAccepted),
         ],
 
         submissionDisabledReason: [

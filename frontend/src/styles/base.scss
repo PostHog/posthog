@@ -631,7 +631,7 @@
 
     // Z-indexes
     --z-bottom-notice: 1450;
-    --z-command-palette: 1400;
+    --z-shortcut-menu: 1400;
     --z-force-modal-above-popovers: 1350;
     --z-tooltip: 1300;
     --z-definition-popover: 1250;
@@ -1778,7 +1778,8 @@
     }
 
     .animate-logomark-jump {
-        --logomark-airtime: 0.4s;
+        --logomark-jump-magnitude: 1;
+        --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
 
         svg {
             overflow: visible;
@@ -1792,7 +1793,9 @@
             @for $i from 1 through 4 {
                 > *:nth-child(#{$i}) {
                     // Dividing by 15 just because it feels good
-                    animation-delay: calc(var(--logomark-airtime) / 15 * ($i - 1));
+                    animation-delay: calc(
+                        var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * ($i - 1)
+                    );
                 }
             }
         }
@@ -1804,7 +1807,7 @@
             }
 
             2% {
-                transform: translateY(-10px);
+                transform: translateY(calc(-10px * var(--logomark-jump-magnitude)));
             }
 
             4% {
