@@ -23,6 +23,7 @@ from posthog.tasks.llm_analytics_usage_report import (
     get_ai_dimension_breakdowns,
     get_ai_event_counts_by_type,
     get_ai_token_metrics,
+    get_teams_with_ai_events,
     send_llm_analytics_usage_reports,
 )
 from posthog.utils import get_previous_day
@@ -42,6 +43,10 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         sync_execute("TRUNCATE TABLE events")
         sync_execute("TRUNCATE TABLE person")
         sync_execute("TRUNCATE TABLE person_distinct_id")
+
+    def tearDown(self) -> None:
+        sync_execute("SYSTEM START MERGES")
+        super().tearDown()
 
     def _create_ai_events(
         self,
@@ -86,8 +91,11 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         self._create_ai_events(self.team, distinct_id, "$ai_feedback", 4)
         self._create_ai_events(self.team, distinct_id, "$ai_evaluation", 6)
 
+        # Get team_ids first
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+
         # Get event counts
-        event_counts = get_ai_event_counts_by_type(period_start, period_end)
+        event_counts = get_ai_event_counts_by_type(period_start, period_end, team_ids)
 
         # Verify counts
         generation_counts = dict(event_counts["$ai_generation"])
@@ -143,8 +151,11 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             },
         )
 
+        # Get team_ids first
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+
         # Get cost metrics
-        cost_metrics = get_ai_cost_metrics(period_start, period_end)
+        cost_metrics = get_ai_cost_metrics(period_start, period_end, team_ids)
 
         # Verify costs (3 * 0.015 + 2 * 0.020 = 0.085)
         total_costs = dict(cost_metrics["total_cost"])
@@ -190,8 +201,11 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             },
         )
 
+        # Get team_ids first
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+
         # Get token metrics
-        token_metrics = get_ai_token_metrics(period_start, period_end)
+        token_metrics = get_ai_token_metrics(period_start, period_end, team_ids)
 
         # Verify prompt tokens (2 * 100 + 3 * 200 = 800)
         prompt_tokens = dict(token_metrics["prompt_tokens"])
@@ -234,8 +248,11 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             },
         )
 
+        # Get team_ids first
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+
         # Get additional cost metrics
-        additional_cost_metrics = get_ai_additional_cost_metrics(period_start, period_end)
+        additional_cost_metrics = get_ai_additional_cost_metrics(period_start, period_end, team_ids)
 
         # Verify request costs (3 * 0.001 + 2 * 0.0015 = 0.006)
         request_costs = dict(additional_cost_metrics["request_cost"])
@@ -276,8 +293,11 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             },
         )
 
+        # Get team_ids first
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+
         # Get additional token metrics
-        additional_token_metrics = get_ai_additional_token_metrics(period_start, period_end)
+        additional_token_metrics = get_ai_additional_token_metrics(period_start, period_end, team_ids)
 
         # Verify reasoning tokens (2 * 150 + 3 * 200 = 900)
         reasoning_tokens = dict(additional_token_metrics["reasoning_tokens"])
@@ -336,8 +356,11 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             },
         )
 
+        # Get team_ids first
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+
         # Get dimension breakdowns
-        dimension_breakdowns = get_ai_dimension_breakdowns(period_start, period_end)
+        dimension_breakdowns = get_ai_dimension_breakdowns(period_start, period_end, team_ids)
 
         # Verify model breakdown
         model_breakdown = dimension_breakdowns["model"].get(self.team.id, {})
@@ -359,6 +382,82 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         library_breakdown = dimension_breakdowns["library"].get(self.team.id, {})
         assert library_breakdown.get("posthog-python") == 13  # 10 + 3
         assert library_breakdown.get("posthog-node") == 5
+
+    def test_get_ai_cost_model_breakdowns(self) -> None:
+        """Test that we correctly get cost model breakdowns."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+
+        # Create AI events with cost model properties (OpenRouter pricing)
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            10,
+            properties={
+                "$ai_model": "gpt-4o-mini",
+                "$ai_provider": "openai",
+                "$ai_model_cost_used": "openai/gpt-4o-mini",
+                "$ai_cost_model_source": "openrouter",
+                "$ai_cost_model_provider": "openai",
+            },
+        )
+
+        # Create AI events with custom pricing
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            properties={
+                "$ai_model": "my-custom-model",
+                "$ai_provider": "custom-provider",
+                "$ai_model_cost_used": "custom",
+                "$ai_cost_model_source": "custom",
+                "$ai_cost_model_provider": "custom",
+            },
+        )
+
+        # Create AI events with manual pricing
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            3,
+            properties={
+                "$ai_model": "claude-3-opus",
+                "$ai_provider": "anthropic",
+                "$ai_model_cost_used": "anthropic/claude-3-opus",
+                "$ai_cost_model_source": "manual",
+                "$ai_cost_model_provider": "anthropic",
+            },
+        )
+
+        # Get team_ids first
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+
+        # Get dimension breakdowns
+        dimension_breakdowns = get_ai_dimension_breakdowns(period_start, period_end, team_ids)
+
+        # Verify cost_model_used breakdown
+        cost_model_used_breakdown = dimension_breakdowns["cost_model_used"].get(self.team.id, {})
+        assert cost_model_used_breakdown.get("openai/gpt-4o-mini") == 10
+        assert cost_model_used_breakdown.get("custom") == 5
+        assert cost_model_used_breakdown.get("anthropic/claude-3-opus") == 3
+
+        # Verify cost_model_source breakdown
+        cost_model_source_breakdown = dimension_breakdowns["cost_model_source"].get(self.team.id, {})
+        assert cost_model_source_breakdown.get("openrouter") == 10
+        assert cost_model_source_breakdown.get("custom") == 5
+        assert cost_model_source_breakdown.get("manual") == 3
+
+        # Verify cost_model_provider breakdown
+        cost_model_provider_breakdown = dimension_breakdowns["cost_model_provider"].get(self.team.id, {})
+        assert cost_model_provider_breakdown.get("openai") == 10
+        assert cost_model_provider_breakdown.get("custom") == 5
+        assert cost_model_provider_breakdown.get("anthropic") == 3
 
     def test_full_llm_analytics_report(self) -> None:
         """Test the full LLM Analytics report generation."""
@@ -397,6 +496,9 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
                 "$ai_provider": "openai",
                 "$ai_framework": "langchain",
                 "$lib": "posthog-python",
+                "$ai_model_cost_used": "openai/gpt-4o-mini",
+                "$ai_cost_model_source": "openrouter",
+                "$ai_cost_model_provider": "openai",
             },
         )
 
@@ -441,6 +543,9 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_1_report["provider_breakdown"] == {"openai": 3}
         assert org_1_report["framework_breakdown"] == {"langchain": 3}
         assert org_1_report["library_breakdown"] == {"posthog-python": 3}
+        assert org_1_report["cost_model_used_breakdown"] == {"openai/gpt-4o-mini": 3}
+        assert org_1_report["cost_model_source_breakdown"] == {"openrouter": 3}
+        assert org_1_report["cost_model_provider_breakdown"] == {"openai": 3}
 
         # Verify org 2 report
         org_2_report = org_reports[str(org_2.id)]
@@ -674,8 +779,11 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             properties={},
         )
 
+        # Get team_ids first
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+
         # Get dimension breakdowns
-        dimension_breakdowns = get_ai_dimension_breakdowns(period_start, period_end)
+        dimension_breakdowns = get_ai_dimension_breakdowns(period_start, period_end, team_ids)
 
         # Verify model breakdown - should only have valid models
         model_breakdown = dimension_breakdowns["model"].get(self.team.id, {})
@@ -704,3 +812,124 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         # Verify framework breakdown - events without framework should count as "none"
         framework_breakdown = dimension_breakdowns["framework"].get(self.team.id, {})
         assert framework_breakdown.get("none") == 15  # All events (3+2+4+1+5) have no framework
+
+    def test_get_teams_with_ai_events(self) -> None:
+        """Test that get_teams_with_ai_events returns correct team IDs."""
+        # Create second team
+        org_2 = Organization.objects.create(name="Org 2")
+        team_2 = Team.objects.create(organization=org_2, name="Team 2")
+        team_3 = Team.objects.create(organization=self.organization, name="Team 3 - no events")
+
+        distinct_id_1 = str(uuid4())
+        distinct_id_2 = str(uuid4())
+        _create_person(distinct_ids=[distinct_id_1], team=self.team)
+        _create_person(distinct_ids=[distinct_id_2], team=team_2)
+
+        period_start, period_end = get_previous_day()
+
+        # Create AI events for team 1 and team 2, but not team 3
+        self._create_ai_events(self.team, distinct_id_1, "$ai_generation", 5)
+        self._create_ai_events(team_2, distinct_id_2, "$ai_embedding", 3)
+
+        # Get teams with AI events
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+
+        # Verify correct teams are returned
+        assert self.team.id in team_ids
+        assert team_2.id in team_ids
+        assert team_3.id not in team_ids
+        assert len(team_ids) == 2
+
+    @patch("posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report")
+    @patch("posthog.tasks.llm_analytics_usage_report.get_ph_client")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_send_llm_analytics_usage_reports_dry_run(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_get_ph_client: MagicMock,
+        mock_capture_report: MagicMock,
+    ) -> None:
+        """Test that dry_run=True prevents reports from being sent."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        # Create some AI events
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 5)
+
+        # Run the task with dry_run=True
+        send_llm_analytics_usage_reports(dry_run=True)
+
+        # Verify capture_llm_analytics_report was NOT called
+        assert mock_capture_report.delay.call_count == 0
+
+    @patch("posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report")
+    @patch("posthog.tasks.llm_analytics_usage_report._get_all_llm_analytics_reports")
+    @patch("posthoganalytics.capture_exception")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_send_llm_analytics_usage_reports_disabled_by_feature_flag(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_capture_exception: MagicMock,
+        mock_get_reports: MagicMock,
+        mock_capture_report: MagicMock,
+    ) -> None:
+        """Test that reports are not sent when disabled by feature flag."""
+        # Run the task
+        send_llm_analytics_usage_reports()
+
+        # Verify feature flag was checked
+        mock_feature_enabled.assert_called_once_with("llm-analytics-disable-usage-reports", "internal_billing_events")
+
+        # Verify capture_exception was called to log that reports are disabled
+        assert mock_capture_exception.call_count == 1
+
+        # Verify _get_all_llm_analytics_reports was NOT called (early exit)
+        assert mock_get_reports.call_count == 0
+
+        # Verify capture_llm_analytics_report was NOT called
+        assert mock_capture_report.delay.call_count == 0
+
+    @patch("posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report")
+    @patch("posthog.tasks.llm_analytics_usage_report.get_ph_client")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_send_llm_analytics_usage_reports_with_at_parameter(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_get_ph_client: MagicMock,
+        mock_capture_report: MagicMock,
+    ) -> None:
+        """Test that the at parameter correctly specifies the report date."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        # Create AI events for January 5th (within Jan 4th period when at="2022-01-05")
+        jan_5_timestamp = datetime(2022, 1, 5, 12, 0, 0)
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            timestamp=jan_5_timestamp,
+        )
+
+        # Create AI events for January 9th (within the default period based on freeze_time)
+        jan_9_timestamp = datetime(2022, 1, 9, 12, 0, 0)
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_embedding",
+            3,
+            timestamp=jan_9_timestamp,
+        )
+
+        # Run the task with at="2022-01-06" (reports for Jan 5th)
+        send_llm_analytics_usage_reports(at="2022-01-06")
+
+        # Verify capture_llm_analytics_report was called
+        assert mock_capture_report.delay.call_count == 1
+
+        # Verify only Jan 5th events are in the report (not Jan 9th)
+        call_args = mock_capture_report.delay.call_args
+        report_dict = call_args[1]["report_dict"]
+        assert report_dict["ai_generation_count"] == 5
+        assert report_dict["ai_embedding_count"] == 0  # Jan 9th events not included
