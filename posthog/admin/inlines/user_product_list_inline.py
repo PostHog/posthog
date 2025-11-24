@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib import admin
+from django.core.exceptions import ValidationError
 
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.products import Products
@@ -16,7 +17,7 @@ class UserProductListInlineForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         # Restrict reason to sales_led only and disable it
-        self.fields["reason"].choices = [(UserProductList.Reason.SALES_LED, UserProductList.Reason.SALES_LED.label)]  # type: ignore
+        self.fields["reason"].choices = [("", "---------"), *UserProductList.Reason.choices]  # type: ignore
         self.fields["reason"].initial = UserProductList.Reason.SALES_LED
         self.fields["reason"].widget = forms.Select(choices=self.fields["reason"].choices)  # type: ignore
         self.fields["reason"].disabled = True
@@ -32,7 +33,7 @@ class UserProductListInlineForm(forms.ModelForm):
 
         # Determine which team to use for filtering
         team = None
-        if self.instance and self.instance.pk:
+        if self.instance and not self.instance._state.adding:
             # Check if instance has team_id set (safer than accessing .team directly)
             if hasattr(self.instance, "team_id") and self.instance.team_id:
                 try:
@@ -71,16 +72,26 @@ class UserProductListInlineForm(forms.ModelForm):
 
         user = cleaned_data.get("user")
 
-        # Only validate for new instances (when creating, not editing)
-        if user and not self.instance.pk:
-            if user.allow_sidebar_suggestions is False:
-                from django.core.exceptions import ValidationError
+        errors = {}
 
-                raise ValidationError(
-                    {
-                        "user": f"User {user.email} has disabled sidebar suggestions. Cannot create UserProductList items for this user."
-                    }
-                )
+        # Only validate for new instances (when creating, not editing)
+        if user and user.allow_sidebar_suggestions is False:
+            errors["user"] = f"User has disabled sidebar suggestions, can't update."
+
+        if self.instance and not self.instance._state.adding:
+            if (user := cleaned_data.get("user")) and user != self.instance.user:
+                errors["user"] = f"User cannot be changed."
+            if (product_path := cleaned_data.get("product_path")) and product_path != self.instance.product_path:
+                errors["product_path"] = f"Product path cannot be changed."
+            if (reason := cleaned_data.get("reason")) and reason != self.instance.reason:
+                errors["reason"] = f"Reason cannot be changed."
+
+            if self.instance.reason != UserProductList.Reason.SALES_LED:
+                if (reason_text := cleaned_data.get("reason_text")) and reason_text != self.instance.reason_text:
+                    errors["reason_text"] = f"Reason text cannot be changed."
+
+        if errors:
+            raise ValidationError(errors)
 
         return cleaned_data
 
@@ -88,26 +99,19 @@ class UserProductListInlineForm(forms.ModelForm):
         instance = super().save(commit=False)
 
         # For existing instances, only save reason_text and enabled
-        if instance.pk:
-            # Reload the instance to preserve existing values
+        if not instance._state.adding:
+            # Only reason_text and enabled can be changed
+            # so guarantee we preserve the existing values when saving
             existing = UserProductList.objects.get(pk=instance.pk)
             instance.user = existing.user
             instance.product_path = existing.product_path
             instance.reason = existing.reason
             instance.team = existing.team
-            # Only reason_text and enabled can be changed
         else:
-            # For new instances, validate allow_sidebar_suggestions
-            if instance.user and instance.user.allow_sidebar_suggestions is False:
-                from django.core.exceptions import ValidationError
-
-                raise ValidationError(
-                    f"User {instance.user.email} has disabled sidebar suggestions. Cannot create UserProductList items for this user."
-                )
-
             # Set defaults
             if not instance.reason:
                 instance.reason = UserProductList.Reason.SALES_LED
+
             # Set team from parent instance
             parent_instance = getattr(self, "parent_instance", None)
             if not instance.team_id and parent_instance:
@@ -115,6 +119,7 @@ class UserProductListInlineForm(forms.ModelForm):
 
         if commit:
             instance.save()
+
         return instance
 
 
@@ -124,8 +129,8 @@ class UserProductListInline(admin.TabularInline):
     extra = 1
     fields = ("user", "product_path", "reason", "reason_text", "enabled")
     readonly_fields = ("id",)
-    verbose_name = "Sales-led Product Addition"
-    verbose_name_plural = "Sales-led Product Additions"
+    verbose_name = "User Product Entry"
+    verbose_name_plural = "User Product entries"
     classes = ("collapse",)
 
     def get_formset(self, request, obj=None, **kwargs):
@@ -141,13 +146,8 @@ class UserProductListInline(admin.TabularInline):
         formset.form.__init__ = form_init  # type: ignore
         return formset
 
-    def get_queryset(self, request):
-        # Only show items with sales_led reason in the inline
-        qs = super().get_queryset(request)
-        return qs.filter(reason=UserProductList.Reason.SALES_LED)
-
     def has_change_permission(self, request, obj=None):
-        # Allow editing reason_text for existing sales-led items
+        # Allow editing reason_text
         return True
 
     def has_delete_permission(self, request, obj=None):
