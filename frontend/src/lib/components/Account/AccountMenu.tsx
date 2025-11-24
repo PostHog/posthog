@@ -21,7 +21,6 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
@@ -43,7 +42,6 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -60,7 +58,6 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getTreeItemsGames } from '~/products'
 import { SidePanelTab, UserTheme } from '~/types'
 
-import { AppShortcut } from '../AppShortcuts/AppShortcut'
 import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
@@ -152,7 +149,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { mobileLayout } = useValues(navigationLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
-    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     return (
         <DropdownMenu>
@@ -162,8 +158,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                 collisionPadding={{ bottom: 0 }}
                 alignOffset={2}
                 className="min-w-[var(--project-panel-width)]"
-                // Force mount to register app shortcuts
-                forceMount
             >
                 <DropdownMenuGroup>
                     <Label intent="menu" className="px-2">
@@ -318,28 +312,22 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     <ThemeMenu />
 
-                    <AppShortcut
-                        name="ToggleShortcutMenu"
-                        keybind={['command', 'shift', 'k']}
-                        intent="Toggle shortcut menu"
-                        interaction="click"
-                        asChild
-                        disabled={!useAppShortcuts}
-                    >
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive
-                                tooltip={useAppShortcuts ? 'Open shortcut menu' : undefined}
-                                tooltipPlacement="right"
-                                onClick={() => setAppShortcutMenuOpen(true)}
-                                menuItem
-                                className={cn(!useAppShortcuts && 'hidden')}
-                            >
-                                <span className="text-tertiary size-4 flex items-center justify-center">⌘</span>
-                                Shortcuts
-                                <KeyboardShortcut command shift k className="ml-auto" />
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    </AppShortcut>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            tooltip="Open shortcut menu"
+                            tooltipPlacement="right"
+                            onClick={() => setAppShortcutMenuOpen(true)}
+                            menuItem
+                        >
+                            <span className="size-4 flex items-center justify-center">⌘</span>
+                            Shortcuts
+                            <div className="flex gap-1 ml-auto items-center">
+                                <KeyboardShortcut command option k />
+                                <span className="text-xs opacity-75">or</span>
+                                <KeyboardShortcut command shift k />
+                            </div>
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
 
                     <DropdownMenuItem asChild>
                         <Link
@@ -391,7 +379,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             <DropdownMenuSubContent>
                                 <DropdownMenuGroup>
                                     {getTreeItemsGames().map((game) => (
-                                        <DropdownMenuItem asChild>
+                                        <DropdownMenuItem asChild key={game.path}>
                                             <Link to={game.href} buttonProps={{ menuItem: true }}>
                                                 {game.path}
                                             </Link>
@@ -431,32 +419,22 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 </Link>
                             </DropdownMenuItem>
 
-                            {useAppShortcuts &&
-                            (user?.is_impersonated ||
-                                preflight?.is_debug ||
-                                preflight?.instance_preferences?.debug_queries) ? (
-                                <AppShortcut
-                                    name="DebugClickhouseQueries"
-                                    keybind={['command', 'option', 'tab']}
-                                    intent="Debug clickhouse queries"
-                                    interaction="click"
-                                    asChild
-                                >
-                                    <DropdownMenuItem asChild>
-                                        <ButtonPrimitive
-                                            menuItem
-                                            onClick={() => {
-                                                openCHQueriesDebugModal()
-                                            }}
-                                            data-attr="menu-item-debug-ch-queries"
-                                            className={cn(!useAppShortcuts && 'hidden')}
-                                        >
-                                            <IconDatabase />
-                                            Debug CH queries
-                                            <KeyboardShortcut command option tab className="ml-auto" />
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                </AppShortcut>
+                            {user?.is_impersonated ||
+                            preflight?.is_debug ||
+                            preflight?.instance_preferences?.debug_queries ? (
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => {
+                                            openCHQueriesDebugModal()
+                                        }}
+                                        data-attr="menu-item-debug-ch-queries"
+                                    >
+                                        <IconDatabase />
+                                        Debug CH queries
+                                        <KeyboardShortcut command option tab className="ml-auto" />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
                             ) : null}
                         </>
                     )}

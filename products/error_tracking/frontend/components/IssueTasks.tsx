@@ -11,7 +11,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
@@ -30,12 +29,10 @@ export const IssueTasks = (): JSX.Element => {
         }
     }
     return (
-        <ScenePanelLabel title="Tasks">
-            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading}>
-                <IconPlus />
-                Create task in PostHog
-            </ButtonPrimitive>
-        </ScenePanelLabel>
+        <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading}>
+            <IconPlus />
+            Create task in PostHog
+        </ButtonPrimitive>
     )
 }
 

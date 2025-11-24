@@ -1384,6 +1384,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
                 is_duplicate: isDuplicate ?? false,
+                linked_insight_id: survey.linked_insight_id,
                 events_count: survey.conditions?.events?.values.length,
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
                 recurring_survey_iteration_interval:

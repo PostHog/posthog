@@ -1452,7 +1452,7 @@ def team_api_test_factory():
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/add_product_intent/",
-                {"product_type": "product_analytics", "intent_context": "onboarding product selected"},
+                {"product_type": "product_analytics", "intent_context": "onboarding product selected - primary"},
                 headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
             )
             assert response.status_code == status.HTTP_201_CREATED
@@ -1467,7 +1467,7 @@ def team_api_test_factory():
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
                     "$set_once": {},
-                    "intent_context": "onboarding product selected",
+                    "intent_context": "onboarding product selected - primary",
                     "is_first_intent_for_product": True,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
@@ -1513,7 +1513,7 @@ def team_api_test_factory():
                         "$current_url": "https://posthogtest.com/my-url",
                         "$session_id": "test_session_id",
                         "$set_once": {},
-                        "intent_context": "unknown",
+                        "intent_context": None,
                         "is_first_intent_for_product": False,
                         "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                         "intent_updated_at": datetime(2024, 1, 2, 0, 0, 0, tzinfo=UTC),
@@ -1549,7 +1549,7 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
-                    "intent_context": "unknown",
+                    "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
@@ -1605,7 +1605,7 @@ def team_api_test_factory():
                     "product_key": "product_analytics",
                     "$current_url": "https://posthogtest.com/my-url",
                     "$session_id": "test_session_id",
-                    "intent_context": "unknown",
+                    "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
@@ -1918,7 +1918,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_teams=[other_team_in_project.id],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -1938,7 +1938,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_organizations=[other_org.id],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -1979,7 +1979,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_teams=[other_team_in_project.id],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -2011,7 +2011,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             scoped_organizations=[str(other_org.id)],
         )
 
-        response = self.client.get("/api/environments/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(

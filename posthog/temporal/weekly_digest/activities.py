@@ -405,21 +405,36 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                             ]
                         )
 
-                        digest_data: list[str] = ["[]" if v is None else v for v in results]
+                        defaults = [
+                            DashboardList(root=[]),
+                            EventDefinitionList(root=[]),
+                            ExperimentList(root=[]),
+                            ExperimentList(root=[]),
+                            ExternalDataSourceList(root=[]),
+                            FeatureFlagList(root=[]),
+                            FilterList(root=[]),
+                            RecordingCount(recording_count=0),
+                            SurveyList(root=[]),
+                        ]
+
+                        digest_data = [
+                            default if result is None else default.__class__.model_validate_json(result)
+                            for default, result in zip(defaults, results)
+                        ]
 
                         team_digests.append(
                             TeamDigest(
                                 id=team.id,
                                 name=team.name,
-                                dashboards=DashboardList.model_validate_json(digest_data[0]),
-                                event_definitions=EventDefinitionList.model_validate_json(digest_data[1]),
-                                experiments_launched=ExperimentList.model_validate_json(digest_data[2]),
-                                experiments_completed=ExperimentList.model_validate_json(digest_data[3]),
-                                external_data_sources=ExternalDataSourceList.model_validate_json(digest_data[4]),
-                                feature_flags=FeatureFlagList.model_validate_json(digest_data[5]),
-                                filters=FilterList.model_validate_json(digest_data[6]),
-                                expiring_recordings=RecordingCount.model_validate_json(digest_data[7]),
-                                surveys_launched=SurveyList.model_validate_json(digest_data[8]),
+                                dashboards=digest_data[0],
+                                event_definitions=digest_data[1],
+                                experiments_launched=digest_data[2],
+                                experiments_completed=digest_data[3],
+                                external_data_sources=digest_data[4],
+                                feature_flags=digest_data[5],
+                                filters=digest_data[6],
+                                expiring_recordings=digest_data[7],
+                                surveys_launched=digest_data[8],
                             )
                         )
                         team_count += 1
