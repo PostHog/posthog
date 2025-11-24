@@ -122,7 +122,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties
@@ -257,7 +258,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
@@ -343,7 +345,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
@@ -360,7 +363,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
@@ -446,7 +450,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
@@ -463,7 +468,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.5
@@ -549,7 +555,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.6
@@ -566,7 +573,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.7
@@ -652,7 +660,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.8
@@ -669,7 +678,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized
@@ -804,7 +814,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.1
@@ -890,7 +901,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.2
@@ -907,7 +919,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.3
@@ -993,7 +1006,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.4
@@ -1010,7 +1024,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.5
@@ -1096,7 +1111,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.6
@@ -1113,7 +1129,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.7
@@ -1199,7 +1216,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.8
@@ -1216,7 +1234,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
@@ -1328,7 +1347,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
@@ -1440,7 +1460,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups
@@ -1545,7 +1566,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.1
@@ -1613,7 +1635,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.2
@@ -1681,7 +1704,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.3
@@ -1749,7 +1773,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.4
@@ -1817,7 +1842,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.5
@@ -1938,7 +1964,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.6
@@ -2006,7 +2033,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.7
@@ -2074,7 +2102,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2
@@ -2179,7 +2208,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.1
@@ -2247,7 +2277,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.2
@@ -2315,7 +2346,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.3
@@ -2383,7 +2415,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.4
@@ -2451,7 +2484,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.5
@@ -2572,7 +2606,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.6
@@ -2640,7 +2675,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.7
@@ -2708,7 +2744,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups
@@ -2828,7 +2865,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.1
@@ -2903,7 +2941,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.2
@@ -2978,7 +3017,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.3
@@ -3053,7 +3093,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.4
@@ -3128,7 +3169,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.5
@@ -3248,7 +3290,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized
@@ -3368,7 +3411,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.1
@@ -3443,7 +3487,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.2
@@ -3518,7 +3563,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.3
@@ -3593,7 +3639,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.4
@@ -3668,7 +3715,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.5
@@ -3788,7 +3836,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events
@@ -3908,7 +3957,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.1
@@ -3983,7 +4033,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.2
@@ -4058,7 +4109,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.3
@@ -4133,7 +4185,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.4
@@ -4208,7 +4261,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.5
@@ -4328,7 +4382,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
@@ -4448,7 +4503,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
@@ -4523,7 +4579,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
@@ -4598,7 +4655,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
@@ -4673,7 +4731,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
@@ -4748,7 +4807,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
@@ -4868,7 +4928,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
@@ -4988,7 +5049,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
@@ -5063,7 +5125,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
@@ -5138,7 +5201,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
@@ -5213,7 +5277,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
@@ -5288,7 +5353,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
@@ -5408,6 +5474,7 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
