@@ -1168,8 +1168,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 {"at": "Invalid datetime format. Use ISO8601 (e.g., 2025-11-24T12:34:56Z)."}
             )
         if timezone.is_naive(as_of):
-            # Assume UTC for naive datetimes
-            as_of = timezone.make_aware(as_of, timezone.utc)
+            as_of = timezone.make_aware(as_of)
 
         # Build starting snapshot from current model values for config fields
         settings_fields = set(TEAM_CONFIG_FIELDS)
