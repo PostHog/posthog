@@ -122,16 +122,16 @@ IMAGE_FOUND=false
 while [ $(date +%s) -lt $END_TIME ]; do
     MINS_LEFT=$(( (END_TIME - $(date +%s)) / 60 ))
     if curl -s "https://hub.docker.com/v2/repositories/posthog/posthog/tags/$CURRENT_COMMIT" | grep -q '"name":"'$CURRENT_COMMIT'"'; then
-        echo "$LOG_PREFIX ✅ Docker image found on DockerHub ($MINS_LEFT mins waited)"
+        echo "$LOG_PREFIX Docker image found on DockerHub (waited $MINS_LEFT mins)"
         IMAGE_FOUND=true
         break
     fi
-    echo "$LOG_PREFIX ⏳ Image not yet available, checking again in 30s... ($MINS_LEFT mins remaining)"
+    echo "$LOG_PREFIX Image not yet available, checking again in 30s... ($MINS_LEFT mins remaining)"
     sleep $WAIT_INTERVAL
 done
 
 if [ "$IMAGE_FOUND" = false ]; then
-    echo "$LOG_PREFIX ⚠️  Image not found after 20 mins, building locally..."
+    echo "$LOG_PREFIX Image not found after 20 mins, building locally..."
     cd posthog
     docker build -t posthog/posthog:$CURRENT_COMMIT .
     cd ..
