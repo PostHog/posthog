@@ -45,7 +45,7 @@ export class LogsRateLimiterService {
     public async rateLimitMany(idCosts: [string, number][]): Promise<[string, LogsRateLimit][]> {
         const res = await this.redis.usePipeline({ name: 'logs-rate-limiter', failOpen: true }, (pipeline) => {
             idCosts.forEach(([id, cost]) => {
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost))
+                pipeline.checkRateLimit(...this.rateLimitArgs(id, cost))
             })
         })
 
