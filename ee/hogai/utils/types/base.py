@@ -10,11 +10,12 @@ from langchain_core.messages import (
     BaseMessage as LangchainBaseMessage,
 )
 from langgraph.graph import END, START
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from posthog.schema import (
     AgentMode,
-    ArtifactMessage,
+    ArtifactContentType,
+    ArtifactSource,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -47,6 +48,16 @@ from posthog.schema import (
 )
 
 from ee.models import Conversation
+
+
+class ArtifactMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    parent_tool_call_id: Optional[str] = None
+    content_type: ArtifactContentType
+    artifact_id: str
+    source: ArtifactSource
+
 
 AIMessageUnion = Union[
     AssistantMessage,
@@ -260,6 +271,39 @@ class BaseStateWithMessages(BaseState):
     The mode of the agent.
     """
 
+    @field_validator("messages", mode="after")
+    @classmethod
+    def convert_visualization_messages_to_artifacts(
+        cls, messages: Sequence[AssistantMessageUnion]
+    ) -> Sequence[AssistantMessageUnion]:
+        """
+        Convert legacy VisualizationMessage to ArtifactMessage with State source.
+        The original VisualizationMessage is kept in state for content lookup.
+        The ArtifactMessage's artifact_id references the VisualizationMessage's id.
+        """
+        converted: list[AssistantMessageUnion] = []
+        for message in messages:
+            if isinstance(message, VisualizationMessage):
+                message_id = message.id or str(uuid.uuid4())
+                # Ensure the original message has an ID for lookup
+                if message.id is None:
+                    message.id = message_id
+                # Create ArtifactMessage that references the VisualizationMessage
+                converted.append(
+                    ArtifactMessage(
+                        id=str(uuid.uuid4()),  # New ID for the artifact message
+                        parent_tool_call_id=message.parent_tool_call_id,
+                        content_type=ArtifactContentType.VISUALIZATION,
+                        artifact_id=message_id,  # References the VisualizationMessage ID
+                        source=ArtifactSource.STATE,
+                    )
+                )
+                # Keep the original VisualizationMessage for content lookup
+                converted.append(message)
+            else:
+                converted.append(message)
+        return converted
+
     @property
     def agent_mode_or_default(self) -> AgentMode:
         return self.agent_mode or AgentMode.PRODUCT_ANALYTICS
@@ -385,6 +429,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     dashboard_id: Optional[int] = Field(default=None)
     """
     The ID of the dashboard to be edited.
+    """
+    visualization_title: Optional[str] = Field(default=None)
+    """
+    The title of the visualization to be created.
     """
 
 

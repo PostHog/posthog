@@ -13,7 +13,6 @@ from langchain_core.messages import (
 )
 
 from posthog.schema import (
-    ArtifactMessage,
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantMessage,
@@ -31,7 +30,6 @@ from posthog.schema import (
     RetentionQuery,
     TeamTaxonomyQuery,
     TrendsQuery,
-    VisualizationMessage,
 )
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -39,7 +37,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMessageUnion
+from ee.hogai.utils.types.base import ArtifactMessage, AssistantDispatcherEvent, AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:
@@ -50,7 +48,6 @@ def filter_and_merge_messages(
     messages: Sequence[AssistantMessageUnion],
     entity_filter: Union[tuple[type[AssistantMessageUnion], ...], type[AssistantMessageUnion]] = (
         AssistantMessage,
-        VisualizationMessage,
         ArtifactMessage,
     ),
 ) -> list[AssistantMessageUnion]:

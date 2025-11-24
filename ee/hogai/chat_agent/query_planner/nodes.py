@@ -2,6 +2,7 @@ from abc import ABC
 from functools import cached_property
 from typing import Literal, cast
 
+from asgiref.sync import async_to_sync
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
@@ -16,7 +17,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    VisualizationMessage,
+    VisualizationArtifactMessage,
 )
 
 from posthog.hogql.ai import SCHEMA_MESSAGE
@@ -25,7 +26,6 @@ from posthog.hogql.database.database import Database
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
-from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.core.mixins import TaxonomyUpdateDispatcherNodeMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
@@ -207,21 +207,12 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                 if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_table_names()
             )
         )
-        artifacts = self.context_manager.artifacts.get_from_messages(list(state.messages))
+        enriched_messages = async_to_sync(self.context_manager.artifacts.aenrich_messages)(state.messages)
         history_messages = []
-        for message in state.messages:
-            if isinstance(message, VisualizationMessage) or is_visualization_artifact_message(message):
-                if isinstance(message, VisualizationMessage):
-                    plan = message.plan or "_No generated plan._"
-                    query = message.query or "_No query description provided._"
-                else:
-                    content = next(
-                        (artifact for artifact in artifacts if artifact.short_id == message.artifact_id), None
-                    )
-                    if not content:
-                        raise ValueError(f"Artifact {message.artifact_id} not found")
-                    query = content.data.query or "_No query description provided._"
-                    plan = content.data.description or "_No generated plan._"
+        for message in enriched_messages:
+            if isinstance(message, VisualizationArtifactMessage):
+                query = message.content.name or "_No query description provided._"
+                plan = message.content.description or "_No generated plan._"
                 history_messages.extend([("human", query), ("assistant", plan)])
         conversation = ChatPromptTemplate(
             [

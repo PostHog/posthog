@@ -192,7 +192,7 @@ class CreateAndQueryInsightTool(MaxTool):
         if not is_visualization_artifact_message(maybe_viz_message):
             return "", ToolMessagesArtifact(messages=[tool_call_message])
 
-        visualization_content = await self._context_manager.artifacts.aget_visualization_content_by_short_id(
+        visualization_content = await self._context_manager.artifacts.aget_content_by_short_id(
             maybe_viz_message.artifact_id
         )
         # If the contextual tool is available, we're editing an insight.

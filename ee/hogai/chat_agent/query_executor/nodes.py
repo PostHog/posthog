@@ -3,14 +3,14 @@ from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import ArtifactMessage, AssistantMessage, AssistantToolCallMessage, FailureMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage
 
 from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, ArtifactMessage
 
 
 class QueryExecutorNode(AssistantNode):
@@ -56,5 +56,5 @@ class QueryExecutorNode(AssistantNode):
     async def _extract_query(self, message: ArtifactMessage) -> AnyAssistantGeneratedQuery:
         if not message.artifact_id:
             raise ValueError("ArtifactMessage must have a artifact_id")
-        content = await self.context_manager.artifacts.aget_visualization_content_by_short_id(message.artifact_id)
+        content = await self.context_manager.artifacts.aget_content_by_short_id(message.artifact_id)
         return cast(AnyAssistantGeneratedQuery, content.query)

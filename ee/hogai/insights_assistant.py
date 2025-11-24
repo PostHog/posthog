@@ -1,8 +1,9 @@
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from posthog.schema import (
+    AssistantEventType,
     AssistantMessage,
     HumanMessage,
     MaxBillingContext,
@@ -111,7 +112,8 @@ class InsightsAssistant(BaseAgentRunner):
                     answer=message.content.query,
                     plan=message.content.description,
                 )
-                yield path, legacy_visualization_message
+                path = cast(Literal[AssistantEventType.MESSAGE], path)
+                yield (path, legacy_visualization_message)
             if isinstance(message, AssistantMessage):
                 last_ai_message = message
             yield stream_event

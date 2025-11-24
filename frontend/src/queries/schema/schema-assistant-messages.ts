@@ -61,6 +61,8 @@ export enum ArtifactSource {
     Artifact = 'artifact',
     /** Reference to a saved insight (stored in Insight model) */
     Insight = 'insight',
+    /** Legacy visualization message converted to artifact (content stored inline in state) */
+    State = 'state',
 }
 
 /** Type of artifact content */
@@ -238,23 +240,19 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
     commentary?: string
 }
 
-export interface ArtifactMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.Artifact
-    /** The ID of the artifact (short_id for both drafts and saved insights) */
-    artifact_id: string
-    /** Source of artifact - determines which model to fetch from */
-    source: ArtifactSource
-    /** Type of artifact content */
-    content_type: ArtifactContentType
-}
-
 export interface VisualizationArtifactContent {
     query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
     name?: string | null
     description?: string | null
 }
 
-export interface VisualizationArtifactMessage extends ArtifactMessage {
+export interface VisualizationArtifactMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Artifact
+    /** The ID of the artifact (short_id for both drafts and saved insights) */
+    artifact_id: string
+    /** Source of artifact - determines which model to fetch from */
+    source: ArtifactSource
+    /** Type of artifact content */
     content_type: ArtifactContentType.Visualization
     content: VisualizationArtifactContent
 }
