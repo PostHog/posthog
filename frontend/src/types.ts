@@ -551,14 +551,6 @@ export interface CorrelationConfigType {
     excluded_event_names?: string[]
 }
 
-export interface SessionRecordingAIConfig {
-    opt_in: boolean
-    preferred_events: string[]
-    excluded_events: string[]
-    included_event_properties: string[]
-    important_user_properties: string[]
-}
-
 export interface ProjectType extends ProjectBasicType {
     created_at: string
 }
@@ -605,7 +597,7 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
+    session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
@@ -752,7 +744,7 @@ export interface ToolbarParams {
     distinctId?: string
     userEmail?: string
     dataAttributes?: string[]
-    featureFlags?: Record<string, string | boolean>
+    toolbarFlagsKey?: string
 }
 
 export interface ToolbarProps extends ToolbarParams {
@@ -3218,6 +3210,7 @@ export interface Survey extends WithAccessControl {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters?: FeatureFlagFilters
+    linked_insight_id?: number | null
     conditions: SurveyDisplayConditions | null
     appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
@@ -5785,6 +5778,7 @@ export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string
+    user: UserBasicType
     status: ConversationStatus
     title: string | null
     created_at: string | null
@@ -6024,6 +6018,7 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+    AI_CONSENT = 'ai_consent',
 }
 
 export interface Dataset {

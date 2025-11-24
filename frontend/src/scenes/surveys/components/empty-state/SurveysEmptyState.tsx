@@ -6,7 +6,6 @@ import { toast } from 'react-toastify'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import MaxTool from 'scenes/max/MaxTool'
 import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
 import { TemplateCard } from '../../SurveyTemplates'

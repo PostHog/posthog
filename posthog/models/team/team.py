@@ -140,6 +140,13 @@ class TeamManager(models.Manager):
                 type="filters",
             )
         team.save()
+
+        # Backfill UserProductList from user's other teams if they have any
+        if initiating_user:
+            from posthog.models.file_system.user_product_list import UserProductList
+
+            UserProductList.backfill_from_other_teams(initiating_user, team)
+
         return team
 
     def create(self, **kwargs):

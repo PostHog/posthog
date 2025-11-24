@@ -9,7 +9,7 @@ from django.core.cache import cache
 from dateutil import parser
 from rest_framework import status
 
-from posthog.models import WebExperiment
+from posthog.models import Team, WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
@@ -664,7 +664,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
-        self.assertEqual(response.json()["detail"], "Saved metric does not exist")
+        self.assertEqual(response.json()["detail"], "Saved metric does not exist or does not belong to this project")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -3512,3 +3512,49 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
 
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
+
+    def test_cannot_add_saved_metric_from_different_team(self):
+        team_b = Team.objects.create(organization=self.organization, name="Team B")
+
+        # Create a saved metric in team A (self.team)
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Team A Metric",
+                "description": "This metric belongs to Team A",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        team_a_metric_id = saved_metric_response.json()["id"]
+
+        # Create an experiment in team B
+        experiment_response = self.client.post(
+            f"/api/projects/{team_b.id}/experiments/",
+            {
+                "name": "Team B Experiment",
+                "feature_flag_key": "team-b-flag",
+                "parameters": None,
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        team_b_experiment_id = experiment_response.json()["id"]
+
+        # Try to add Team A's saved metric to Team B's experiment
+        # This should fail with validation error
+        update_response = self.client.patch(
+            f"/api/projects/{team_b.id}/experiments/{team_b_experiment_id}/",
+            {
+                "saved_metrics_ids": [{"id": team_a_metric_id, "metadata": {"type": "primary"}}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not exist or does not belong to this project", str(update_response.json()))
