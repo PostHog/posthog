@@ -428,3 +428,33 @@ class TestCohort(BaseTest):
         ]
 
         self.assertCountEqual(uuids, [p.uuid for p in expected_people])
+
+    def test_get_static_cohort_size(self):
+        """Test that get_static_cohort_size works with db_constraint=False on the person foreign key."""
+        from posthog.models.cohort.util import get_static_cohort_size
+
+        # Create persons
+        person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
+        person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+        person3 = Person.objects.create(team=self.team, distinct_ids=["person3"])
+
+        # Create a static cohort
+        cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+
+        # Add persons to cohort using the many-to-many relationship
+        cohort.people.add(person1, person2, person3)
+
+        # Test that get_static_cohort_size returns the correct count
+        size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
+
+        # This should return 3, not a CombinedExpression
+        assert isinstance(size, int), f"Expected int, got {type(size)}: {size}"
+        assert size == 3, f"Expected 3 persons in cohort, got {size}"
+
+        # Test with team leakage - person from another team should not be counted
+        team2 = Team.objects.create(organization=self.organization)
+        person4 = Person.objects.create(team=team2, distinct_ids=["person4"])
+        cohort.people.add(person4)
+
+        size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
+        assert size == 3, f"Expected 3 persons from team {self.team.id}, got {size}"

@@ -682,7 +682,14 @@ Jane Smith,user456,jane@example.com
         )
 
         self.assertEqual(response.status_code, 201)
-        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        response_data = response.json()
+        cohort = Cohort.objects.get(pk=response_data["id"])
+
+        # Verify the response contains a valid count (not a CombinedExpression or None)
+        self.assertIn("count", response_data)
+        self.assertIsInstance(response_data["count"], int)
+        self.assertEqual(response_data["count"], 2)
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
