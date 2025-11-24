@@ -119,6 +119,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
         }),
+        // Separate action to set explicitDate so we don't lose the flag value when changing dates in the selector
+        setExplicitDate: (explicitDate: boolean) => ({ explicitDate }),
     }),
 
     reducers({
@@ -548,12 +550,32 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // query source properties
         updateDateRange: async ({ dateRange }, breakpoint) => {
             await breakpoint(300)
-            actions.updateQuerySource({
+            const updates = {
                 dateRange: {
                     ...values.dateRange,
                     ...dateRange,
+                    explicitDate: values.dateRange?.explicitDate ?? dateRange.explicitDate,
                 },
                 ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
+            } as QuerySourceUpdate
+
+            // Reset selectedInterval for retention insights when date range changes
+            if (values.isRetention) {
+                const filterProperty = filterKeyForQuery(values.localQuerySource)
+                updates[filterProperty as keyof QuerySourceUpdate] = {
+                    ...values.localQuerySource[filterProperty],
+                    selectedInterval: null,
+                }
+            }
+
+            actions.updateQuerySource(updates)
+        },
+        setExplicitDate: ({ explicitDate }) => {
+            actions.updateQuerySource({
+                dateRange: {
+                    ...values.dateRange,
+                    explicitDate,
+                },
             })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {

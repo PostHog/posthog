@@ -47,7 +47,7 @@ impl OwnedSourceMapCache {
         Ok(Self { data })
     }
 
-    pub fn get_smc(&self) -> SourceMapCache {
+    pub fn get_smc(&self) -> SourceMapCache<'_> {
         // UNWRAP - we've already parsed this data once, so we know it's valid
         SourceMapCache::parse(&self.data).unwrap()
     }

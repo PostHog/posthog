@@ -1,6 +1,7 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
+import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -86,6 +87,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
+import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
@@ -246,6 +248,8 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'datacapture',
                 title: 'IP data capture configuration',
+                description:
+                    'When enabled, PostHog will discard client IP addresses from all events captured in this project. IP data will not be stored or used for location-based insights.',
                 component: <IPCapture />,
             },
             {
@@ -491,6 +495,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Symbol sets',
                 component: <SymbolSets />,
             },
+            {
+                id: 'error-tracking-releases',
+                title: 'Releases',
+                component: <Releases />,
+            },
         ],
     },
     {
@@ -686,8 +695,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: (
                     // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
-                        PostHog AI features, such as our assistant Max, use{' '}
-                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
+                        PostHog AI features, such as the PostHog AI chat, use{' '}
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
                             <dfn>external AI services</dfn>
                         </Tooltip>{' '}
                         for data analysis.
@@ -706,6 +715,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
                 component: <OrganizationExperimentStatsMethod />,
+            },
+            {
+                id: 'organization-ip-anonymization-default',
+                title: 'IP data capture default',
+                description:
+                    'When enabled, new projects will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing projects are not affected.',
+                component: <OrgIPAnonymizationDefault />,
             },
         ],
     },

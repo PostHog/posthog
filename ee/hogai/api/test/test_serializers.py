@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage
 
 from ee.hogai.api.serializers import ConversationSerializer
-from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 
@@ -95,7 +95,7 @@ class TestConversationSerializers(APIBaseTest):
             user=self.user,
             team=self.team,
             title="Conversation with schema mismatch",
-            type=Conversation.Type.DEEP_RESEARCH,
+            type=Conversation.Type.ASSISTANT,
         )
 
         invalid_snapshot = type("Snapshot", (), {"values": {"messages": [{"invalid": "schema"}]}})()
@@ -117,7 +117,7 @@ class TestConversationSerializers(APIBaseTest):
     def test_has_unsupported_content_on_other_errors(self):
         """On non-validation errors, has_unsupported_content should be False."""
         conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="Conversation with graph error", type=Conversation.Type.DEEP_RESEARCH
+            user=self.user, team=self.team, title="Conversation with graph error", type=Conversation.Type.ASSISTANT
         )
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
@@ -137,7 +137,7 @@ class TestConversationSerializers(APIBaseTest):
     def test_has_unsupported_content_on_success(self):
         """On successful message fetch, has_unsupported_content should be False."""
         conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="Valid conversation", type=Conversation.Type.DEEP_RESEARCH
+            user=self.user, team=self.team, title="Valid conversation", type=Conversation.Type.ASSISTANT
         )
 
         state = AssistantState(messages=[AssistantMessage(content="Test message", type="ai")])
@@ -163,7 +163,7 @@ class TestConversationSerializers(APIBaseTest):
     def test_caching_prevents_duplicate_operations(self):
         """This is to test that the caching works correctly as to not incurring in unnecessary operations (We would do a DRF call per field call)."""
         conversation = Conversation.objects.create(
-            user=self.user, team=self.team, title="Cached conversation", type=Conversation.Type.DEEP_RESEARCH
+            user=self.user, team=self.team, title="Cached conversation", type=Conversation.Type.ASSISTANT
         )
 
         state = AssistantState(messages=[AssistantMessage(content="Cached message", type="ai")])

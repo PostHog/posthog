@@ -56,6 +56,7 @@ export enum Scene {
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
+    ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
     Game368 = 'Game368',
@@ -98,6 +99,7 @@ export enum Scene {
     PipelineNodeNew = 'PipelineNodeNew',
     PreflightCheck = 'PreflightCheck',
     Products = 'Products',
+    UseCaseSelection = 'UseCaseSelection',
     ProjectCreateFirst = 'ProjectCreate',
     ProjectHomepage = 'ProjectHomepage',
     PropertyDefinition = 'PropertyDefinition',
@@ -112,9 +114,14 @@ export enum Scene {
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
+    SessionGroupSummariesTable = 'SessionGroupSummariesTable',
+    SessionGroupSummary = 'SessionGroupSummary',
+    SessionSummaries = 'SessionSummaries',
+    SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
+    Coupons = 'Coupons',
     StartupProgram = 'StartupProgram',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
@@ -189,6 +196,7 @@ export interface SceneTab {
     active: boolean
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
+    pinned?: boolean
 
     sceneId?: string
     sceneKey?: string

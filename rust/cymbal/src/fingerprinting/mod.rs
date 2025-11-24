@@ -139,11 +139,13 @@ mod test {
                 resolve_failure: None,
                 lang: "javascript".to_string(),
                 junk_drawer: None,
+                code_variables: None,
                 context: None,
                 release: None,
                 synthetic: false,
                 suspicious: false,
                 module: None,
+                exception_type: None,
             },
             Frame {
                 frame_id: FrameId::new(String::new(), team_id, 0),
@@ -157,11 +159,13 @@ mod test {
                 resolve_failure: None,
                 lang: "javascript".to_string(),
                 junk_drawer: None,
+                code_variables: None,
                 context: None,
                 release: None,
                 synthetic: false,
                 suspicious: false,
                 module: None,
+                exception_type: None,
             },
         ];
 
@@ -177,11 +181,13 @@ mod test {
             resolve_failure: None,
             lang: "javascript".to_string(),
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             synthetic: false,
             suspicious: false,
             module: None,
+            exception_type: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {
@@ -227,11 +233,13 @@ mod test {
                 resolve_failure: None,
                 lang: "javascript".to_string(),
                 junk_drawer: None,
+                code_variables: None,
                 context: None,
                 release: None,
                 synthetic: false,
                 suspicious: false,
                 module: None,
+                exception_type: None,
             },
             Frame {
                 frame_id: FrameId::new(String::new(), 1, 0),
@@ -245,11 +253,13 @@ mod test {
                 resolve_failure: None,
                 lang: "javascript".to_string(),
                 junk_drawer: None,
+                code_variables: None,
                 context: None,
                 release: None,
                 synthetic: false,
                 suspicious: false,
                 module: None,
+                exception_type: None,
             },
             Frame {
                 frame_id: FrameId::new(String::new(), 1, 0),
@@ -263,11 +273,13 @@ mod test {
                 resolve_failure: None,
                 lang: "javascript".to_string(),
                 junk_drawer: None,
+                code_variables: None,
                 context: None,
                 release: None,
                 synthetic: false,
                 suspicious: false,
                 module: None,
+                exception_type: None,
             },
         ];
 
@@ -307,11 +319,13 @@ mod test {
             resolve_failure: None,
             lang: "javascript".to_string(),
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             synthetic: false,
             suspicious: false,
             module: None,
+            exception_type: None,
         }];
 
         let non_app_frame = Frame {
@@ -326,11 +340,13 @@ mod test {
             resolve_failure: None,
             lang: "javascript".to_string(),
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             synthetic: false,
             suspicious: false,
             module: None,
+            exception_type: None,
         };
 
         exception.stack = Some(Stacktrace::Resolved {

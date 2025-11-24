@@ -27,7 +27,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -41,6 +41,8 @@ from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
+
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -115,9 +117,13 @@ class TeamManager(models.Manager):
             team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
-        team.test_account_filters = self.set_test_account_filters(
-            kwargs.get("organization_id") or kwargs["organization"].id
-        )
+        # Get organization to apply defaults
+        organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
+
+        # Apply organization-level IP anonymization default
+        team.anonymize_ips = organization.default_anonymize_ips
+
+        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
@@ -134,6 +140,13 @@ class TeamManager(models.Manager):
                 type="filters",
             )
         team.save()
+
+        # Backfill UserProductList from user's other teams if they have any
+        if initiating_user:
+            from posthog.models.file_system.user_product_list import UserProductList
+
+            UserProductList.backfill_from_other_teams(initiating_user, team)
+
         return team
 
     def create(self, **kwargs):
@@ -513,6 +526,17 @@ class Team(UUIDTClassicModel):
         from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
         config, _ = TeamMarketingAnalyticsConfig.objects.get_or_create(team=self)
+        return config
+
+    @cached_property
+    def customer_analytics_config(self):
+        from products.customer_analytics.backend.models.team_customer_analytics_config import (
+            TeamCustomerAnalyticsConfig,
+        )
+
+        config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
+            team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
+        )
         return config
 
     @property

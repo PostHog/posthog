@@ -35,6 +35,7 @@ from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, Ex
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
+from .surveys.survey_response_archive import SurveyResponseArchive
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
@@ -82,6 +83,7 @@ from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
+from .user_home_settings import UserHomeSettings
 from .web_experiment import WebExperiment
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
@@ -185,6 +187,7 @@ __all__ = [
     "SharingConfiguration",
     "Subscription",
     "Survey",
+    "SurveyResponseArchive",
     "Tag",
     "TaggedItem",
     "Team",
@@ -195,6 +198,7 @@ __all__ = [
     "UploadedMedia",
     "User",
     "UserScenePersonalisation",
+    "UserHomeSettings",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",

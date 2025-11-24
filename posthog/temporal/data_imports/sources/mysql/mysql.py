@@ -460,11 +460,11 @@ def _get_table_chunk_size(
         return DEFAULT_CHUNK_SIZE
 
     chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-    min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
     logger.debug(
-        f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
+        f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
     )
-    return min_chunk_size
+
+    return chunk_size
 
 
 def mysql_source(
@@ -576,7 +576,7 @@ def mysql_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(),
+        items=get_rows,
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,

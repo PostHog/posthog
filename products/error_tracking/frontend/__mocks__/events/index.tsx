@@ -6,7 +6,10 @@ import { ErrorEventProperties } from 'lib/components/Errors/types'
 
 import { exceptionCardLogic } from '../../components/ExceptionCard/exceptionCardLogic'
 import javascript_empty from './javascript_empty.json'
+import javascript_minified_react_error from './javascript_minified_react_error.json'
+import javascript_non_error_promise_rejection from './javascript_non_error_promise_rejection.json'
 import javascript_resolved from './javascript_resolved.json'
+import javascript_script_error from './javascript_script_error.json'
 import javascript_unresolved from './javascript_unresolved.json'
 import node_unresolved from './node_unresolved.json'
 import python_multierror from './python_multierror.json'
@@ -16,6 +19,9 @@ export const TEST_EVENTS = {
     javascript_empty,
     javascript_resolved,
     javascript_unresolved,
+    javascript_script_error,
+    javascript_minified_react_error,
+    javascript_non_error_promise_rejection,
     node_unresolved,
     python_resolved,
     python_multierror,
@@ -36,14 +42,20 @@ export function ExceptionLogicWrapper({
     loading?: boolean
     children: JSX.Element
 }): JSX.Element {
+    const exceptionCardProps = { issueId: eventName }
+
     const properties = getEventProperties(eventName)
-    const { setLoading } = useActions(exceptionCardLogic)
+    const { setLoading } = useActions(exceptionCardLogic(exceptionCardProps))
+
     useEffect(() => {
         setLoading(loading)
     }, [loading, setLoading])
+
     return (
-        <BindLogic logic={errorPropertiesLogic} props={{ properties: properties, id: eventName }}>
-            {children}
+        <BindLogic logic={exceptionCardLogic} props={exceptionCardProps}>
+            <BindLogic logic={errorPropertiesLogic} props={{ properties: properties, id: eventName }}>
+                {children}
+            </BindLogic>
         </BindLogic>
     )
 }

@@ -1,8 +1,13 @@
+import base64
 from contextlib import suppress
 from enum import Enum
 from typing import Optional
 
+from django.conf import settings
+
 import dagster
+import psycopg2
+import psycopg2.extras
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog.clickhouse import query_tagging
@@ -13,14 +18,17 @@ from posthog.redis import get_client, redis
 
 
 class JobOwners(str, Enum):
+    TEAM_ANALYTICS_PLATFORM = "team-analytics-platform"
     TEAM_CLICKHOUSE = "team-clickhouse"
+    TEAM_DATA_WAREHOUSE = "team-data-warehouse"
+    TEAM_ERROR_TRACKING = "team-error-tracking"
+    TEAM_EXPERIMENTS = "team-experiments"
+    TEAM_GROWTH = "team-growth"
+    TEAM_INGESTION = "team-ingestion"
+    TEAM_LLMA = "team-llma"
+    TEAM_MAX_AI = "team-max-ai"
     TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
     TEAM_WEB_ANALYTICS = "team-web-analytics"
-    TEAM_ERROR_TRACKING = "team-error-tracking"
-    TEAM_GROWTH = "team-growth"
-    TEAM_EXPERIMENTS = "team-experiments"
-    TEAM_MAX_AI = "team-max-ai"
-    TEAM_DATA_WAREHOUSE = "team-data-warehouse"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -73,6 +81,28 @@ class RedisResource(dagster.ConfigurableResource):
     def create_resource(self, context: dagster.InitResourceContext) -> redis.Redis:
         client = get_client()
         return client
+
+
+class PostgresResource(dagster.ConfigurableResource):
+    """
+    A Postgres database connection resource that returns a psycopg2 connection.
+    """
+
+    host: str
+    port: str = "5432"
+    database: str
+    user: str
+    password: str
+
+    def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
+        return psycopg2.connect(
+            host=self.host,
+            port=int(self.port),
+            database=self.database,
+            user=self.user,
+            password=self.password,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
 
 
 def report_job_status_metric(
@@ -171,3 +201,69 @@ def check_for_concurrent_runs(
         return dagster.SkipReason(f"Skipping {job_name} run because another run of the same job is already active")
 
     return None
+
+
+def metabase_debug_query_url(run_id: str) -> Optional[str]:
+    cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
+    if cloud_deployment == "US":
+        return f"https://metabase.prod-us.posthog.dev/question/1671-get-clickhouse-query-log-for-given-dagster-run-id?dagster_run_id={run_id}"
+    if cloud_deployment == "EU":
+        return f"https://metabase.prod-eu.posthog.dev/question/544-get-clickhouse-query-log-for-given-dagster-run-id?dagster_run_id={run_id}"
+    sql = f"""
+SELECT
+    hostName() as host,
+    event_time,
+    type,
+    exception IS NOT NULL and exception != '' as has_exception,
+    query_duration_ms,
+    formatReadableSize(memory_usage) as memory_used,
+    formatReadableSize(read_bytes) as data_read,
+    JSONExtractString(log_comment, 'dagster', 'run_id') AS dagster_run_id,
+    JSONExtractString(log_comment, 'dagster', 'job_name') AS dagster_job_name,
+    JSONExtractString(log_comment, 'dagster', 'asset_key') AS dagster_asset_key,
+    JSONExtractString(log_comment, 'dagster', 'op_name') AS dagster_op_name,
+    exception,
+    query
+FROM clusterAllReplicas('posthog', system.query_log)
+WHERE
+    dagster_run_id = '{run_id}'
+    AND event_date >= today() - 1
+ORDER BY event_time DESC;
+"""
+    return f"http://localhost:8123/play?user=default#{base64.b64encode(sql.encode("utf-8")).decode("utf-8")}"
+
+
+@dagster.op(
+    out=dagster.DynamicOut(list[int]),
+    config_schema={
+        "team_ids": dagster.Field(
+            dagster.Array(dagster.Int),
+            default_value=[],
+            is_required=False,
+            description="Specific team IDs to process. If empty, processes all teams.",
+        ),
+        "batch_size": dagster.Field(
+            dagster.Int,
+            default_value=1000,
+            is_required=False,
+            description="Number of team IDs per batch.",
+        ),
+    },
+)
+def get_all_team_ids_op(context: dagster.OpExecutionContext):
+    """Fetch all team IDs to process in batches."""
+    from posthog.models.team import Team
+
+    override_team_ids = context.op_config["team_ids"]
+    batch_size = context.op_config.get("batch_size", 1000)
+
+    if override_team_ids:
+        team_ids = override_team_ids
+        context.log.info(f"Processing {len(team_ids)} configured teams: {team_ids}")
+    else:
+        team_ids = list(Team.objects.exclude(id=0).values_list("id", flat=True))
+        context.log.info(f"Processing all {len(team_ids)} teams")
+
+    for i in range(0, len(team_ids), batch_size):
+        batch = team_ids[i : i + batch_size]
+        yield dagster.DynamicOutput(batch, mapping_key=f"batch_{i // batch_size}")

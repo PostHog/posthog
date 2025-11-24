@@ -1,4 +1,6 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { RevenueAnalyticsMRRQueryResultItem } from '~/queries/schema/schema-general'
 import { GraphDataset } from '~/types'
@@ -13,6 +15,9 @@ const includeKey =
 
 export const mrrBreakdownModalLogic = kea<mrrBreakdownModalLogicType>([
     path(['products', 'revenueAnalytics', 'mrrBreakdownModalLogic']),
+    connect(() => ({
+        actions: [eventUsageLogic, ['reportRevenueAnalyticsMRRBreakdownModalOpened']],
+    })),
 
     actions({
         openModal: (data: RevenueAnalyticsMRRQueryResultItem[]) => data,
@@ -56,4 +61,10 @@ export const mrrBreakdownModalLogic = kea<mrrBreakdownModalLogicType>([
                 (data?.map((item) => item.churn as GraphDataset) ?? []).map(includeKey('revenue-analytics-churn')),
         ],
     }),
+
+    listeners(({ actions }) => ({
+        openModal: () => {
+            actions.reportRevenueAnalyticsMRRBreakdownModalOpened()
+        },
+    })),
 ])

@@ -8,7 +8,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common import config
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -28,7 +28,7 @@ class HubspotSourceOldConfig(config.Config):
 
 
 @SourceRegistry.register
-class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OAuthMixin):
+class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.HUBSPOT
@@ -49,6 +49,12 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
                 ],
             ),
         )
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
+            "missing or unknown hub id": None,
+        }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
     def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:

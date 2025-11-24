@@ -12,8 +12,12 @@ import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-p
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
 import { EventType, RecordingEventType } from '~/types'
 
+import { ErrorEventType } from '../Errors/types'
+
+export type ErrorPropertyTabEvent = EventType | RecordingEventType | ErrorEventType
+
 export interface TabContentComponentFnProps {
-    event: EventType | RecordingEventType
+    event: ErrorPropertyTabEvent
     properties: Record<string, any>
     promotedKeys?: string[]
     tabKey: EventPropertyTabKey
@@ -39,7 +43,7 @@ export const EventPropertyTabs = ({
     tabContentComponentFn,
     ...lemonTabsProps
 }: {
-    event: EventType | RecordingEventType
+    event: ErrorPropertyTabEvent
     tabContentComponentFn: (props: TabContentComponentFnProps) => JSX.Element
     dataAttr?: LemonTabsProps<EventPropertyTabKey>['data-attr']
     size?: LemonTabsProps<EventPropertyTabKey>['size']
@@ -151,7 +155,7 @@ export const EventPropertyTabs = ({
                   ),
               }
             : null,
-        autocaptureToImage(event.elements)
+        event.elements && autocaptureToImage(event.elements)
             ? {
                   key: 'image',
                   label: 'Image',

@@ -254,7 +254,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
         experiment.type === 'product' &&
         allPrimaryMetrics.length === 0 &&
-        featureFlags[FEATURE_FLAGS.EXPERIMENTS_CREATE_FORM] === 'test'
+        featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_CREATE_FORM] === 'test'
     ) {
         return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
     }
@@ -266,7 +266,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                 <LoadingState />
             ) : (
                 <>
-                    {usesNewQueryRunner ? <Info /> : <LegacyExperimentInfo />}
+                    {usesNewQueryRunner ? <Info tabId={tabId} /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs
                         activeKey={activeTabKey}
@@ -385,20 +385,20 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                         </>
                     ) : (
                         <>
-                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={true} />
-                            <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
-                            <LegacySharedMetricModal experimentId={experimentId} isSecondary={true} />
-                            <LegacySharedMetricModal experimentId={experimentId} isSecondary={false} />
-                            <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
-                            <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
+                            <LegacyMetricSourceModal isSecondary={true} />
+                            <LegacyMetricSourceModal isSecondary={false} />
+                            <LegacySharedMetricModal isSecondary={true} />
+                            <LegacySharedMetricModal isSecondary={false} />
+                            <LegacyMetricModal isSecondary={true} />
+                            <LegacyMetricModal isSecondary={false} />
                         </>
                     )}
 
                     <DistributionModal />
                     <ReleaseConditionsModal />
 
-                    <StopExperimentModal experimentId={experimentId} />
-                    <EditConclusionModal experimentId={experimentId} />
+                    <StopExperimentModal />
+                    <EditConclusionModal />
 
                     <VariantDeltaTimeseries />
                 </>

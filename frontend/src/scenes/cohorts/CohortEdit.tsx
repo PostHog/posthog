@@ -145,6 +145,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
             },
         },
         showOpenEditorButton: false,
+        emptyStateHeading: 'There are no persons matching your search',
+        emptyStateDetail: 'Try adjusting your search to see more results.',
     }
 
     if (cohortMissing) {
@@ -545,6 +547,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 context={{
                                                     refresh: 'force_blocking',
                                                     fileNameForExport: cohort.name,
+                                                    cohortId: cohortId,
                                                     dataNodeLogicKey: dataNodeLogicKey,
                                                     columns: canRemovePersonFromCohort
                                                         ? {
@@ -553,6 +556,9 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                               },
                                                           }
                                                         : undefined,
+                                                    emptyStateHeading: 'There are no matching persons for this cohort',
+                                                    emptyStateDetail:
+                                                        'Try adjusting your matching criteria or search to see more results.',
                                                 }}
                                             />
                                         )}

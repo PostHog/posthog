@@ -90,6 +90,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
         create_clickhouse_tables()
 
+    def test_unknown_table(self):
+        assert {} == get_materialized_columns("some weird string")
+
     def test_get_columns_default(self):
         assert sorted([property_name for property_name, _ in get_materialized_columns("events")]) == sorted(
             EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS

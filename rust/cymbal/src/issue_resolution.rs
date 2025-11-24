@@ -347,7 +347,11 @@ pub async fn resolve_issue(
         send_issue_created_alert(&context, &issue, assignment, output_props, &event_timestamp)
             .await?;
         txn.commit().await?;
-        capture_issue_created(team_id, issue_override.issue_id);
+        capture_issue_created(
+            team_id,
+            issue_override.issue_id,
+            event_properties.other.contains_key("$sentry_event_id"),
+        );
     };
 
     Ok(issue)

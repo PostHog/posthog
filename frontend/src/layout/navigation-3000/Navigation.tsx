@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
-import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -86,7 +85,7 @@ export function Navigation({
                     role="main"
                     tabIndex={0}
                     id="main-content"
-                    className="@container/main-content"
+                    className="@container/main-content bg-surface-tertiary"
                     style={
                         {
                             '--scene-layout-rect-right': mainContentRect?.right + 'px',
@@ -112,7 +111,6 @@ export function Navigation({
                     </SceneLayout>
                 </main>
                 <SidePanel />
-                <CommandBar />
             </FloatingContainerContext.Provider>
         </div>
     )

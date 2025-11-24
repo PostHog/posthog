@@ -94,9 +94,6 @@ AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "")
 AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "")
 BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
-MAILJET_PUBLIC_KEY = get_from_env("MAILJET_PUBLIC_KEY", "", type_cast=str)
-MAILJET_SECRET_KEY = get_from_env("MAILJET_SECRET_KEY", "", type_cast=str)
-
 SQS_QUEUES = {
     "usage_reports": {
         "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),

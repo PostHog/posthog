@@ -91,6 +91,7 @@ export type SettingId =
     | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
+    | 'error-tracking-releases'
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
@@ -155,6 +156,7 @@ export type SettingId =
     | 'activity-log-settings'
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
+    | 'organization-ip-anonymization-default'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

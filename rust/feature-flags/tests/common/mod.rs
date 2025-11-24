@@ -74,7 +74,8 @@ impl ServerHandle {
         }
 
         tokio::spawn(async move {
-            let redis_reader_client = Arc::new(mock_client);
+            let redis_reader_client: Arc<dyn common_redis::Client + Send + Sync> =
+                Arc::new(mock_client);
             let redis_writer_client = redis_reader_client.clone();
 
             let (persons_reader, persons_writer, non_persons_reader, non_persons_writer) = if config
@@ -209,11 +210,12 @@ impl ServerHandle {
                 non_persons_writer: non_persons_writer.clone(),
                 persons_reader: persons_reader.clone(),
                 persons_writer: persons_writer.clone(),
+                test_before_acquire: *config.test_before_acquire,
             });
 
             let app = feature_flags::router::router(
-                redis_reader_client,
-                redis_writer_client,
+                redis_writer_client.clone(), // Use writer client for both reads and writes in tests
+                None,                        // No dedicated flags Redis in tests
                 database_pools,
                 cohort_cache,
                 geoip_service,
