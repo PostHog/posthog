@@ -107,7 +107,6 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                             sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
                         'h-[calc(100vh-var(--scene-layout-header-height))]':
                             sceneConfig?.layout === 'app-full-scene-height',
-                        [sceneConfig?.className]: sceneConfig?.className,
                     }
                 )}
             >
