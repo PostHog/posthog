@@ -629,6 +629,17 @@ ssh_authorized_keys:
         ip_address = self.droplet.ip_address
 
         print(f"Exporting the droplet ID: {self.droplet.id} and DNS record ID: {record_id} for name {self.name}")
+
+        # Save to file for debugging on failure
+        with open("/tmp/droplet_info.txt", "w") as f:
+            f.write(f"Droplet ID: {droplet_id}\n")
+            f.write(f"Droplet IP: {ip_address}\n")
+            f.write(f"DNS Record ID: {record_id}\n")
+            f.write(f"DNS Record Name: {record_name}\n")
+            f.write(f"SSH: ssh root@{ip_address}\n")
+            f.write(f"URL: https://{record_name}.posthog.cc\n")
+
+        # Export to GitHub env
         env_file_name = os.getenv("GITHUB_ENV")
         with open(env_file_name, "a") as env_file:
             env_file.write(f"HOBBY_DROPLET_ID={droplet_id}\n")
@@ -688,6 +699,37 @@ def main():
         print(f"Droplet ID: {droplet_id}")
         print(f"Record ID: {domain_record_id}")
         HobbyTester.destroy_environment(droplet_id=droplet_id, record_id=domain_record_id)
+
+    if command == "fetch-logs":
+        print("Fetching logs from droplet", flush=True)
+        droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+        ssh_key_path = os.environ.get("HOBBY_SSH_KEY_PATH")
+
+        # Read SSH private key from file if available
+        ssh_private_key = None
+        if ssh_key_path and os.path.exists(ssh_key_path):
+            with open(ssh_key_path) as f:
+                ssh_private_key = f.read()
+
+        if not ssh_private_key:
+            print("No SSH key available - cannot fetch logs", flush=True)
+            exit(1)
+
+        ht = HobbyTester(
+            droplet_id=droplet_id,
+            ssh_private_key=ssh_private_key,
+        )
+
+        # Fetch and save cloud-init logs
+        print("Fetching cloud-init logs...", flush=True)
+        logs = ht.fetch_cloud_init_logs()
+        if logs:
+            artifact_path = "/tmp/cloud-init-output.log"
+            with open(artifact_path, "w") as f:
+                f.write(logs)
+            print(f"Logs saved to {artifact_path} ({len(logs)} bytes)", flush=True)
+        else:
+            print("Could not fetch cloud-init logs", flush=True)
 
     if command == "test":
         name = os.environ.get("HOBBY_NAME")
