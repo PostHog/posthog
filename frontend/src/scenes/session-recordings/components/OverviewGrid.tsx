@@ -45,7 +45,6 @@ export function OverviewGridItem({
     showFilter,
     filterDisabledReason,
     filterState,
-    noTruncate,
 }: {
     children?: ReactNode
     description: ReactNode
@@ -57,7 +56,6 @@ export function OverviewGridItem({
     showFilter?: boolean
     filterDisabledReason?: string
     filterState?: 'active' | 'replace' | 'inactive'
-    noTruncate?: boolean
 }): JSX.Element {
     const getFilterTooltip = (): string => {
         if (filterDisabledReason) {
@@ -80,7 +78,7 @@ export function OverviewGridItem({
                 </Tooltip>
             </div>
             <div className="flex items-center deprecated-space-x-2 min-w-0">
-                <div className={clsx('min-w-0', !noTruncate && 'truncate')}>
+                <div className="truncate min-w-0">
                     <Tooltip title={description}>{children}</Tooltip>
                 </div>
                 {showFilter && onFilterClick && (
