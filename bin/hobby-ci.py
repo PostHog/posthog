@@ -56,6 +56,7 @@ class HobbyTester:
         self.droplet = droplet
         if droplet_id:
             self.droplet = digitalocean.Droplet(token=self.token, id=droplet_id)
+            self.droplet.load()
 
         self.record = record
         if record_id:
