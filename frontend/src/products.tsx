@@ -200,7 +200,7 @@ export const productConfiguration: Record<string, any> = {
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
-        description: 'Analyze your customers',
+        description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
     },
     DataWarehouse: {
