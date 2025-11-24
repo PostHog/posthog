@@ -62,14 +62,7 @@ return {tokensBefore, tokensAfter}
 `
 
 export const defineLuaTokenBucket = (client: Redis) => {
-    // NOTE: We removed the original command and both checks point at the new one
-    // Once deployed, we can follow up to use the non-v2 caller
     client.defineCommand('checkRateLimit', {
-        numberOfKeys: 1,
-        lua: LUA_TOKEN_BUCKET,
-    })
-
-    client.defineCommand('checkRateLimitV2', {
         numberOfKeys: 1,
         lua: LUA_TOKEN_BUCKET,
     })
