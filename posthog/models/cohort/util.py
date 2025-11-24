@@ -445,15 +445,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
-    # With db_constraint=False on CohortPeople.person FK, we need to explicitly join to Person table
-    # to filter by team_id. Using person__team_id with db_constraint=False can cause issues.
-    from posthog.models.person import Person
-
-    count = (
-        CohortPeople.objects.filter(cohort_id=cohort_id)
-        .filter(person_id__in=Person.objects.filter(team_id=team_id).values_list("id", flat=True))
-        .count()
-    )
+    count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
 
     return count
 
