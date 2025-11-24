@@ -201,6 +201,15 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return sessionPlayerData.end ?? null
             },
         ],
+        snapshotAt: [
+            (s) => [s.startTime],
+            (startTime) => {
+                return startTime
+                    ? ((startTime as any).toISOString?.() ??
+                          (typeof startTime === 'string' ? startTime : String(startTime)))
+                    : undefined
+            },
+        ],
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {

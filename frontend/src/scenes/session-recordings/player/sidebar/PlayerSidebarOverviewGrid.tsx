@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconGear } from '@posthog/icons'
 
@@ -16,6 +15,17 @@ import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
+
+const SNAPSHOT_SCOPE: string[] = [
+    'session_recording_opt_in',
+    'session_recording_sample_rate',
+    'session_recording_minimum_duration_milliseconds',
+    'session_recording_linked_flag',
+    'session_recording_network_payload_capture_config',
+    'session_recording_masking_config',
+    'session_recording_retention_period',
+    'session_replay_config',
+]
 
 function getFilterState(
     filterGroup: UniversalFiltersGroup,
@@ -62,29 +72,10 @@ export function PlayerSidebarOverviewGrid({
 } = {}): JSX.Element {
     const { logicProps: contextLogicProps } = useValues(sessionRecordingPlayerLogic)
     const logicProps = logicPropsOverride || contextLogicProps
-    const { displayOverviewItems, loading, isPropertyPopoverOpen, startTime } = useValues(playerMetaLogic(logicProps))
+    const { displayOverviewItems, loading, isPropertyPopoverOpen, snapshotAt } = useValues(playerMetaLogic(logicProps))
     const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
     const { togglePropertyFilter } = useActions(sessionRecordingsPlaylistLogic)
     const { filters } = useValues(sessionRecordingsPlaylistLogic)
-    const snapshotScope = useMemo(
-        () => [
-            'session_recording_opt_in',
-            'session_recording_sample_rate',
-            'session_recording_minimum_duration_milliseconds',
-            'session_recording_linked_flag',
-            'session_recording_network_payload_capture_config',
-            'session_recording_masking_config',
-            'session_recording_retention_period',
-            'session_replay_config',
-        ],
-        []
-    )
-
-    const snapshotAt = useMemo(() => {
-        return startTime
-            ? ((startTime as any).toISOString?.() ?? (typeof startTime === 'string' ? startTime : String(startTime)))
-            : undefined
-    }, [startTime])
 
     return (
         <>
@@ -153,7 +144,7 @@ export function PlayerSidebarOverviewGrid({
                         })}
                     </OverviewGrid>
                 )}
-                <SettingsSnapshot at={snapshotAt} scope={snapshotScope} />
+                <SettingsSnapshot at={snapshotAt} scope={SNAPSHOT_SCOPE} />
             </div>
         </>
     )
