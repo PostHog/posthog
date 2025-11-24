@@ -1581,8 +1581,6 @@ public:
     antlr4::tree::TerminalNode *LT();
     antlr4::tree::TerminalNode *GT_EQ();
     antlr4::tree::TerminalNode *GT();
-    antlr4::tree::TerminalNode *LIKE();
-    antlr4::tree::TerminalNode *ILIKE();
     antlr4::tree::TerminalNode *REGEX_SINGLE();
     antlr4::tree::TerminalNode *REGEX_DOUBLE();
     antlr4::tree::TerminalNode *NOT_REGEX();
@@ -1684,6 +1682,26 @@ public:
     antlr4::tree::TerminalNode *BOTH();
     antlr4::tree::TerminalNode *LEADING();
     antlr4::tree::TerminalNode *TRAILING();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  ColumnExprLikeContext : public ColumnExprContext {
+  public:
+    ColumnExprLikeContext(ColumnExprContext *ctx);
+
+    HogQLParser::ColumnExprContext *left = nullptr;
+    HogQLParser::ColumnExprListContext *patterns = nullptr;
+    HogQLParser::ColumnExprContext *right = nullptr;
+    std::vector<ColumnExprContext *> columnExpr();
+    ColumnExprContext* columnExpr(size_t i);
+    antlr4::tree::TerminalNode *LIKE();
+    antlr4::tree::TerminalNode *ILIKE();
+    antlr4::tree::TerminalNode *ANY();
+    antlr4::tree::TerminalNode *LPAREN();
+    antlr4::tree::TerminalNode *RPAREN();
+    antlr4::tree::TerminalNode *NOT();
+    ColumnExprListContext *columnExprList();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
