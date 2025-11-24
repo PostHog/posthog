@@ -1,7 +1,7 @@
 import datetime as dt
 import itertools
 import collections.abc
-from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
 
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
@@ -42,6 +42,7 @@ async def create_worker(
     task_queue: str,
     workflows: collections.abc.Sequence[type],
     activities,
+    activity_executor: concurrent.futures.Executor,
     server_root_ca_cert: str | None = None,
     client_cert: str | None = None,
     client_key: str | None = None,
@@ -121,7 +122,7 @@ async def create_worker(
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
-            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+            activity_executor=activity_executor,
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage or 1.0,
@@ -141,7 +142,7 @@ async def create_worker(
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
-            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+            activity_executor=activity_executor,
             max_concurrent_activities=max_concurrent_activities or 50,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,
             # Worker will flush heartbeats every

@@ -1,11 +1,10 @@
-import os
 import signal
 import typing
 import asyncio
 import datetime as dt
 import functools
-import threading
 import faulthandler
+import concurrent.futures
 from collections import defaultdict
 
 import structlog
@@ -332,71 +331,62 @@ class Command(BaseCommand):
             logger.info("Initiating Temporal worker shutdown")
             shutdown_task = loop.create_task(worker.shutdown())
 
-        with asyncio.Runner() as runner:
-            loop = runner.get_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent_activities or 50) as activity_executor:
+            with asyncio.Runner() as runner:
+                loop = runner.get_loop()
 
-            configure_logger(loop=loop)
-            logger = LOGGER.bind(
-                host=temporal_host,
-                port=temporal_port,
-                namespace=namespace,
-                task_queue=task_queue,
-                graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
-                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                max_concurrent_activities=max_concurrent_activities,
-                target_memory_usage=target_memory_usage,
-                target_cpu_usage=target_cpu_usage,
-            )
-            logger.info("Starting Temporal Worker")
-
-            worker = runner.run(
-                create_worker(
-                    temporal_host,
-                    temporal_port,
-                    metrics_port=metrics_port,
+                configure_logger(loop=loop)
+                logger = LOGGER.bind(
+                    host=temporal_host,
+                    port=temporal_port,
                     namespace=namespace,
                     task_queue=task_queue,
-                    server_root_ca_cert=server_root_ca_cert,
-                    client_cert=client_cert,
-                    client_key=client_key,
-                    workflows=workflows,
-                    activities=activities,
-                    graceful_shutdown_timeout=(
-                        dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
-                        if graceful_shutdown_timeout_seconds is not None
-                        else None
-                    ),
+                    graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                     max_concurrent_activities=max_concurrent_activities,
-                    metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
-                    use_pydantic_converter=use_pydantic_converter,
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
                 )
-            )
+                logger.info("Starting Temporal Worker")
 
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(
-                    sig,
-                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
+                worker = runner.run(
+                    create_worker(
+                        temporal_host,
+                        temporal_port,
+                        metrics_port=metrics_port,
+                        namespace=namespace,
+                        task_queue=task_queue,
+                        server_root_ca_cert=server_root_ca_cert,
+                        client_cert=client_cert,
+                        client_key=client_key,
+                        workflows=workflows,
+                        activities=activities,
+                        activity_executor=activity_executor,
+                        graceful_shutdown_timeout=(
+                            dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
+                            if graceful_shutdown_timeout_seconds is not None
+                            else None
+                        ),
+                        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                        max_concurrent_activities=max_concurrent_activities,
+                        metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
+                        use_pydantic_converter=use_pydantic_converter,
+                        target_memory_usage=target_memory_usage,
+                        target_cpu_usage=target_cpu_usage,
+                    )
                 )
 
-            runner.run(worker.run())
+                for sig in (signal.SIGTERM, signal.SIGINT):
+                    loop.add_signal_handler(
+                        sig,
+                        functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
+                    )
 
-            if shutdown_task:
-                logger.info("Waiting on shutdown_task")
-                _ = runner.run(asyncio.wait([shutdown_task]))
-                logger.info("Finished Temporal worker shutdown")
+                runner.run(worker.run())
 
-        logger.info("Listing active threads at shutdown:")
-        for t in threading.enumerate():
-            logger.info(
-                "Thread still alive at shutdown",
-                thread_name=t.name,
-                daemon=t.daemon,
-                ident=t.ident,
-            )
-
-        # _something_ is preventing clean exit after worker shutdown
-        logger.info("Temporal Worker has shut down, hard exiting")
-        os._exit(0)
+                if shutdown_task:
+                    logger.info("Waiting for Temporal worker shutdown")
+                    _ = runner.run(asyncio.wait([shutdown_task]))
+                    logger.info("Temporal worker shutdown")
+            logger.info("Asyncio runner shutdown")
+        logger.info("Activity executor shutdown")
