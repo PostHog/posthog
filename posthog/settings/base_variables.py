@@ -35,6 +35,8 @@ if E2E_TESTING:
         "️WARNING! Environment variable E2E_TESTING is enabled. This is a security vulnerability unless you are running tests."
     )
 
+DUCKLAKE_COPY_WORKFLOW_ENABLED: bool = get_from_env("DUCKLAKE_COPY_WORKFLOW_ENABLED", False, type_cast=str_to_bool)
+
 IS_COLLECT_STATIC = len(sys.argv) > 1 and sys.argv[1] == "collectstatic"
 SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type_cast=str)
 

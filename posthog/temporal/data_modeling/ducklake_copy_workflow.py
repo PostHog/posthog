@@ -99,7 +99,7 @@ def copy_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
     table_name = f"ducklake_src_{uuid.uuid4().hex}"
     try:
         _configure_source_storage(conn, logger)
-        logger.ainfo("Loading Delta table into DuckDB", table_uri=inputs.model.table_uri)
+        logger.info("Loading Delta table into DuckDB", table_uri=inputs.model.table_uri)
         conn.execute(
             f"CREATE OR REPLACE TEMP TABLE {table_name} AS SELECT * FROM read_delta(?)",
             [inputs.model.table_uri],
@@ -107,17 +107,17 @@ def copy_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
 
         configure_connection(conn, config, install_extension=True)
         _ensure_ducklake_bucket_exists(config)
-        logger.ainfo("Copying model into DuckLake", destination=inputs.model.destination_uri)
+        logger.info("Copying model into DuckLake", destination=inputs.model.destination_uri)
         conn.execute(
             f"COPY (SELECT * FROM {table_name}) TO '{ducklake_escape(inputs.model.destination_uri)}' "
             " (FORMAT PARQUET, OVERWRITE_OR_REPLACE=TRUE)"
         )
-        logger.ainfo("Successfully copied model into DuckLake")
+        logger.info("Successfully copied model into DuckLake")
     finally:
         try:
             conn.execute(f"DROP TABLE IF EXISTS {table_name}")
         except duckdb.Error:
-            logger.awarning("Failed to drop temporary DuckDB table", temp_table=table_name)
+            logger.warning("Failed to drop temporary DuckDB table", temp_table=table_name)
         conn.close()
 
 
@@ -199,7 +199,7 @@ def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
         conn.execute(f"SET s3_region='{ducklake_escape(region)}'")
 
     conn.execute("SET s3_url_style='path'")
-    logger.adebug("Configured DuckDB connection for PostHog object storage access")
+    logger.debug("Configured DuckDB connection for PostHog object storage access")
 
 
 def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:

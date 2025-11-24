@@ -23,6 +23,7 @@ import temporalio.exceptions
 from deltalake import DeltaTable
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -1540,5 +1541,23 @@ class RunWorkflow(PostHogWorkflow):
                 maximum_attempts=1,
             ),
         )
+
+        if settings.DUCKLAKE_COPY_WORKFLOW_ENABLED and self.ducklake_copy_inputs and self.ducklake_copy_inputs.models:
+            temporalio.workflow.logger.info(
+                "Triggering DuckLake copy child workflow",
+                job_id=job_id,
+                models=len(self.ducklake_copy_inputs.models),
+            )
+            await temporalio.workflow.start_child_workflow(
+                workflow="ducklake-copy",
+                arg=dataclasses.asdict(self.ducklake_copy_inputs),
+                id=f"ducklake-copy-{job_id}",
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=1,
+                    non_retryable_error_types=["NondeterminismError"],
+                ),
+            )
 
         return results
