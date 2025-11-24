@@ -388,15 +388,15 @@ class Command(BaseCommand):
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
 
-        logger.info("Listing active threads at shutdown:")
-        for t in threading.enumerate():
-            logger.info(
-                "Thread still alive at shutdown",
-                thread_name=t.name,
-                daemon=t.daemon,
-                ident=t.ident,
-            )
+                logger.info("Listing active threads at shutdown:")
+                for t in threading.enumerate():
+                    logger.info(
+                        "Thread still alive at shutdown",
+                        thread_name=t.name,
+                        daemon=t.daemon,
+                        ident=t.ident,
+                    )
 
-        # _something_ is preventing clean exit after worker shutdown
-        logger.info("Temporal Worker has shut down, hard exiting")
-        os._exit(0)
+                # _something_ is preventing clean exit after worker shutdown
+                logger.info("Temporal Worker has shut down, hard exiting")
+                os._exit(0)
