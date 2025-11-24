@@ -9,6 +9,7 @@ from rest_framework.exceptions import APIException
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -25,11 +26,24 @@ class UnspecifiedCompressionFallbackParsingError(Exception):
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "payment_required"
+    SCALE_ADD_ONS_FEATURES = {AvailableFeature.INGESTION_TAXONOMY}
 
     def __init__(self, feature: Optional[str] = None) -> None:
+        if feature in self.SCALE_ADD_ONS_FEATURES:
+            super().__init__(
+                detail=(
+                    f"{feature.capitalize().replace('_', ' ')} is part of the PostHog Cloud Scale add-on. "
+                    + (
+                        "To use it, please subscribe to the add-on."
+                        if is_cloud()
+                        else "Self-hosted licenses are no longer available for purchase. Please contact sales@posthog.com to discuss options."
+                    )
+                )
+            )
+            return
         super().__init__(
             detail=(
-                f"{feature.capitalize() if feature else 'This feature'} is part of the premium PostHog offering. "
+                f"{feature.capitalize().replace('_', ' ') if feature else 'This feature'} is part of the premium PostHog offering. "
                 + (
                     "To use it, subscribe to PostHog Cloud with a generous free tier."
                     if is_cloud()

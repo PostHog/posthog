@@ -10,6 +10,8 @@ import {
     IconCheck,
     IconCursorClick,
     IconDay,
+    IconEye,
+    IconHide,
     IconLive,
     IconLogomark,
     IconNight,
@@ -19,6 +21,7 @@ import {
     IconStethoscope,
     IconTestTube,
     IconToggle,
+    IconWarning,
     IconX,
 } from '@posthog/icons'
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
@@ -30,6 +33,7 @@ import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
@@ -53,7 +57,11 @@ function EnabledStatusItem({ label, value }: { label: string; value: boolean }):
     )
 }
 
-function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surveysCount: number): LemonMenuItem {
+function postHogDebugInfoMenuItem(
+    posthog: PostHog | null,
+    loadingSurveys: boolean,
+    surveysCount: number
+): LemonMenuItem {
     const isAutocaptureEnabled = posthog?.autocapture?.isEnabled
 
     return {
@@ -134,15 +142,68 @@ function postHogDebugInfo(posthog: PostHog | null, loadingSurveys: boolean, surv
     }
 }
 
+function piiMaskingMenuItem(
+    piiMaskingEnabled: boolean,
+    piiMaskingColor: string,
+    togglePiiMasking: () => void,
+    setPiiMaskingColor: (color: string) => void,
+    piiWarning: string[] | null
+): LemonMenuItem[] {
+    return [
+        {
+            icon: piiMaskingEnabled ? <IconEye /> : <IconHide />,
+            label: piiMaskingEnabled ? 'Show PII' : 'Hide PII',
+            sideIcon: piiWarning && piiWarning.length > 0 ? <IconWarning className="text-warning" /> : undefined,
+            tooltip: piiWarning && piiWarning.length > 0 ? piiWarning.join('\n') : undefined,
+            onClick: (e: React.MouseEvent) => {
+                e.preventDefault()
+                e.stopPropagation()
+                togglePiiMasking()
+            },
+            custom: true,
+        },
+        piiMaskingEnabled
+            ? {
+                  icon: (
+                      <div
+                          className="w-4 h-4 rounded border"
+                          // eslint-disable-next-line react/forbid-dom-props
+                          style={{ backgroundColor: piiMaskingColor }}
+                      />
+                  ),
+                  label: 'PII masking color',
+                  placement: 'right',
+                  disabled: !piiMaskingEnabled,
+                  items: PII_MASKING_PRESET_COLORS.map((preset) => ({
+                      icon: (
+                          <div
+                              className="w-4 h-4 rounded border"
+                              // eslint-disable-next-line react/forbid-dom-props
+                              style={{ backgroundColor: preset.value }}
+                          />
+                      ),
+                      label: preset.label,
+                      onClick: () => {
+                          setPiiMaskingColor(preset.value)
+                      },
+                      active: piiMaskingColor === preset.value,
+                      custom: true,
+                  })),
+              }
+            : undefined,
+    ].filter(Boolean) as LemonMenuItem[]
+}
+
 function MoreMenu(): JSX.Element {
-    const { hedgehogMode, theme, posthog } = useValues(toolbarLogic)
-    const { setHedgehogMode, toggleTheme, setVisibleMenu } = useActions(toolbarLogic)
+    const { hedgehogMode, theme, posthog, piiMaskingEnabled, piiMaskingColor, piiWarning } = useValues(toolbarLogic)
+    const { setHedgehogMode, toggleTheme, setVisibleMenu, togglePiiMasking, setPiiMaskingColor } =
+        useActions(toolbarLogic)
 
     const [loadingSurveys, setLoadingSurveys] = useState(true)
     const [surveysCount, setSurveysCount] = useState(0)
 
     useEffect(() => {
-        posthog?.surveys?.getSurveys((surveys) => {
+        posthog?.surveys?.getSurveys((surveys: any[]) => {
             setSurveysCount(surveys.length)
             setLoadingSurveys(false)
         }, false)
@@ -180,7 +241,14 @@ function MoreMenu(): JSX.Element {
                         label: `Switch to ${currentlyLightMode ? 'dark' : 'light'} mode`,
                         onClick: () => toggleTheme(),
                     },
-                    postHogDebugInfo(posthog, loadingSurveys, surveysCount),
+                    ...piiMaskingMenuItem(
+                        piiMaskingEnabled,
+                        piiMaskingColor,
+                        togglePiiMasking,
+                        setPiiMaskingColor,
+                        piiWarning
+                    ),
+                    postHogDebugInfoMenuItem(posthog, loadingSurveys, surveysCount),
                     {
                         icon: <IconQuestion />,
                         label: 'Help',

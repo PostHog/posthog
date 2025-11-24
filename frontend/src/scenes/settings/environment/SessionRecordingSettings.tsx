@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, memo, useMemo, useState } from 'react'
 
-import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfo, IconPlus, IconX } from '@posthog/icons'
+import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfinity, IconInfo, IconX } from '@posthog/icons'
 import {
-    LemonButton,
+    LemonBanner,
     LemonDialog,
     LemonDivider,
     LemonSegmentedButton,
@@ -17,13 +17,9 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { IconInfinity, IconSelectEvents } from 'lib/lemon-ui/icons'
-import { isObject, objectsEqual } from 'lib/utils'
+import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -35,7 +31,6 @@ import { urls } from 'scenes/urls'
 import {
     AccessControlLevel,
     AccessControlResourceType,
-    SessionRecordingAIConfig,
     type SessionRecordingMaskingLevel,
     type SessionRecordingRetentionPeriod,
 } from '~/types'
@@ -77,78 +72,72 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     return node
 }
 
-export const SupportedPlatforms = memo(
-    function SupportedPlatforms(props: {
-        web?: false | { note?: ReactNode; version?: string }
-        android?: false | { note?: ReactNode; version?: string }
-        ios?: false | { note?: ReactNode; version?: string }
-        reactNative?: false | { note?: ReactNode; version?: string }
-        flutter?: false | { note?: ReactNode; version?: string }
-    }): JSX.Element | null {
-        const allSupported = props && Object.keys(props).length === 5 && Object.values(props).every((value) => !!value)
-        return allSupported ? null : (
-            <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
-                <Tooltip
-                    delayMs={200}
-                    title="We support lots of platforms! But not every feature works everywhere (yet)"
-                >
-                    <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
-                </Tooltip>
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.web) ? props.web.note : undefined}
-                    label="Web"
-                    supportedSinceVersion={
-                        isObject(props.web) && typeof props.web?.version === 'string' ? props.web.version : false
-                    }
-                />
+export const SupportedPlatforms = memo(function SupportedPlatforms(props: {
+    web?: false | { note?: ReactNode; version?: string }
+    android?: false | { note?: ReactNode; version?: string }
+    ios?: false | { note?: ReactNode; version?: string }
+    reactNative?: false | { note?: ReactNode; version?: string }
+    flutter?: false | { note?: ReactNode; version?: string }
+}): JSX.Element | null {
+    const allSupported = props && Object.keys(props).length === 5 && Object.values(props).every((value) => !!value)
+    return allSupported ? null : (
+        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
+            <Tooltip delayMs={200} title="We support lots of platforms! But not every feature works everywhere (yet)">
+                <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
+            </Tooltip>
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.web) ? props.web.note : undefined}
+                label="Web"
+                supportedSinceVersion={
+                    isObject(props.web) && typeof props.web?.version === 'string' ? props.web.version : false
+                }
+            />
 
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.android) ? props.android.note : undefined}
-                    label="Android"
-                    supportedSinceVersion={
-                        isObject(props.android) && typeof props.android?.version === 'string'
-                            ? props.android.version
-                            : false
-                    }
-                />
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.android) ? props.android.note : undefined}
+                label="Android"
+                supportedSinceVersion={
+                    isObject(props.android) && typeof props.android?.version === 'string'
+                        ? props.android.version
+                        : false
+                }
+            />
 
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.ios) ? props.ios.note : undefined}
-                    label="iOS"
-                    supportedSinceVersion={
-                        isObject(props.ios) && typeof props.ios?.version === 'string' ? props.ios.version : false
-                    }
-                />
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.ios) ? props.ios.note : undefined}
+                label="iOS"
+                supportedSinceVersion={
+                    isObject(props.ios) && typeof props.ios?.version === 'string' ? props.ios.version : false
+                }
+            />
 
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.reactNative) ? props.reactNative.note : undefined}
-                    label="React Native"
-                    supportedSinceVersion={
-                        isObject(props.reactNative) && typeof props.reactNative?.version === 'string'
-                            ? props.reactNative.version
-                            : false
-                    }
-                />
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.reactNative) ? props.reactNative.note : undefined}
+                label="React Native"
+                supportedSinceVersion={
+                    isObject(props.reactNative) && typeof props.reactNative?.version === 'string'
+                        ? props.reactNative.version
+                        : false
+                }
+            />
 
-                <LemonDivider vertical className="h-full" />
-                <SupportedPlatform
-                    note={isObject(props.flutter) ? props.flutter.note : undefined}
-                    label="Flutter"
-                    supportedSinceVersion={
-                        isObject(props.flutter) && typeof props.flutter?.version === 'string'
-                            ? props.flutter.version
-                            : false
-                    }
-                />
-            </div>
-        )
-    },
-    (prevProps, nextProps) => objectsEqual(prevProps, nextProps)
-)
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.flutter) ? props.flutter.note : undefined}
+                label="Flutter"
+                supportedSinceVersion={
+                    isObject(props.flutter) && typeof props.flutter?.version === 'string'
+                        ? props.flutter.version
+                        : false
+                }
+            />
+        </div>
+    )
+})
 
 export function Since(props: {
     web?: false | { version?: string }
@@ -180,7 +169,7 @@ export function Since(props: {
 
 function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     return (
         <div>
@@ -219,6 +208,7 @@ function LogCaptureSettings(): JSX.Element {
                     disabledReason={
                         !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined
                     }
+                    loading={currentTeamLoading}
                 />
             </AccessControlAction>
         </div>
@@ -227,7 +217,7 @@ function LogCaptureSettings(): JSX.Element {
 
 function CanvasCaptureSettings(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     return (
         <div>
@@ -277,6 +267,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     disabledReason={
                         !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined
                     }
+                    loading={currentTeamLoading}
                 />
             </AccessControlAction>
         </div>
@@ -305,7 +296,7 @@ function PayloadWarning(): JSX.Element {
 
 export function NetworkCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     return (
         <>
@@ -342,6 +333,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                     disabledReason={
                         !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined
                     }
+                    loading={currentTeamLoading}
                 />
             </AccessControlAction>
 
@@ -411,6 +403,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                                     ? 'session and network performance capture must be enabled'
                                     : undefined
                             }
+                            loading={currentTeamLoading}
                         />
                     </AccessControlAction>
                     <AccessControlAction
@@ -459,6 +452,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                                     ? 'session and network performance capture must be enabled'
                                     : undefined
                             }
+                            loading={currentTeamLoading}
                         />
                     </AccessControlAction>
                 </div>
@@ -481,11 +475,10 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 web={{ version: '1.5.0' }}
                 reactNative={false}
             />
-            <p>
-                Use the settings below to restrict the domains where recordings will be captured. If no domains are
-                selected, then there will be no domain restriction.
-            </p>
-            <p>Authorized domains is only available for JavaScript Web.</p>
+            <LemonBanner type="warning">
+                <strong>This setting is now deprecated and cannot be updated.</strong> Instead we recommend deleting the
+                domains below and using URL triggers in your recording conditions to control which domains you record.
+            </LemonBanner>
             <p>
                 Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                 wildcarded top-level domains cannot be used (for security reasons).
@@ -495,167 +488,9 @@ export function ReplayAuthorizedDomains(): JSX.Element {
     )
 }
 
-export function ReplayAISettings(): JSX.Element | null {
-    const { updateCurrentTeam } = useActions(teamLogic)
-
-    const { currentTeam } = useValues(teamLogic)
-
-    if (!currentTeam) {
-        return null
-    }
-
-    const defaultConfig = {
-        opt_in: false,
-        preferred_events: [],
-        excluded_events: ['$feature_flag_called'],
-        included_event_properties: ['elements_chain', '$window_id', '$current_url', '$event_type'],
-        important_user_properties: [],
-    }
-    const sessionReplayConfig = currentTeam.session_replay_config || {}
-    const currentConfig: SessionRecordingAIConfig = sessionReplayConfig.ai_config || defaultConfig
-
-    const updateSummaryConfig = (summaryConfig: SessionRecordingAIConfig): void => {
-        updateCurrentTeam({
-            session_replay_config: { ai_config: summaryConfig },
-        })
-    }
-
-    const { opt_in: _discardCurrentOptIn, ...currentComparable } = currentConfig
-    const { opt_in: _discardDefaultOptIn, ...defaultComparable } = defaultConfig
-
-    return (
-        <div className="flex flex-col gap-2">
-            <div>
-                <p>
-                    We use several machine learning technologies to process sessions. Some of those are powered by{' '}
-                    <Link to="https://openai.com/" target="_blank">
-                        OpenAI
-                    </Link>
-                    . No data is sent to OpenAI without an explicit instruction to do so. If we do send data we only
-                    send the data selected below. <strong>Data submitted is not used to train OpenAI's models</strong>
-                </p>
-                <LemonSwitch
-                    checked={currentConfig.opt_in}
-                    onChange={(checked) => {
-                        updateSummaryConfig({
-                            ...currentConfig,
-                            opt_in: checked,
-                        })
-                    }}
-                    bordered
-                    label="Opt in to enable AI processing"
-                />
-            </div>
-            {currentConfig.opt_in && (
-                <>
-                    {!objectsEqual(currentComparable, defaultComparable) && (
-                        <div>
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => updateSummaryConfig({ ...defaultConfig, opt_in: true })}
-                            >
-                                Reset config to default
-                            </LemonButton>
-                        </div>
-                    )}
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Preferred events
-                        </h3>
-                        <p>
-                            These events are treated as more interesting when generating a summary. We recommend you
-                            include events that represent value for your user
-                        </p>
-                        <EventSelect
-                            onChange={(includedEvents) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    preferred_events: includedEvents,
-                                })
-                            }}
-                            selectedEvents={currentConfig.preferred_events || []}
-                            addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                                    Add event
-                                </LemonButton>
-                            }
-                        />
-                    </div>
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Excluded events
-                        </h3>
-                        <p>These events are never submitted even when they are present in the session.</p>
-                        <EventSelect
-                            onChange={(excludedEvents) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    excluded_events: excludedEvents,
-                                })
-                            }}
-                            selectedEvents={currentConfig.excluded_events || []}
-                            addElement={
-                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                                    Exclude event
-                                </LemonButton>
-                            }
-                        />
-                    </div>
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Included event properties
-                        </h3>
-                        <p>
-                            We always send the event name and timestamp. The only event data sent are values of the
-                            properties selected here.
-                        </p>
-                        <PropertySelect
-                            taxonomicFilterGroup={TaxonomicFilterGroupType.EventProperties}
-                            sortable={false}
-                            onChange={(properties: string[]) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    included_event_properties: properties,
-                                })
-                            }}
-                            selectedProperties={currentConfig.included_event_properties || []}
-                            addText="Add property"
-                        />
-                    </div>
-                    <div>
-                        <h3 className="flex items-center gap-2">
-                            <IconSelectEvents className="text-lg" />
-                            Important user properties
-                        </h3>
-                        <p>
-                            We always send the first and last seen dates. The only user data sent are values of the
-                            properties selected here.
-                        </p>
-                        <PropertySelect
-                            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
-                            sortable={false}
-                            onChange={(properties) => {
-                                updateSummaryConfig({
-                                    ...currentConfig,
-                                    important_user_properties: properties,
-                                })
-                            }}
-                            selectedProperties={currentConfig.important_user_properties || []}
-                            addText="Add property"
-                        />
-                    </div>
-                </>
-            )}
-        </div>
-    )
-}
-
 export function ReplayMaskingSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     const handleMaskingChange = (level: SessionRecordingMaskingLevel): void => {
         updateCurrentTeam({
@@ -693,6 +528,7 @@ export function ReplayMaskingSettings(): JSX.Element {
                         { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
                         { value: 'free-love', label: 'Free love (mask only passwords)' },
                     ]}
+                    loading={currentTeamLoading}
                 />
             </AccessControlAction>
         </div>
@@ -701,7 +537,7 @@ export function ReplayMaskingSettings(): JSX.Element {
 
 export function ReplayDataRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const retentionFeature = currentOrganization?.available_product_features?.find(
         (feature) => feature.key === 'session_replay_data_retention'
@@ -713,13 +549,15 @@ export function ReplayDataRetentionSettings(): JSX.Element {
         retentionFeature?.limit >= 60
     const currentRetention = currentTeam?.session_recording_retention_period || '30d'
 
-    const renderOptions = (): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
+    const renderOptions = (loading: boolean): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
+        const disabledReason = loading ? 'Loading...' : undefined
         const options = [
             {
                 value: '30d' as SessionRecordingRetentionPeriod,
                 icon: <IconClock />,
                 label: '30 days',
                 'data-attr': 'session-recording-retention-button-30d',
+                disabledReason,
             },
             {
                 value: '90d' as SessionRecordingRetentionPeriod,
@@ -751,15 +589,15 @@ export function ReplayDataRetentionSettings(): JSX.Element {
             retentionFeature?.limit > 1
         ) {
             if (retentionFeature.limit >= 3) {
-                options[1].disabledReason = ''
+                options[1].disabledReason = disabledReason ?? ''
             }
 
             if (retentionFeature.limit >= 12) {
-                options[2].disabledReason = ''
+                options[2].disabledReason = disabledReason ?? ''
             }
 
             if (retentionFeature.limit >= 60) {
-                options[3].disabledReason = ''
+                options[3].disabledReason = disabledReason ?? ''
             }
         }
 
@@ -789,7 +627,7 @@ export function ReplayDataRetentionSettings(): JSX.Element {
                 <LemonSegmentedButton
                     value={currentRetention}
                     onChange={(val) => val && handleRetentionChange(val)}
-                    options={renderOptions()}
+                    options={renderOptions(currentTeamLoading)}
                 />
             </AccessControlAction>
             {!hasMaxRetentionEntitlement && (
@@ -807,7 +645,7 @@ export function ReplayDataRetentionSettings(): JSX.Element {
 
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const [showSurvey, setShowSurvey] = useState<boolean>(false)
 
     /**
@@ -847,6 +685,7 @@ export function ReplayGeneral(): JSX.Element {
                         label="Record user sessions"
                         bordered
                         checked={!!currentTeam?.session_recording_opt_in}
+                        loading={currentTeamLoading}
                     />
                 </AccessControlAction>
 

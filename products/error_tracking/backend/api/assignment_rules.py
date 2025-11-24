@@ -1,10 +1,12 @@
 import structlog
+import posthoganalytics
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import groups
 
 from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
 
@@ -75,6 +77,11 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
             order_key=0,
             user_id=None if assignee["type"] != "user" else assignee["id"],
             role_id=None if assignee["type"] != "role" else assignee["id"],
+        )
+
+        posthoganalytics.capture(
+            "error_tracking_assignment_rule_created",
+            groups=groups(self.team.organization, self.team),
         )
 
         serializer = ErrorTrackingAssignmentRuleSerializer(assignment_rule)

@@ -1,31 +1,24 @@
 use async_trait::async_trait;
-use redis::aio::MultiplexedConnection;
-use redis::{AsyncCommands, RedisError};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Arc;
 use thiserror::Error;
-use tokio::time::timeout;
 
-const DEFAULT_REDIS_TIMEOUT_MILLISECS: u64 = 100;
+// Re-export ErrorKind and RetryMethod so consumers can construct CustomRedisError in tests
+// and understand retry behavior
+pub use redis::ErrorKind as RedisErrorKind;
+pub use redis::RetryMethod;
 
-fn get_redis_timeout_ms() -> u64 {
-    std::env::var("REDIS_TIMEOUT_MS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_REDIS_TIMEOUT_MILLISECS)
-}
-
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Error, Debug, Clone)]
 pub enum CustomRedisError {
     #[error("Not found in redis")]
     NotFound,
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(String),
     #[error("Parse error: {0}")]
     ParseError(String),
-    #[error("Redis error: {0}")]
-    Other(String),
     #[error("Timeout error")]
     Timeout,
+    #[error(transparent)]
+    Redis(#[from] Arc<redis::RedisError>),
 }
 
 impl From<serde_pickle::Error> for CustomRedisError {
@@ -34,21 +27,155 @@ impl From<serde_pickle::Error> for CustomRedisError {
     }
 }
 
-impl From<RedisError> for CustomRedisError {
-    fn from(err: RedisError) -> Self {
-        CustomRedisError::Other(err.to_string())
-    }
-}
-
-impl From<tokio::time::error::Elapsed> for CustomRedisError {
-    fn from(_: tokio::time::error::Elapsed) -> Self {
-        CustomRedisError::Timeout
+impl From<redis::RedisError> for CustomRedisError {
+    fn from(err: redis::RedisError) -> Self {
+        if err.is_timeout() {
+            CustomRedisError::Timeout
+        } else {
+            CustomRedisError::Redis(Arc::new(err))
+        }
     }
 }
 
 impl From<std::string::FromUtf8Error> for CustomRedisError {
     fn from(err: std::string::FromUtf8Error) -> Self {
         CustomRedisError::ParseError(err.to_string())
+    }
+}
+
+impl CustomRedisError {
+    /// Create a Redis error from an ErrorKind (primarily for testing)
+    pub fn from_redis_kind(kind: redis::ErrorKind, description: &'static str) -> Self {
+        CustomRedisError::Redis(Arc::new(redis::RedisError::from((kind, description))))
+    }
+
+    /// Determine if this error is unrecoverable and should not be retried
+    ///
+    /// Returns `true` for configuration errors and permanent failures.
+    /// Returns `false` for transient network/connection issues that may resolve on retry.
+    ///
+    /// Delegates to redis crate's `is_unrecoverable_error()` for Redis errors.
+    pub fn is_unrecoverable_error(&self) -> bool {
+        match self {
+            // Timeouts are transient - not unrecoverable
+            CustomRedisError::Timeout => false,
+
+            // Configuration errors are permanent - unrecoverable
+            CustomRedisError::InvalidConfiguration(_) => true,
+
+            // Parse errors are permanent bugs - unrecoverable
+            CustomRedisError::ParseError(_) => true,
+
+            // NotFound is permanent - caller should handle this
+            CustomRedisError::NotFound => true,
+
+            // For Redis errors, check for specific unrecoverable kinds first
+            CustomRedisError::Redis(err) => {
+                Self::is_config_error(err) || err.is_unrecoverable_error()
+            }
+        }
+    }
+
+    /// Check if a Redis error is a configuration error that should never be retried
+    fn is_config_error(err: &redis::RedisError) -> bool {
+        matches!(
+            err.kind(),
+            redis::ErrorKind::InvalidClientConfig | redis::ErrorKind::AuthenticationFailed
+        )
+    }
+
+    /// Determine the appropriate retry strategy for this error
+    ///
+    /// Returns a `RetryMethod` indicating how (if at all) this request should be retried.
+    /// Delegates to redis crate's `retry_method()` for Redis errors.
+    ///
+    /// # Retry Methods
+    /// - `NoRetry` - Permanent error, don't retry
+    /// - `RetryImmediately` - Temporary issue, retry right away
+    /// - `WaitAndRetry` - Sleep first to avoid overload
+    /// - `Reconnect` - Create fresh connection (current is broken)
+    /// - `MovedRedirect` / `AskRedirect` - Cluster-specific redirections
+    pub fn retry_method(&self) -> RetryMethod {
+        match self {
+            // Timeouts: wait before retrying to avoid hammering the service
+            CustomRedisError::Timeout => RetryMethod::WaitAndRetry,
+
+            // Configuration errors are permanent - don't retry
+            CustomRedisError::InvalidConfiguration(_) => RetryMethod::NoRetry,
+
+            // Parse errors are permanent bugs - don't retry
+            CustomRedisError::ParseError(_) => RetryMethod::NoRetry,
+
+            // NotFound is permanent - caller should handle this
+            CustomRedisError::NotFound => RetryMethod::NoRetry,
+
+            // For Redis errors, check for specific non-retryable kinds first
+            CustomRedisError::Redis(err) => {
+                if Self::is_config_error(err) {
+                    RetryMethod::NoRetry
+                } else {
+                    err.retry_method()
+                }
+            }
+        }
+    }
+}
+
+impl From<std::io::Error> for CustomRedisError {
+    fn from(err: std::io::Error) -> Self {
+        CustomRedisError::ParseError(format!("Compression error: {err}"))
+    }
+}
+
+/// Configuration for zstd compression behavior
+///
+/// Mimics Django's ZstdCompressor configuration:
+/// - Compresses values larger than threshold (default 512 bytes)
+/// - Uses zstd compression level 0 (default preset, equivalent to level 3)
+/// - Gracefully handles both compressed and uncompressed data on read
+#[derive(Debug, Clone)]
+pub struct CompressionConfig {
+    /// Whether compression is enabled
+    pub enabled: bool,
+    /// Minimum size in bytes before compression is applied
+    /// Django default: 512 bytes (ZstdCompressor.min_length)
+    pub threshold: usize,
+    /// Zstd compression level (1-22, or 0 for default)
+    /// - Level 0: Use default preset (typically level 3) - Django default
+    /// - Level 1-3: Fast compression, lower ratio
+    /// - Level 4-9: Balanced compression
+    /// - Level 10-15: High compression, slower
+    /// - Level 16-22: Maximum compression, very slow
+    pub level: i32,
+}
+
+impl Default for CompressionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            threshold: 512, // Match Django's ZstdCompressor.min_length
+            level: 0,       // Match Django's zstd_preset (default)
+        }
+    }
+}
+
+impl CompressionConfig {
+    /// Create a new compression configuration
+    pub fn new(enabled: bool, threshold: usize, level: i32) -> Self {
+        Self {
+            enabled,
+            threshold,
+            level,
+        }
+    }
+
+    /// Create a configuration with compression disabled
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            threshold: 0,
+            level: 0,
+        }
     }
 }
 
@@ -95,6 +222,7 @@ pub trait Client {
         v: String,
         format: RedisValueFormat,
     ) -> Result<(), CustomRedisError>;
+    async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError>;
     async fn set_nx_ex(&self, k: String, v: String, seconds: u64)
         -> Result<bool, CustomRedisError>;
     async fn set_nx_ex_with_format(
@@ -109,527 +237,170 @@ pub trait Client {
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
 }
 
-pub struct RedisClient {
-    connection: MultiplexedConnection,
-}
+// Module declarations
+mod client;
+mod mock;
+mod read_write;
 
-impl RedisClient {
-    pub async fn new(addr: String) -> Result<RedisClient, CustomRedisError> {
-        let client = redis::Client::open(addr)?;
-        let connection = client.get_multiplexed_async_connection().await?;
-        Ok(RedisClient { connection })
-    }
-}
+// Re-export public APIs
+pub use client::RedisClient;
+pub use mock::{MockRedisCall, MockRedisClient, MockRedisValue};
+pub use read_write::{ReadWriteClient, ReadWriteClientConfig};
 
-#[async_trait]
-impl Client for RedisClient {
-    async fn zrangebyscore(
-        &self,
-        k: String,
-        min: String,
-        max: String,
-    ) -> Result<Vec<String>, CustomRedisError> {
-        let mut conn = self.connection.clone();
-        let results = conn.zrangebyscore(k, min, max);
-        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        Ok(fut?)
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    async fn hincrby(
-        &self,
-        k: String,
-        v: String,
-        count: Option<i32>,
-    ) -> Result<(), CustomRedisError> {
-        let mut conn = self.connection.clone();
-        let count = count.unwrap_or(1);
-        let results = conn.hincr(k, v, count);
-        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        fut.map_err(|e| CustomRedisError::Other(e.to_string()))
-    }
+    mod error_transience {
+        use super::*;
 
-    async fn get(&self, k: String) -> Result<String, CustomRedisError> {
-        self.get_with_format(k, RedisValueFormat::Pickle).await
-    }
-
-    async fn get_with_format(
-        &self,
-        k: String,
-        format: RedisValueFormat,
-    ) -> Result<String, CustomRedisError> {
-        let mut conn = self.connection.clone();
-        let results = conn.get(k);
-        let fut: Result<Vec<u8>, RedisError> =
-            timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-
-        // return NotFound error when empty
-        if matches!(&fut, Ok(v) if v.is_empty()) {
-            return Err(CustomRedisError::NotFound);
+        // Tests for our custom error variants
+        #[test]
+        fn test_timeout_is_recoverable() {
+            let err = CustomRedisError::Timeout;
+            assert!(!err.is_unrecoverable_error());
         }
 
-        let raw_bytes = fut?;
+        #[test]
+        fn test_parse_error_is_unrecoverable() {
+            let err = CustomRedisError::ParseError("invalid data".to_string());
+            assert!(err.is_unrecoverable_error());
+        }
 
-        match format {
-            RedisValueFormat::Pickle => {
-                let string_response: String =
-                    serde_pickle::from_slice(&raw_bytes, Default::default())?;
-                Ok(string_response)
+        #[test]
+        fn test_not_found_is_unrecoverable() {
+            let err = CustomRedisError::NotFound;
+            assert!(err.is_unrecoverable_error());
+        }
+
+        #[test]
+        fn test_invalid_configuration_is_unrecoverable() {
+            let err = CustomRedisError::InvalidConfiguration("test config error".to_string());
+            assert!(err.is_unrecoverable_error());
+        }
+
+        // Smoke test: verify we delegate to redis::RedisError instead of reimplementing
+        #[test]
+        fn test_redis_error_delegation() {
+            let custom_err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "test error",
+            ))));
+            let redis_err = redis::RedisError::from((redis::ErrorKind::IoError, "test error"));
+
+            // Verify delegation works by comparing with direct redis::RedisError behavior
+            assert_eq!(
+                custom_err.is_unrecoverable_error(),
+                redis_err.is_unrecoverable_error()
+            );
+        }
+    }
+
+    mod retry_methods {
+        use super::*;
+
+        // Tests for our custom error variants
+        #[test]
+        fn test_timeout_wait_and_retry() {
+            let err = CustomRedisError::Timeout;
+            assert!(matches!(err.retry_method(), RetryMethod::WaitAndRetry));
+        }
+
+        #[test]
+        fn test_parse_error_no_retry() {
+            let err = CustomRedisError::ParseError("invalid data".to_string());
+            assert!(matches!(err.retry_method(), RetryMethod::NoRetry));
+        }
+
+        #[test]
+        fn test_not_found_no_retry() {
+            let err = CustomRedisError::NotFound;
+            assert!(matches!(err.retry_method(), RetryMethod::NoRetry));
+        }
+
+        #[test]
+        fn test_invalid_configuration_no_retry() {
+            let err = CustomRedisError::InvalidConfiguration("test config error".to_string());
+            assert!(matches!(err.retry_method(), RetryMethod::NoRetry));
+        }
+
+        // Smoke test: verify we delegate to redis::RedisError instead of reimplementing
+        #[test]
+        fn test_redis_error_delegation() {
+            let custom_err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "test error",
+            ))));
+            let redis_err = redis::RedisError::from((redis::ErrorKind::IoError, "test error"));
+
+            // Verify delegation works by comparing with direct redis::RedisError behavior
+            let custom_retry = custom_err.retry_method();
+            let redis_retry = redis_err.retry_method();
+
+            // Compare by matching both - they should be the same variant
+            match (custom_retry, redis_retry) {
+                (RetryMethod::NoRetry, RetryMethod::NoRetry) => {}
+                (RetryMethod::Reconnect, RetryMethod::Reconnect) => {}
+                (RetryMethod::WaitAndRetry, RetryMethod::WaitAndRetry) => {}
+                (RetryMethod::RetryImmediately, RetryMethod::RetryImmediately) => {}
+                (RetryMethod::MovedRedirect, RetryMethod::MovedRedirect) => {}
+                (RetryMethod::AskRedirect, RetryMethod::AskRedirect) => {}
+                _ => panic!("Delegation failed: retry methods don't match"),
             }
-            RedisValueFormat::Utf8 => {
-                let string_response = String::from_utf8(raw_bytes)?;
-                Ok(string_response)
-            }
-            RedisValueFormat::RawBytes => Err(CustomRedisError::ParseError(
-                "Use get_raw_bytes() for RawBytes format".to_string(),
-            )),
-        }
-    }
-
-    async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError> {
-        let mut conn = self.connection.clone();
-        let results = conn.get(k);
-        let fut: Result<Vec<u8>, RedisError> =
-            timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-
-        // return NotFound error when empty
-        if matches!(&fut, Ok(v) if v.is_empty()) {
-            return Err(CustomRedisError::NotFound);
         }
 
-        Ok(fut?)
-    }
+        #[test]
+        fn test_invalid_client_config_is_unrecoverable() {
+            let err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::InvalidClientConfig,
+                "Redis URL did not parse",
+            ))));
 
-    async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
-        self.set_with_format(k, v, RedisValueFormat::Pickle).await
-    }
-
-    async fn set_with_format(
-        &self,
-        k: String,
-        v: String,
-        format: RedisValueFormat,
-    ) -> Result<(), CustomRedisError> {
-        let bytes = match format {
-            RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
-            RedisValueFormat::Utf8 => v.into_bytes(),
-            RedisValueFormat::RawBytes => {
-                return Err(CustomRedisError::ParseError(
-                    "RawBytes format not supported for setting strings".to_string(),
-                ))
-            }
-        };
-        let mut conn = self.connection.clone();
-        let results = conn.set(k, bytes);
-        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        Ok(fut?)
-    }
-
-    async fn set_nx_ex(
-        &self,
-        k: String,
-        v: String,
-        seconds: u64,
-    ) -> Result<bool, CustomRedisError> {
-        self.set_nx_ex_with_format(k, v, seconds, RedisValueFormat::Pickle)
-            .await
-    }
-
-    async fn set_nx_ex_with_format(
-        &self,
-        k: String,
-        v: String,
-        seconds: u64,
-        format: RedisValueFormat,
-    ) -> Result<bool, CustomRedisError> {
-        let bytes = match format {
-            RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
-            RedisValueFormat::Utf8 => v.into_bytes(),
-            RedisValueFormat::RawBytes => {
-                return Err(CustomRedisError::ParseError(
-                    "RawBytes format not supported for setting strings".to_string(),
-                ))
-            }
-        };
-        let mut conn = self.connection.clone();
-        let seconds_usize = seconds as usize;
-
-        // Use SET with both NX and EX options
-        let result: Result<Option<String>, RedisError> = timeout(
-            Duration::from_millis(get_redis_timeout_ms()),
-            redis::cmd("SET")
-                .arg(&k)
-                .arg(&bytes)
-                .arg("EX")
-                .arg(seconds_usize)
-                .arg("NX")
-                .query_async(&mut conn),
-        )
-        .await?;
-
-        match result {
-            Ok(Some(_)) => Ok(true), // Key was set successfully
-            Ok(None) => Ok(false),   // Key already existed
-            Err(e) => Err(CustomRedisError::Other(e.to_string())),
-        }
-    }
-
-    async fn del(&self, k: String) -> Result<(), CustomRedisError> {
-        let mut conn = self.connection.clone();
-        let results = conn.del(k);
-        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        fut.map_err(|e| CustomRedisError::Other(e.to_string()))
-    }
-
-    async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
-        let mut conn = self.connection.clone();
-        let results = conn.hget(k, field);
-        let fut: Result<Option<String>, RedisError> =
-            timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-
-        match fut? {
-            Some(value) => Ok(value),
-            None => Err(CustomRedisError::NotFound),
-        }
-    }
-
-    async fn scard(&self, k: String) -> Result<u64, CustomRedisError> {
-        let mut conn = self.connection.clone();
-        let results = conn.scard(k);
-        timeout(Duration::from_millis(get_redis_timeout_ms()), results)
-            .await?
-            .map_err(|e| CustomRedisError::Other(e.to_string()))
-    }
-}
-
-#[derive(Clone)]
-pub struct MockRedisClient {
-    zrangebyscore_ret: HashMap<String, Vec<String>>,
-    hincrby_ret: HashMap<String, Result<(), CustomRedisError>>,
-    get_ret: HashMap<String, Result<String, CustomRedisError>>,
-    get_raw_bytes_ret: HashMap<String, Result<Vec<u8>, CustomRedisError>>,
-    set_ret: HashMap<String, Result<(), CustomRedisError>>,
-    set_nx_ex_ret: HashMap<String, Result<bool, CustomRedisError>>,
-    del_ret: HashMap<String, Result<(), CustomRedisError>>,
-    hget_ret: HashMap<String, Result<String, CustomRedisError>>,
-    scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
-    calls: Arc<Mutex<Vec<MockRedisCall>>>,
-}
-
-impl Default for MockRedisClient {
-    fn default() -> Self {
-        Self {
-            zrangebyscore_ret: HashMap::new(),
-            hincrby_ret: HashMap::new(),
-            get_ret: HashMap::new(),
-            get_raw_bytes_ret: HashMap::new(),
-            set_ret: HashMap::new(),
-            set_nx_ex_ret: HashMap::new(),
-            del_ret: HashMap::new(),
-            hget_ret: HashMap::new(),
-            scard_ret: HashMap::new(),
-            calls: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-}
-
-impl MockRedisClient {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    // Helper method to safely lock the calls mutex
-    fn lock_calls(&self) -> std::sync::MutexGuard<Vec<MockRedisCall>> {
-        match self.calls.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-
-    pub fn zrangebyscore_ret(&mut self, key: &str, ret: Vec<String>) -> Self {
-        self.zrangebyscore_ret.insert(key.to_owned(), ret);
-        self.clone()
-    }
-
-    pub fn hincrby_ret(&mut self, key: &str, ret: Result<(), CustomRedisError>) -> Self {
-        self.hincrby_ret.insert(key.to_owned(), ret);
-
-        self.clone()
-    }
-
-    pub fn get_ret(&mut self, key: &str, ret: Result<String, CustomRedisError>) -> Self {
-        self.get_ret.insert(key.to_owned(), ret);
-        self.clone()
-    }
-
-    pub fn get_raw_bytes_ret(&mut self, key: &str, ret: Result<Vec<u8>, CustomRedisError>) -> Self {
-        self.get_raw_bytes_ret.insert(key.to_owned(), ret);
-        self.clone()
-    }
-
-    pub fn set_ret(&mut self, key: &str, ret: Result<(), CustomRedisError>) -> Self {
-        self.set_ret.insert(key.to_owned(), ret);
-        self.clone()
-    }
-
-    pub fn del_ret(&mut self, key: &str, ret: Result<(), CustomRedisError>) -> Self {
-        self.del_ret.insert(key.to_owned(), ret);
-        self.clone()
-    }
-
-    pub fn hget_ret(&mut self, key: &str, ret: Result<String, CustomRedisError>) -> Self {
-        self.hget_ret.insert(key.to_owned(), ret);
-        self.clone()
-    }
-
-    pub fn scard_ret(&mut self, key: &str, ret: Result<u64, CustomRedisError>) -> Self {
-        self.scard_ret.insert(key.to_owned(), ret);
-        self.clone()
-    }
-
-    pub fn get_calls(&self) -> Vec<MockRedisCall> {
-        self.lock_calls().clone()
-    }
-
-    pub fn set_nx_ex_ret(&mut self, key: &str, ret: Result<bool, CustomRedisError>) -> Self {
-        self.set_nx_ex_ret.insert(key.to_owned(), ret);
-        self.clone()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MockRedisValue {
-    None,
-    Error(CustomRedisError),
-    String(String),
-    StringWithTTL(String, u64),
-    VecString(Vec<String>),
-    I32(i32),
-    I64(i64),
-    MinMax(String, String),
-    StringWithFormat(String, RedisValueFormat),
-    StringWithTTLAndFormat(String, u64, RedisValueFormat),
-}
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct MockRedisCall {
-    pub op: String,
-    pub key: String,
-    pub value: MockRedisValue,
-}
-
-#[async_trait]
-impl Client for MockRedisClient {
-    async fn zrangebyscore(
-        &self,
-        key: String,
-        min: String,
-        max: String,
-    ) -> Result<Vec<String>, CustomRedisError> {
-        // Record the call
-        let mut calls = self.lock_calls();
-        calls.push(MockRedisCall {
-            op: "zrangebyscore".to_string(),
-            key: key.clone(),
-            value: MockRedisValue::MinMax(min, max),
-        });
-
-        match self.zrangebyscore_ret.get(&key) {
-            Some(val) => Ok(val.clone()),
-            None => Err(CustomRedisError::NotFound),
-        }
-    }
-
-    async fn hincrby(
-        &self,
-        key: String,
-        field: String,
-        count: Option<i32>,
-    ) -> Result<(), CustomRedisError> {
-        // Record the call
-        let mut calls = self.lock_calls();
-        calls.push(MockRedisCall {
-            op: "hincrby".to_string(),
-            key: format!("{key}:{field}"),
-            value: match count {
-                None => MockRedisValue::None,
-                Some(v) => MockRedisValue::I32(v),
-            },
-        });
-
-        match self.hincrby_ret.get(&key) {
-            Some(result) => result.clone(),
-            None => Err(CustomRedisError::NotFound),
-        }
-    }
-
-    async fn get(&self, key: String) -> Result<String, CustomRedisError> {
-        // Record the call
-        let mut calls = self.lock_calls();
-        calls.push(MockRedisCall {
-            op: "get".to_string(),
-            key: key.clone(),
-            value: MockRedisValue::None,
-        });
-
-        match self.get_ret.get(&key) {
-            Some(result) => result.clone(),
-            None => Err(CustomRedisError::NotFound),
-        }
-    }
-
-    async fn get_with_format(
-        &self,
-        key: String,
-        format: RedisValueFormat,
-    ) -> Result<String, CustomRedisError> {
-        self.lock_calls().push(MockRedisCall {
-            op: "get_with_format".to_string(),
-            key: key.clone(),
-            value: MockRedisValue::StringWithFormat("".to_string(), format),
-        });
-
-        self.get_ret
-            .get(&key)
-            .cloned()
-            .unwrap_or(Err(CustomRedisError::NotFound))
-    }
-
-    async fn get_raw_bytes(&self, key: String) -> Result<Vec<u8>, CustomRedisError> {
-        self.lock_calls().push(MockRedisCall {
-            op: "get_raw_bytes".to_string(),
-            key: key.clone(),
-            value: MockRedisValue::String("".to_string()),
-        });
-
-        // First try the dedicated raw bytes storage
-        if let Some(result) = self.get_raw_bytes_ret.get(&key) {
-            return result.clone();
+            assert!(
+                err.is_unrecoverable_error(),
+                "InvalidClientConfig should be unrecoverable"
+            );
+            assert!(
+                matches!(err.retry_method(), RetryMethod::NoRetry),
+                "InvalidClientConfig should not be retried"
+            );
         }
 
-        // Fall back to string conversion for backward compatibility
-        match self
-            .get_ret
-            .get(&key)
-            .cloned()
-            .unwrap_or(Err(CustomRedisError::NotFound))
-        {
-            Ok(string_data) => Ok(string_data.into_bytes()),
-            Err(e) => Err(e),
+        #[test]
+        fn test_authentication_failed_is_unrecoverable() {
+            let err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::AuthenticationFailed,
+                "WRONGPASS invalid username-password pair",
+            ))));
+
+            assert!(
+                err.is_unrecoverable_error(),
+                "AuthenticationFailed should be unrecoverable"
+            );
+            assert!(
+                matches!(err.retry_method(), RetryMethod::NoRetry),
+                "AuthenticationFailed should not be retried"
+            );
         }
-    }
 
-    async fn set(&self, key: String, value: String) -> Result<(), CustomRedisError> {
-        // Record the call
-        let mut calls = self.lock_calls();
-        calls.push(MockRedisCall {
-            op: "set".to_string(),
-            key: key.clone(),
-            value: MockRedisValue::String(value.clone()),
-        });
+        #[test]
+        fn test_io_error_is_retryable() {
+            let err = CustomRedisError::Redis(Arc::new(redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Connection refused",
+            ))));
 
-        match self.set_ret.get(&key) {
-            Some(result) => result.clone(),
-            None => Err(CustomRedisError::NotFound),
-        }
-    }
-
-    async fn set_with_format(
-        &self,
-        key: String,
-        value: String,
-        format: RedisValueFormat,
-    ) -> Result<(), CustomRedisError> {
-        self.lock_calls().push(MockRedisCall {
-            op: "set_with_format".to_string(),
-            key: key.clone(),
-            value: MockRedisValue::StringWithFormat(value.clone(), format),
-        });
-
-        self.set_ret.get(&key).cloned().unwrap_or(Ok(()))
-    }
-
-    async fn set_nx_ex(
-        &self,
-        key: String,
-        value: String,
-        seconds: u64,
-    ) -> Result<bool, CustomRedisError> {
-        // Record the call
-        let mut calls = self.lock_calls();
-        calls.push(MockRedisCall {
-            op: "set_nx_ex".to_string(),
-            key: key.clone(),
-            value: MockRedisValue::StringWithTTL(value.clone(), seconds),
-        });
-
-        match self.set_nx_ex_ret.get(&key) {
-            Some(result) => result.clone(),
-            None => Err(CustomRedisError::NotFound),
-        }
-    }
-
-    async fn set_nx_ex_with_format(
-        &self,
-        key: String,
-        value: String,
-        seconds: u64,
-        format: RedisValueFormat,
-    ) -> Result<bool, CustomRedisError> {
-        self.lock_calls().push(MockRedisCall {
-            op: "set_nx_ex_with_format".to_string(),
-            key: key.clone(),
-            value: MockRedisValue::StringWithTTLAndFormat(value.clone(), seconds, format),
-        });
-
-        self.set_nx_ex_ret
-            .get(&key)
-            .cloned()
-            .unwrap_or(Err(CustomRedisError::NotFound))
-    }
-
-    async fn del(&self, key: String) -> Result<(), CustomRedisError> {
-        // Record the call
-        let mut calls = self.lock_calls();
-        calls.push(MockRedisCall {
-            op: "del".to_string(),
-            key: key.clone(),
-            value: MockRedisValue::None,
-        });
-
-        match self.del_ret.get(&key) {
-            Some(result) => result.clone(),
-            None => Err(CustomRedisError::NotFound),
-        }
-    }
-
-    async fn hget(&self, key: String, field: String) -> Result<String, CustomRedisError> {
-        // Record the call
-        let mut calls = self.lock_calls();
-        calls.push(MockRedisCall {
-            op: "hget".to_string(),
-            key: format!("{key}:{field}"),
-            value: MockRedisValue::None,
-        });
-
-        match self.hget_ret.get(&key) {
-            Some(result) => result.clone(),
-            None => Err(CustomRedisError::NotFound),
-        }
-    }
-
-    async fn scard(&self, key: String) -> Result<u64, CustomRedisError> {
-        // Record the call
-        let mut calls = self.lock_calls();
-        calls.push(MockRedisCall {
-            op: "scard".to_string(),
-            key: key.to_string(),
-            value: MockRedisValue::None,
-        });
-
-        match self.scard_ret.get(&key) {
-            Some(result) => result.clone(),
-            None => Err(CustomRedisError::NotFound),
+            // IoError is retryable (transient network issue)
+            assert!(
+                !err.is_unrecoverable_error(),
+                "IoError should be recoverable"
+            );
+            // The exact retry method depends on redis crate implementation,
+            // but it should not be NoRetry
+            assert!(
+                !matches!(err.retry_method(), RetryMethod::NoRetry),
+                "IoError should be retried"
+            );
         }
     }
 }

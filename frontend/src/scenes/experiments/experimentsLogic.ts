@@ -15,7 +15,15 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { ActivityScope, Breadcrumb, Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
+import {
+    ActivityScope,
+    Breadcrumb,
+    Experiment,
+    ExperimentVelocityStats,
+    ExperimentsTabs,
+    FeatureFlagType,
+    ProgressStatus,
+} from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -219,6 +227,21 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 },
             },
         ],
+        experimentsStats: [
+            {
+                launched_last_30d: 0,
+                launched_previous_30d: 0,
+                percent_change: 0,
+                active_experiments: 0,
+                completed_last_30d: 0,
+            } as ExperimentVelocityStats,
+            {
+                loadExperimentsStats: async () => {
+                    const response = await api.get(`api/projects/${values.currentProjectId}/experiments/stats/`)
+                    return response
+                },
+            },
+        ],
     })),
     selectors(() => ({
         count: [(selectors) => [selectors.experiments], (experiments) => experiments.count],
@@ -328,6 +351,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
     }),
     afterMount(({ actions, values }) => {
         actions.loadExperiments()
+        actions.loadExperimentsStats()
         // Sync modal page with URL on mount
         const urlPage = values.featureFlagModalPageFromURL
         if (urlPage !== 1) {

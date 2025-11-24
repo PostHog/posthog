@@ -34,6 +34,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Issues]: 'Issues',
     [NotebookNodeType.UsageMetrics]: 'Usage metrics',
     [NotebookNodeType.ZendeskTickets]: 'Zendesk tickets',
+    [NotebookNodeType.RelatedGroups]: 'Related groups',
 }
 
 export function ContainsTypeFilters({

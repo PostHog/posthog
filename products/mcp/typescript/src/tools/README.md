@@ -22,12 +22,12 @@ Define your tool's input schema using Zod. Keep inputs **simple and user-friendl
 
 ```typescript
 export const FeatureFlagCreateSchema = z.object({
-    name: z.string(),
-    key: z.string(),
-    description: z.string(),
-    filters: FilterGroupsSchema,
-    active: z.boolean(),
-    tags: z.array(z.string()).optional(),
+  name: z.string(),
+  key: z.string(),
+  description: z.string(),
+  filters: FilterGroupsSchema,
+  active: z.boolean(),
+  tags: z.array(z.string()).optional(),
 })
 ```
 
@@ -41,41 +41,43 @@ export const FeatureFlagCreateSchema = z.object({
 ### 2. Create Tool Handler (`tools/featureFlags/create.ts`)
 
 ```typescript
+import type { z } from 'zod'
+
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { FeatureFlagCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = FeatureFlagCreateSchema
 type Params = z.infer<typeof schema>
 
 export const createHandler = async (context: Context, params: Params) => {
-    const { name, key, description, filters, active, tags } = params
-    const projectId = await context.stateManager.getProjectId()
+  const { name, key, description, filters, active, tags } = params
+  const projectId = await context.stateManager.getProjectId()
 
-    // Call API client method
-    const flagResult = await context.api.featureFlags({ projectId }).create({
-        data: { name, key, description, filters, active, tags },
-    })
+  // Call API client method
+  const flagResult = await context.api.featureFlags({ projectId }).create({
+    data: { name, key, description, filters, active, tags },
+  })
 
-    if (!flagResult.success) {
-        throw new Error(`Failed to create feature flag: ${flagResult.error.message}`)
-    }
+  if (!flagResult.success) {
+    throw new Error(`Failed to create feature flag: ${flagResult.error.message}`)
+  }
 
-    // Add context that is useful, like in this case a URL for the LLM to link to.
-    const featureFlagWithUrl = {
-        ...flagResult.data,
-        url: `${context.api.getProjectBaseUrl(projectId)}/feature_flags/${flagResult.data.id}`,
-    }
+  // Add context that is useful, like in this case a URL for the LLM to link to.
+  const featureFlagWithUrl = {
+    ...flagResult.data,
+    url: `${context.api.getProjectBaseUrl(projectId)}/feature_flags/${flagResult.data.id}`,
+  }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(featureFlagWithUrl) }],
-    }
+  return {
+    content: [{ type: 'text', text: formatResponse(featureFlagWithUrl) }],
+  }
 }
 
 const tool = (): ToolBase<typeof schema> => ({
-    name: 'create-feature-flag',
-    schema,
-    handler: createHandler,
+  name: 'create-feature-flag',
+  schema,
+  handler: createHandler,
 })
 
 export default tool
@@ -95,20 +97,20 @@ Add a clear, actionable description for your tool, assign it to a feature, speci
 
 ```json
 {
-    "create-feature-flag": {
-        "title": "Create Feature Flag",
-        "description": "Creates a new feature flag in the project. Once you have created a feature flag, you should: Ask the user if they want to add it to their codebase, Use the \"search-docs\" tool to find documentation on how to add feature flags to the codebase (search for the right language / framework), Clarify where it should be added and then add it.",
-        "category": "Feature flags", // This will be displayed in the docs, but not readable by the MCP client
-        "feature": "flags",
-        "summary": "Creates a new feature flag in the project.", // This will be displayed in the docs, but not readable by the MCP client.
-        "required_scopes": ["feature_flag:write"], // You can find a list of available scopes here: https://github.com/PostHog/posthog/blob/31082f4bcc4c45a0ac830777b8a3048e7752a1bc/frontend/src/lib/scopes.tsx
-        "annotations": {
-            "destructiveHint": false, // Does the tool delete or destructively modify data?
-            "idempotentHint": false, // Can the tool be safely called multiple times with same result?
-            "openWorldHint": true, // Does the tool interact with external systems or create new resources?
-            "readOnlyHint": false // Is the tool read-only (doesn't modify any state)?
-        }
+  "create-feature-flag": {
+    "title": "Create Feature Flag",
+    "description": "Creates a new feature flag in the project. Once you have created a feature flag, you should: Ask the user if they want to add it to their codebase, Use the \"search-docs\" tool to find documentation on how to add feature flags to the codebase (search for the right language / framework), Clarify where it should be added and then add it.",
+    "category": "Feature flags", // This will be displayed in the docs, but not readable by the MCP client
+    "feature": "flags",
+    "summary": "Creates a new feature flag in the project.", // This will be displayed in the docs, but not readable by the MCP client.
+    "required_scopes": ["feature_flag:write"], // You can find a list of available scopes here: https://github.com/PostHog/posthog/blob/31082f4bcc4c45a0ac830777b8a3048e7752a1bc/frontend/src/lib/scopes.tsx
+    "annotations": {
+      "destructiveHint": false, // Does the tool delete or destructively modify data?
+      "idempotentHint": false, // Can the tool be safely called multiple times with same result?
+      "openWorldHint": true, // Does the tool interact with external systems or create new resources?
+      "readOnlyHint": false // Is the tool read-only (doesn't modify any state)?
     }
+  }
 }
 ```
 
@@ -140,63 +142,64 @@ If you do add a new feature, make sure to update the `README.md` in the root of 
 Always include integration tests to help us catch if there is a change to the underlying API:
 
 ```typescript
-import {
-    cleanupResources,
-    createTestClient,
-    createTestContext,
-    generateUniqueKey,
-    parseToolResponse,
-    setActiveProjectAndOrg,
-} from '@/shared/test-utils'
-import createFeatureFlagTool from '@/tools/featureFlags/create'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import {
+  cleanupResources,
+  createTestClient,
+  createTestContext,
+  generateUniqueKey,
+  parseToolResponse,
+  setActiveProjectAndOrg,
+} from '@/shared/test-utils'
+import createFeatureFlagTool from '@/tools/featureFlags/create'
+
 describe('Feature Flags', () => {
-    let context: Context
-    const createdResources: CreatedResources = {
-        featureFlags: [],
-        insights: [],
-        dashboards: [],
-    }
+  let context: Context
+  const createdResources: CreatedResources = {
+    featureFlags: [],
+    insights: [],
+    dashboards: [],
+  }
 
-    beforeAll(async () => {
-        const client = createTestClient()
-        context = createTestContext(client)
-        await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
+  beforeAll(async () => {
+    const client = createTestClient()
+    context = createTestContext(client)
+    await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
+  })
+
+  afterEach(async () => {
+    await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
+  })
+
+  describe('create-feature-flag tool', () => {
+    const createTool = createFeatureFlagTool()
+
+    it('should create a feature flag with minimal required fields', async () => {
+      const params = {
+        name: 'Test Feature Flag',
+        key: generateUniqueKey('test-flag'),
+        description: 'Integration test flag',
+        filters: { groups: [] },
+        active: true,
+      }
+
+      const result = await createTool.handler(context, params)
+      const flagData = parseToolResponse(result)
+
+      expect(flagData.id).toBeTruthy()
+      expect(flagData.key).toBe(params.key)
+      expect(flagData.name).toBe(params.name)
+      expect(flagData.active).toBe(params.active)
+      expect(flagData.url).toContain('/feature_flags/')
+
+      createdResources.featureFlags.push(flagData.id)
     })
 
-    afterEach(async () => {
-        await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
+    it('should create a feature flag with complex filters', async () => {
+      // Test with more complex scenarios
     })
-
-    describe('create-feature-flag tool', () => {
-        const createTool = createFeatureFlagTool()
-
-        it('should create a feature flag with minimal required fields', async () => {
-            const params = {
-                name: 'Test Feature Flag',
-                key: generateUniqueKey('test-flag'),
-                description: 'Integration test flag',
-                filters: { groups: [] },
-                active: true,
-            }
-
-            const result = await createTool.handler(context, params)
-            const flagData = parseToolResponse(result)
-
-            expect(flagData.id).toBeDefined()
-            expect(flagData.key).toBe(params.key)
-            expect(flagData.name).toBe(params.name)
-            expect(flagData.active).toBe(params.active)
-            expect(flagData.url).toContain('/feature_flags/')
-
-            createdResources.featureFlags.push(flagData.id)
-        })
-
-        it('should create a feature flag with complex filters', async () => {
-            // Test with more complex scenarios
-        })
-    })
+  })
 })
 ```
 

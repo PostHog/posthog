@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -5,6 +6,8 @@ from django.dispatch import receiver
 import structlog
 
 from posthog.models.utils import UUIDTModel
+
+from .evaluation_configs import EvaluationType, OutputType, validate_evaluation_configs
 
 logger = structlog.get_logger(__name__)
 
@@ -23,9 +26,12 @@ class Evaluation(UUIDTModel):
     description = models.TextField(blank=True, default="")
     enabled = models.BooleanField(default=False)
 
-    # Evaluation configuration
-    prompt = models.TextField()
-    conditions = models.JSONField(default=list)  # List of EvaluationConditionSet
+    evaluation_type = models.CharField(max_length=50, choices=EvaluationType.choices)
+    evaluation_config = models.JSONField(default=dict)
+    output_type = models.CharField(max_length=50, choices=OutputType.choices)
+    output_config = models.JSONField(default=dict)
+
+    conditions = models.JSONField(default=list)
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
@@ -38,6 +44,15 @@ class Evaluation(UUIDTModel):
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
+
+        # Validate evaluation and output configs
+        if self.evaluation_config or self.output_config:
+            try:
+                self.evaluation_config, self.output_config = validate_evaluation_configs(
+                    self.evaluation_type, self.output_type, self.evaluation_config, self.output_config
+                )
+            except ValueError as e:
+                raise ValidationError(str(e))
 
         # Compile bytecode for each condition
         compiled_conditions = []

@@ -1293,7 +1293,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
@@ -1319,7 +1319,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.client.logout()
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
@@ -1355,7 +1355,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Try to access other team's flag using this team's secret key + other team's project_api_key in body
         response = self.client.get(
             f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config?token={other_team.api_token}",
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
         )
 
         # Should be forbidden due to team mismatch
@@ -3264,7 +3264,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(23, 24)):
+        with self.assertNumQueries(FuzzyInt(22, 24)):
             # 1. SAVEPOINT
             # 2. SELECT "posthog_personalapikey"."id",
             # 3. RELEASE SAVEPOINT
@@ -3288,7 +3288,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3373,7 +3373,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3483,7 +3483,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3669,7 +3669,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3839,7 +3839,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -3850,7 +3850,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             for _ in range(5):
                 response = self.client.get(
                     f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                    headers={"authorization": f"Bearer {personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -3911,7 +3911,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             response = self.client.get(
                 f"/api/feature_flag/?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -3922,14 +3922,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             for _ in range(4):
                 response = self.client.get(
                     f"/api/feature_flag/?token={self.team.api_token}",
-                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                    headers={"authorization": f"Bearer {personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             # local evaluation still works
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4068,7 +4068,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             def make_request_and_assert_requests_recorded(expected_requests=None):
                 response = self.client.get(
                     f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                    headers={"authorization": f"Bearer {personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(
@@ -4146,7 +4146,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Make request using project secret key authentication
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
         )
 
         # Verify successful response
@@ -4876,6 +4876,57 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_validation_empty_groups(self):
+        """Test that creating a flag with empty groups raises validation error"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Empty groups flag", "key": "empty-groups-flag", "filters": {"groups": []}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Feature flags must have at least one condition set (group).",
+                "attr": "filters",
+            },
+        )
+
+    def test_validation_groups_with_empty_properties_allowed(self):
+        """Test that creating a flag with groups having empty properties but valid rollout is allowed"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Valid flag with empty properties",
+                "key": "valid-empty-properties",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_validation_empty_groups_allowed_on_update(self):
+        """Test that updating an existing flag with empty groups is allowed (for scheduled changes)"""
+        # First create a valid flag
+        flag = FeatureFlag.objects.create(
+            name="Test flag",
+            key="test-flag-update",
+            team=self.team,
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Now try to update it with empty groups (this should be allowed)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": []}},
+            format="json",
+        )
+        # Should succeed since it's an update, not creation
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def _create_flag_with_properties(
         self,
         name: str,
@@ -5078,10 +5129,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_search_term_button")
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="green_search_term_button", active=False)
 
+        # Test searching by flag key
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=true&search=search_term")
         response = filtered_flags_list.json()
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "blue_search_term_button"
+
+        # Test searching by experiment name
+        flag_with_experiment = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="experiment_flag", active=True
+        )
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="unique_experiment_name",
+            feature_flag=flag_with_experiment,
+            deleted=False,
+        )
+
+        filtered_by_experiment = self.client.get(f"/api/projects/@current/feature_flags?search=unique_experiment_name")
+        response = filtered_by_experiment.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "experiment_flag"
+
+        # Test that deleted experiments are not included in search
+        deleted_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="deleted_experiment_flag", active=True
+        )
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="deleted_unique_experiment",
+            feature_flag=deleted_flag,
+            deleted=True,
+        )
+
+        filtered_deleted = self.client.get(f"/api/projects/@current/feature_flags?search=deleted_unique_experiment")
+        response = filtered_deleted.json()
+        assert len(response["results"]) == 0
 
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
@@ -5367,15 +5452,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Call to flags gets rate limited
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(
@@ -5398,8 +5481,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # but not call to local evaluation
         for _ in range(7):
             response = self.client.get(
-                f"/api/feature_flag/local_evaluation",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -6005,8 +6087,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # First request should miss cache and populate it
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6048,8 +6129,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Test cache for send_cohorts=true
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6081,8 +6161,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Populate cache
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6136,12 +6215,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Populate both cache variants
         self.client.logout()
         response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
         )
 
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
@@ -6154,12 +6231,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Make new requests to get potentially updated cache
         self.client.logout()
         updated_response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         updated_response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
         )
 
         self.assertEqual(updated_response1.status_code, status.HTTP_200_OK)

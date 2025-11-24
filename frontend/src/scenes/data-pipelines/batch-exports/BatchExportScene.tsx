@@ -16,7 +16,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
@@ -244,7 +243,6 @@ export function BatchExportSceneContent({
     return (
         <SceneContent>
             <BatchExportSceneHeader logicProps={logicProps} />
-            <SceneDivider />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )

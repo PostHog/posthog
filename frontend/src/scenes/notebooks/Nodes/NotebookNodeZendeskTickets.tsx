@@ -1,5 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 
+import { ZendeskSourceSetupPrompt } from 'scenes/data-pipelines/ZendeskSourceSetupPrompt'
+
 import { Query } from '~/queries/Query/Query'
 
 import { ZendeskTicketsFilters } from 'products/customer_analytics/frontend/components/ZendeskTicketsFilters/ZendeskTicketsFilters'
@@ -25,7 +27,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsA
         return null
     }
 
-    return <Query query={{ ...query, embedded: true }} context={context} />
+    return (
+        <ZendeskSourceSetupPrompt className="border-none">
+            <Query query={{ ...query, embedded: true }} context={context} />
+        </ZendeskSourceSetupPrompt>
+    )
 }
 
 const Settings = ({

@@ -1,4 +1,3 @@
-// NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 import { DateTime } from 'luxon'
 import { gunzip, gzip } from 'zlib'
 
@@ -34,7 +33,7 @@ export const getPersonDisplayName = (team: Team, distinctId: string, properties:
     const customIdentifier: string =
         typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
-    return (customIdentifier || distinctId)?.trim()
+    return (customIdentifier || String(distinctId))?.trim()
 }
 
 // that we can keep to as a contract

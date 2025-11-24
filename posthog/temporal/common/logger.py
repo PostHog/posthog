@@ -849,10 +849,6 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
         # This works because the WorkflowID is made up like f"{external_data_schema_id}-{data_interval_end}"
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "external_data_jobs"
-    elif workflow_type == "deltalake-compaction-job":
-        # This works because the WorkflowID is made up like f"{external_data_schema_id}-compaction"
-        log_source_id = workflow_id.split("-compaction")[0]
-        log_source = "deltalake_compaction_job"
     elif workflow_type == "data-modeling-run":
         # This works because the WorkflowID is made up like f"{saved_query_id}-{data_interval_end}"
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]

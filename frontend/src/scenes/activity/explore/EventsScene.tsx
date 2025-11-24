@@ -3,47 +3,31 @@ import { useActions, useValues } from 'kea'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { ActivityTab } from '~/types'
 
 import { eventsSceneLogic } from './eventsSceneLogic'
+import { useActivityTabs } from './utils'
 
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(eventsSceneLogic)
     const { setQuery } = useActions(eventsSceneLogic)
+    const tabs = useActivityTabs()
 
     return (
         <SceneContent>
-            <LemonTabs
-                activeKey={ActivityTab.ExploreEvents}
-                tabs={[
-                    {
-                        key: ActivityTab.ExploreEvents,
-                        label: 'Explore',
-                        link: urls.activity(ActivityTab.ExploreEvents),
-                    },
-                    {
-                        key: ActivityTab.LiveEvents,
-                        label: 'Live',
-                        link: urls.activity(ActivityTab.LiveEvents),
-                    },
-                ]}
-                sceneInset
-            />
+            <LemonTabs activeKey={ActivityTab.ExploreEvents} tabs={tabs} sceneInset className="mb-3" />
             <SceneTitleSection
-                name={sceneConfigurations[Scene.ExploreEvents].name}
-                description={sceneConfigurations[Scene.ExploreEvents].description}
+                name={sceneConfigurations[Scene.Activity].name}
+                description={sceneConfigurations[Scene.Activity].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.ExploreEvents].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.Activity].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <Query
                 attachTo={eventsSceneLogic({ tabId })}
                 uniqueKey={`events-scene-${tabId}`}

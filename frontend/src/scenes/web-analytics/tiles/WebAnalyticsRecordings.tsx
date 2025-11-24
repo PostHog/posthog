@@ -1,19 +1,25 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { IconRewindPlay } from '@posthog/icons'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import { RecordingRow } from 'scenes/session-recordings/components/RecordingRow'
+import { humanFriendlyDuration } from 'lib/utils'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { ActivityScoreLabel } from 'scenes/session-recordings/components/RecordingRow'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { ReplayTile } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { ProductKey, ReplayTabs } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ReplayTabs, SessionRecordingType } from '~/types'
 
 export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.Element {
     const { layout } = tile
@@ -72,7 +78,50 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                     ) : items.length === 0 && emptyMessage ? (
                         <EmptyMessage {...emptyMessage} />
                     ) : (
-                        items.map((item, index) => <RecordingRow key={index} recording={item} />)
+                        <LemonTable
+                            className="mt-4"
+                            columns={[
+                                {
+                                    title: 'Person',
+                                    render: (_, recording: SessionRecordingType) => (
+                                        <>
+                                            <ProfilePicture
+                                                size="sm"
+                                                name={asDisplay(recording.person)}
+                                                className="mr-2"
+                                            />
+                                            {asDisplay(recording.person)}{' '}
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Activity',
+                                    render: (_, recording: SessionRecordingType) => (
+                                        <>
+                                            <ActivityScoreLabel score={recording.activity_score} clean={true} />
+                                        </>
+                                    ),
+                                },
+                                {
+                                    title: 'Duration',
+                                    render: (_, recording: SessionRecordingType) => (
+                                        <>{humanFriendlyDuration(recording.recording_duration)}</>
+                                    ),
+                                },
+                                {
+                                    title: '',
+                                    render: (_, recording: SessionRecordingType) => (
+                                        <LemonButton
+                                            size="xsmall"
+                                            targetBlank
+                                            to={urls.replaySingle(recording.id ?? '')}
+                                            icon={<IconRewindPlay />}
+                                        />
+                                    ),
+                                },
+                            ]}
+                            dataSource={items}
+                        />
                     )}
                 </div>
                 <div className="flex flex-row-reverse my-2">

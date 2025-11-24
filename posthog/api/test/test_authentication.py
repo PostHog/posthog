@@ -31,9 +31,10 @@ from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuth
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
@@ -848,8 +849,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2021-08-25T22:10:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -871,8 +871,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2022-08-25T22:00:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -894,8 +893,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2021-08-26T22:00:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -912,8 +910,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2022-08-25T22:00:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -935,8 +932,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2021-08-25T21:14:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -957,8 +953,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         with freeze_time("2021-08-24T21:14:14.252"):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags/",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1014,6 +1009,42 @@ class TestTimeSensitivePermissions(APIBaseTest):
             }
 
             res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+
+    def test_user_can_update_theme_without_recent_authentication(self):
+        now = datetime.now()
+        with freeze_time(now):
+            res = self.client.patch("/api/users/@me", {"theme_mode": "dark"})
+            assert res.status_code == 200
+
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/users/@me", {"theme_mode": "light"})
+            assert res.status_code == 200
+
+            res = self.client.patch(
+                "/api/users/@me",
+                {"theme_mode": "system", "first_name": "still protected"},
+            )
+            assert res.status_code == 403
+
+    def test_user_can_switch_organization_without_recent_authentication(self):
+        new_org = Organization.objects.create(name="Switch Org")
+        Team.objects.create(organization=new_org, name="Switch Team")
+        OrganizationMembership.objects.create(organization=new_org, user=self.user)
+
+        now = datetime.now()
+        with freeze_time(now):
+            res = self.client.patch(
+                "/api/users/@me",
+                {"set_current_organization": str(new_org.id)},
+            )
+            assert res.status_code == 200
+
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch(
+                "/api/users/@me",
+                {"set_current_organization": str(self.organization.id)},
+            )
             assert res.status_code == 200
 
 

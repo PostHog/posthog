@@ -38,24 +38,27 @@ COPY ee/frontend/ ee/frontend/
 COPY .git/config .git/config
 COPY .git/HEAD .git/HEAD
 COPY .git/refs/heads .git/refs/heads
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && pnpm --version && \
-    pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23
+    CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
 
 # Process sourcemaps using posthog-cli
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
-    if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
-    apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl && \
-    curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
-    export PATH="/root/.posthog:$PATH" && \
-    export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
-    export POSTHOG_CLI_ENV_ID=2 && \
-    posthog-cli --no-fail sourcemap process --directory /code/frontend/dist --public-path-prefix /static; \
-    fi
+    ( \
+      if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends ca-certificates curl && \
+        curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
+        export PATH="/root/.posthog:$PATH" && \
+        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
+        export POSTHOG_CLI_ENV_ID=2 && \
+        posthog-cli --no-fail sourcemap process --directory /code/frontend/dist --public-path-prefix /static; \
+      fi \
+    ) || true
+
 
 #
 # ---------------------------------------------------------
@@ -103,10 +106,10 @@ ENV BUILD_LIBRDKAFKA=0
 
 # Compile and install Node.js dependencies.
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
 # Build the plugin server.
@@ -116,6 +119,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
 COPY ./plugin-server/assets/ ./plugin-server/assets/
+COPY ./plugin-server/bin/ ./plugin-server/bin/
 
 # Build cyclotron first with increased memory
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
@@ -125,9 +129,9 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin
 
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 --prod && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 --prod && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
 
 #
@@ -226,6 +230,7 @@ RUN apt-get update && \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
     "libssl3=3.0.17-1~deb12u2" \
+    "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
 
@@ -302,6 +307,7 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/assets /code/plugin-server/assets
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/bin /code/plugin-server/bin
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
@@ -311,7 +317,9 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Install Playwright Chromium browser for video export (as root for system deps)
 USER root
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN /python-runtime/bin/python -m playwright install --with-deps chromium && \
+    chown -R posthog:posthog /ms-playwright
 USER posthog
 
 # Validate video export dependencies
@@ -326,8 +334,7 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/fro
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Add in the Gunicorn config, custom bin files and Django deps.
-COPY --chown=posthog:posthog gunicorn.config.py ./
+# Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
@@ -336,15 +343,13 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
 
-# Keep server command backwards compatible
-RUN cp ./bin/docker-server-unit ./bin/docker-server
-
 # Setup ENV.
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    BUILD_LIBRDKAFKA=0
+    BUILD_LIBRDKAFKA=0 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Expose container port and run entry point script.
 EXPOSE 8000

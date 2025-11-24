@@ -11,11 +11,14 @@ import type { Experiment, FeatureFlagType } from '~/types'
 import type { variantsPanelLogicType } from './variantsPanelLogicType'
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
-    path: ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic'],
+    key: (props) => props.experiment?.id || 'new',
+    path: (key) => ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic', key],
     props: {
         experiment: {} as Experiment,
+        disabled: false as boolean,
     } as {
         experiment: Experiment
+        disabled: boolean
     },
     connect: {
         values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
@@ -24,11 +27,12 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
     actions: {
         setMode: (mode: 'create' | 'link') => ({ mode }),
         validateFeatureFlagKey: (key: string) => ({ key }),
+        clearFeatureFlagKeyValidation: true,
 
         setFeatureFlagKeyDirty: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     },
-    reducers: {
+    reducers: ({ props }) => ({
         featureFlagKeyError: [
             null as string | null,
             {
@@ -36,9 +40,16 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             },
         ],
         mode: [
-            'create' as 'create' | 'link',
+            // if disabled, we've default to 'link' mode
+            (props.disabled ? 'link' : 'create') as 'create' | 'link',
             {
-                setMode: (_: any, { mode }: { mode: 'create' | 'link' }) => mode,
+                setMode: (state: 'create' | 'link', { mode }: { mode: 'create' | 'link' }) => {
+                    // Prevent mode changes when editing
+                    if (props.disabled) {
+                        return state
+                    }
+                    return mode
+                },
             },
         ],
         featureFlagKeyDirty: [
@@ -49,12 +60,15 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             },
         ],
         linkedFeatureFlag: [
-            null as FeatureFlagType | null,
+            // Initialize from experiment.feature_flag when disabled
+            (props.disabled && props.experiment.feature_flag
+                ? props.experiment.feature_flag
+                : null) as FeatureFlagType | null,
             {
                 setLinkedFeatureFlag: (_, { flag }) => flag,
             },
         ],
-    },
+    }),
     loaders: ({ values }) => ({
         featureFlagKeyValidation: [
             null as { valid: boolean; error: string | null } | null,
@@ -83,6 +97,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
 
                     return { valid: true, error: null }
                 },
+                clearFeatureFlagKeyValidation: () => null,
             },
         ],
     }),
@@ -100,12 +115,21 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
     },
     listeners: ({ props, actions }) => ({
         setMode: ({ mode }) => {
-            // When switching from link to create, validate the current key to show it's taken
-            // Note: We use values.experiment (from createExperimentLogic connection) instead of props.experiment
-            // because props are captured at mount time and don't update when the parent logic changes state
-            if (mode === 'create' && props.experiment.feature_flag_key) {
+            if (mode === 'link') {
+                // When switching to link mode, clear validation
+                // In link mode, we're using an existing flag, so the key validation doesn't apply
+                actions.clearFeatureFlagKeyValidation()
+            } else if (mode === 'create' && props.experiment.feature_flag_key) {
+                // When switching from link to create, validate the current key to show it's taken
+                // Note: We use values.experiment (from createExperimentLogic connection) instead of props.experiment
+                // because props are captured at mount time and don't update when the parent logic changes state
                 actions.validateFeatureFlagKey(props.experiment.feature_flag_key)
             }
+        },
+        setLinkedFeatureFlag: () => {
+            // When selecting a linked flag, clear validation
+            // The linked flag's key already exists (that's the point!), so validation doesn't apply
+            actions.clearFeatureFlagKeyValidation()
         },
     }),
 })

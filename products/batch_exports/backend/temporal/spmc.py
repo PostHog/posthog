@@ -15,7 +15,7 @@ import temporalio.common
 from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -980,7 +980,7 @@ def compose_filters_clause(
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
-    context.database = create_hogql_database(team=team, modifiers=context.modifiers)
+    context.database = Database.create_for(team=team, modifiers=context.modifiers)
 
     exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
     and_expr = ast.And(exprs=exprs)

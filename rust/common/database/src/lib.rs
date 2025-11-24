@@ -41,6 +41,7 @@ pub struct PoolStats {
 /// Each service should provide its own configuration based on its needs
 #[derive(Debug, Clone)]
 pub struct PoolConfig {
+    pub min_connections: u32,
     pub max_connections: u32,
     pub acquire_timeout: Duration,
     pub idle_timeout: Option<Duration>,
@@ -55,6 +56,7 @@ impl Default for PoolConfig {
     /// Services can override these with their own environment-based configs
     fn default() -> Self {
         Self {
+            min_connections: 0, // Start with 0 connections by default
             max_connections: 10,
             acquire_timeout: Duration::from_secs(10),
             idle_timeout: Some(Duration::from_secs(300)), // Close idle connections after 5 minutes
@@ -93,6 +95,7 @@ pub async fn get_pool_with_timeout(
 /// This is the recommended function for services to use
 pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sqlx::Error> {
     let mut options = PgPoolOptions::new()
+        .min_connections(config.min_connections)
         .max_connections(config.max_connections)
         .acquire_timeout(config.acquire_timeout)
         .test_before_acquire(config.test_before_acquire);

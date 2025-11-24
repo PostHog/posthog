@@ -8,9 +8,10 @@ from django.conf import settings
 
 import structlog
 import temporalio
+from pydantic import BaseModel
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
-from posthog.clickhouse.client import sync_execute
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
@@ -22,51 +23,20 @@ from products.llm_analytics.backend.models.evaluations import Evaluation
 logger = structlog.get_logger(__name__)
 
 # Default model for LLM judge
-DEFAULT_JUDGE_MODEL = "gpt-4"
+DEFAULT_JUDGE_MODEL = "gpt-5-mini"
+
+
+class BooleanEvalResult(BaseModel):
+    """Structured output for boolean evaluation results"""
+
+    reasoning: str
+    verdict: bool
 
 
 @dataclass
 class RunEvaluationInputs:
     evaluation_id: str
-    target_event_id: str
-
-
-@temporalio.activity.defn
-async def fetch_target_event_activity(inputs: RunEvaluationInputs, team_id: int) -> dict[str, Any]:
-    """Fetch target event from ClickHouse"""
-    query = """
-        SELECT
-            uuid,
-            event,
-            properties,
-            timestamp,
-            team_id,
-            distinct_id,
-            person_id
-        FROM events
-        WHERE uuid = %(event_id)s AND team_id = %(team_id)s
-        LIMIT 1
-    """
-
-    result = await database_sync_to_async(sync_execute, thread_sensitive=False)(
-        query, {"event_id": inputs.target_event_id, "team_id": team_id}
-    )
-
-    if not result:
-        logger.exception("Event not found", target_event_id=inputs.target_event_id, team_id=team_id)
-        raise ValueError(f"Event {inputs.target_event_id} not found for team {team_id}")
-
-    row = result[0]
-    event_data = {
-        "uuid": str(row[0]),
-        "event": row[1],
-        "properties": json.loads(row[2]) if isinstance(row[2], str) else row[2],
-        "timestamp": row[3],
-        "team_id": row[4],
-        "distinct_id": row[5],
-        "person_id": str(row[6]) if row[6] is not None else None,
-    }
-    return event_data
+    event_data: dict[str, Any]
 
 
 @temporalio.activity.defn
@@ -79,7 +49,10 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
             return {
                 "id": str(evaluation.id),
                 "name": evaluation.name,
-                "prompt": evaluation.prompt,
+                "evaluation_type": evaluation.evaluation_type,
+                "evaluation_config": evaluation.evaluation_config,
+                "output_type": evaluation.output_type,
+                "output_config": evaluation.output_config,
                 "team_id": evaluation.team_id,
             }
         except Evaluation.DoesNotExist:
@@ -93,6 +66,24 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
 async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event"""
     import openai
+
+    if evaluation["evaluation_type"] != "llm_judge":
+        raise ApplicationError(
+            f"Unsupported evaluation type: {evaluation['evaluation_type']}",
+            non_retryable=True,
+        )
+
+    evaluation_config = evaluation.get("evaluation_config", {})
+    prompt = evaluation_config.get("prompt")
+    if not prompt:
+        raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
+
+    output_type = evaluation["output_type"]
+    if output_type != "boolean":
+        raise ApplicationError(
+            f"Unsupported output type: {output_type}. Only 'boolean' is currently supported.",
+            non_retryable=True,
+        )
 
     # Build context from event
     event_type = event_data["event"]
@@ -120,22 +111,9 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     # Build judge prompt
     system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
 
-{evaluation["prompt"]}
+{prompt}
 
-Respond with ONLY a JSON object in this exact format:
-{{
-  "reasoning": "Brief explanation of your evaluation (1 sentence)",
-  "verdict": true
-}}
-
-or
-
-{{
-  "reasoning": "Brief explanation of your evaluation (1 sentence)",
-  "verdict": false
-}}
-
-Do not include any other text, explanation, or formatting outside the JSON object."""
+Provide a brief reasoning (1 sentence) and a boolean verdict (true/false)."""
 
     user_prompt = f"""Input: {input_data}
 
@@ -144,29 +122,27 @@ Output: {output_data}"""
     # Call OpenAI
     client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
 
-    response = client.chat.completions.create(
+    response = client.beta.chat.completions.parse(
         model=DEFAULT_JUDGE_MODEL,
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-        temperature=0.0,
-        max_tokens=500,
+        response_format=BooleanEvalResult,
     )
 
-    # Parse response
-    content = response.choices[0].message.content
-    if content is None:
-        logger.exception("LLM judge returned empty response", evaluation_id=evaluation["id"])
-        raise ValueError(f"LLM judge returned empty response for evaluation {evaluation['id']}")
+    # Parse structured output
+    result = response.choices[0].message.parsed
+    if result is None:
+        logger.exception("LLM judge returned empty structured response", evaluation_id=evaluation["id"])
+        raise ValueError(f"LLM judge returned empty structured response for evaluation {evaluation['id']}")
 
-    try:
-        result = json.loads(content)
-        verdict = bool(result.get("verdict", False))
-        reasoning = result.get("reasoning", "No reasoning provided")
-        return {"verdict": verdict, "reasoning": reasoning}
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.exception(
-            "Failed to parse LLM judge response", response=content, evaluation_id=evaluation["id"], error=str(e)
-        )
-        raise ValueError(f"Failed to parse LLM judge response for evaluation {evaluation['id']}: {str(e)}") from e
+    # Extract token usage from response
+    usage = response.usage
+    return {
+        "verdict": result.verdict,
+        "reasoning": result.reasoning,
+        "input_tokens": usage.prompt_tokens if usage else 0,
+        "output_tokens": usage.completion_tokens if usage else 0,
+        "total_tokens": usage.total_tokens if usage else 0,
+    }
 
 
 @temporalio.activity.defn
@@ -217,13 +193,46 @@ async def emit_evaluation_event_activity(
     await database_sync_to_async(_emit, thread_sensitive=False)()
 
 
+@temporalio.activity.defn
+async def emit_internal_telemetry_activity(
+    evaluation: dict[str, Any],
+    team_id: int,
+    result: dict[str, Any],
+) -> None:
+    """Emit telemetry event to PostHog org for internal tracking"""
+    from posthog.tasks.usage_report import get_ph_client
+
+    def _emit_telemetry():
+        team = Team.objects.get(id=team_id)
+        organization_id = str(team.organization_id)
+
+        ph_client = get_ph_client(sync_mode=True)
+        ph_client.capture(
+            distinct_id=f"org-{organization_id}",
+            event="llm analytics evaluation executed",
+            properties={
+                "evaluation_id": evaluation["id"],
+                "team_id": team_id,
+                "model": DEFAULT_JUDGE_MODEL,
+                "input_tokens": result.get("input_tokens", 0),
+                "output_tokens": result.get("output_tokens", 0),
+                "total_tokens": result.get("total_tokens", 0),
+                "verdict": result["verdict"],
+            },
+            groups={"organization": organization_id, "instance": settings.SITE_URL},
+        )
+        ph_client.flush()
+
+    await database_sync_to_async(_emit_telemetry, thread_sensitive=False)()
+
+
 @temporalio.workflow.defn(name="run-evaluation")
 class RunEvaluationWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunEvaluationInputs:
         return RunEvaluationInputs(
             evaluation_id=inputs[0],
-            target_event_id=inputs[1],
+            event_data=json.loads(inputs[1]),
         )
 
     @temporalio.workflow.run
@@ -236,14 +245,12 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        event_data = await temporalio.workflow.execute_activity(
-            fetch_target_event_activity,
-            args=[inputs, evaluation["team_id"]],
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        # Normalize event_data: ensure properties is a dict, not a string
+        event_data = inputs.event_data.copy()
+        if isinstance(event_data.get("properties"), str):
+            event_data["properties"] = json.loads(event_data["properties"])
 
-        # Activity 3: Execute LLM judge
+        # Activity 2: Execute LLM judge
         result = await temporalio.workflow.execute_activity(
             execute_llm_judge_activity,
             args=[evaluation, event_data],
@@ -251,12 +258,19 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        # Activity 4: Emit evaluation event
+        # Activity 3: Emit evaluation event
         await temporalio.workflow.execute_activity(
             emit_evaluation_event_activity,
             args=[evaluation, event_data, result, start_time],
             schedule_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        # Activity 4: Emit internal telemetry (fire-and-forget)
+        await temporalio.workflow.execute_activity(
+            emit_internal_telemetry_activity,
+            args=[evaluation, event_data["team_id"], result],
+            schedule_to_close_timeout=timedelta(seconds=30),
         )
 
         return {"verdict": result["verdict"], "reasoning": result["reasoning"], "evaluation_id": evaluation["id"]}

@@ -72,20 +72,19 @@ describe('Max Logics Integration Tests', () => {
 
         await expectLogic(threadLogic).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        content: 'hello',
-                        status: 'completed',
-                        type: AssistantMessageType.Human,
-                    },
-                ],
-                [
-                    partial({
-                        type: AssistantMessageType.Reasoning,
-                        status: 'completed',
-                        id: 'loader',
+                {
+                    content: 'hello',
+                    status: 'completed',
+                    type: AssistantMessageType.Human,
+                },
+                partial({
+                    type: AssistantMessageType.Assistant,
+                    status: 'completed',
+                    id: 'loader',
+                    meta: partial({
+                        thinking: expect.any(Array),
                     }),
-                ],
+                }),
             ],
         })
     })

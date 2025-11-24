@@ -20,13 +20,16 @@ export const validateVariants = ({
     flagKey,
     variants,
     featureFlagKeyValidation,
+    mode,
 }: {
     flagKey: string | null
     variants: MultivariateFlagVariant[]
     featureFlagKeyValidation: { valid: boolean; error: string | null } | null
+    mode?: 'create' | 'link'
 }): VariantValidationResult => {
     const hasFlagKey = !!flagKey
-    const hasFlagKeyError = featureFlagKeyValidation?.valid === false
+    // In 'link' mode, we're using an existing flag, so don't validate key availability
+    const hasFlagKeyError = mode === 'link' ? false : featureFlagKeyValidation?.valid === false
     const hasEnoughVariants = variants.length >= 2
     const totalRollout = variants.reduce((sum, v) => sum + (v.rollout_percentage || 0), 0)
     const isValidRollout = totalRollout === 100

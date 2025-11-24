@@ -3,13 +3,14 @@ import { useActions, useValues } from 'kea'
 import { IconNotification } from '@posthog/icons'
 import { LemonTabs } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AvailableFeature } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 import { AdvancedActivityLogFiltersPanel } from './AdvancedActivityLogFiltersPanel'
 import { AdvancedActivityLogsList } from './AdvancedActivityLogsList'
@@ -24,6 +25,8 @@ export const scene: SceneExport = {
 export function AdvancedActivityLogsScene(): JSX.Element | null {
     const { activeTab } = useValues(advancedActivityLogsLogic)
     const { setActiveTab } = useActions(advancedActivityLogsLogic)
+
+    const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
 
     const tabs = [
         {
@@ -43,6 +46,14 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
         },
     ]
 
+    if (!hasAccess) {
+        return (
+            <SceneContent>
+                <AccessDenied object="activity logs" />
+            </SceneContent>
+        )
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -52,7 +63,6 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                     forceIcon: <IconNotification />,
                 }}
             />
-            <SceneDivider />
             <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
                 <LemonTabs
                     activeKey={activeTab}

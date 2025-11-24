@@ -12,6 +12,7 @@ import {
     LemonLabel,
     LemonMenu,
     LemonModal,
+    LemonModalProps,
     LemonSegmentedButton,
     LemonSelect,
     LemonTable,
@@ -30,7 +31,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
-function EditKeyModal(): JSX.Element {
+interface EditKeyModalProps {
+    zIndex?: LemonModalProps['zIndex']
+}
+
+export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
     const {
         editingKeyId,
         isEditingKeySubmitting,
@@ -54,6 +59,7 @@ function EditKeyModal(): JSX.Element {
                 isOpen={!!editingKeyId}
                 width="40rem"
                 hasUnsavedInput={editingKeyChanged}
+                zIndex={zIndex}
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={() => setEditingKeyId(null)}>
@@ -388,7 +394,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                     key: 'mask_value',
                     render: (_, key) =>
                         key.mask_value ? (
-                            <span className="font-mono">{key.mask_value}</span>
+                            <span className="font-mono ph-no-capture">{key.mask_value}</span>
                         ) : (
                             <Tooltip title="This key was created before the introduction of previews" placement="right">
                                 <span className="inline-flex items-center gap-1 cursor-default">

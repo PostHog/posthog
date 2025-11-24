@@ -103,6 +103,7 @@ function buildToolbarParams(options?: {
     actionId?: number | null
     experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
+    toolbarFlagsKey?: string
 }): ToolbarParams {
     return {
         userIntent:
@@ -115,6 +116,7 @@ function buildToolbarParams(options?: {
         apiURL: apiHostOrigin(),
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
+        ...(options?.toolbarFlagsKey ? { toolbarFlagsKey: options.toolbarFlagsKey } : {}),
     }
 }
 
@@ -126,6 +128,7 @@ export function appEditorUrl(
         experimentId?: ExperimentIdType
         userIntent?: ToolbarUserIntent
         generateOnly?: boolean
+        toolbarFlagsKey?: string
     }
 ): string {
     const params = buildToolbarParams(options) as Record<string, unknown>

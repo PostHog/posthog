@@ -5,6 +5,7 @@ use crate::{
     error::CapturedError,
     experimental::{query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
+    proguard::ProguardSubcommand,
     sourcemaps::{hermes::HermesSubcommand, plain::SourcemapCommand},
 };
 
@@ -68,6 +69,29 @@ pub enum ExpCommand {
         #[command(subcommand)]
         cmd: HermesSubcommand,
     },
+
+    #[command(about = "Upload proguard mapping files to PostHog")]
+    Proguard {
+        #[command(subcommand)]
+        cmd: ProguardSubcommand,
+    },
+    /// Download event definitions and generate typed SDK
+    Schema {
+        #[command(subcommand)]
+        cmd: SchemaCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SchemaCommand {
+    /// Download event definitions and generate typed SDK
+    Pull {
+        /// Output path for generated definitions (stored in posthog.json for future runs)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Show current schema sync status
+    Status,
 }
 
 impl Cli {
@@ -100,7 +124,7 @@ impl Cli {
         match self.command {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
-                crate::login::login()?;
+                crate::login::login(self.host)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
@@ -134,6 +158,19 @@ impl Cli {
                     }
                     HermesSubcommand::Clone(args) => {
                         crate::sourcemaps::hermes::clone::clone(&args)?;
+                    }
+                },
+                ExpCommand::Proguard { cmd } => match cmd {
+                    ProguardSubcommand::Upload(args) => {
+                        crate::proguard::upload::upload(&args)?;
+                    }
+                },
+                ExpCommand::Schema { cmd } => match cmd {
+                    SchemaCommand::Pull { output } => {
+                        crate::experimental::schema::pull(self.host, output)?;
+                    }
+                    SchemaCommand::Status => {
+                        crate::experimental::schema::status()?;
                     }
                 },
             },

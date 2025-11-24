@@ -119,7 +119,6 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     ],
 }
 
-
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
         "key",
@@ -221,6 +220,9 @@ class Property:
     total_periods: Optional[int]
     min_periods: Optional[int]
     negation: Optional[bool] = False
+    # Fields for realtime cohorts
+    conditionHash: Optional[str]
+    bytecode: Optional[list[Any]]
     _data: dict
 
     def __init__(
@@ -245,6 +247,9 @@ class Property:
         seq_time_interval: Optional[OperatorInterval] = None,
         negation: Optional[bool] = None,
         event_filters: Optional[list["Property"]] = None,
+        # Only set for realtime cohorts
+        conditionHash: Optional[str] = None,
+        bytecode: Optional[list[Any]] = None,
         **kwargs,
     ) -> None:
         self.key = key
@@ -264,6 +269,8 @@ class Property:
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
         self.event_filters = event_filters
+        self.conditionHash = conditionHash
+        self.bytecode = bytecode
 
         if value is None and self.operator in ["is_set", "is_not_set"]:
             self.value = self.operator

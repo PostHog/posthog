@@ -93,6 +93,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
+        // ok to connect to localhost over plaintext
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
         REDIS_URL: 'redis://127.0.0.1',
         INGESTION_REDIS_HOST: '',
         INGESTION_REDIS_PORT: 6379,
@@ -118,7 +120,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_PROPERTY_LRU_SIZE: 10000,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: isDevEnv() ? 'http://localhost:8000' : '',
-        TEMPORAL_HOST: 'localhost:7233',
+        TEMPORAL_HOST: 'localhost',
+        TEMPORAL_PORT: '7233',
         TEMPORAL_NAMESPACE: 'default',
         TEMPORAL_CLIENT_ROOT_CA: undefined,
         TEMPORAL_CLIENT_CERT: undefined,
@@ -210,7 +213,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
-        CDP_REDIS_HOST: '',
+        CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
@@ -275,15 +278,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
 
         // Session recording V2
-        SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
+        SESSION_RECORDING_MAX_BATCH_SIZE_KB: isDevEnv() ? 2 * 1024 : 100 * 1024, // 2MB on dev, 100MB on prod and test
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
         SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
         SESSION_RECORDING_V2_S3_PREFIX: 'session_recordings',
-        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
+        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:8333',
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
-        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
-        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
-        SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any',
+        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any',
+        SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
@@ -298,11 +301,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DISABLED: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000, // 1 hour
-        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * 24, // 24 hours
-        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * 24, // 24 hours
+        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24), // 96 hours (72 ingestion lag + 24 validity)
+        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24), // 96 hours (72 ingestion lag + 24 validity)
         COOKIELESS_SESSION_INACTIVITY_MS: 30 * 60 * 1000, // 30 minutes
         COOKIELESS_IDENTIFIES_TTL_SECONDS:
-            (24 + // max supported ingestion lag
+            (72 + // max supported ingestion lag in hours
                 12 + // max negative timezone in the world*/
                 14 + // max positive timezone in the world */
                 24) * // amount of time salt is valid in one timezone
@@ -332,6 +335,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_MERGE_ASYNC_ENABLED: false,
         // Batch size for sync person merge processing (0 = unlimited, process all distinct IDs in one query)
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        // Enable person table cutover migration
+        PERSON_TABLE_CUTOVER_ENABLED: false,
+        // New person table name for cutover migration
+        PERSON_NEW_TABLE_NAME: 'posthog_person_new',
+        // Person ID offset threshold - person IDs >= this value route to new table
+        // Default is max safe integer to ensure cutover doesn't activate accidentally
+        PERSON_NEW_TABLE_ID_OFFSET: Number.MAX_SAFE_INTEGER,
 
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
@@ -342,11 +352,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
-        // Workflows
-        MAILJET_PUBLIC_KEY: '',
-        MAILJET_SECRET_KEY: '',
-
-        // SES
+        // SES (Workflows email sending)
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',

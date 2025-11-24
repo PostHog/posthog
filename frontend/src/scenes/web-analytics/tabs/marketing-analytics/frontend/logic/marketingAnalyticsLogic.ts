@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
@@ -6,7 +6,9 @@ import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSo
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     CompareFilter,
     ConversionGoalFilter,
@@ -170,6 +172,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['sources_map', 'conversion_goals'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+        ],
+        actions: [
+            dataWarehouseSettingsLogic,
+            ['loadSources', 'loadSourcesSuccess'],
+            dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
+            ['reloadAll'],
         ],
     })),
     actions({
@@ -485,45 +493,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 })
             },
         ],
-        nativeSourcesWithStatus: [
-            (s) => [s.nativeSources],
-            (nativeSources) => {
-                return nativeSources.map((source) => {
-                    const status = getSourceStatus(
-                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix },
-                        nativeSources,
-                        []
-                    )
-                    return {
-                        ...source,
-                        status: status.status,
-                        statusMessage: status.message,
-                    }
-                })
-            },
-        ],
-        externalTablesWithStatus: [
-            (s) => [s.externalTables],
-            (externalTables) => {
-                return externalTables.map((table) => {
-                    const status = getSourceStatus(
-                        {
-                            id: table.source_map_id,
-                            name: table.schema_name,
-                            type: table.external_type,
-                            prefix: table.source_prefix,
-                        },
-                        [],
-                        externalTables
-                    )
-                    return {
-                        ...table,
-                        status: status.status,
-                        statusMessage: status.message,
-                    }
-                })
-            },
-        ],
         allExternalTablesWithStatus: [
             (s) => [s.externalTables, s.nativeSources],
             (externalTables, nativeSources) => {
@@ -617,7 +586,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     .filter(Boolean) as DataWarehouseNode[]
 
                 const nativeNodeList: DataWarehouseNode[] = filteredNativeSources
-                    .map((source) => MarketingDashboardMapper(source, tileColumnSelection))
+                    .map((source) => MarketingDashboardMapper(source, tileColumnSelection, baseCurrency))
                     .filter(Boolean) as DataWarehouseNode[]
 
                 return [...nativeNodeList, ...nonNativeNodeList]
@@ -653,7 +622,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             }
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         saveDraftConversionGoal: () => {
             // Create a new local conversion goal with new id
             actions.resetConversionGoalInput()
@@ -662,5 +631,25 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             // Clear the draft goal when resetting local goal
             actions.setDraftConversionGoal(null)
         },
+        loadSourcesSuccess: () => {
+            // Clean up integrationFilter if it contains IDs of sources that no longer exist
+            const currentFilter = values.integrationFilter
+            if (currentFilter.integrationSourceIds && currentFilter.integrationSourceIds.length > 0) {
+                const availableSourceIds = values.allAvailableSources.map((s) => s.id)
+                const validFilterIds = currentFilter.integrationSourceIds.filter((id) =>
+                    availableSourceIds.includes(id)
+                )
+
+                if (validFilterIds.length !== currentFilter.integrationSourceIds.length) {
+                    actions.setIntegrationFilter({ integrationSourceIds: validFilterIds })
+                }
+            }
+
+            // Reload all queries to reflect the updated sources
+            actions.reloadAll()
+        },
     })),
+    afterMount(({ actions }) => {
+        actions.loadSources(null)
+    }),
 ])

@@ -8,11 +8,11 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 const meta: Meta = {
-    title: 'Scenes-App/Persons & Groups',
+    title: 'Scenes-App/People/Person',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2023-07-04', // To stabilize relative dates
+        mockDate: '2023-07-04',
     },
     decorators: [
         mswDecorator({

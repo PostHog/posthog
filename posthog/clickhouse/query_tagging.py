@@ -30,6 +30,7 @@ class Product(StrEnum):
     WAREHOUSE = "warehouse"
     EXPERIMENTS = "experiments"
     SDK_DOCTOR = "sdk_doctor"
+    ENDPOINTS = "endpoints"
 
 
 class Feature(StrEnum):

@@ -1,21 +1,28 @@
 import dataclasses
-from collections.abc import Iterable
-from typing import Any, Literal, Optional
+from collections.abc import Callable, Iterable
+from typing import Any, ClassVar, Literal, Optional, Protocol, TypeVar
 
 from dlt.common.data_types.typing import TDataType
 from structlog.types import FilteringBoundLogger
 
-from posthog.warehouse.types import IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]
-PartitionFormat = Literal["month", "week", "day"]
+PartitionFormat = Literal["month", "week", "day", "hour"]
+
+
+class _Dataclass(Protocol):
+    __dataclass_fields__: ClassVar[dict[str, Any]]
+
+
+ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 
 
 @dataclasses.dataclass
 class SourceResponse:
     name: str
-    items: Iterable[Any]
+    items: Callable[[], Iterable[Any]]
     primary_keys: list[str] | None
     column_hints: dict[str, TDataType | None] | None = None  # Legacy support for DLT sources
     partition_count: Optional[int] = None

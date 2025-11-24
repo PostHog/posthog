@@ -35,7 +35,8 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestPrinter(BaseTest):
@@ -1151,7 +1152,7 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events"),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
-        self._assert_select_error("select 1 from other", 'Unknown table "other".')
+        self._assert_select_error("select 1 from other", "Unknown table `other`.")
 
     def test_select_from_placeholder(self):
         self.assertEqual(
@@ -1376,10 +1377,10 @@ class TestPrinter(BaseTest):
             self.assertEqual(
                 query,
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 LEFT OUTER JOIN (SELECT "
-                "argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, "
+                "tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
-                "HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) "
+                "HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
@@ -1402,10 +1403,10 @@ class TestPrinter(BaseTest):
                     context,
                 ),
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 LEFT OUTER JOIN (SELECT "
-                "argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, "
+                "tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
-                "HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) "
+                "HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
@@ -1480,7 +1481,7 @@ class TestPrinter(BaseTest):
             enable_select_queries=True,
             database=Database(None, WeekStartDay.SUNDAY),
         )
-        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
+        context.database.get_table("events").fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
         self.assertEqual(
             self._select(
@@ -1903,7 +1904,9 @@ class TestPrinter(BaseTest):
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements1 = self._select(
             "SELECT "
             "nullable_field like 'a' as a, "
@@ -1917,7 +1920,9 @@ class TestPrinter(BaseTest):
         )
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements2 = self._select(
             "SELECT "
             "like(nullable_field, 'a') as a, "
@@ -1949,7 +1954,9 @@ class TestPrinter(BaseTest):
 
     def test_field_nullable_not_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements1 = self._select(
             "SELECT "
             "nullable_field not like 'a' as a, "
@@ -1963,7 +1970,9 @@ class TestPrinter(BaseTest):
         )
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
-        context.database.events.fields["nullable_field"] = StringDatabaseField(name="nullable_field", nullable=True)  # type: ignore
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
         generated_sql_statements2 = self._select(
             "SELECT "
             "notLike(nullable_field, 'a') as a, "
@@ -2366,7 +2375,7 @@ class TestPrinter(BaseTest):
             enable_select_queries=True,
             database=Database(None, WeekStartDay.SUNDAY),
         )
-        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
+        context.database.get_table("events").fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
         self.assertEqual(
             self._select(

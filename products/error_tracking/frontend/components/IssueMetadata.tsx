@@ -1,12 +1,11 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropsWithChildren, useState } from 'react'
 import { match } from 'ts-pattern'
 
-import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronRight } from '@posthog/icons'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
@@ -54,7 +53,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
     )
 
     return (
-        <LemonCard className={clsx('p-0', className)} hoverEffect={false}>
+        <div className={className}>
             <div className="flex justify-between items-center h-[40px] px-2">
                 <div className="flex justify-end items-center h-full">
                     {match(hoveredDatum)
@@ -108,7 +107,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                 />
             </div>
             {children}
-        </LemonCard>
+        </div>
     )
 }
 

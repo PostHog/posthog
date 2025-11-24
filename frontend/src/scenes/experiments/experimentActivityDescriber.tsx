@@ -39,7 +39,7 @@ export const ExperimentDetails = ({
 const UnknownAction = ({ logItem }: { logItem: ActivityLogItem }): JSX.Element => {
     return (
         <SentenceList
-            prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+            prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
             listParts={['performed an unknown action on']}
             suffix={nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
         />
@@ -149,7 +149,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             return {
                 description: (
                     <SentenceList
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         listParts={['created a new experiment holdout:']}
                         suffix={<strong>{logItem.detail.name}</strong>}
                     />
@@ -163,7 +163,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             return {
                 description: (
                     <SentenceList
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         listParts={[
                             isSharedMetric ? (
                                 <span>created a new shared metric:</span>
@@ -189,7 +189,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             return {
                 description: (
                     <SentenceList
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         listParts={['deleted experiment:']}
                         suffix={logItem.detail.name}
                     />
@@ -203,7 +203,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             return {
                 description: (
                     <SentenceList
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         listParts={['deleted shared metric:']}
                         suffix={logItem.detail.name}
                     />
@@ -217,9 +217,31 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             return {
                 description: (
                     <SentenceList
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         listParts={['deleted experiment holdout:']}
                         suffix={<strong>{logItem.detail.name}</strong>}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'deleted' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['deleted experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'restored' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['restored experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
                     />
                 ),
             }
@@ -254,7 +276,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             return {
                 description: (
                     <SentenceList
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         listParts={listParts}
                         suffix={suffix}
                     />

@@ -43,9 +43,9 @@ describe('topBarSettingsButtonLogic', () => {
             sceneLogicInstance?.unmount()
         })
 
-        it('returns environment-customer-analytics when CRM feature flag is enabled', async () => {
+        it('returns environment-customer-analytics when customer-analytics feature flag is enabled', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CRM_ITERATION_ONE]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true,
             })
 
             await expectLogic(logic).toMatchValues({
@@ -53,9 +53,9 @@ describe('topBarSettingsButtonLogic', () => {
             })
         })
 
-        it('returns undefined when CRM feature flag is disabled for environment-customer-analytics', async () => {
+        it('returns undefined when customer-analytics feature flag is disabled for environment-customer-analytics', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CRM_ITERATION_ONE]: false,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: false,
             })
 
             await expectLogic(logic).toMatchValues({

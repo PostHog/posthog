@@ -16,8 +16,9 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
-from posthog.warehouse.models import ExternalDataJob
-from posthog.warehouse.s3 import ensure_bucket_exists, get_s3_client
+
+from products.data_warehouse.backend.models import ExternalDataJob
+from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
 
 
 class DeltaTableHelper:
@@ -98,6 +99,8 @@ class DeltaTableHelper:
                 if "parse decimal overflow" in "".join(e.args):
                     s3 = get_s3_client()
                     s3.delete(delta_uri, recursive=True)
+                else:
+                    raise
 
         self._is_first_sync = True
 
@@ -121,7 +124,7 @@ class DeltaTableHelper:
         self,
         data: pa.Table,
         write_type: Literal["incremental", "full_refresh", "append"],
-        chunk_index: int,
+        should_overwrite_table: bool,
         primary_keys: Sequence[Any] | None,
     ) -> deltalake.DeltaTable:
         delta_table = self.get_delta_table()
@@ -129,7 +132,9 @@ class DeltaTableHelper:
         if delta_table:
             delta_table = self._evolve_delta_schema(data.schema)
 
-        self._logger.debug(f"write_to_deltalake: _is_first_sync = {self._is_first_sync}")
+        self._logger.debug(
+            f"write_to_deltalake: _is_first_sync = {self._is_first_sync}. should_overwrite_table = {should_overwrite_table}"
+        )
 
         use_partitioning = False
         if PARTITION_KEY in data.column_names:
@@ -201,7 +206,7 @@ class DeltaTableHelper:
         ):
             mode: Literal["error", "append", "overwrite", "ignore"] = "append"
             schema_mode: Literal["merge", "overwrite"] | None = "merge"
-            if chunk_index == 0 or delta_table is None:
+            if should_overwrite_table or delta_table is None:
                 mode = "overwrite"
                 schema_mode = "overwrite"
 

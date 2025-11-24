@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconCheck, IconPencil, IconTrash, IconX } from '@posthog/icons'
+import { IconCheck, IconPencil, IconTrash, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -9,9 +9,13 @@ import { uuid } from 'lib/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { ConversionGoalFilter } from '~/queries/schema/schema-general'
+import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import {
+    MarketingAnalyticsValidationWarningBanner,
+    validateConversionGoals,
+} from '../MarketingAnalyticsValidationWarningBanner'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 import { defaultConversionGoalFilter } from './constants'
 
@@ -37,6 +41,8 @@ export function ConversionGoalsConfiguration({
     const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState())
     const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
+
+    const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
     const handleAddConversionGoal = (): void => {
         let conversionGoalName = formState.name.trim()
@@ -86,6 +92,10 @@ export function ConversionGoalsConfiguration({
                     : undefined
             }
         >
+            {validationWarnings.length > 0 && (
+                <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
+            )}
+
             {/* Add New Conversion Goal Form */}
             <div className="border rounded p-4 space-y-4">
                 <h4 className="font-medium">Add new conversion goal</h4>
@@ -137,6 +147,13 @@ export function ConversionGoalsConfiguration({
                             key: 'name',
                             title: 'Goal name',
                             render: (_, goal: ConversionGoalFilter) => {
+                                // Check if this goal is invalid (All Events)
+                                const isInvalid =
+                                    goal.kind === NodeKind.EventsNode &&
+                                    ('event' in goal
+                                        ? (goal as any).event === null || (goal as any).event === ''
+                                        : false)
+
                                 if (editingGoalId === goal.conversion_goal_id && editingGoal) {
                                     return (
                                         <LemonInput
@@ -150,7 +167,14 @@ export function ConversionGoalsConfiguration({
                                         />
                                     )
                                 }
-                                return goal.conversion_goal_name
+                                return (
+                                    <div className={isInvalid ? 'flex items-center gap-1.5' : ''}>
+                                        <span className={isInvalid ? 'text-warning' : ''}>
+                                            {goal.conversion_goal_name}
+                                        </span>
+                                        {isInvalid && <IconWarning className="text-warning w-4 h-4 shrink-0" />}
+                                    </div>
+                                )
                             },
                         },
                         {

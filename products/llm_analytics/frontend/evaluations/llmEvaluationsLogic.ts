@@ -122,7 +122,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     name: `${original.name} (Copy)`,
                     description: original.description,
                     enabled: original.enabled,
-                    prompt: original.prompt,
+                    evaluation_type: original.evaluation_type,
+                    evaluation_config: original.evaluation_config,
+                    output_type: original.output_type,
+                    output_config: original.output_config,
                     conditions: original.conditions,
                 }
 
@@ -171,7 +174,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     (e: EvaluationConfig) =>
                         e.name.toLowerCase().includes(filter.toLowerCase()) ||
                         e.description?.toLowerCase().includes(filter.toLowerCase()) ||
-                        e.prompt.toLowerCase().includes(filter.toLowerCase())
+                        e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())
                 )
             },
         ],

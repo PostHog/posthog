@@ -5,7 +5,12 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use tracing::info;
 
+// filename of metadata tracking file in each remote checkpoint attempt directory
 pub const METADATA_FILENAME: &str = "metadata.json";
+// hour-scoped prefix of TIMESTAMP_FORMAT used to pull
+// recent window of meta files from remote storage
+pub const DATE_PLUS_HOURS_ONLY_FORMAT: &str = "%Y-%m-%d-%H";
+// checkpoint_id value: human-readable path element populated from attempt_timestamp
 pub const TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H-%M-%SZ";
 
 /// Metadata about a checkpoint
@@ -58,6 +63,19 @@ impl CheckpointMetadata {
         attempt_timestamp.format(TIMESTAMP_FORMAT).to_string()
     }
 
+    pub fn from_json_bytes(json: &[u8]) -> Result<Self> {
+        let metadata: Self =
+            serde_json::from_slice(json).context("In CheckpointMetadata::from_json")?;
+        Ok(metadata)
+    }
+
+    /// Load metadata from a JSON file
+    pub async fn load_from_file(path: &Path) -> Result<Self> {
+        let json = tokio::fs::read_to_string(path).await?;
+        let metadata: Self = serde_json::from_str(&json)?;
+        Ok(metadata)
+    }
+
     /// Save metadata to a JSON file
     pub async fn save_to_file(&self, local_base_path: &Path) -> Result<()> {
         let json = self.to_json().context("In save_to_file")?;
@@ -75,13 +93,6 @@ impl CheckpointMetadata {
 
         info!("Saved checkpoint metadata file to {:?}", metadata_file_path);
         Ok(())
-    }
-
-    /// Load metadata from a JSON file
-    pub async fn load_from_file(path: &Path) -> Result<Self> {
-        let json = tokio::fs::read_to_string(path).await?;
-        let metadata: Self = serde_json::from_str(&json)?;
-        Ok(metadata)
     }
 
     /// Append another CheckpointFile to the files list

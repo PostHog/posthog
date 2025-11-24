@@ -108,13 +108,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
-        updateDateRange: (dateRange: DateRange) => ({ dateRange }),
+        updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
+        removeFormulaNode: (formulas: TrendsFormulaNode[]) => ({ formulas }),
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
         }),
@@ -545,14 +546,36 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         // query source properties
-        updateDateRange: async ({ dateRange }, breakpoint) => {
-            await breakpoint(300)
-            actions.updateQuerySource({
+        updateDateRange: async ({ dateRange, ignoreDebounce }, breakpoint) => {
+            if (!ignoreDebounce) {
+                await breakpoint(300)
+            }
+            const updates = {
                 dateRange: {
                     ...values.dateRange,
                     ...dateRange,
+                    explicitDate: dateRange.explicitDate ?? values.dateRange?.explicitDate ?? false,
                 },
                 ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
+            } as QuerySourceUpdate
+
+            // Reset selectedInterval for retention insights when date range changes
+            if (values.isRetention) {
+                const filterProperty = filterKeyForQuery(values.localQuerySource)
+                updates[filterProperty as keyof QuerySourceUpdate] = {
+                    ...values.localQuerySource[filterProperty],
+                    selectedInterval: null,
+                }
+            }
+
+            actions.updateQuerySource(updates)
+        },
+        setExplicitDate: ({ explicitDate }) => {
+            actions.updateQuerySource({
+                dateRange: {
+                    ...values.dateRange,
+                    explicitDate,
+                },
             })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
@@ -611,6 +634,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             // Only if formula mode is already open should we trigger a query.
             if (values.hasFormula) {
                 actions.updateInsightFilter({ formula: undefined, formulas: undefined, formulaNodes: [] })
+            }
+        },
+        removeFormulaNode: ({ formulas }) => {
+            if (formulas.length === 0) {
+                actions.toggleFormulaMode()
+                return
+            }
+
+            const filledFormulas = formulas.filter((v) => v.formula.trim() !== '')
+            if (filledFormulas.length > 0) {
+                actions.updateInsightFilter({
+                    formula: undefined,
+                    formulas: undefined,
+                    formulaNodes: filledFormulas,
+                })
             }
         },
     })),

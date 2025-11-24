@@ -99,6 +99,16 @@ describe('LogsIngestionConsumer', () => {
         jest.useRealTimers()
     })
 
+    const waitForBackgroundTasks = async (
+        promise: Promise<{
+            backgroundTask?: Promise<any>
+        }>
+    ) => {
+        await (
+            await promise
+        ).backgroundTask
+    }
+
     describe('general', () => {
         it('should have the correct config', () => {
             expect(consumer['name']).toEqual('LogsIngestionConsumer')
@@ -130,7 +140,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
             })
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
@@ -145,7 +155,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
             })
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             const producedMessages = mockProducerObserver.getProducedKafkaMessages()
             expect(producedMessages).toHaveLength(3)
@@ -160,7 +170,7 @@ describe('LogsIngestionConsumer', () => {
                 // missing token
             })
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
         })
@@ -171,9 +181,33 @@ describe('LogsIngestionConsumer', () => {
                 token: 'invalid-token',
             })
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
+        })
+
+        it('should preserve kafka message headers', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                myHeader: 'hello',
+                token: team.api_token,
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
+            expect(forSnapshot(producedMessages)).toMatchSnapshot()
+        })
+
+        it('should overwrite existing headers', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+                team_id: '999',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
 
         it('should handle parse errors gracefully', async () => {
@@ -190,7 +224,7 @@ describe('LogsIngestionConsumer', () => {
                 } as Message,
             ]
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             expect(mockProducerObserver.getProducedMessages()).toHaveLength(0)
             expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'team_not_found' })
@@ -201,7 +235,7 @@ describe('LogsIngestionConsumer', () => {
         it('should handle empty batch', async () => {
             const result = await consumer.processBatch([])
 
-            expect(result.backgroundTask).toBeDefined()
+            expect(result.backgroundTask).toBeUndefined()
             expect(result.messages).toEqual([])
             await result.backgroundTask
         })
@@ -212,7 +246,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
             })
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             const producedMessages = mockProducerObserver.getProducedKafkaMessages()
             expect(producedMessages).toHaveLength(1)
@@ -229,7 +263,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
             })
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             const producedMessages = mockProducerObserver.getProducedMessages()
             expect(producedMessages).toHaveLength(1)
@@ -272,7 +306,7 @@ describe('LogsIngestionConsumer', () => {
             const originalProduce = consumer['kafkaProducer']!.produce
             consumer['kafkaProducer']!.produce = jest.fn().mockRejectedValue(new Error('Producer error'))
 
-            await expect(consumer.processKafkaBatch(messages)).rejects.toThrow('Producer error')
+            await expect(waitForBackgroundTasks(consumer.processKafkaBatch(messages))).rejects.toThrow('Producer error')
 
             // Restore original method
             consumer['kafkaProducer']!.produce = originalProduce
@@ -286,7 +320,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
             })
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             const producedMessages = mockProducerObserver.getProducedKafkaMessages()
             expect(producedMessages).toHaveLength(1)
@@ -306,7 +340,7 @@ describe('LogsIngestionConsumer', () => {
                 }),
             ]
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             const producedMessages = mockProducerObserver.getProducedKafkaMessages()
             expect(producedMessages).toHaveLength(2)
@@ -336,7 +370,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
             })
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             const producedMessages = mockProducerObserver.getProducedMessages()
             expect(producedMessages).toHaveLength(1)
@@ -359,7 +393,7 @@ describe('LogsIngestionConsumer', () => {
                 } as Message,
             ]
 
-            await consumer.processKafkaBatch(messages)
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
             const producedMessages = mockProducerObserver.getProducedMessages()
             expect(producedMessages).toHaveLength(1)

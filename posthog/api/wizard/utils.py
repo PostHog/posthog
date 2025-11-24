@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from google.genai.types import Type
 
 
@@ -38,9 +40,9 @@ def get_field_mappings() -> dict[str, str]:
     }
 
 
-def convert_schema(schema: dict) -> dict:
+def convert_schema(schema: dict) -> dict[str, Any]:
     """Convert a single schema object from JSON Schema to Gemini format"""
-    result = {}
+    result: dict[str, Any] = {}
 
     if "type" in schema:
         result["type"] = get_type_enum(schema["type"])
@@ -65,7 +67,7 @@ def convert_schema(schema: dict) -> dict:
     return result
 
 
-def json_schema_to_gemini_schema(json_schema: dict) -> dict:
+def json_schema_to_gemini_schema(json_schema: dict) -> dict[str, Any]:
     """Convert JSON Schema to Gemini Schema format"""
     actual_schema = json_schema.get("schema", json_schema)
 
