@@ -210,7 +210,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_843ed5e7784cb6a33bdddfffddc7b0eae281bfbfb1de74ca4ffd54c33fc7e58"
+        assert cache_key == "cache_42_843ed5e7784cb6a33bdddfffddc7b0eae281bfbfb1de74ca4ff7d54c33fc7e58"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
