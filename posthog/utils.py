@@ -639,9 +639,9 @@ def friendly_time(seconds: float):
 
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    x_forwarded_for = request.headers.get("x-forwarded-for")
     if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0]
+        ip: str | None = x_forwarded_for.split(",")[0]
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
 
@@ -649,12 +649,12 @@ def get_ip_address(request: HttpRequest) -> str:
     if ip and len(ip.split(":")) == 2:
         ip = ip.split(":")[0]
 
-    return ip
+    return ip or ""
 
 
 def get_short_user_agent(request: HttpRequest) -> str:
     """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
-    user_agent_str = request.META.get("HTTP_USER_AGENT")
+    user_agent_str = request.headers.get("user-agent")
     if not user_agent_str:
         return ""
 

@@ -1954,7 +1954,7 @@ class TestUserTwoFactor(APIBaseTest):
             scoped_teams=[self.team.id],
         )
 
-        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {access_token.token}"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
