@@ -66,7 +66,7 @@ export function FeedDiscovery(): JSX.Element {
         <div className="mb-6">
             <div className="flex items-center gap-2 mb-3">
                 <IconSparkles className="text-lg" style={{ color: '#F7B955' }} />
-                <h2 className="text-lg font-semibold mb-0">Discovery</h2>
+                <h2 className="text-lg font-semibold mb-0">Discover</h2>
             </div>
             <ScrollableShadows direction="horizontal" className="py-1" innerClassName="flex gap-4" styledScrollbars>
                 {DISCOVERY_PROMPTS.map((item, index) => (

@@ -30,8 +30,6 @@ function getItemUrl(item: FeedItem): string | undefined {
             return urls.survey(item.id as string)
         case 'session_recording_playlist':
             return urls.replayPlaylist(item.id as string)
-        case 'expiring_recordings':
-            return urls.replay() // Link to replay page
         default:
             return undefined
     }
@@ -47,7 +45,6 @@ function getActivityTypeLabel(type: string): string {
         survey: 'Survey',
         session_recording_playlist: 'Replay playlist',
         external_data_source: 'Data source',
-        expiring_recordings: 'Warning',
     }
     return labels[type] || type
 }

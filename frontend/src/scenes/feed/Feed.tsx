@@ -3,7 +3,6 @@ import { useEffect } from 'react'
 
 import {
     IconActivity,
-    IconClock,
     IconDashboard,
     IconFlask,
     IconNotification,
@@ -84,12 +83,6 @@ const FEED_TYPE_CONFIGS: Record<string, { title: string; icon: JSX.Element; colo
         color: availableOnboardingProducts[ProductKey.DATA_WAREHOUSE].iconColor,
         borderColor: availableOnboardingProducts[ProductKey.DATA_WAREHOUSE].iconColor,
     },
-    expiring_recordings: {
-        title: 'Expiring recordings',
-        icon: <IconClock />,
-        color: 'rgb(235 157 42)', // Warning orange/amber
-        borderColor: 'rgb(235 157 42)',
-    },
 }
 
 export function Feed(): JSX.Element {
@@ -159,7 +152,6 @@ export function Feed(): JSX.Element {
                             { label: 'Surveys', value: 'survey' },
                             { label: 'Replay playlists', value: 'session_recording_playlist' },
                             { label: 'Data sources', value: 'external_data_source' },
-                            { label: 'Expiring recordings', value: 'expiring_recordings' },
                         ]}
                         value={selectedTypes}
                         onChange={setSelectedTypes}

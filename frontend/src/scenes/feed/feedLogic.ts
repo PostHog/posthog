@@ -87,26 +87,13 @@ export const feedLogic = kea<feedLogicType>([
                     filteredItems = filteredItems.filter((item) => selectedTypes.includes(item.type))
                 }
 
-                // Separate upcoming/warning items from regular activity items
-                const upcomingItems: FeedItem[] = []
-                const regularItems: FeedItem[] = []
-
-                filteredItems.forEach((item) => {
-                    // Warning/upcoming item types go to UPCOMING section
-                    if (item.type === 'expiring_recordings') {
-                        upcomingItems.push(item)
-                    } else {
-                        regularItems.push(item)
-                    }
-                })
-
-                // Group regular items by date - enumerate last 7 days, then "OLDER"
+                // Group items by date - enumerate last 7 days, then "OLDER"
                 const dateGroups: Record<string, FeedItem[]> = {}
 
                 const now = new Date()
                 const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
-                regularItems.forEach((item) => {
+                filteredItems.forEach((item) => {
                     const itemDate = new Date(item.created_at)
                     const itemDay = new Date(itemDate.getFullYear(), itemDate.getMonth(), itemDate.getDate())
                     const dayDiff = Math.floor((today.getTime() - itemDay.getTime()) / (1000 * 60 * 60 * 24))
@@ -135,19 +122,7 @@ export const feedLogic = kea<feedLogicType>([
                 // Now group each date group by type
                 const result: Record<string, Record<string, FeedItem[]>> = {}
 
-                // Add UPCOMING section if there are upcoming items
-                if (upcomingItems.length > 0) {
-                    const upcomingTypeGroups: Record<string, FeedItem[]> = {}
-                    upcomingItems.forEach((item) => {
-                        if (!upcomingTypeGroups[item.type]) {
-                            upcomingTypeGroups[item.type] = []
-                        }
-                        upcomingTypeGroups[item.type].push(item)
-                    })
-                    result.UPCOMING = upcomingTypeGroups
-                }
-
-                // Add regular date-based groups
+                // Add date-based groups
                 Object.entries(dateGroups).forEach(([dateKey, dateItems]) => {
                     if (dateItems.length === 0) {
                         return
