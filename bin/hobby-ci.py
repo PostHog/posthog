@@ -115,6 +115,7 @@ class HobbyTester:
         Returns a single-line bash command suitable for YAML runcmd.
         """
         # Use semicolons to chain commands on a single line
+        # Simplified: just check if the commit SHA appears in the response (avoiding complex quote escaping)
         return (
             "WAIT_TIMEOUT=1200; "
             "WAIT_INTERVAL=30; "
@@ -122,8 +123,8 @@ class HobbyTester:
             "IMAGE_FOUND=false; "
             "while [ $(date +%s) -lt $END_TIME ]; do "
             "  MINS_LEFT=$(( (END_TIME - $(date +%s)) / 60 )); "
-            '  if curl -s "https://hub.docker.com/v2/repositories/posthog/posthog/tags/$CURRENT_COMMIT" | grep -q \'"name":"\'"$CURRENT_COMMIT"\'""\'; then '
-            '    echo "$LOG_PREFIX Docker image found on DockerHub (waited $MINS_LEFT mins)"; '
+            '  if curl -s "https://hub.docker.com/v2/repositories/posthog/posthog/tags/$CURRENT_COMMIT" | grep -q "$CURRENT_COMMIT"; then '
+            '    echo "$LOG_PREFIX Docker image found on DockerHub"; '
             "    IMAGE_FOUND=true; "
             "    break; "
             "  fi; "
