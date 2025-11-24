@@ -71,11 +71,11 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
         # Display an ephemeral visualization message to the user.
-        artifact = await self._context_manager.artifacts.create_visualization_artifact(
+        artifact = await self._context_manager.artifacts.create(
             content=VisualizationArtifactContent(query=parsed_query.query),
             name="SQL Query",
         )
-        artifact_message = self._context_manager.artifacts.create_artifact_message(
+        artifact_message = self._context_manager.artifacts.create_message(
             artifact_id=artifact.short_id,
             source=ArtifactSource.ARTIFACT,
             content_type=ArtifactContentType.VISUALIZATION,

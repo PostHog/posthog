@@ -4,14 +4,11 @@ import structlog
 from langchain_core.messages import AIMessageChunk
 
 from posthog.schema import (
-    ArtifactMessage,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantUpdateEvent,
     FailureMessage,
-    MultiVisualizationMessage,
     NotebookUpdateMessage,
-    VisualizationMessage,
 )
 
 from posthog.models import Team, User
@@ -21,6 +18,7 @@ from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.utils.helpers import normalize_ai_message, should_output_assistant_message
 from ee.hogai.utils.state import is_message_update, is_state_update, merge_message_chunk
 from ee.hogai.utils.types.base import (
+    ArtifactMessage,
     AssistantDispatcherEvent,
     AssistantGraphName,
     AssistantMessageUnion,
@@ -93,6 +91,7 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         self._chunks = {}
         self._state_type = state_type
         self._state = None
+        self._artifact_manager = ArtifactManager(self._team, self._user)
 
     async def process(self, event: AssistantDispatcherEvent) -> list[AssistantResultUnion] | None:
         """
@@ -156,9 +155,8 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
         # ArtifactMessage must always be enriched with content, regardless of nesting level
         if isinstance(message, ArtifactMessage):
-            artifact_manager = ArtifactManager(self._team, self._user)
             try:
-                produced_message = await artifact_manager.aget_visualization_artifact_message(message)
+                produced_message = await self._artifact_manager.aget_enriched_message(message)
             except Exception as e:
                 # Skip the message if we fail to enrich it.
                 logger.exception("Failed to enrich ArtifactMessage", error=str(e))
@@ -229,9 +227,7 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         These messages are returned as-is regardless of where in the nesting hierarchy they are.
         """
         # These message types are always returned as-is
-        if isinstance(message, VisualizationMessage | MultiVisualizationMessage) or isinstance(
-            message, NotebookUpdateMessage | FailureMessage
-        ):
+        if isinstance(message, NotebookUpdateMessage | FailureMessage):
             return message
 
         return None

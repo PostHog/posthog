@@ -71,7 +71,7 @@ import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
-import { ToolRegistration, getToolDefinition } from './max-constants'
+import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -887,7 +887,7 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                     {regularToolCalls.map((toolCall) => {
                         const commentary = toolCall.args.commentary as string
                         const updates = toolCall.updates ?? []
-                        const definition = getToolDefinition(toolCall.name)
+                        const definition = getToolDefinitionFromToolCall(toolCall)
                         let description = `Executing ${toolCall.name}`
                         if (definition) {
                             if (definition.displayFormatter) {
