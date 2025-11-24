@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -146,7 +147,14 @@ export function TimeseriesModal({
                             </div>
                         )}
                         <div className="flex justify-between items-center mt-2 mb-4">
-                            <div className="text-xs text-muted">{progressMessage || ''}</div>
+                            <div className="flex items-center gap-1">
+                                <div className="text-xs text-muted">{progressMessage || ''}</div>
+                                {progressMessage && (
+                                    <Tooltip title="The chart displays data starting from the first day with meaningful results. Earlier days without sufficient data are excluded from the visualization.">
+                                        <IconInfo className="text-muted text-base" />
+                                    </Tooltip>
+                                )}
+                            </div>
                             <More
                                 overlay={
                                     <>

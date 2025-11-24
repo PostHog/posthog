@@ -44,6 +44,24 @@
     AND team_id = 99999
   '''
 # ---
+# name: TestRawSessionsModel.test_event_names_are_collected
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_flag_keys_are_collected
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
 # name: TestRawSessionsModel.test_handles_different_distinct_id_across_same_session
   '''
   

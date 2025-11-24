@@ -6,6 +6,7 @@ import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
@@ -18,9 +19,11 @@ import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
+import { RunningTimeNew } from './RunningTimeNew'
 import { StatsMethodModal } from './StatsMethodModal'
 import { StatusTag } from './components'
 
@@ -65,7 +68,7 @@ export const ExperimentLastRefresh = ({
     )
 }
 
-export function Info(): JSX.Element {
+export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
         experiment,
         legacyPrimaryMetricsResults,
@@ -77,12 +80,19 @@ export function Info(): JSX.Element {
         statsMethod,
         usesNewQueryRunner,
         isExperimentDraft,
+        featureFlags,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
-    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
-        useActions(modalsLogic)
+    const {
+        openEditConclusionModal,
+        openDescriptionModal,
+        closeDescriptionModal,
+        openStatsEngineModal,
+        openRunningTimeConfigModal,
+    } = useActions(modalsLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
+    const useNewCalculator = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_CALCULATOR] === 'test'
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
     useEffect(() => {
@@ -235,11 +245,20 @@ export function Info(): JSX.Element {
                     <div className="flex flex-col overflow-hidden items-start min-[1200px]:items-end">
                         <div className="inline-flex deprecated-space-x-8">
                             {experiment.start_date && (
-                                <ExperimentLastRefresh
-                                    isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
-                                    lastRefresh={lastRefresh}
-                                    onClick={() => refreshExperimentResults(true)}
-                                />
+                                <>
+                                    {useNewCalculator && tabId && (
+                                        <RunningTimeNew
+                                            experiment={experiment}
+                                            tabId={tabId}
+                                            onClick={openRunningTimeConfigModal}
+                                        />
+                                    )}
+                                    <ExperimentLastRefresh
+                                        isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+                                        lastRefresh={lastRefresh}
+                                        onClick={() => refreshExperimentResults(true)}
+                                    />
+                                </>
                             )}
                             <div className="flex flex-col">
                                 <Label intent="menu">Created by</Label>

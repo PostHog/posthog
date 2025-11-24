@@ -35,6 +35,18 @@ export const manifest: ProductManifest = {
             sceneKeys: ['HogFunction'],
         },
     ],
+    treeItemsProducts: [
+        {
+            path: `Data pipelines`,
+            category: 'Tools',
+            type: 'hog_function',
+            iconType: 'data_pipeline',
+            iconColor: ['var(--color-product-data-pipeline-light)'],
+            href: urls.dataPipelines(),
+            sceneKey: 'DataPipelines',
+            sceneKeys: ['DataPipelines'],
+        },
+    ],
     treeItemsMetadata: [
         {
             path: 'Data pipelines',

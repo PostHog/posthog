@@ -66,7 +66,8 @@ fn init_tracer(
 
 #[tokio::main]
 async fn main() {
-    let config = Config::init_from_env().expect("Invalid configuration:");
+    let mut config = Config::init_from_env().expect("Invalid configuration:");
+    config.validate_and_fix_timeouts();
 
     // Instantiate tracing outputs following Django's DEBUG-based approach:
     //   - stdout with a level configured by the RUST_LOG envvar
