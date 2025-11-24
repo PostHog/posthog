@@ -82,6 +82,7 @@
         },
         "onlyBuiltDependencies": [
             "re2",
+            "node-gyp",
             "node-rdkafka"
         ]
     },
