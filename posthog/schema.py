@@ -8343,6 +8343,7 @@ class DashboardFilter(BaseModel):
     breakdown_filter: Optional[BreakdownFilter] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = None
     properties: Optional[
         list[
             Union[
