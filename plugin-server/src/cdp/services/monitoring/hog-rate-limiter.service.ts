@@ -33,7 +33,7 @@ export class HogRateLimiterService {
     public async rateLimitMany(idCosts: [string, number][]): Promise<[string, HogRateLimit][]> {
         const res = await this.redis.usePipeline({ name: 'hog-rate-limiter', failOpen: true }, (pipeline) => {
             idCosts.forEach(([id, cost]) => {
-                pipeline.checkRateLimit(...this.rateLimitArgs(id, cost))
+                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost))
             })
         })
 

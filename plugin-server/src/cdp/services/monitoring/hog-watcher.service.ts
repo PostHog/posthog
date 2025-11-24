@@ -176,7 +176,7 @@ export class HogWatcherService {
 
         const res = await this.redis.usePipeline({ name: 'getStates' }, (pipeline) => {
             for (const id of idsSet) {
-                pipeline.checkRateLimit(...this.rateLimitArgs(id, 0))
+                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, 0))
                 pipeline.get(`${REDIS_KEY_STATE}/${id}`)
             }
         })
@@ -375,7 +375,7 @@ export class HogWatcherService {
             for (const functionCost of Object.values(functionCosts)) {
                 pipeline.get(`${REDIS_KEY_STATE}/${functionCost.functionId}`)
                 pipeline.get(`${REDIS_KEY_STATE_LOCK}/${functionCost.functionId}`)
-                pipeline.checkRateLimit(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
+                pipeline.checkRateLimitV2(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
             }
         })
 
