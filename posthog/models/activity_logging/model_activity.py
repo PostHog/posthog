@@ -58,14 +58,27 @@ class ModelActivityMixin(models.Model):
 
     def _get_before_update(self, **kwargs) -> Any:
         before_update = None
-        # Get a copy of the existing instance before saving
-        if self.pk:
-            before_update = self.__class__.objects.filter(pk=self.pk).first()  # type: ignore[attr-defined]
+
+        if not self.pk:
+            return None
+
+        managers: list[models.Manager] = []
+        default_manager = getattr(self.__class__, "objects", None)
+        if isinstance(default_manager, models.Manager):
+            managers.append(default_manager)
+
+        soft_deleted_manager = getattr(self.__class__, "objects_including_soft_deleted", None)
+        if isinstance(soft_deleted_manager, models.Manager) and soft_deleted_manager not in managers:
+            managers.append(soft_deleted_manager)
+
+        for manager in managers:
+            before_update = manager.filter(pk=self.pk).first()
             if before_update:
-                before_update._state.adding = False  # Ensure the copy knows it's not a new instance
-                before_update.pk = before_update.pk  # Ensure pk is copied
-        else:
-            before_update = None
+                break
+
+        if before_update:
+            before_update._state.adding = False
+            before_update.pk = before_update.pk
 
         return before_update
 

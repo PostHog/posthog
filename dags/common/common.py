@@ -6,6 +6,8 @@ from typing import Optional
 from django.conf import settings
 
 import dagster
+import psycopg2
+import psycopg2.extras
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog.clickhouse import query_tagging
@@ -22,6 +24,7 @@ class JobOwners(str, Enum):
     TEAM_ERROR_TRACKING = "team-error-tracking"
     TEAM_EXPERIMENTS = "team-experiments"
     TEAM_GROWTH = "team-growth"
+    TEAM_INGESTION = "team-ingestion"
     TEAM_LLMA = "team-llma"
     TEAM_MAX_AI = "team-max-ai"
     TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
@@ -78,6 +81,28 @@ class RedisResource(dagster.ConfigurableResource):
     def create_resource(self, context: dagster.InitResourceContext) -> redis.Redis:
         client = get_client()
         return client
+
+
+class PostgresResource(dagster.ConfigurableResource):
+    """
+    A Postgres database connection resource that returns a psycopg2 connection.
+    """
+
+    host: str
+    port: str = "5432"
+    database: str
+    user: str
+    password: str
+
+    def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
+        return psycopg2.connect(
+            host=self.host,
+            port=int(self.port),
+            database=self.database,
+            user=self.user,
+            password=self.password,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
 
 
 def report_job_status_metric(
@@ -206,3 +231,39 @@ WHERE
 ORDER BY event_time DESC;
 """
     return f"http://localhost:8123/play?user=default#{base64.b64encode(sql.encode("utf-8")).decode("utf-8")}"
+
+
+@dagster.op(
+    out=dagster.DynamicOut(list[int]),
+    config_schema={
+        "team_ids": dagster.Field(
+            dagster.Array(dagster.Int),
+            default_value=[],
+            is_required=False,
+            description="Specific team IDs to process. If empty, processes all teams.",
+        ),
+        "batch_size": dagster.Field(
+            dagster.Int,
+            default_value=1000,
+            is_required=False,
+            description="Number of team IDs per batch.",
+        ),
+    },
+)
+def get_all_team_ids_op(context: dagster.OpExecutionContext):
+    """Fetch all team IDs to process in batches."""
+    from posthog.models.team import Team
+
+    override_team_ids = context.op_config["team_ids"]
+    batch_size = context.op_config.get("batch_size", 1000)
+
+    if override_team_ids:
+        team_ids = override_team_ids
+        context.log.info(f"Processing {len(team_ids)} configured teams: {team_ids}")
+    else:
+        team_ids = list(Team.objects.exclude(id=0).values_list("id", flat=True))
+        context.log.info(f"Processing all {len(team_ids)} teams")
+
+    for i in range(0, len(team_ids), batch_size):
+        batch = team_ids[i : i + batch_size]
+        yield dagster.DynamicOutput(batch, mapping_key=f"batch_{i // batch_size}")

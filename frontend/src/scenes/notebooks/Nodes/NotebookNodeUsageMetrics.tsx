@@ -8,8 +8,7 @@ import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConf
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { NodeKind, ProductKey, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
 
 import {
     UsageMetricCard,
@@ -23,14 +22,14 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
     const { setActions, toggleEditing } = useActions(notebookNodeLogic)
-    const { personId, groupKey, groupTypeIndex } = attributes
+    const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const dataNodeLogicProps = personId
         ? {
               query: {
                   kind: NodeKind.UsageMetricsQuery,
                   person_id: personId,
               },
-              key: personId,
+              key: `${personId}-${tabId}`,
           }
         : groupKey
           ? {
@@ -39,7 +38,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                     group_key: groupKey,
                     group_type_index: groupTypeIndex,
                 },
-                key: groupKey,
+                key: `${groupKey}-${tabId}`,
             }
           : { key: 'error', query: { kind: NodeKind.UsageMetricsQuery } }
     const logic = dataNodeLogic(dataNodeLogicProps)
@@ -121,6 +120,7 @@ type NotebookNodeUsageMetricsAttributes = {
     personId?: string
     groupKey?: string
     groupTypeIndex?: number
+    tabId: string
 }
 
 export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsageMetricsAttributes>({
@@ -136,5 +136,6 @@ export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsag
         personId: {},
         groupKey: {},
         groupTypeIndex: {},
+        tabId: {},
     },
 })

@@ -43,7 +43,7 @@ impl Release {
         let client = &context().client;
 
         let path = format!("error_tracking/releases/hash/{hash_id}");
-        let response = client.send_get(&path, |req| req);
+        let response = client.send_get(client.project_url(&path)?, |req| req);
 
         if let Err(err) = response {
             if let ClientError::ApiError(404, _, _) = err {
@@ -156,7 +156,9 @@ impl ReleaseBuilder {
         let client = &context().client;
 
         let response = client
-            .send_post("error_tracking/releases", |req| req.json(&request))
+            .send_post(client.project_url("error_tracking/releases")?, |req| {
+                req.json(&request)
+            })
             .context("Failed to create release")?;
 
         let response = response.json::<Release>()?;
