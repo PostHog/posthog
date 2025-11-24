@@ -5108,6 +5108,9 @@ class SavedInsightNode(BaseModel):
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
+    contextKey: Optional[str] = Field(
+        default=None, description='Context key for universal column configuration (e.g., "survey:123")'
+    )
     defaultColumns: Optional[list[str]] = Field(
         default=None, description="Default columns to use when resetting column configuration"
     )
@@ -15899,6 +15902,9 @@ class DataTableNode(BaseModel):
     )
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
+    )
+    contextKey: Optional[str] = Field(
+        default=None, description='Context key for universal column configuration (e.g., "survey:123")'
     )
     defaultColumns: Optional[list[str]] = Field(
         default=None, description="Default columns to use when resetting column configuration"
