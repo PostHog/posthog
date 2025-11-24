@@ -81,7 +81,8 @@
             "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch"
         },
         "onlyBuildDependencies": [
-            "re2"
+            "re2",
+            "node-rdkafka"
         ]
     },
     "lint-staged": {
