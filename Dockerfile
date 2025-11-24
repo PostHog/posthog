@@ -47,15 +47,18 @@ RUN bin/turbo --filter=@posthog/frontend build
 
 # Process sourcemaps using posthog-cli
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
-    if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
-    apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl && \
-    curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
-    export PATH="/root/.posthog:$PATH" && \
-    export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
-    export POSTHOG_CLI_ENV_ID=2 && \
-    posthog-cli --no-fail sourcemap process --directory /code/frontend/dist --public-path-prefix /static; \
-    fi
+    ( \
+      if [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends ca-certificates curl && \
+        curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
+        export PATH="/root/.posthog:$PATH" && \
+        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
+        export POSTHOG_CLI_ENV_ID=2 && \
+        posthog-cli --no-fail sourcemap process --directory /code/frontend/dist --public-path-prefix /static; \
+      fi \
+    ) || true
+
 
 #
 # ---------------------------------------------------------
