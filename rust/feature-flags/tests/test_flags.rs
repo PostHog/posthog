@@ -2441,16 +2441,11 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
     assert_eq!(json_data["flagsPersistenceDefault"], json!(true));
     assert_eq!(json_data["captureDeadClicks"], json!(true));
 
-    // Session recording should be fully configured with script
+    // Session recording should be fully configured
     assert!(json_data["sessionRecording"].is_object());
     let session_recording = &json_data["sessionRecording"];
     assert_eq!(session_recording["endpoint"], "/s/");
     assert_eq!(session_recording["recorderVersion"], "v2");
-    assert!(session_recording["scriptConfig"].is_object());
-    assert_eq!(
-        session_recording["scriptConfig"]["script"],
-        "console.log('Enterprise script')"
-    );
 
     // Site apps should be populated
     assert!(json_data["siteApps"].is_array());
@@ -2656,16 +2651,11 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
     assert!(json_data["captureDeadClicks"].is_null()); // None -> null
     assert_eq!(json_data["autocapture_opt_out"], json!(false)); // None -> false
 
-    // Session recording should be enabled with script (team is allowed)
+    // Session recording should be enabled
     assert!(json_data["sessionRecording"].is_object());
     let session_recording = &json_data["sessionRecording"];
     assert_eq!(session_recording["endpoint"], "/s/");
     assert_eq!(session_recording["recorderVersion"], "v2");
-    assert!(session_recording["scriptConfig"].is_object());
-    assert_eq!(
-        session_recording["scriptConfig"]["script"],
-        "console.log('Mixed script')"
-    );
 
     // Site apps should be empty (inject_web_apps is false)
     assert_eq!(json_data["siteApps"], json!([]));
@@ -2749,12 +2739,11 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
         json!({"endpoint": "/e/"})
     );
 
-    // Session recording should be enabled but without script (team not allowed for script)
+    // Session recording should be enabled
     assert!(json_data["sessionRecording"].is_object());
     let session_recording = &json_data["sessionRecording"];
     assert_eq!(session_recording["endpoint"], "/s/");
     assert_eq!(session_recording["recorderVersion"], "v2");
-    assert!(session_recording["scriptConfig"].is_null()); // No script for excluded team
 
     Ok(())
 }
@@ -5981,6 +5970,79 @@ async fn it_includes_evaluated_at_timestamp_in_response() -> Result<()> {
         legacy_json.get("evaluatedAt").is_some(),
         "evaluatedAt field should be present in v1 legacy response"
     );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::no_extra_settings(None, None)]
+#[case::empty_recorder_script(Some(json!({"recorder_script": ""})), None)]
+#[case::null_recorder_script(Some(json!({"recorder_script": null})), None)]
+#[case::missing_recorder_script(Some(json!({"other_setting": "value"})), None)]
+#[case::valid_recorder_script(Some(json!({"recorder_script": "posthog-recorder"})), Some(json!({"script": "posthog-recorder"})))]
+#[tokio::test]
+async fn test_session_recording_script_config(
+    #[case] extra_settings: Option<Value>,
+    #[case] expected_script_config: Option<Value>,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "recorder_script_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    team.session_recording_opt_in = true;
+    team.extra_settings = extra_settings.map(sqlx::types::Json);
+
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    assert!(json_data["sessionRecording"].is_object());
+    let session_recording = &json_data["sessionRecording"];
+
+    match expected_script_config {
+        Some(expected) => {
+            assert_eq!(session_recording["scriptConfig"], expected);
+        }
+        None => {
+            assert!(
+                session_recording.get("scriptConfig").is_none()
+                    || session_recording["scriptConfig"].is_null()
+            );
+        }
+    }
 
     Ok(())
 }

@@ -591,6 +591,8 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
             rrweb_script_config = None
 
             recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+            if not recorder_script and settings.DEBUG:
+                recorder_script = "posthog-recorder"
             if recorder_script:
                 rrweb_script_config = {
                     "script": recorder_script,

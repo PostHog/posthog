@@ -12,7 +12,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.db import connections
 from django.http import HttpRequest
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
 
@@ -63,9 +63,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "masking": None,
         "urlTriggers": [],
         "urlBlocklist": [],
-        "scriptConfig": {
-            "script": "posthog-recorder",
-        },
+        "scriptConfig": None,
         "sampleRate": None,
         "eventTriggers": [],
         "triggerMatchType": None,
@@ -624,6 +622,29 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(api_version=3)
         assert response.status_code == 200
         assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
+
+    @override_settings(DEBUG=True)
+    def test_session_recording_script_config_defaults_to_posthog_recorder_in_debug(self) -> None:
+        from django.core.cache import cache
+
+        cache.clear()
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+                "extra_settings": None,
+            }
+        )
+
+        self.team.refresh_from_db()
+
+        from posthog.models.team.team_caching import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
+
+        response = self._post_decide(api_version=3)
+        assert response.status_code == 200
+        assert response.json()["sessionRecording"]["scriptConfig"] == {"script": "posthog-recorder"}
 
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching

@@ -1,6 +1,5 @@
 use crate::{
     api::types::{SessionRecordingConfig, SessionRecordingField},
-    config::Config,
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
@@ -23,7 +22,6 @@ const CANVAS_QUALITY_DEFAULT: &str = "0.4";
 pub fn session_recording_config_response(
     team: &Team,
     headers: &HeaderMap,
-    _config: &Config,
 ) -> Option<SessionRecordingField> {
     if !team.session_recording_opt_in || session_recording_domain_not_allowed(team, headers) {
         return Some(SessionRecordingField::Disabled(false));

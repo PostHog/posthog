@@ -104,11 +104,7 @@ async fn apply_config_fields(
         // Disable session recording when quota limited
         Some(SessionRecordingField::Disabled(false))
     } else {
-        session_recording::session_recording_config_response(
-            team,
-            &context.headers,
-            &context.config,
-        )
+        session_recording::session_recording_config_response(team, &context.headers)
     };
 
     // Handle fields that require database access
@@ -717,12 +713,11 @@ mod tests {
 
     #[test]
     fn test_session_recording_disabled() {
-        let config = Config::default_test_config();
         let mut team = create_base_team();
         team.session_recording_opt_in = false; // Disabled
 
         let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+        let result = session_recording::session_recording_config_response(&team, &headers);
 
         // Should return disabled=false when session recording is off
         if let Some(SessionRecordingField::Disabled(enabled)) = result {
@@ -734,12 +729,11 @@ mod tests {
 
     #[test]
     fn test_session_recording_enabled_no_rrweb_script() {
-        let config = Config::default_test_config();
         let mut team = create_base_team();
         team.session_recording_opt_in = true; // Enabled
 
         let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+        let result = session_recording::session_recording_config_response(&team, &headers);
 
         // Should return config with no script_config since rrweb script is not configured
         if let Some(SessionRecordingField::Config(config)) = result {
@@ -753,13 +747,12 @@ mod tests {
 
     #[test]
     fn test_session_recording_empty_domains_allowed() {
-        let config = Config::default_test_config();
         let mut team = create_base_team();
         team.session_recording_opt_in = true;
         team.recording_domains = Some(vec![]); // Empty domains list
 
         let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+        let result = session_recording::session_recording_config_response(&team, &headers);
 
         // Should return config (enabled) when recording_domains is empty list
         if let Some(SessionRecordingField::Config(_)) = result {
@@ -771,13 +764,12 @@ mod tests {
 
     #[test]
     fn test_session_recording_no_domains_allowed() {
-        let config = Config::default_test_config();
         let mut team = create_base_team();
         team.session_recording_opt_in = true;
         team.recording_domains = None; // No domains list
 
         let headers = axum::http::HeaderMap::new();
-        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+        let result = session_recording::session_recording_config_response(&team, &headers);
 
         // Should return config (enabled) when recording_domains is empty list
         if let Some(SessionRecordingField::Config(_)) = result {
