@@ -309,7 +309,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
     # replace all dates where the date is
-    if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
+    if (
+        "equals(argMax(person_distinct_id_overrides.is_deleted" in query
+        or "equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted" in query
+        or "INSERT INTO cohortpeople" in query
+    ):
         # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
         query = re.sub(
             r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d.\d+', 6, '(.+?)'\)",
