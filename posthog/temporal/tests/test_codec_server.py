@@ -20,7 +20,7 @@ class CodecServerTestCase(TestCase):
         self.auth_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.test_token}"}
 
     def test_decode_endpoint_handles_options(self):
-        response = self.client.options("/decode", HTTP_ORIGIN="https://temporal-ui.posthog.orb.local")
+        response = self.client.options("/decode", headers={"origin": "https://temporal-ui.posthog.orb.local"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Access-Control-Allow-Origin"], "https://temporal-ui.posthog.orb.local")
         self.assertEqual(response["Access-Control-Allow-Methods"], "POST, OPTIONS")
@@ -80,7 +80,7 @@ class CodecServerTestCase(TestCase):
             "/decode",
             request_data,
             content_type="application/json",
-            HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
+            headers={"origin": "https://temporal-ui.posthog.orb.local"},
         )
         # Should be rejected when token is configured but not provided
         self.assertEqual(response.status_code, 401)
@@ -96,8 +96,7 @@ class CodecServerTestCase(TestCase):
             "/decode",
             request_data,
             content_type="application/json",
-            HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
-            HTTP_AUTHORIZATION="Bearer wrong-token",
+            headers={"origin": "https://temporal-ui.posthog.orb.local", "authorization": "Bearer wrong-token"},
         )
         self.assertEqual(response.status_code, 401)
         self.assertIn("Unauthorized", response.content.decode())

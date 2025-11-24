@@ -45,6 +45,7 @@ import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CurrencyCode,
+    CustomerAnalyticsConfig,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
     DatabaseSchemaField,
@@ -63,6 +64,7 @@ import type {
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
+    ProductKey,
     QuerySchema,
     QueryStatus,
     RecordingOrder,
@@ -209,47 +211,6 @@ export enum AvailableFeature {
 
 type AvailableFeatureUnion = `${AvailableFeature}`
 
-export enum ProductKey {
-    COHORTS = 'cohorts',
-    ACTIONS = 'actions',
-    ALERTS = 'alerts',
-    EXPERIMENTS = 'experiments',
-    FEATURE_FLAGS = 'feature_flags',
-    ANNOTATIONS = 'annotations',
-    COMMENTS = 'comments',
-    HISTORY = 'history',
-    HEATMAPS = 'heatmaps',
-    INGESTION_WARNINGS = 'ingestion_warnings',
-    PERSONS = 'persons',
-    SURVEYS = 'surveys',
-    SESSION_REPLAY = 'session_replay',
-    MOBILE_REPLAY = 'mobile_replay',
-    DATA_WAREHOUSE = 'data_warehouse',
-    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
-    EARLY_ACCESS_FEATURES = 'early_access_features',
-    USER_INTERVIEWS = 'user_interviews',
-    PRODUCT_ANALYTICS = 'product_analytics',
-    PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
-    PIPELINE_DESTINATIONS = 'pipeline_destinations',
-    SITE_APPS = 'site_apps',
-    GROUP_ANALYTICS = 'group_analytics',
-    INTEGRATIONS = 'integrations',
-    PLATFORM_AND_SUPPORT = 'platform_and_support',
-    TEAMS = 'teams',
-    WEB_ANALYTICS = 'web_analytics',
-    ERROR_TRACKING = 'error_tracking',
-    REVENUE_ANALYTICS = 'revenue_analytics',
-    MARKETING_ANALYTICS = 'marketing_analytics',
-    LLM_ANALYTICS = 'llm_analytics',
-    MAX = 'max',
-    LINKS = 'links',
-    ENDPOINTS = 'endpoints',
-    CUSTOMER_ANALYTICS = 'customer_analytics',
-    LOGS = 'logs',
-}
-
-type ProductKeyUnion = `${ProductKey}`
-
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -284,11 +245,13 @@ export enum Region {
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type LoginMethod = SSOProvider | 'password' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    saml?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -376,6 +339,7 @@ export interface UserType extends UserBaseType {
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
+    allow_sidebar_suggestions?: boolean
     role_at_organization?: string
 }
 
@@ -587,14 +551,6 @@ export interface CorrelationConfigType {
     excluded_event_names?: string[]
 }
 
-export interface SessionRecordingAIConfig {
-    opt_in: boolean
-    preferred_events: string[]
-    excluded_events: string[]
-    included_event_properties: string[]
-    important_user_properties: string[]
-}
-
 export interface ProjectType extends ProjectBasicType {
     created_at: string
 }
@@ -641,7 +597,7 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
+    session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
@@ -698,6 +654,7 @@ export interface TeamType extends TeamBasicType {
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
     receive_org_level_activity_logs: boolean | null
+    customer_analytics_config: CustomerAnalyticsConfig
 }
 
 export interface ProductIntentType {
@@ -786,7 +743,7 @@ export interface ToolbarParams {
     distinctId?: string
     userEmail?: string
     dataAttributes?: string[]
-    featureFlags?: Record<string, string | boolean>
+    toolbarFlagsKey?: string
 }
 
 export interface ToolbarProps extends ToolbarParams {
@@ -2033,7 +1990,7 @@ export interface BillingPlanType {
     note: string | null
     unit: string | null
     flat_rate: boolean
-    product_key: ProductKeyUnion
+    product_key: `${ProductKey}`
     current_plan?: boolean | null
     tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
@@ -2165,6 +2122,7 @@ export interface EndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
+    derived_from_insight?: string | null
     query: HogQLQuery | InsightQueryNode
     parameters: Record<string, any>
     is_active: boolean
@@ -3251,6 +3209,7 @@ export interface Survey extends WithAccessControl {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters?: FeatureFlagFilters
+    linked_insight_id?: number | null
     conditions: SurveyDisplayConditions | null
     appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
@@ -3305,6 +3264,13 @@ export enum SurveyPosition {
     NextToTrigger = 'next_to_trigger',
 }
 
+export enum SurveyTabPosition {
+    Top = 'top',
+    Left = 'left',
+    Right = 'right',
+    Bottom = 'bottom',
+}
+
 export enum SurveyWidgetType {
     Button = 'button',
     Tab = 'tab',
@@ -3331,6 +3297,7 @@ export interface SurveyAppearance {
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
     position?: SurveyPosition
+    tabPosition?: SurveyTabPosition
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
@@ -4135,6 +4102,19 @@ export interface SymbolBreadcrumb extends BreadcrumbBase {
     symbol: React.ReactElement
     path?: never
 }
+
+export interface FileSystemDeletionSummary {
+    type: string
+    ref: string | null
+    mode: 'soft' | 'hard'
+    undo: string
+    path: string
+    can_undo: boolean
+}
+
+export interface FileSystemDeleteResponse {
+    deleted: FileSystemDeletionSummary[]
+}
 export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     /** Last part of path */
     name: string
@@ -4413,6 +4393,7 @@ export const INTEGRATION_KINDS = [
     'reddit-ads',
     'databricks',
     'tiktok-ads',
+    'bing-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4604,6 +4585,7 @@ export type APIScopeObject =
     | 'insight'
     | 'integration'
     | 'live_debugger'
+    | 'logs'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4754,6 +4736,7 @@ export enum ActivityScope {
     ENDPOINT = 'Endpoint',
     HEATMAP = 'Heatmap',
     USER = 'User',
+    LLM_TRACE = 'LLMTrace',
 }
 
 export type CommentType = {
@@ -4790,6 +4773,18 @@ export interface DataWarehouseTable {
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
 
+export type DataModelingJobStatus = 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+
+export interface DataWarehouseSavedQueryRunHistory {
+    status: DataModelingJobStatus
+    timestamp?: string
+}
+
+export interface DataWarehouseSavedQueryDependencies {
+    upstream_count: number
+    downstream_count: number
+}
+
 export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
@@ -4803,6 +4798,10 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    upstream_dependency_count?: number
+    downstream_dependency_count?: number
+    created_at?: string
+    run_history?: DataWarehouseSavedQueryRunHistory[]
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -5778,6 +5777,7 @@ export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string
+    user: UserBasicType
     status: ConversationStatus
     title: string | null
     created_at: string | null
@@ -6017,6 +6017,7 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
+    AI_CONSENT = 'ai_consent',
 }
 
 export interface Dataset {
