@@ -312,16 +312,15 @@ pub fn status() -> Result<()> {
 }
 
 fn fetch_definitions(client: &PHClient, language: Language) -> Result<DefinitionsResponse> {
-    let url = format!(
-        "/api/projects/{}/event_definitions/{}/",
-        client.get_env_id(),
-        language.as_str()
-    );
+    let url = format!("event_definitions/{}/", language.as_str());
 
-    let response = client.get(&url)?.send().context(format!(
-        "Failed to fetch {} definitions",
-        language.display_name()
-    ))?;
+    let response = client
+        .get(client.project_url(&url)?)
+        .send()
+        .context(format!(
+            "Failed to fetch {} definitions",
+            language.display_name()
+        ))?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(

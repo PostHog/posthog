@@ -10,26 +10,25 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import { InsightDefinition } from '../../insightDefinitions'
+import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
-import { EventConfigModal } from './EventConfigModal'
+import { eventConfigModalLogic } from './eventConfigModalLogic'
 
 export function ActiveUsersInsights(): JSX.Element {
     const { activityEvent, activeUsersInsights, tabId } = useValues(customerAnalyticsSceneLogic)
-    const { toggleEventConfigModal } = useActions(customerAnalyticsSceneLogic)
+    const { toggleModalOpen } = useActions(eventConfigModalLogic)
 
     // Check if using pageview as default
     const isOnlyPageview = isEventsNode(activityEvent) && activityEvent.event === '$pageview'
 
     return (
-        <div className="space-y-2 mb-0">
+        <div className="space-y-2">
             {isOnlyPageview && (
                 <LemonBanner type="warning">
                     You are currently using the pageview event to define user activity. Consider using a more specific
                     event or action to track activity accurately.
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
-                        <LemonButton type="primary" onClick={() => toggleEventConfigModal()}>
+                        <LemonButton type="primary" onClick={() => toggleModalOpen()}>
                             Configure activity event
                         </LemonButton>
                     </div>
@@ -42,7 +41,7 @@ export function ActiveUsersInsights(): JSX.Element {
                         icon={<IconGear />}
                         size="small"
                         noPadding
-                        onClick={() => toggleEventConfigModal()}
+                        onClick={() => toggleModalOpen()}
                         tooltip="Configure dashboard"
                     />
                 )}
@@ -55,7 +54,6 @@ export function ActiveUsersInsights(): JSX.Element {
                 })}
             </div>
             <PowerUsersTable />
-            <EventConfigModal />
         </div>
     )
 }
@@ -92,16 +90,9 @@ function PowerUsersTable(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center gap-2 ml-1">
-                <h2 className="-mb-2">Power Users</h2>
-                <LemonButton
-                    size="small"
-                    noPadding
-                    targetBlank
-                    to={urls.persons()}
-                    tooltip="Open people list"
-                    className="-mb-2"
-                />
+            <div className="flex items-center gap-2 -mb-2">
+                <h2 className="mb-0 ml-1">Power Users</h2>
+                <LemonButton size="small" noPadding targetBlank to={urls.persons()} tooltip="Open people list" />
             </div>
             <Query
                 uniqueKey={`power-users-${tabId}`}

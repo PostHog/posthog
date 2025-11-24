@@ -131,7 +131,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
 
     @cached_property
     def funnel_actor_class(self):
-        return get_funnel_actor_class(self.context.funnelsFilter, self._use_udf)(context=self.context)
+        return get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
 
     @property
     def exact_timerange(self):

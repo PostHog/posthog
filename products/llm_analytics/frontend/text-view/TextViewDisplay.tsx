@@ -72,7 +72,7 @@ export function TextViewDisplay({
                 document.removeEventListener('mousedown', handleClickOutside)
             }
         }
-    }, [popoutSegment, setPopoutSegment])
+    }, [popoutSegment])
 
     const segments = useMemo(() => parseTextSegments(textRepr || ''), [textRepr])
     const lineNumberPadding = useMemo(() => calculateLineNumberPadding(textRepr || ''), [textRepr])

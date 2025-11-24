@@ -253,6 +253,10 @@ class BaseStateWithMessages(BaseState):
     The mode of the agent.
     """
 
+    @property
+    def agent_mode_or_default(self) -> AgentMode:
+        return self.agent_mode or AgentMode.PRODUCT_ANALYTICS
+
 
 class BaseStateWithTasks(BaseState):
     tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
@@ -335,6 +339,13 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     session_summarization_query: Optional[str] = Field(default=None)
     """
     The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
+    """
+    specific_session_ids_to_summarize: Optional[list[str]] = Field(default=None)
+    """
+    List of specific session IDs (UUIDs) to summarize. Can be populated from:
+    - Session IDs extracted from user's natural language query
+    - Current session ID from context when user refers to "this session"
+    - Multiple session IDs when user specifies several sessions
     """
     should_use_current_filters: Optional[bool] = Field(default=None)
     """

@@ -1290,7 +1290,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         }
 
     def get_cache_key(self) -> str:
-        return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
+        return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
     def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
         """
