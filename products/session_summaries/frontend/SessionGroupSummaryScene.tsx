@@ -122,11 +122,11 @@ function FilterBar({
     totalCount: number
 }): JSX.Element {
     return (
-        <div className="flex flex-wrap gap-4 mb-4 items-center">
+        <div className="flex flex-wrap gap-6 mb-4 items-center">
+            <span className="text-sm text-muted-alt">
+                Showing {filteredCount} of {totalCount} issues
+            </span>
             <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-alt">
-                    Showing {filteredCount} of {totalCount} issues
-                </span>
                 {(
                     [
                         ['blocking_error', 'Blocking error'],
@@ -147,9 +147,6 @@ function FilterBar({
                         />
                     )
                 })}
-                {/* <span className="text-sm text-muted-alt">
-                    
-                </span> */}
             </div>
             <div className="flex-1 min-w-60">
                 <LemonInput
