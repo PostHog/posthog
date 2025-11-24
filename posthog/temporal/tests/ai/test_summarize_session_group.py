@@ -1974,6 +1974,7 @@ def test_combine_patterns_assignments_deduplicates_events_per_session_per_patter
         RawSessionGroupPatternAssignmentsList,
         combine_patterns_assignments_from_single_session_summaries,
     )
+
     # event_id -> (event_uuid, session_id)
     event_id_to_session_id_mapping = {
         "event-1": ("uuid-1", "session-A"),
@@ -1988,7 +1989,9 @@ def test_combine_patterns_assignments_deduplicates_events_per_session_per_patter
     # LLM returned multiple events from same session for pattern 1
     assignments_chunk_1 = RawSessionGroupPatternAssignmentsList(
         patterns=[
-            RawSessionGroupPatternAssignment(pattern_id=1, event_ids=["event-1", "event-2", "event-3"]),  # All session-A
+            RawSessionGroupPatternAssignment(
+                pattern_id=1, event_ids=["event-1", "event-2", "event-3"]
+            ),  # All session-A
             RawSessionGroupPatternAssignment(pattern_id=2, event_ids=["event-4"]),
         ]
     )
