@@ -34,6 +34,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
@@ -74,6 +75,15 @@ class AssistantContextManager(AssistantContextMixin):
         self._team = team
         self._user = user
         self._config = config or {}
+
+    @property
+    def artifacts(self) -> ArtifactManager:
+        """
+        Returns the artifact manager for the team.
+
+        Exposed through .artifacts for easy access to artifact manager from nodes.
+        """
+        return ArtifactManager(self._team, self._user, self._config)
 
     async def get_state_messages_with_context(
         self, state: BaseStateWithMessages

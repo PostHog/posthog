@@ -763,6 +763,45 @@
                 }
             ]
         },
+        "ArtifactContentType": {
+            "description": "Type of artifact content",
+            "enum": ["visualization", "notebook"],
+            "type": "string"
+        },
+        "ArtifactMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "description": "The ID of the artifact (short_id for both drafts and saved insights)",
+                    "type": "string"
+                },
+                "content_type": {
+                    "$ref": "#/definitions/ArtifactContentType",
+                    "description": "Type of artifact content"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/ArtifactSource",
+                    "description": "Source of artifact - determines which model to fetch from"
+                },
+                "type": {
+                    "const": "ai/artifact",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id", "source", "content_type"],
+            "type": "object"
+        },
+        "ArtifactSource": {
+            "description": "Source of artifact - determines which model to fetch from",
+            "enum": ["artifact", "insight"],
+            "type": "string"
+        },
         "AssistantArrayPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -1577,6 +1616,7 @@
                 "ai/reasoning",
                 "ai/viz",
                 "ai/multi_viz",
+                "ai/artifact",
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
@@ -26582,6 +26622,9 @@
                     "$ref": "#/definitions/MultiVisualizationMessage"
                 },
                 {
+                    "$ref": "#/definitions/VisualizationArtifactMessage"
+                },
+                {
                     "$ref": "#/definitions/ReasoningMessage"
                 },
                 {
@@ -29906,21 +29949,48 @@
                 "query": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/AssistantTrendsQuery"
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AssistantFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantRetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantHogQLQuery"
+                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
                         }
                     ]
                 }
             },
             "required": ["query"],
+            "type": "object"
+        },
+        "VisualizationArtifactMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "description": "The ID of the artifact (short_id for both drafts and saved insights)",
+                    "type": "string"
+                },
+                "content": {
+                    "$ref": "#/definitions/VisualizationArtifactContent"
+                },
+                "content_type": {
+                    "const": "visualization",
+                    "description": "Type of artifact content",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/ArtifactSource",
+                    "description": "Source of artifact - determines which model to fetch from"
+                },
+                "type": {
+                    "const": "ai/artifact",
+                    "type": "string"
+                }
+            },
+            "required": ["artifact_id", "content", "content_type", "source", "type"],
             "type": "object"
         },
         "VisualizationBlock": {

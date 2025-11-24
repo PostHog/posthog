@@ -1,7 +1,6 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from typing import Generic, Optional, cast
-from uuid import uuid4
 
 from langchain_core.agents import AgentAction
 from langchain_core.exceptions import OutputParserException
@@ -13,10 +12,17 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import VisualizationMessage
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactMessage,
+    ArtifactSource,
+    VisualizationArtifactContent,
+    VisualizationMessage,
+)
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
+from ee.hogai.artifacts.utils import is_visualization
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
@@ -100,7 +106,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         prompt: ChatPromptTemplate,
         config: Optional[RunnableConfig] = None,
     ) -> PartialAssistantState:
-        start_id = state.start_id
         generated_plan = state.plan or ""
         intermediate_steps: Sequence[IntermediateStep] = state.intermediate_steps or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
@@ -148,18 +153,27 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             raise SchemaGenerationException(e.llm_output or "No input was provided.", str(e))
 
         # We've got a result that either passed the quality check or we've exhausted all attempts at iterating - return
+        # Create an artifact with the visualization content
+        insight_plan = self._get_insight_plan(state)
+
+        artifact = await self.context_manager.artifacts.create_visualization_artifact(
+            content=VisualizationArtifactContent(
+                query=result.query,
+                description=generated_plan or None,
+            ),
+            name=insight_plan if insight_plan else "Visualization",
+        )
+        artifact_message = self.context_manager.artifacts.create_artifact_message(
+            artifact_id=artifact.short_id,
+            source=ArtifactSource.ARTIFACT,
+            content_type=ArtifactContentType.VISUALIZATION,
+        )
+
         return PartialAssistantState(
-            messages=[
-                VisualizationMessage(
-                    query=self._get_insight_plan(state),
-                    plan=generated_plan,
-                    answer=result.query,
-                    initiator=start_id,
-                    id=str(uuid4()),
-                )
-            ],
+            messages=[artifact_message],
             intermediate_steps=None,
             plan=None,
+            rag_context=None,
             query_generation_retry_count=len(intermediate_steps),
         )
 
@@ -179,13 +193,13 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         return ET.tostring(root, encoding="unicode")
 
     async def _construct_messages(
-        self, state: AssistantState, validation_error_message: Optional[str] = None
+        self, state: AssistantState, validation_error_message: str | None = None
     ) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
         """
-        # Only process the last five visualization messages.
-        messages = [message for message in state.messages if isinstance(message, VisualizationMessage)][-5:]
+        # Only process the last five visualization/artifact messages.
+        viz_messages = [message for message in state.messages if is_visualization(message)][-5:]
         generated_plan = state.plan
 
         # Add the group mapping prompt to the beginning of the conversation.
@@ -196,26 +210,49 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
         ]
 
-        for message in messages:
+        # Batch fetch all artifacts to avoid N+1 queries
+        artifact_short_ids = [
+            message.artifact_id
+            for message in viz_messages
+            if isinstance(message, ArtifactMessage) and message.source == ArtifactSource.ARTIFACT
+        ]
+        artifacts_map = await self.context_manager.artifacts.aget_by_short_ids(artifact_short_ids)
+
+        for message in viz_messages:
+            # Extract plan, query, and answer based on message type
+            if isinstance(message, VisualizationMessage):
+                plan = message.plan or ""
+                query = message.query or ""
+                answer = message.answer
+            else:
+                # ArtifactMessage - load artifact content from pre-fetched map
+                if message.source != ArtifactSource.ARTIFACT:
+                    continue  # Skip saved artifacts in this context
+                artifact = artifacts_map.get(message.artifact_id)
+                if not artifact:
+                    continue  # Skip if artifact not found
+                content = artifact.data
+                plan = content.get("description") or ""
+                query = artifact.name
+                answer = content.get("query")
+
             # Plans go first.
             conversation.append(
-                HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(
-                    plan=message.plan or ""
-                )
+                HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(plan=plan)
             )
             # Then questions.
             conversation.append(
                 HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
-                    question=message.query or ""
+                    question=query
                 )
             )
             # Then the answer.
-            if message.answer:
-                conversation.append(LangchainAssistantMessage(content=message.answer.model_dump_json()))
+            if answer:
+                conversation.append(LangchainAssistantMessage(content=answer.model_dump_json()))
 
         # Add the initiator message and the generated plan to the end, so instructions are clear.
         if generated_plan:
-            prompt = NEW_PLAN_PROMPT if messages else PLAN_PROMPT
+            prompt = NEW_PLAN_PROMPT if viz_messages else PLAN_PROMPT
             conversation.append(
                 HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
                     plan=generated_plan or ""

@@ -13,6 +13,7 @@ from langchain_core.messages import (
 )
 
 from posthog.schema import (
+    ArtifactMessage,
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantMessage,
@@ -50,6 +51,7 @@ def filter_and_merge_messages(
     entity_filter: Union[tuple[type[AssistantMessageUnion], ...], type[AssistantMessageUnion]] = (
         AssistantMessage,
         VisualizationMessage,
+        ArtifactMessage,
     ),
 ) -> list[AssistantMessageUnion]:
     """

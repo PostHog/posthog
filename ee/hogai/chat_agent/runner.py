@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationArtifactMessage
 
 from posthog.models import Team, User
 
@@ -84,7 +84,11 @@ class ChatAgentRunner(BaseAgentRunner):
             billing_context=billing_context,
             initial_state=initial_state,
             stream_processor=ChatAgentStreamProcessor(
-                verbose_nodes=VERBOSE_NODES, streaming_nodes=STREAMING_NODES, state_type=AssistantState
+                verbose_nodes=VERBOSE_NODES,
+                streaming_nodes=STREAMING_NODES,
+                state_type=AssistantState,
+                team=team,
+                user=user,
             ),
         )
 
@@ -115,12 +119,12 @@ class ChatAgentRunner(BaseAgentRunner):
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
         last_ai_message: AssistantMessage | None = None
-        last_viz_message: VisualizationMessage | None = None
+        last_viz_message: VisualizationArtifactMessage | None = None
         async for stream_event in super().astream(
             stream_message_chunks, stream_subgraphs, stream_first_message, stream_only_assistant_messages
         ):
             _, message = stream_event
-            if isinstance(message, VisualizationMessage):
+            if isinstance(message, VisualizationArtifactMessage):
                 last_viz_message = message
             if isinstance(message, AssistantMessage):
                 last_ai_message = message

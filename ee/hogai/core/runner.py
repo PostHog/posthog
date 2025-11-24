@@ -324,9 +324,9 @@ class BaseAgentRunner(ABC):
         update = extract_stream_update(update)
 
         if not isinstance(update, AssistantDispatcherEvent):
-            if updates := self._stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update)):
+            if updates := await self._stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update)):
                 return updates
-        elif new_message := self._stream_processor.process(update):
+        elif new_message := await self._stream_processor.process(update):
             return new_message
 
         return None
