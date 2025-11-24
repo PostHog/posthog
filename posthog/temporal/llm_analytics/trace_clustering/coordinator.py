@@ -11,7 +11,6 @@ from typing import Any
 
 import structlog
 import temporalio
-from temporalio.common import RetryPolicy
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -143,7 +142,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             get_teams_with_embeddings_activity,
             inputs,
             schedule_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            retry_policy=constants.COORDINATOR_ACTIVITY_RETRY_POLICY,
         )
 
         if not result.team_ids:
@@ -171,7 +170,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     ),
                     id=f"trace-clustering-team-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
-                    retry_policy=RetryPolicy(maximum_attempts=2),
+                    retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                 )
 
                 total_clusters += workflow_result.optimal_k

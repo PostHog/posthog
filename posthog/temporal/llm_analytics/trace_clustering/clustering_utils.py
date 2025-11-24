@@ -110,6 +110,25 @@ def perform_kmeans_clustering(
     return labels, centroids, inertia
 
 
+def calculate_trace_distances(
+    embeddings: np.ndarray,
+    centroids: np.ndarray,
+) -> np.ndarray:
+    """
+    Calculate Euclidean distances from each trace embedding to all centroids.
+
+    Args:
+        embeddings: Array of embedding vectors, shape (n_samples, n_features)
+        centroids: Array of centroid vectors, shape (n_clusters, n_features)
+
+    Returns:
+        Distance matrix of shape (n_samples, n_clusters)
+    """
+    # Shape: (n_samples, n_clusters)
+    # broadcasting: (n_samples, 1, n_features) - (1, n_clusters, n_features)
+    return np.sqrt(((embeddings[:, np.newaxis, :] - centroids[np.newaxis, :, :]) ** 2).sum(axis=2))
+
+
 def select_cluster_representatives(
     embeddings: np.ndarray,
     labels: np.ndarray,
@@ -151,8 +170,10 @@ def select_cluster_representatives(
         cluster_trace_ids = [trace_ids[i] for i in cluster_indices]
 
         # Calculate distances to centroid
-        centroid = centroids[cluster_id]
-        distances = np.linalg.norm(cluster_embeddings - centroid, axis=1)
+        # Use the shared helper but only for this cluster's centroid
+        # We need to reshape centroid to (1, n_features) for the helper
+        distances_matrix = calculate_trace_distances(cluster_embeddings, centroids[cluster_id : cluster_id + 1])
+        distances = distances_matrix[:, 0]  # Get the single column of distances
 
         # Get n_closest closest traces
         closest_indices = np.argsort(distances)[:n_closest]

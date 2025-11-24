@@ -15,12 +15,102 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
+    calculate_trace_distances,
     determine_optimal_k,
     perform_kmeans_clustering,
+    select_cluster_representatives,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import TraceEmbedding
 
 logger = logging.getLogger(__name__)
+
+
+@activity.defn
+async def select_traces_for_clustering_activity(
+    team_id: int,
+    window_start: str,
+    window_end: str,
+    max_samples: int,
+    random_seed: int | None = None,
+) -> list[str]:
+    """
+    Query and sample trace IDs for clustering.
+
+    This activity performs both querying and sampling in a single ClickHouse query,
+    returning only trace IDs to keep the workflow payload small.
+
+    Args:
+        team_id: Team ID to query embeddings for
+        window_start: Start of time window (RFC3339)
+        window_end: End of time window (RFC3339)
+        max_samples: Maximum number of traces to sample
+        random_seed: Random seed for reproducibility (optional)
+
+    Returns:
+        List of trace IDs (strings)
+    """
+    from django.utils.dateparse import parse_datetime
+
+    from posthog.clickhouse.client.connection import Workload
+    from posthog.clickhouse.client.execute import sync_execute
+
+    logger.info(f"Selecting up to {max_samples} trace IDs for team {team_id} from {window_start} to {window_end}")
+
+    start_dt = parse_datetime(window_start)
+    end_dt = parse_datetime(window_end)
+
+    if not start_dt or not end_dt:
+        raise ValueError(f"Invalid datetime format: {window_start} or {window_end}")
+
+    # Query only trace_id with sampling done in ClickHouse
+    # Use ORDER BY rand() for random sampling (or ORDER BY timestamp DESC if no sampling needed)
+    if max_samples and max_samples > 0:
+        query = """
+            SELECT document_id as trace_id
+            FROM posthog_document_embeddings
+            WHERE team_id = %(team_id)s
+                AND timestamp >= %(start_dt)s
+                AND timestamp < %(end_dt)s
+                AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
+                AND length(embedding) > 0
+            ORDER BY rand(%(seed)s)
+            LIMIT %(max_samples)s
+        """
+        params = {
+            "team_id": team_id,
+            "start_dt": start_dt,
+            "end_dt": end_dt,
+            "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
+            "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+            "max_samples": max_samples,
+            "seed": random_seed if random_seed is not None else 42,
+        }
+    else:
+        query = """
+            SELECT document_id as trace_id
+            FROM posthog_document_embeddings
+            WHERE team_id = %(team_id)s
+                AND timestamp >= %(start_dt)s
+                AND timestamp < %(end_dt)s
+                AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
+                AND length(embedding) > 0
+            ORDER BY timestamp DESC
+        """
+        params = {
+            "team_id": team_id,
+            "start_dt": start_dt,
+            "end_dt": end_dt,
+            "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
+            "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+        }
+
+    results = sync_execute(query, params, workload=Workload.OFFLINE)
+
+    trace_ids = [row[0] for row in results]
+
+    logger.info(f"Selected {len(trace_ids)} trace IDs")
+
+    return trace_ids
 
 
 @activity.defn
@@ -30,18 +120,10 @@ async def query_trace_embeddings_activity(
     window_end: str,
 ) -> list[TraceEmbedding]:
     """
-    Query trace embeddings from the document_embeddings table.
+    DEPRECATED: Use select_traces_for_clustering_activity instead.
 
-    Fetches only trace IDs and embedding vectors for clustering.
-    Metadata can be fetched later by the UI when displaying clusters.
-
-    Args:
-        team_id: Team ID to query embeddings for
-        window_start: Start of time window (RFC3339)
-        window_end: End of time window (RFC3339)
-
-    Returns:
-        List of TraceEmbedding objects with trace_id and embedding
+    This activity is kept for backward compatibility but should not be used
+    in new workflows as it passes large embedding objects through workflow history.
     """
     from django.utils.dateparse import parse_datetime
 
@@ -135,30 +217,53 @@ async def sample_embeddings_activity(
 
 @activity.defn
 async def determine_optimal_k_activity(
-    embeddings: list[TraceEmbedding],
+    trace_ids: list[str],
+    team_id: int,
     min_k: int,
     max_k: int,
 ) -> tuple[int, dict[int, float]]:
     """
     Determine optimal number of clusters using silhouette score.
 
-    Tests k values from min_k to max_k and returns the k with highest
-    silhouette score.
+    Fetches embeddings from ClickHouse by trace IDs, then tests k values
+    from min_k to max_k and returns the k with highest silhouette score.
 
     Args:
-        embeddings: List of trace embeddings
+        trace_ids: List of trace IDs to cluster
+        team_id: Team ID (for fetching embeddings)
         min_k: Minimum k to test
         max_k: Maximum k to test
 
     Returns:
         Tuple of (optimal_k, scores_dict)
     """
-    logger.info(f"Determining optimal k from {min_k} to {max_k} for {len(embeddings)} embeddings")
+    from posthog.clickhouse.client.connection import Workload
+    from posthog.clickhouse.client.execute import sync_execute
+
+    logger.info(f"Determining optimal k from {min_k} to {max_k} for {len(trace_ids)} embeddings")
+
+    # Fetch embeddings by trace IDs
+    query = """
+        SELECT document_id, embedding
+        FROM posthog_document_embeddings
+        WHERE team_id = %(team_id)s
+            AND document_id IN %(trace_ids)s
+            AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
+            AND length(embedding) > 0
+    """
+    params = {
+        "team_id": team_id,
+        "trace_ids": trace_ids,
+        "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
+        "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+    }
+
+    results = sync_execute(query, params, workload=Workload.OFFLINE)
 
     # Convert to numpy array
-    embedding_matrix = np.array([e.embedding for e in embeddings])
+    embeddings_array = np.array([row[1] for row in results])
 
-    optimal_k, scores = determine_optimal_k(embedding_matrix, min_k, max_k)
+    optimal_k, scores = determine_optimal_k(embeddings_array, min_k, max_k)
 
     logger.info(f"Optimal k: {optimal_k} (scores: {scores})")
 
@@ -167,36 +272,55 @@ async def determine_optimal_k_activity(
 
 @activity.defn
 async def perform_clustering_activity(
-    embeddings: list[TraceEmbedding],
+    trace_ids: list[str],
+    team_id: int,
     k: int,
 ) -> tuple[list[int], list[list[float]], float]:
     """
-    Perform k-means clustering on embeddings.
+    Perform k-means clustering on trace embeddings.
+
+    Fetches embeddings from ClickHouse by trace IDs, then performs k-means clustering.
 
     Args:
-        embeddings: List of trace embeddings
+        trace_ids: List of trace IDs to cluster
+        team_id: Team ID (for fetching embeddings)
         k: Number of clusters
 
     Returns:
         Tuple of (labels, centroids, inertia)
-        - labels: Cluster assignment for each embedding
-        - centroids: Cluster centroids as lists
-        - inertia: Sum of squared distances to nearest centroid
     """
-    logger.info(f"Performing k-means clustering with k={k} on {len(embeddings)} embeddings")
+    from posthog.clickhouse.client.connection import Workload
+    from posthog.clickhouse.client.execute import sync_execute
 
-    # Convert to numpy array
-    embedding_matrix = np.array([e.embedding for e in embeddings])
+    logger.info(f"Performing k-means clustering with k={k} on {len(trace_ids)} embeddings")
 
-    labels_array, centroids_array, inertia = perform_kmeans_clustering(embedding_matrix, k)
+    # Fetch embeddings by trace IDs, preserving order
+    query = """
+        SELECT document_id, embedding
+        FROM posthog_document_embeddings
+        WHERE team_id = %(team_id)s
+            AND document_id IN %(trace_ids)s
+            AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
+            AND length(embedding) > 0
+    """
+    params = {
+        "team_id": team_id,
+        "trace_ids": trace_ids,
+        "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
+        "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+    }
 
-    # Convert to lists for serialization
-    labels = labels_array.tolist()
-    centroids = centroids_array.tolist()
+    results = sync_execute(query, params, workload=Workload.OFFLINE)
+
+    # Create a mapping to preserve order
+    embedding_map = {row[0]: row[1] for row in results}
+    embeddings_array = np.array([embedding_map[trace_id] for trace_id in trace_ids if trace_id in embedding_map])
+
+    labels, centroids, inertia = perform_kmeans_clustering(embeddings_array, k)
 
     logger.info(f"Clustering complete: {k} clusters, inertia={inertia:.2f}")
 
-    return labels, centroids, inertia
+    return labels.tolist(), centroids.tolist(), inertia
 
 
 @activity.defn
@@ -212,7 +336,7 @@ async def emit_cluster_events_activity(
     inertia: float,
     labels: list[int],
     centroids: list[list[float]],
-    embeddings: list[TraceEmbedding],
+    trace_ids: list[str],
     cluster_labels: dict[int, dict[str, str]],
 ) -> int:
     """
@@ -246,25 +370,43 @@ async def emit_cluster_events_activity(
         try:
             team = Team.objects.get(id=team_id)
         except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=team_id)
+            logger.exception("Team not found", extra={"team_id": team_id})
             raise ValueError(f"Team {team_id} not found")
 
         # Convert centroids to numpy for efficient distance computation
         centroids_array = np.array(centroids)
-        embeddings_array = np.array([e.embedding for e in embeddings])
+
+        # Fetch embeddings by trace IDs
+        from posthog.clickhouse.client.connection import Workload
+        from posthog.clickhouse.client.execute import sync_execute
+
+        query = """
+            SELECT document_id, embedding
+            FROM posthog_document_embeddings
+            WHERE team_id = %(team_id)s
+                AND document_id IN %(trace_ids)s
+                AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
+                AND length(embedding) > 0
+        """
+        params = {
+            "team_id": team_id,
+            "trace_ids": trace_ids,
+            "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
+            "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+        }
+
+        results = sync_execute(query, params, workload=Workload.OFFLINE)
+
+        # Create mapping and preserve order
+        embedding_map = {row[0]: row[1] for row in results}
+        embeddings_array = np.array([embedding_map[trace_id] for trace_id in trace_ids if trace_id in embedding_map])
 
         # Compute distances from each trace to all centroids
         # Shape: (num_traces, num_clusters)
-        distances_matrix = np.sqrt(
-            ((embeddings_array[:, np.newaxis, :] - centroids_array[np.newaxis, :, :]) ** 2).sum(axis=2)
-        )
+        distances_matrix = calculate_trace_distances(embeddings_array, centroids_array)
 
         # Build clusters array with centroids and trace distances
         clusters = []
-        trace_distances = {}  # Map trace_id -> distances to all centroids
-
-        for i, embedding in enumerate(embeddings):
-            trace_distances[embedding.trace_id] = distances_matrix[i].tolist()
 
         for cluster_id in range(optimal_k):
             # Get all trace IDs in this cluster with their distances
@@ -273,8 +415,8 @@ async def emit_cluster_events_activity(
                 if label == cluster_id:
                     cluster_traces.append(
                         {
-                            "trace_id": embeddings[i].trace_id,
-                            "distance_to_centroid": distances_matrix[i][cluster_id],
+                            "trace_id": trace_ids[i],
+                            "distance_to_centroid": float(distances_matrix[i][cluster_id]),
                             "distances_to_all_centroids": distances_matrix[i].tolist(),
                         }
                     )
@@ -338,7 +480,7 @@ async def emit_cluster_events_activity(
 @activity.defn
 async def generate_cluster_labels_activity(
     team_id: int,
-    embeddings: list[TraceEmbedding],
+    trace_ids: list[str],
     labels: list[int],
     centroids: list[list[float]],
     optimal_k: int,
@@ -369,34 +511,40 @@ async def generate_cluster_labels_activity(
     def _generate():
         from posthog.clickhouse.client.connection import Workload
         from posthog.clickhouse.client.execute import sync_execute
+        # Fetch embeddings for the trace IDs
 
-        # Convert to numpy for distance computation
+        query = """
+            SELECT document_id, embedding
+            FROM posthog_document_embeddings
+            WHERE team_id = %(team_id)s
+                AND document_id IN %(trace_ids)s
+                AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
+                AND length(embedding) > 0
+        """
+        params = {
+            "team_id": team_id,
+            "trace_ids": trace_ids,
+            "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
+            "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+        }
+
+        results = sync_execute(query, params, workload=Workload.OFFLINE)
+
+        # Create mapping
+        embedding_map = {row[0]: row[1] for row in results}
+        embeddings_array = np.array([embedding_map[trace_id] for trace_id in trace_ids if trace_id in embedding_map])
         centroids_array = np.array(centroids)
-        embeddings_array = np.array([e.embedding for e in embeddings])
-
-        # Compute distances from each trace to all centroids
-        distances_matrix = np.sqrt(
-            ((embeddings_array[:, np.newaxis, :] - centroids_array[np.newaxis, :, :]) ** 2).sum(axis=2)
-        )
 
         # For each cluster, find representative traces (nearest to centroid)
-        cluster_trace_ids = {}
-        for cluster_id in range(optimal_k):
-            # Get indices of traces in this cluster
-            cluster_indices = [i for i, label in enumerate(labels) if label == cluster_id]
-
-            if not cluster_indices:
-                cluster_trace_ids[cluster_id] = []
-                continue
-
-            # Get distances to this cluster's centroid for traces in the cluster
-            cluster_distances = [(idx, distances_matrix[idx][cluster_id]) for idx in cluster_indices]
-
-            # Sort by distance (nearest first) and take top N
-            cluster_distances.sort(key=lambda x: x[1])
-            representative_indices = [idx for idx, _ in cluster_distances[:traces_per_cluster]]
-
-            cluster_trace_ids[cluster_id] = [embeddings[idx].trace_id for idx in representative_indices]
+        # We only want closest traces for labeling to get the strongest signal
+        cluster_trace_ids = select_cluster_representatives(
+            embeddings_array,
+            np.array(labels),
+            centroids_array,
+            trace_ids,
+            n_closest=traces_per_cluster,
+            n_random=0,
+        )
 
         # Fetch summaries for all representative traces
         all_trace_ids = []
@@ -449,46 +597,7 @@ async def generate_cluster_labels_activity(
             )
 
         # Build LLM prompt
-        prompt = f"""You are analyzing {optimal_k} clusters of similar LLM traces. For each cluster, provide a short title and description that captures what makes traces in that cluster similar.
-
-Having context about ALL clusters helps you create more distinctive and useful labels that differentiate between clusters.
-
-Here are the {optimal_k} clusters with their representative traces:
-
-"""
-
-        for cluster in clusters_data:
-            prompt += f"\n## Cluster {cluster['cluster_id']} ({cluster['size']} traces)\n\n"
-            prompt += "Representative traces (closest to cluster center):\n\n"
-
-            for i, trace in enumerate(cluster["representative_traces"], 1):
-                prompt += f"{i}. **{trace['title']}**\n"
-                prompt += f"   Summary: {trace['summary']}\n\n"
-
-        prompt += """
-Based on these representative traces, provide a title and description for each cluster:
-
-1. **Title**: 3-5 words that capture the main pattern (e.g., "PDF Generation Errors", "Authentication Flows", "Data Pipeline Processing")
-2. **Description**: 1-2 sentences explaining what traces in this cluster have in common - focus on functionality, error patterns, API usage, or workflows
-
-Respond with JSON in this exact format:
-{
-  "clusters": [
-    {
-      "cluster_id": 0,
-      "title": "Short Pattern Title",
-      "description": "Brief description of what these traces have in common."
-    },
-    {
-      "cluster_id": 1,
-      "title": "Another Pattern",
-      "description": "What makes this cluster distinct from others."
-    }
-  ]
-}
-
-Make titles and descriptions distinctive - users need to quickly understand how clusters differ from each other.
-"""
+        prompt = _build_cluster_labels_prompt(optimal_k, clusters_data)
 
         # Call LLM (using PostHog's OpenAI infrastructure)
         import os
@@ -560,3 +669,48 @@ Make titles and descriptions distinctive - users need to quickly understand how 
             }
 
     return await database_sync_to_async(_generate, thread_sensitive=False)()
+
+
+def _build_cluster_labels_prompt(optimal_k: int, clusters_data: list[dict]) -> str:
+    """Build the prompt for generating cluster labels."""
+    prompt = f"""You are analyzing {optimal_k} clusters of similar LLM traces. For each cluster, provide a short title and description that captures what makes traces in that cluster similar.
+
+Having context about ALL clusters helps you create more distinctive and useful labels that differentiate between clusters.
+
+Here are the {optimal_k} clusters with their representative traces:
+
+"""
+
+    for cluster in clusters_data:
+        prompt += f"\n## Cluster {cluster['cluster_id']} ({cluster['size']} traces)\n\n"
+        prompt += "Representative traces (closest to cluster center):\n\n"
+
+        for i, trace in enumerate(cluster["representative_traces"], 1):
+            prompt += f"{i}. **{trace['title']}**\n"
+            prompt += f"   Summary: {trace['summary']}\n\n"
+
+    prompt += """
+Based on these representative traces, provide a title and description for each cluster:
+
+1. **Title**: 3-5 words that capture the main pattern (e.g., "PDF Generation Errors", "Authentication Flows", "Data Pipeline Processing")
+2. **Description**: 1-2 sentences explaining what traces in this cluster have in common - focus on functionality, error patterns, API usage, or workflows
+
+Respond with JSON in this exact format:
+{
+  "clusters": [
+    {
+      "cluster_id": 0,
+      "title": "Short Pattern Title",
+      "description": "Brief description of what these traces have in common."
+    },
+    {
+      "cluster_id": 1,
+      "title": "Another Pattern",
+      "description": "What makes this cluster distinct from others."
+    }
+  ]
+}
+
+Make titles and descriptions distinctive - users need to quickly understand how clusters differ from each other.
+"""
+    return prompt
