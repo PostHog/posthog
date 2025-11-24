@@ -44,6 +44,7 @@ function createTestTeam(overrides: Partial<Team> = {}): Team {
         drop_events_older_than_seconds: null,
         project_id: 1 as any,
         ...overrides,
+        materialized_column_slots: overrides.materialized_column_slots ?? [],
     }
 }
 
