@@ -13,8 +13,7 @@ from posthog.temporal.llm_analytics.trace_clustering import (
     generate_cluster_labels_activity,
     get_teams_with_embeddings_activity,
     perform_clustering_activity,
-    query_trace_embeddings_activity,
-    sample_embeddings_activity,
+    select_traces_for_clustering_activity,
 )
 from posthog.temporal.llm_analytics.trace_summarization import (
     BatchTraceSummarizationCoordinatorWorkflow,
@@ -42,8 +41,7 @@ ACTIVITIES = [
     generate_and_save_summary_activity,
     embed_summaries_from_events_activity,
     get_teams_with_recent_traces_activity,
-    query_trace_embeddings_activity,
-    sample_embeddings_activity,
+    select_traces_for_clustering_activity,
     determine_optimal_k_activity,
     perform_clustering_activity,
     generate_cluster_labels_activity,
