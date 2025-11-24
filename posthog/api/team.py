@@ -1148,7 +1148,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"])
+    @action(methods=["GET"], detail=True)
     def settings_as_of(self, request: request.Request, **kwargs) -> response.Response:
         """
         Return the team settings as of the provided timestamp.
