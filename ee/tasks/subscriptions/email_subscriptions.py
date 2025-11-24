@@ -16,7 +16,16 @@ logger = structlog.get_logger(__name__)
 def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
     if _has_asset_failed(asset):
         insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
-        error_message = str(asset.exception) if asset.exception else ASSET_GENERATION_FAILED_MESSAGE
+
+        # Truncate long error messages to avoid long emails
+        max_error_length = 2000
+        if asset.exception:
+            error_message = str(asset.exception)
+            if len(error_message) > max_error_length:
+                error_message = error_message[:max_error_length] + "... (truncated)"
+        else:
+            error_message = ASSET_GENERATION_FAILED_MESSAGE
+
         return {
             "error": True,
             "insight_name": insight_name,
