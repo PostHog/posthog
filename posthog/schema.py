@@ -12235,6 +12235,10 @@ class TracesQuery(BaseModel):
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
+    randomOrder: Optional[bool] = Field(
+        default=None,
+        description="Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.",
+    )
     response: Optional[TracesQueryResponse] = None
     showColumnConfigurator: Optional[bool] = None
     tags: Optional[QueryLogTags] = None

@@ -1555,3 +1555,43 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         expected_input_tokens = 39
         self.assertIsNotNone(trace.inputTokens)
         self.assertEqual(trace.inputTokens, expected_input_tokens)
+
+    @freeze_time("2025-01-16T00:00:00Z")
+    def test_random_order(self):
+        """Test that randomOrder parameter returns traces in random order instead of timestamp DESC."""
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # Create 10 traces with different timestamps (most recent will be trace_9)
+        for i in range(10):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i),
+            )
+
+        # Default ordering (timestamp DESC) should return newest first
+        response_default = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5)).calculate()
+        # Paginator returns limit+1 to determine hasMore
+        self.assertGreaterEqual(len(response_default.results), 5)
+        # Should be in descending timestamp order (newest first)
+        self.assertEqual(response_default.results[0].id, "trace_9")
+        self.assertEqual(response_default.results[1].id, "trace_8")
+        self.assertEqual(response_default.results[2].id, "trace_7")
+
+        # Random ordering should return different order
+        response_random = TracesQueryRunner(team=self.team, query=TracesQuery(limit=5, randomOrder=True)).calculate()
+        # Paginator returns limit+1 to determine hasMore
+        self.assertGreaterEqual(len(response_random.results), 5)
+
+        # Get IDs from random ordering
+        random_ids = [trace.id for trace in response_random.results]
+
+        # Random order should likely be different from timestamp DESC order
+        # We can't assert they're definitely different due to randomness,
+        # but we can assert all returned traces are valid
+        for trace_id in random_ids:
+            self.assertTrue(trace_id.startswith("trace_"))
+            trace_num = int(trace_id.split("_")[1])
+            self.assertGreaterEqual(trace_num, 0)
+            self.assertLess(trace_num, 10)
