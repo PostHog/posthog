@@ -18,7 +18,7 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
 
-from ee.billing.billing_types import BillingStatus
+from ee.billing.billing_types import BillingProvider, BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -441,8 +441,33 @@ class BillingManager:
 
         self.update_available_product_features(organization)
 
-    def authorize(self, organization: Organization, billing_provider: str | None = None):
-        data = {"billing_provider": billing_provider} if billing_provider else {}
+    def authorize(self, organization: Organization, billing_provider: BillingProvider | None = None):
+        """
+        Authorize billing for an organization, optionally through a marketplace provider.
+
+        Args:
+            organization: The organization to authorize billing for
+            billing_provider: Optional marketplace provider (e.g., "vercel"). If provided, the organization
+                            must have a corresponding integration configured.
+
+        Raises:
+            ValueError: If billing_provider is specified but the organization doesn't have the integration
+        """
+        # Validate that organization has the integration if billing_provider is specified
+        if billing_provider:
+            from posthog.models import OrganizationIntegration
+
+            has_integration = OrganizationIntegration.objects.filter(
+                organization=organization,
+                kind=billing_provider,  # kind matches billing_provider value
+            ).exists()
+
+            if not has_integration:
+                raise ValueError(
+                    f"Organization {organization.id} does not have a {billing_provider} integration configured"
+                )
+
+        data = {"billing_provider": billing_provider}
 
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",

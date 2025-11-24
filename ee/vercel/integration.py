@@ -179,8 +179,15 @@ class VercelIntegration:
         return resource, installation
 
     @staticmethod
-    def _cleanup_failed_installation(organization: Organization, installation_id: str) -> None:
-        """Clean up organization and integration after a failed installation."""
+    def _cleanup_failed_installation(
+        organization: Organization, installation_id: str, user: User | None = None, user_created: bool = False
+    ) -> None:
+        """
+        Clean up organization and integration after a failed installation.
+
+        Deletes the organization (which cascades to OrganizationIntegration) and
+        optionally deletes the user if it was created specifically for this installation.
+        """
         try:
             organization.delete()
             logger.info(
@@ -188,6 +195,16 @@ class VercelIntegration:
                 installation_id=installation_id,
                 organization_id=str(organization.id),
             )
+
+            # Only delete user if it was created specifically for this installation
+            # Existing users should not be deleted
+            if user_created and user:
+                user.delete()
+                logger.info(
+                    "Cleaned up user after billing failure",
+                    installation_id=installation_id,
+                    user_id=str(user.id),
+                )
         except Exception as cleanup_error:
             logger.exception(
                 "Failed to clean up organization after billing failure",
@@ -353,7 +370,7 @@ class VercelIntegration:
                     organization_id=str(organization.id),
                 )
                 capture_exception(e)
-                VercelIntegration._cleanup_failed_installation(organization, installation_id)
+                VercelIntegration._cleanup_failed_installation(organization, installation_id, user, user_created)
                 raise exceptions.APIException("Failed to initialize billing. Please try again.")
 
         if user_created:

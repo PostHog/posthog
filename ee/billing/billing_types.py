@@ -1,6 +1,8 @@
 from decimal import Decimal
 from typing import Any, Literal, Optional, TypedDict
 
+BillingProvider = Literal["vercel"]
+
 
 class Tier(TypedDict):
     flat_amount_usd: str
