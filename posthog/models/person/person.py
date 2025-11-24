@@ -124,7 +124,15 @@ class PersonManager(models.Manager):
             person._add_distinct_ids(distinct_ids)
             return person
 
-    def bulk_create(self, objs, **kwargs):
+    def bulk_create(
+        self,
+        objs,
+        batch_size=None,
+        ignore_conflicts=False,
+        update_conflicts=False,
+        update_fields=None,
+        unique_fields=None,
+    ):
         # For composite PK tables, pre-generate IDs from the sequence
         # Django's bulk_create tries to INSERT id=NULL which violates NOT NULL constraint
         # This is a workaround to generate IDs for the persons database during tests/generate_demo_data
@@ -140,7 +148,14 @@ class PersonManager(models.Manager):
                 new_ids = [row[0] for row in cursor.fetchall()]
                 for obj, new_id in zip(objs_needing_ids, new_ids):
                     obj.id = new_id
-        return super().bulk_create(objs, **kwargs)
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+            update_conflicts=update_conflicts,
+            update_fields=update_fields,
+            unique_fields=unique_fields,
+        )
 
 
 class Person(models.Model):
