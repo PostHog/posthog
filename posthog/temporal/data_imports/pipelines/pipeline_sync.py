@@ -131,10 +131,11 @@ def validate_schema_and_update_table_sync(
             # create or update
             table_created: DataWarehouseTable | None = None
             # Check if the table exists and is not soft-deleted
-            if external_data_schema.table and not external_data_schema.table.deleted:
-                table_created = external_data_schema.table
-            elif external_data_schema.table and external_data_schema.table.deleted:
-                logger.info(f"Table {external_data_schema.table.id} is soft-deleted, treating as non-existent")
+            if external_data_schema.table:
+                if external_data_schema.table.deleted:
+                    logger.info(f"Table {external_data_schema.table.id} is soft-deleted, treating as non-existent")
+                else:
+                    table_created = external_data_schema.table
 
             if table_created:
                 table_created.credential = table_params["credential"]
