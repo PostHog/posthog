@@ -353,6 +353,17 @@ export function SessionGroupSummary(): JSX.Element {
         }
         return patterns.sort((a, b) => b.stats.sessions_affected - a.stats.sessions_affected)
     }, [filteredPatterns, sortBy])
+
+    const filteredIssuesCount = useMemo(() => {
+        return sortedPatterns.reduce((sum, pattern) => sum + pattern.events.length, 0)
+    }, [sortedPatterns])
+
+    const totalIssuesCount = useMemo(() => {
+        if (!summary.patterns) {
+            return 0
+        }
+        return summary.patterns.reduce((sum, pattern) => sum + pattern.events.length, 0)
+    }, [summary.patterns])
     const handleViewDetails = (
         pattern: EnrichedSessionGroupSummaryPattern,
         event: PatternAssignedEventSegmentContext
@@ -446,8 +457,8 @@ export function SessionGroupSummary(): JSX.Element {
                     onSearchChange={setSearchValue}
                     issueTypeFilters={issueTypeFilters}
                     onIssueTypeFilterChange={handleIssueTypeFilterChange}
-                    filteredCount={sortedPatterns.length}
-                    totalCount={summary.patterns?.length || 0}
+                    filteredCount={filteredIssuesCount}
+                    totalCount={totalIssuesCount}
                 />
                 <div className="flex flex-col gap-2">
                     {sortedPatterns.length === 0 && summary.patterns && summary.patterns.length > 0 ? (
