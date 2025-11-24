@@ -85,7 +85,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 pressedKeys.push(keyToAdd)
                 const pressedKeyString = pressedKeys.join('+')
 
-                // Find matching shortcut - if found, prevent default immediately
+                // Find matching shortcut
                 const matchingShortcut = values.registeredAppShortcuts.find((shortcut) => {
                     return shortcut.keybind.some((keybind) => {
                         const shortcutKeyString = keybind.map((k: string) => k.toLowerCase()).join('+')
