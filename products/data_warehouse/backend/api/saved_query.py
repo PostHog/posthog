@@ -535,7 +535,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
-        saved_query.enable_materialization(unpause=should_unpause)
+        saved_query.schedule_materialization(unpause=should_unpause)
 
         # Mark as materialized after successful enable_materialization
         saved_query.is_materialized = True
