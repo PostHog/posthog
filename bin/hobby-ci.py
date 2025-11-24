@@ -111,32 +111,32 @@ class HobbyTester:
             print(f"⚠️  Failed to generate SSH key: {e}", flush=True)
 
     def _get_wait_for_image_script(self):
-        """Return bash script to wait for docker image on DockerHub with fallback to build"""
-        return """
-# Wait for image to be available on DockerHub (up to 20 minutes)
-WAIT_TIMEOUT=1200  # 20 minutes
-WAIT_INTERVAL=30   # Check every 30 seconds
-END_TIME=$(($(date +%s) + WAIT_TIMEOUT))
-IMAGE_FOUND=false
-
-while [ $(date +%s) -lt $END_TIME ]; do
-    MINS_LEFT=$(( (END_TIME - $(date +%s)) / 60 ))
-    if curl -s "https://hub.docker.com/v2/repositories/posthog/posthog/tags/$CURRENT_COMMIT" | grep -q '"name":"'$CURRENT_COMMIT'"'; then
-        echo "$LOG_PREFIX Docker image found on DockerHub (waited $MINS_LEFT mins)"
-        IMAGE_FOUND=true
-        break
-    fi
-    echo "$LOG_PREFIX Image not yet available, checking again in 30s... ($MINS_LEFT mins remaining)"
-    sleep $WAIT_INTERVAL
-done
-
-if [ "$IMAGE_FOUND" = false ]; then
-    echo "$LOG_PREFIX Image not found after 20 mins, building locally..."
-    cd posthog
-    docker build -t posthog/posthog:$CURRENT_COMMIT .
-    cd ..
-fi
-"""
+        """Return bash script to wait for docker image on DockerHub with fallback to build.
+        Returns a single-line bash command suitable for YAML runcmd.
+        """
+        # Use semicolons to chain commands on a single line
+        return (
+            "WAIT_TIMEOUT=1200; "
+            "WAIT_INTERVAL=30; "
+            "END_TIME=$(($(date +%s) + WAIT_TIMEOUT)); "
+            "IMAGE_FOUND=false; "
+            "while [ $(date +%s) -lt $END_TIME ]; do "
+            "  MINS_LEFT=$(( (END_TIME - $(date +%s)) / 60 )); "
+            '  if curl -s "https://hub.docker.com/v2/repositories/posthog/posthog/tags/$CURRENT_COMMIT" | grep -q \'"name":"\'"$CURRENT_COMMIT"\'""\'; then '
+            '    echo "$LOG_PREFIX Docker image found on DockerHub (waited $MINS_LEFT mins)"; '
+            "    IMAGE_FOUND=true; "
+            "    break; "
+            "  fi; "
+            '  echo "$LOG_PREFIX Image not yet available, checking again in 30s... ($MINS_LEFT mins remaining)"; '
+            "  sleep $WAIT_INTERVAL; "
+            "done; "
+            'if [ "$IMAGE_FOUND" = false ]; then '
+            '  echo "$LOG_PREFIX Image not found after 20 mins, building locally..."; '
+            "  cd posthog; "
+            "  docker build -t posthog/posthog:$CURRENT_COMMIT .; "
+            "  cd ..; "
+            "fi"
+        )
 
     def _build_user_data(self):
         """Build cloud-init user_data script with SSH pubkey in cloud-config"""
@@ -167,8 +167,7 @@ runcmd:
             'echo "$LOG_PREFIX Current commit: $CURRENT_COMMIT"',
             "cd ..",
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
-            # Multi-line bash script needs to be wrapped in bash -c
-            f"bash -c {shlex.quote(self._get_wait_for_image_script())}",
+            self._get_wait_for_image_script(),
             "chmod +x posthog/bin/deploy-hobby",
             'echo "$LOG_PREFIX Starting deployment script"',
             f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {safe_hostname} 1",
