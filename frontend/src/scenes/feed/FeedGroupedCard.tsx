@@ -40,10 +40,15 @@ export function FeedGroupedCard({ items, config }: FeedGroupedCardProps): JSX.El
 
     // Multiple items - show collapsible group
     return (
-        <div className="border rounded border-l-4 overflow-hidden" style={{ borderLeftColor: config.borderColor }}>
+        <div
+            className="border rounded border-l-4 overflow-hidden"
+            style={{ borderLeftColor: config.borderColor }}
+            data-attr={`feed-group-${items[0]?.type || 'unknown'}`}
+        >
             <div
                 className="p-4 bg-bg-light hover:bg-bg-3000 cursor-pointer transition-all group"
                 onClick={() => setIsExpanded(!isExpanded)}
+                data-attr={`feed-group-toggle-${items[0]?.type || 'unknown'}`}
             >
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex-1 flex items-center gap-3 min-w-0">

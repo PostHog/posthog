@@ -53,7 +53,11 @@ export function FeedItemRow({ item, config }: FeedItemRowProps): JSX.Element {
     const url = getItemUrl(item)
 
     return (
-        <div className="border rounded border-l-4 overflow-hidden" style={{ borderLeftColor: config.borderColor }}>
+        <div
+            className="border rounded border-l-4 overflow-hidden"
+            style={{ borderLeftColor: config.borderColor }}
+            data-attr={`feed-item-${item.type}`}
+        >
             {/* Header - Single line with all metadata */}
             <div className="px-4 pt-3 pb-2">
                 <div className="flex items-center gap-2 text-xs">
@@ -81,7 +85,7 @@ export function FeedItemRow({ item, config }: FeedItemRowProps): JSX.Element {
 
             {/* Content */}
             {url ? (
-                <Link to={url} className="block px-4 pb-3">
+                <Link to={url} className="block px-4 pb-3" data-attr={`feed-item-click-${item.type}`}>
                     <div>
                         <h3 className="font-semibold text-base mb-1">{item.name}</h3>
                         {item.description && <p className="text-sm text-muted mb-0">{item.description}</p>}

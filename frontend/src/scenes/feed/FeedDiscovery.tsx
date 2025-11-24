@@ -21,6 +21,7 @@ const DISCOVERY_PROMPTS = [
         icon: <IconTrends style={{ color: '#1D4AFF' }} />,
         hasInput: true,
         buttonText: 'Ask PostHog AI',
+        dataAttr: 'feed-discovery-create-insight',
     },
     {
         title: 'Summarize my recent session recordings',
@@ -30,6 +31,7 @@ const DISCOVERY_PROMPTS = [
         icon: <IconPlaylist style={{ color: '#B62AD9' }} />,
         hasInput: false,
         buttonText: 'Summarize my sessions!',
+        dataAttr: 'feed-discovery-summarize-sessions',
     },
     {
         title: 'Create a new dashboard',
@@ -39,6 +41,7 @@ const DISCOVERY_PROMPTS = [
         icon: <IconDashboard style={{ color: '#36B37E' }} />,
         hasInput: true,
         buttonText: 'Ask PostHog AI',
+        dataAttr: 'feed-discovery-create-dashboard',
     },
 ]
 
@@ -83,6 +86,7 @@ export function FeedDiscovery(): JSX.Element {
                                         type="primary"
                                         center={true}
                                         onClick={() => handleSubmit(index, item.promptPrefix, item.placeholder)}
+                                        data-attr={item.dataAttr}
                                     >
                                         {item.buttonText}
                                     </LemonButton>
@@ -93,6 +97,7 @@ export function FeedDiscovery(): JSX.Element {
                                     center={true}
                                     onClick={() => handleSubmit(index, item.promptPrefix, item.placeholder)}
                                     fullWidth
+                                    data-attr={item.dataAttr}
                                 >
                                     <div className="flex items-center gap-2 justify-center">
                                         <IconSparkles className="text-base" />
