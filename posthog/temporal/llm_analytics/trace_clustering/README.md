@@ -101,36 +101,38 @@ graph TB
 
 ### Activities
 
-1. **`query_trace_embeddings_activity`**
-   - Queries `document_embeddings` table for traces with embeddings
-   - Filters by team_id and time window (last 7 days by default)
-   - Returns only trace_id and embedding_vector (no metadata)
+1. **`select_traces_for_clustering_activity`**
+   - Queries and samples trace IDs in a single efficient operation
+   - Uses `ORDER BY rand() LIMIT N` for random sampling
+   - Returns list of trace ID strings (not embeddings)
    - Timeout: 5 minutes
 
-2. **`sample_embeddings_activity`**
-   - Random sampling of up to 2000 embeddings
-   - If fewer than 2000 available, uses all
-   - Ensures reproducibility with fixed random seed per run
-   - Returns sampled list of (trace_id, embedding_vector)
-   - Timeout: 1 minute
-
-3. **`determine_optimal_k_activity`**
-   - Tests k=3,4,5,6 using k-means initialization
+2. **`determine_optimal_k_activity`**
+   - Tests k range (default 2-4) using k-means initialization
+   - Fetches embeddings by trace IDs within the activity
    - Calculates silhouette score for each k
    - Picks k with highest silhouette score
    - Returns optimal k and quality metrics
    - Timeout: 10 minutes (depends on sample size)
 
-4. **`perform_clustering_activity`**
+3. **`perform_clustering_activity`**
    - Runs k-means clustering with optimal k
+   - Fetches embeddings by trace IDs within the activity
    - Uses sklearn's KMeans with reproducible random_state
    - Returns cluster assignments and centroids
    - Timeout: 5 minutes
 
+4. **`generate_cluster_labels_activity`**
+   - Generates human-readable titles and descriptions for each cluster
+   - Uses LLM to analyze representative traces from each cluster
+   - Selects traces nearest to cluster centroids
+   - Returns dict mapping cluster_id to {title, description}
+   - Timeout: 10 minutes
+
 5. **`emit_cluster_events_activity`**
    - Emits single `$ai_trace_clusters` event with all clusters
    - Includes clustering_run_id for versioning
-   - Stores cluster_id, size, centroid, and all traces per cluster
+   - Stores cluster_id, size, centroid, labels, and all traces per cluster
    - Each trace includes distance metrics (to its centroid and all centroids)
    - Centroids are 3072-dimensional embedding vectors
    - Timeout: 1 minute

@@ -11,8 +11,6 @@ from posthog.temporal.llm_analytics.trace_clustering.activities import (
     determine_optimal_k_activity,
     emit_cluster_events_activity,
     perform_clustering_activity,
-    query_trace_embeddings_activity,
-    sample_embeddings_activity,
 )
 from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
     determine_optimal_k,
@@ -126,80 +124,6 @@ class TestClusteringUtils:
         for _cluster_id, rep_ids in representatives.items():
             assert len(rep_ids) <= 7  # 5 closest + 2 random
             assert all(isinstance(tid, str) for tid in rep_ids)
-
-
-class TestQueryTraceEmbeddingsActivity:
-    """Tests for query_trace_embeddings_activity."""
-
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.asyncio
-    async def test_query_embeddings_success(self, mock_team):
-        """Test successful embedding query."""
-        end_dt = datetime.now(UTC)
-        start_dt = end_dt - timedelta(days=7)
-
-        with patch("posthog.clickhouse.client.execute.sync_execute") as mock_execute:
-            # Mock query results
-            mock_execute.return_value = [
-                (
-                    f"trace_{i}",
-                    np.random.rand(384).tolist(),
-                )
-                for i in range(50)
-            ]
-
-            result = await query_trace_embeddings_activity(
-                team_id=mock_team.id, window_start=start_dt.isoformat(), window_end=end_dt.isoformat()
-            )
-
-            assert len(result) == 50
-            assert all(isinstance(e, TraceEmbedding) for e in result)
-            assert result[0].trace_id == "trace_0"
-            assert len(result[0].embedding) == 384
-
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.asyncio
-    async def test_query_embeddings_empty(self, mock_team):
-        """Test query when no embeddings found."""
-        end_dt = datetime.now(UTC)
-        start_dt = end_dt - timedelta(days=7)
-
-        with patch("posthog.clickhouse.client.execute.sync_execute") as mock_execute:
-            mock_execute.return_value = []
-
-            result = await query_trace_embeddings_activity(
-                team_id=mock_team.id, window_start=start_dt.isoformat(), window_end=end_dt.isoformat()
-            )
-
-            assert len(result) == 0
-
-
-class TestSampleEmbeddingsActivity:
-    """Tests for sample_embeddings_activity."""
-
-    @pytest.mark.asyncio
-    async def test_sample_below_max(self, sample_embeddings):
-        """Test sampling when fewer embeddings than max."""
-        result = await sample_embeddings_activity(sample_embeddings[:50], max_samples=100, random_seed=42)
-
-        assert len(result) == 50  # Returns all
-        assert result == sample_embeddings[:50]
-
-    @pytest.mark.asyncio
-    async def test_sample_above_max(self, sample_embeddings):
-        """Test sampling when more embeddings than max."""
-        result = await sample_embeddings_activity(sample_embeddings, max_samples=50, random_seed=42)
-
-        assert len(result) == 50
-        assert all(e in sample_embeddings for e in result)
-
-    @pytest.mark.asyncio
-    async def test_sample_reproducibility(self, sample_embeddings):
-        """Test that sampling with same seed is reproducible."""
-        result1 = await sample_embeddings_activity(sample_embeddings, max_samples=50, random_seed=42)
-        result2 = await sample_embeddings_activity(sample_embeddings, max_samples=50, random_seed=42)
-
-        assert result1 == result2
 
 
 class TestDetermineOptimalKActivity:
