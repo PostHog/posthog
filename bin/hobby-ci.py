@@ -167,7 +167,8 @@ runcmd:
             'echo "$LOG_PREFIX Current commit: $CURRENT_COMMIT"',
             "cd ..",
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
-            self._get_wait_for_image_script(),
+            # Multi-line bash script needs to be wrapped in bash -c
+            f"bash -c {shlex.quote(self._get_wait_for_image_script())}",
             "chmod +x posthog/bin/deploy-hobby",
             'echo "$LOG_PREFIX Starting deployment script"',
             f"./posthog/bin/deploy-hobby $CURRENT_COMMIT {safe_hostname} 1",
