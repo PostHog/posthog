@@ -8,15 +8,24 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import {
+    MAX_PROPERTY_NAME_LENGTH,
     PROPERTY_TYPE_OPTIONS,
     PropertyType,
     SchemaPropertyGroupProperty,
     schemaManagementLogic,
 } from './schemaManagementLogic'
 
-function isValidPropertyName(name: string): boolean {
+function hasPropertyName(name: string): boolean {
+    return Boolean(name && name.trim())
+}
+
+function isPropertyNameTooLong(name: string): boolean {
+    return Boolean(name && name.trim().length > MAX_PROPERTY_NAME_LENGTH)
+}
+
+function hasStandardPropertyName(name: string): boolean {
     if (!name || !name.trim()) {
-        return false
+        return true
     }
     return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name.trim())
 }
@@ -34,6 +43,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
         propertyGroupForm,
         isPropertyGroupFormSubmitting,
         propertyGroupFormValidationError,
+        propertyGroupFormWarning,
     } = useValues(logic)
     const {
         setPropertyGroupModalOpen,
@@ -60,7 +70,13 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                     value={property.name}
                     onChange={(value) => updatePropertyInForm(index, { name: value })}
                     placeholder="Property name"
-                    status={!isValidPropertyName(property.name) ? 'danger' : undefined}
+                    status={
+                        !hasPropertyName(property.name) || isPropertyNameTooLong(property.name)
+                            ? 'danger'
+                            : !hasStandardPropertyName(property.name)
+                              ? 'warning'
+                              : undefined
+                    }
                     fullWidth
                 />
             ),
@@ -155,6 +171,9 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                             />
                             {propertyGroupFormValidationError && (
                                 <div className="text-danger text-sm mt-2">{propertyGroupFormValidationError}</div>
+                            )}
+                            {!propertyGroupFormValidationError && propertyGroupFormWarning && (
+                                <div className="text-warning text-sm mt-2">{propertyGroupFormWarning}</div>
                             )}
                         </>
                     ) : (
