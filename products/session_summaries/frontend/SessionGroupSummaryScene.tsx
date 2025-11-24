@@ -111,29 +111,26 @@ function FilterBar({
     onSearchChange,
     issueTypeFilters,
     onIssueTypeFilterChange,
+    filteredCount,
+    totalCount,
 }: {
     searchValue: string
     onSearchChange: (value: string) => void
     issueTypeFilters: Set<IssueTypeFilter>
     onIssueTypeFilterChange: (filter: IssueTypeFilter) => void
+    filteredCount: number
+    totalCount: number
 }): JSX.Element {
     return (
-        <div className="flex flex-wrap gap-4 mb-4">
-            <div className="flex-1 min-w-60">
-                <LemonInput
-                    type="search"
-                    placeholder="Filter session issues by keyword..."
-                    value={searchValue}
-                    onChange={onSearchChange}
-                    prefix={<IconSearch />}
-                    fullWidth
-                />
-            </div>
+        <div className="flex flex-wrap gap-4 mb-4 items-center">
             <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-alt">
+                    Showing {filteredCount} of {totalCount} issues
+                </span>
                 {(
                     [
-                        ['blocking_error', 'Blocking'],
-                        ['non_blocking_error', 'Non-blocking'],
+                        ['blocking_error', 'Blocking error'],
+                        ['non_blocking_error', 'Non-blocking error'],
                         ['abandonment', 'Abandonment'],
                         ['confusion', 'Confusion'],
                     ] as const
@@ -150,6 +147,19 @@ function FilterBar({
                         />
                     )
                 })}
+                {/* <span className="text-sm text-muted-alt">
+                    
+                </span> */}
+            </div>
+            <div className="flex-1 min-w-60">
+                <LemonInput
+                    type="search"
+                    placeholder="Filter session issues by keyword..."
+                    value={searchValue}
+                    onChange={onSearchChange}
+                    prefix={<IconSearch />}
+                    fullWidth
+                />
             </div>
         </div>
     )
@@ -439,6 +449,8 @@ export function SessionGroupSummary(): JSX.Element {
                     onSearchChange={setSearchValue}
                     issueTypeFilters={issueTypeFilters}
                     onIssueTypeFilterChange={handleIssueTypeFilterChange}
+                    filteredCount={sortedPatterns.length}
+                    totalCount={summary.patterns?.length || 0}
                 />
                 <div className="flex flex-col gap-2">
                     {sortedPatterns.length === 0 && summary.patterns && summary.patterns.length > 0 ? (
