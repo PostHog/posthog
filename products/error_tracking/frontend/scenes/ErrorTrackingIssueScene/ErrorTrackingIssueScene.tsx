@@ -89,12 +89,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     </div>
                 )}
 
-                <ErrorTrackingSetupPrompt>
-                    <div className="ErrorTrackingIssue flex h-[calc(100vh-var(--scene-layout-header-height)-50px)]">
-                        <LeftHandColumn />
-                        <RightHandColumn />
-                    </div>
-                </ErrorTrackingSetupPrompt>
+                <div className="ErrorTrackingIssue flex h-[calc(100vh-var(--scene-layout-header-height)-50px)]">
+                    <LeftHandColumn />
+                    <RightHandColumn />
+                </div>
             </BindLogic>
         </ErrorTrackingSetupPrompt>
     )

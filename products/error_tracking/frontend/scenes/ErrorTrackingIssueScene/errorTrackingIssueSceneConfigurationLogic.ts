@@ -24,7 +24,6 @@ export const errorTrackingIssueSceneConfigurationLogic = kea<errorTrackingIssueS
     reducers(() => ({
         category: {
             setCategory: (_, { category }) => category,
-            openSidebar: (_, { category }) => category,
         },
     })),
 ])
