@@ -3494,6 +3494,7 @@ export interface DashboardFilter {
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
     breakdown_filter?: BreakdownFilter | null
+    explicitDate?: boolean
 }
 
 export interface TileFilters {
@@ -3501,6 +3502,7 @@ export interface TileFilters {
     date_to?: string | null | undefined
     properties?: AnyPropertyFilter[] | null | undefined
     breakdown_filter?: BreakdownFilter | null | undefined
+    explicitDate?: boolean | undefined
 }
 
 export interface InsightsThresholdBounds {
