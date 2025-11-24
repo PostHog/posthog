@@ -132,6 +132,8 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
 }
 
 export const SidePanelStatusWarning: StoryFn = () => {
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    useOnMountEffect(() => closeSidePanel())
     const summary = Object.assign({}, incidentIoStatusPageWarning)
 
     useStorybookMocks({
@@ -144,6 +146,9 @@ export const SidePanelStatusWarning: StoryFn = () => {
 }
 
 export const SidePanelStatusCritical: StoryFn = () => {
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    useOnMountEffect(() => closeSidePanel())
+
     const summary = Object.assign({}, incidentIoStatusPageCritical)
 
     useStorybookMocks({
