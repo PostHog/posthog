@@ -179,7 +179,6 @@ export const FEATURE_FLAGS = {
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
-    AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-billing
@@ -248,7 +247,6 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
-    ERROR_TRACKING_ISSUE_LAYOUT_V2: 'error-tracking-issue-layout-v2', // owner: @david #team-error-tracking
     AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai
     ERROR_TRACKING_REVENUE_SORTING: 'error-tracking-revenue-sorting', // owner: @david #team-error-tracking
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
@@ -298,7 +296,6 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-posthog-ai
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
-    EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-workflows
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
@@ -317,7 +314,6 @@ export const FEATURE_FLAGS = {
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
-    EXPERIMENT_TIMESERIES: 'experiment-timeseries', // owner: @jurajmajerik #team-experiments
     DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE: 'schedule-feature-flag-variants-update', // owner: @gustavo #team-feature-flags
@@ -327,7 +323,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_BREAKDOWN_FILTER: 'experiments-breakdown-filter', // owner: @rodrigoi #team-experiments
     TARGETED_PRODUCT_UPSELL: 'targeted-product-upsell', // owner: @raquelmsmith
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
-    EXPERIMENTS_HIDE_STOP_BUTTON: 'experiments-hide-stop-button', // owner: @jurajmajerik #team-experiments
     REPLAY_CLIENT_SIDE_DECOMPRESSION: 'replay-client-side-decompression', // owner: @pauldambra #team-replay
     REPLAY_DECOMPRESSION_WORKER: 'replay-decompression-worker', // owner: @pauldambra #team-replay
     EXPERIMENTS_USE_NEW_QUERY_BUILDER: 'experiments-use-new-query-builder', // owner: @andehen #team-experiments
@@ -343,6 +338,9 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_USE_NEW_CREATE_FORM: 'experiments-use-new-create-form', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     AGENT_MODES: 'phai-agent-modes', // owner: @skoob13 #team-posthog-ai
+    INCIDENT_IO_STATUS_PAGE: 'incident-io-status-page', // owner: @benjackwhite
+    SURVEYS_FUNNELS_CROSS_SELL: 'survey-funnels-cross-sell', // owner: @adboio #team-surveys
+    DATE_PICKER_EXPLICIT_DATE_TOGGLE: 'date-picker-explicit-date-toggle', // owner: @gesh #team-product-analytics
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

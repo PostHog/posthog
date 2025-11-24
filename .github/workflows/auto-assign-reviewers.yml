@@ -1,7 +1,7 @@
 name: Auto Assign Reviewers
 
 on:
-    pull_request_target:
+    pull_request: # Don't use `pull_request_target` for security reasons (see https://posthog.slack.com/archives/C09V86BQT5X/p1763989103518279)
         # Only opened or when clicking ready otherwise you can never remove the reviewers
         types: [opened, ready_for_review]
 

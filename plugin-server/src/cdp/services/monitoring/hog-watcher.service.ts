@@ -1,11 +1,11 @@
 import { Counter } from 'prom-client'
 
+import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
 
 import { Hub } from '../../../types'
-import { CdpRedis, getRedisPipelineResults } from '../../redis'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -79,7 +79,7 @@ export class HogWatcherService {
 
     constructor(
         private hub: Hub,
-        private redis: CdpRedis
+        private redis: RedisV2
     ) {
         this.costsMapping = {
             hog: {

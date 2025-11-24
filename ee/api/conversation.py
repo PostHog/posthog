@@ -111,17 +111,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     lookup_url_kwarg = "conversation"
 
     def safely_get_queryset(self, queryset):
-        # Only allow access to conversations created by the current user
-        qs = queryset.filter(user=self.request.user)
-
-        # Allow sending messages to any conversation
-        if self.action == "create":
-            return qs
-
-        # But retrieval must only return conversations from the assistant and with a title.
-        return qs.filter(
-            title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
-        ).order_by("-updated_at")
+        # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
+        if self.action != "retrieve":
+            queryset = queryset.filter(user=self.request.user)
+        # For listing or single retrieval, conversations must be from the assistant and have a title
+        if self.action in ("list", "retrieve"):
+            queryset = queryset.filter(
+                title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
+            ).order_by("-updated_at")
+        return queryset
 
     def get_throttles(self):
         if (
@@ -217,7 +215,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 conversation, timeout=CHAT_AGENT_WORKFLOW_TIMEOUT, max_length=CHAT_AGENT_STREAM_MAX_LENGTH
             )
             async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
-                yield serializer.dumps(chunk).encode("utf-8")
+                event = await serializer.dumps(chunk)
+                yield event.encode("utf-8")
 
         return StreamingHttpResponse(
             async_stream(workflow_inputs)

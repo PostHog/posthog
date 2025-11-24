@@ -1,12 +1,11 @@
 import './MetricRowGroup.scss'
 
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
@@ -115,10 +114,9 @@ export function MetricRowGroup({
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const { featureFlags } = useValues(experimentLogic)
     const { reportExperimentTimeseriesViewed } = useActions(experimentLogic)
 
-    const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && experiment.stats_config?.timeseries
+    const timeseriesEnabled = experiment.stats_config?.timeseries
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)

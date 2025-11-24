@@ -323,7 +323,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 // Make experiment eligible for timeseries
                 const statsConfig = {
                     ...values.experiment?.stats_config,
-                    ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && { timeseries: true }),
+                    timeseries: true,
                     ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_QUERY_BUILDER] && {
                         use_new_query_builder: true,
                     }),
