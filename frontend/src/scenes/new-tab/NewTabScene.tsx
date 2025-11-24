@@ -15,7 +15,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { Results } from './components/Results'
 import { SearchInput, SearchInputBreadcrumb, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
@@ -129,6 +130,11 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         : NEW_TAB_COMMANDS_ITEMS.filter((command) => command.value !== 'folders')
 
     const isExplorerActive = projectExplorerEnabled && activeExplorerFolderPath !== null
+    const explorerHeaderName = !isExplorerActive
+        ? null
+        : activeExplorerFolderPath === ''
+          ? 'Project root'
+          : unescapePath(activeExplorerFolderPath)
 
     // Set the ref in the logic so it can be accessed from other components
     useEffect(() => {
@@ -261,12 +267,22 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             onExitExplorer={isExplorerActive ? () => setActiveExplorerFolderPath(null) : undefined}
                         />
                     </div>
+                    {isExplorerActive && (
+                        <div className="px-4 @lg/main-content:px-8 mx-auto w-full max-w-[1200px]">
+                            <SceneTitleSection
+                                name={explorerHeaderName}
+                                description={null}
+                                resourceType={{ type: 'folder' }}
+                                canEdit={false}
+                                forceEdit={false}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 <ScrollableShadows
                     direction="vertical"
                     className="flex flex-col gap-4 overflow-auto h-full"
-                    innerClassName="pt-4"
                     styledScrollbars
                 >
                     <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">
