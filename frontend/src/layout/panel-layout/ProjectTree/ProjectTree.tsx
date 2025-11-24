@@ -15,6 +15,7 @@ import {
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
+import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
@@ -51,6 +52,9 @@ export interface ProjectTreeProps {
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
+
+const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
+const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
 
 export function ProjectTree({
     logicKey,
@@ -107,12 +111,21 @@ export function ProjectTree({
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
+    const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
+        SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
+        false
+    )
+    const [customProductHelperDismissed, setCustomProductHelperDismissed] = useLocalStorage<boolean>(
+        CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
+        false
+    )
+
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
     const treeData: TreeDataItem[] = [...fullFileSystemFiltered]
-    if (fullFileSystemFiltered.length === 0) {
-        if (root === 'shortcuts://') {
+    if (fullFileSystemFiltered.length <= 5) {
+        if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
                 name: 'Example shortcuts',
@@ -123,11 +136,18 @@ export function ProjectTree({
                         <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
                         side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file
                         menu click{' '}
-                        <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />
+                        <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.{' '}
+                        {fullFileSystemFiltered.length > 0 && (
+                            <span className="cursor-pointer underline" onClick={() => setShortcutHelperDismissed(true)}>
+                                Dismiss.
+                            </span>
+                        )}
                     </div>
                 ),
             })
-        } else if (root === 'custom-products://') {
+        }
+
+        if (root === 'custom-products://' && (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed)) {
             treeData.push({
                 id: 'products/custom-products-helper-category',
                 name: 'Example apps',
@@ -137,7 +157,15 @@ export function ProjectTree({
                         This list will display your more frequently used apps. You can configure what items show up in
                         here by clicking on the{' '}
                         <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                        above. We'll automatically suggest new apps to this list as you use them.
+                        above. We'll automatically suggest new apps to this list as you use them.{' '}
+                        {fullFileSystemFiltered.length > 0 && (
+                            <span
+                                className="cursor-pointer underline"
+                                onClick={() => setCustomProductHelperDismissed(true)}
+                            >
+                                Dismiss.
+                            </span>
+                        )}
                     </div>
                 ),
             })

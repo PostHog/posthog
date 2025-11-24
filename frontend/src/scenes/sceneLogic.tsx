@@ -14,7 +14,7 @@ import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getRelativeNextPath, identifierToHuman, isMac } from 'lib/utils'
+import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -45,7 +45,6 @@ import { AccessControlLevel, OnboardingStepKey } from '~/types'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
-import { newTabSceneLogic } from './new-tab/newTabSceneLogic'
 import { organizationLogic } from './organizationLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
@@ -1552,77 +1551,5 @@ export const sceneLogic = kea<sceneLogicType>([
             window.addEventListener('storage', onStorage)
             return () => window.removeEventListener('storage', onStorage)
         }, 'pinnedTabsStorageListener')
-    }),
-    afterMount(({ actions, cache, values }) => {
-        const useAppShortcuts = values.featureFlags[FEATURE_FLAGS.APP_SHORTCUTS]
-
-        if (useAppShortcuts) {
-            return
-        }
-
-        cache.disposables.add(() => {
-            const onKeyDown = (event: KeyboardEvent): void => {
-                const commandKey = isMac() ? event.metaKey : event.ctrlKey
-                const shiftKey = event.shiftKey
-                const optionKey = event.altKey
-                const keyCode = event.code?.toLowerCase()
-                const key = event.key?.toLowerCase()
-                const activeTab = values.activeTab
-
-                // Handle both physical key and typed character (cross-layout support).
-                const isTKey = keyCode === 'keyt' || key === 't'
-                const isWKey = keyCode === 'keyw' || key === 'w'
-                const isKKey = keyCode === 'keyk' || key === 'k'
-
-                // New shortcuts: Command+Option+T for new tab, Command+Option+W for close tab
-                if (commandKey && optionKey) {
-                    const element = event.target as HTMLElement
-                    if (element?.closest('.NotebookEditor')) {
-                        return
-                    }
-
-                    if (isTKey) {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        actions.newTab()
-                        return
-                    }
-
-                    if (isWKey) {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        if (activeTab) {
-                            actions.removeTab(activeTab)
-                        }
-                        return
-                    }
-                }
-
-                // If cmd k, open current page new tab page / if already on the new tab page focus the search input
-                if (commandKey && isKKey && !shiftKey) {
-                    event.preventDefault()
-                    event.stopPropagation()
-
-                    if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {
-                        const activeTabId = values.activeTabId
-                        const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
-                        if (mountedLogic) {
-                            mountedLogic.actions.focusNewTabSearchInput()
-                        } else {
-                            // If no mounted logic found, try with default key
-                            const defaultLogic = newTabSceneLogic.findMounted({ tabId: 'default' })
-                            if (defaultLogic) {
-                                defaultLogic.actions.focusNewTabSearchInput()
-                            }
-                        }
-                        return
-                    }
-                    router.actions.push(urls.newTab())
-                    return
-                }
-            }
-            window.addEventListener('keydown', onKeyDown)
-            return () => window.removeEventListener('keydown', onKeyDown)
-        }, 'keydownListener')
     }),
 ])

@@ -731,10 +731,8 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
-def generate_cache_key(stringified: str) -> str:
-    # TODO this value might be user controllable, so we should switch from md5
-    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
-    return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
+def generate_cache_key(team_pk: int, stringified: str) -> str:
+    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:

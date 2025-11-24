@@ -11,6 +11,7 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
@@ -63,6 +64,7 @@ from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -688,6 +690,70 @@ class UserViewSet(
 
 
 @authenticate_secondarily
+def get_toolbar_preloaded_flags(request):
+    """Retrieve cached feature flags for toolbar"""
+    toolbar_flags_key = request.GET.get("key")
+
+    if not toolbar_flags_key:
+        logger.warning("[Toolbar Flags] No key parameter provided")
+        return JsonResponse({"error": "key parameter is required"}, status=400)
+
+    cache_key = f"toolbar_flags_{toolbar_flags_key}"
+    cache_data = cache.get(cache_key)
+
+    if cache_data is None:
+        logger.warning(f"[Toolbar Flags] Flags not found or expired for key: {toolbar_flags_key}")
+        return JsonResponse({"error": "Flags not found or expired"}, status=404)
+
+    # Security: Verify the requesting user has access to this team's flags
+    if cache_data.get("team_id") != request.user.team.id:
+        logger.warning(
+            f"[Toolbar Flags] User {request.user.id} attempted to access toolbar flags for team {cache_data.get('team_id')}"
+        )
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    feature_flags = cache_data.get("feature_flags", {})
+
+    return JsonResponse({"featureFlags": feature_flags})
+
+
+@authenticate_secondarily
+@require_http_methods(["POST"])
+def prepare_toolbar_preloaded_flags(request):
+    """
+    Evaluate feature flags for a user and store them in cache for toolbar launch.
+    Returns a cache key to avoid URL length limits.
+    """
+    try:
+        data = json.loads(request.body)
+        distinct_id = data.get("distinct_id")
+
+        if not distinct_id:
+            logger.warning("[Toolbar Flags] No distinct_id provided")
+            return JsonResponse({"error": "distinct_id is required"}, status=400)
+
+        team = request.user.team
+        if not team:
+            logger.warning("[Toolbar Flags] No team found")
+            return JsonResponse({"error": "No team found"}, status=400)
+
+        flags, _, _, _ = get_all_feature_flags(team, distinct_id, groups={})
+        key = secrets.token_urlsafe(16)
+        cache_key = f"toolbar_flags_{key}"
+        cache_data = {
+            "feature_flags": flags,
+            "team_id": team.id,
+        }
+
+        cache.set(cache_key, cache_data, timeout=300)  # 5 minute TTL
+
+        return JsonResponse({"key": key, "flag_count": len(flags)})
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        logger.exception("Error preparing toolbar launch", error=str(e))
+        return JsonResponse({"error": "Invalid request"}, status=400)
+
+
+@authenticate_secondarily
 def redirect_to_site(request):
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
@@ -715,6 +781,10 @@ def redirect_to_site(request):
         "apiURL": request.build_absolute_uri("/")[:-1],
         "dataAttributes": team.data_attributes,
     }
+
+    toolbar_flags_key = request.GET.get("toolbarFlagsKey")
+    if toolbar_flags_key:
+        params["toolbarFlagsKey"] = toolbar_flags_key
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True

@@ -8,8 +8,8 @@ from posthog.schema import AssistantHogQLQuery, NodeKind
 
 from posthog.models import Team
 
+from ee.hogai.chat_agent.sql.toolkit import SQL_SCHEMA
 from ee.hogai.eval.scorers.sql import evaluate_sql_query
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 
 from ..base import MaxPublicEval
 from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy

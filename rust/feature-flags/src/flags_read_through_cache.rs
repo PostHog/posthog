@@ -59,24 +59,26 @@ impl FlagsReadThroughCache {
     /// Creates a FlagsReadThroughCache from Redis clients, encapsulating all cache selection logic
     ///
     /// # Cache Selection Strategy
-    /// - If dedicated Redis URLs are configured: Creates both shared and dedicated caches
-    /// - If dedicated Redis URLs are empty: Creates only shared cache (Mode 1)
+    /// - If dedicated Redis client is provided: Creates both shared and dedicated caches
+    /// - If dedicated Redis client is None: Creates only shared cache (Mode 1)
     ///
     /// The `flags_redis_enabled` flag determines which cache is used for reads/writes.
-    pub fn from_redis_clients(
-        shared_redis_reader: Arc<dyn common_redis::Client + Send + Sync>,
-        shared_redis_writer: Arc<dyn common_redis::Client + Send + Sync>,
-        dedicated_redis_reader: Option<Arc<dyn common_redis::Client + Send + Sync>>,
-        dedicated_redis_writer: Option<Arc<dyn common_redis::Client + Send + Sync>>,
+    ///
+    /// ReadWriteClient automatically routes reads to replica and writes to primary.
+    pub fn from_redis_client(
+        shared_redis_client: Arc<dyn common_redis::Client + Send + Sync>,
+        dedicated_redis_client: Option<Arc<dyn common_redis::Client + Send + Sync>>,
         flags_cache_ttl_seconds: u64,
         config: Config,
     ) -> Self {
         use crate::flags::flag_models::FeatureFlagList;
 
         // Always create shared cache and wrap with metrics
+        // ReadWriteClient implements Client trait, so we pass it as both reader and writer
+        // It will automatically route reads to replica and writes to primary
         let shared_cache_inner = Arc::new(FeatureFlagList::create_cache(
-            shared_redis_reader,
-            shared_redis_writer,
+            shared_redis_client.clone(),
+            shared_redis_client,
             Some(flags_cache_ttl_seconds),
         ));
         let shared_cache = Arc::new(ReadThroughCacheWithMetrics::new(
@@ -87,22 +89,19 @@ impl FlagsReadThroughCache {
         ));
 
         // Create dedicated cache only if dedicated Redis is configured
-        let dedicated_cache = match (dedicated_redis_reader, dedicated_redis_writer) {
-            (Some(reader), Some(writer)) => {
-                let dedicated_cache_inner = Arc::new(FeatureFlagList::create_cache(
-                    reader,
-                    writer,
-                    Some(flags_cache_ttl_seconds),
-                ));
-                Some(Arc::new(ReadThroughCacheWithMetrics::new(
-                    dedicated_cache_inner,
-                    "flags",
-                    "flag",
-                    &[("cache_type".to_string(), "dedicated".to_string())],
-                )))
-            }
-            _ => None,
-        };
+        let dedicated_cache = dedicated_redis_client.map(|client| {
+            let dedicated_cache_inner = Arc::new(FeatureFlagList::create_cache(
+                client.clone(),
+                client,
+                Some(flags_cache_ttl_seconds),
+            ));
+            Arc::new(ReadThroughCacheWithMetrics::new(
+                dedicated_cache_inner,
+                "flags",
+                "flag",
+                &[("cache_type".to_string(), "dedicated".to_string())],
+            ))
+        });
 
         Self {
             shared_cache,
@@ -176,12 +175,11 @@ mod tests {
     #[tokio::test]
     async fn test_mode_1_only_uses_shared_cache() {
         // Mode 1: No dedicated cache configured - uses shared cache only
-        let shared_reader = Arc::new(MockRedisClient::new());
-        let shared_writer = Arc::new(MockRedisClient::new());
+        let shared_client = Arc::new(MockRedisClient::new());
 
         let shared_cache = Arc::new(FeatureFlagList::create_cache(
-            shared_reader.clone(),
-            shared_writer.clone(),
+            shared_client.clone(),
+            shared_client.clone(),
             Some(60),
         ));
 
@@ -200,41 +198,38 @@ mod tests {
         assert_eq!(cache_result.value, Some(vec!["test".to_string()]));
 
         // Verify only shared cache was accessed
-        let shared_reader_calls = shared_reader.get_calls();
-        let shared_writer_calls = shared_writer.get_calls();
+        let shared_client_calls = shared_client.get_calls();
 
         // Should have attempted to read from shared cache
         assert!(
-            !shared_reader_calls.is_empty()
-                && shared_reader_calls.iter().any(|call| call.op == "get"),
-            "Expected shared cache read. Calls: {shared_reader_calls:?}"
+            !shared_client_calls.is_empty()
+                && shared_client_calls.iter().any(|call| call.op == "get"),
+            "Expected shared cache read. Calls: {shared_client_calls:?}"
         );
 
         // Should have written to shared cache
         assert!(
-            !shared_writer_calls.is_empty()
-                && shared_writer_calls.iter().any(|call| call.op == "setex"),
-            "Expected shared cache write. Calls: {shared_writer_calls:?}"
+            !shared_client_calls.is_empty()
+                && shared_client_calls.iter().any(|call| call.op == "setex"),
+            "Expected shared cache write. Calls: {shared_client_calls:?}"
         );
     }
 
     #[tokio::test]
     async fn test_mode_2_reads_shared_writes_both() {
         // Mode 2: Dedicated cache configured but not enabled - dual-write mode
-        let shared_reader = Arc::new(MockRedisClient::new());
-        let shared_writer = Arc::new(MockRedisClient::new());
-        let dedicated_reader = Arc::new(MockRedisClient::new());
-        let dedicated_writer = Arc::new(MockRedisClient::new());
+        let shared_client = Arc::new(MockRedisClient::new());
+        let dedicated_client = Arc::new(MockRedisClient::new());
 
         let shared_cache = Arc::new(FeatureFlagList::create_cache(
-            shared_reader.clone(),
-            shared_writer.clone(),
+            shared_client.clone(),
+            shared_client.clone(),
             Some(60),
         ));
 
         let dedicated_cache = Arc::new(FeatureFlagList::create_cache(
-            dedicated_reader.clone(),
-            dedicated_writer.clone(),
+            dedicated_client.clone(),
+            dedicated_client.clone(),
             Some(60),
         ));
 
@@ -260,57 +255,52 @@ mod tests {
         );
 
         // Verify read came from shared cache (source of truth)
-        let shared_reader_calls = shared_reader.get_calls();
-        let dedicated_reader_calls = dedicated_reader.get_calls();
+        let shared_client_calls = shared_client.get_calls();
+        let dedicated_client_calls = dedicated_client.get_calls();
 
         assert!(
-            !shared_reader_calls.is_empty()
-                && shared_reader_calls.iter().any(|call| call.op == "get"),
-            "Expected read from shared cache. Calls: {shared_reader_calls:?}"
+            !shared_client_calls.is_empty()
+                && shared_client_calls.iter().any(|call| call.op == "get"),
+            "Expected read from shared cache. Calls: {shared_client_calls:?}"
         );
 
-        // Note: Dedicated cache reader IS accessed in dual-write mode (to check if value exists)
+        // Note: Dedicated cache IS accessed in dual-write mode (to check if value exists)
         // but the result is not used - shared cache is still the source of truth
         assert!(
-            !dedicated_reader_calls.is_empty()
-                && dedicated_reader_calls.iter().any(|call| call.op == "get"),
-            "Expected read attempt from dedicated cache (inline warming). Calls: {dedicated_reader_calls:?}"
+            !dedicated_client_calls.is_empty()
+                && dedicated_client_calls.iter().any(|call| call.op == "get"),
+            "Expected read attempt from dedicated cache (inline warming). Calls: {dedicated_client_calls:?}"
         );
 
         // Verify writes went to BOTH caches
-        let shared_writer_calls = shared_writer.get_calls();
-        let dedicated_writer_calls = dedicated_writer.get_calls();
-
         assert!(
-            !shared_writer_calls.is_empty()
-                && shared_writer_calls.iter().any(|call| call.op == "setex"),
-            "Expected write to shared cache. Calls: {shared_writer_calls:?}"
+            !shared_client_calls.is_empty()
+                && shared_client_calls.iter().any(|call| call.op == "setex"),
+            "Expected write to shared cache. Calls: {shared_client_calls:?}"
         );
 
         assert!(
-            !dedicated_writer_calls.is_empty()
-                && dedicated_writer_calls.iter().any(|call| call.op == "setex"),
-            "Expected write to dedicated cache (inline dual-write). Calls: {dedicated_writer_calls:?}"
+            !dedicated_client_calls.is_empty()
+                && dedicated_client_calls.iter().any(|call| call.op == "setex"),
+            "Expected write to dedicated cache (inline dual-write). Calls: {dedicated_client_calls:?}"
         );
     }
 
     #[tokio::test]
     async fn test_mode_3_only_uses_dedicated_cache() {
         // Mode 3: Dedicated cache configured and enabled - uses dedicated only
-        let shared_reader = Arc::new(MockRedisClient::new());
-        let shared_writer = Arc::new(MockRedisClient::new());
-        let dedicated_reader = Arc::new(MockRedisClient::new());
-        let dedicated_writer = Arc::new(MockRedisClient::new());
+        let shared_client = Arc::new(MockRedisClient::new());
+        let dedicated_client = Arc::new(MockRedisClient::new());
 
         let shared_cache = Arc::new(FeatureFlagList::create_cache(
-            shared_reader.clone(),
-            shared_writer.clone(),
+            shared_client.clone(),
+            shared_client.clone(),
             Some(60),
         ));
 
         let dedicated_cache = Arc::new(FeatureFlagList::create_cache(
-            dedicated_reader.clone(),
-            dedicated_writer.clone(),
+            dedicated_client.clone(),
+            dedicated_client.clone(),
             Some(60),
         ));
 
@@ -336,33 +326,26 @@ mod tests {
         );
 
         // Verify shared cache was NOT accessed at all
-        let shared_reader_calls = shared_reader.get_calls();
-        let shared_writer_calls = shared_writer.get_calls();
+        let shared_client_calls = shared_client.get_calls();
 
         assert!(
-            shared_reader_calls.is_empty(),
-            "Expected NO reads from shared cache in dedicated-only mode. Calls: {shared_reader_calls:?}"
-        );
-
-        assert!(
-            shared_writer_calls.is_empty(),
-            "Expected NO writes to shared cache in dedicated-only mode. Calls: {shared_writer_calls:?}"
+            shared_client_calls.is_empty(),
+            "Expected NO access to shared cache in dedicated-only mode. Calls: {shared_client_calls:?}"
         );
 
         // Verify only dedicated cache was accessed
-        let dedicated_reader_calls = dedicated_reader.get_calls();
-        let dedicated_writer_calls = dedicated_writer.get_calls();
+        let dedicated_client_calls = dedicated_client.get_calls();
 
         assert!(
-            !dedicated_reader_calls.is_empty()
-                && dedicated_reader_calls.iter().any(|call| call.op == "get"),
-            "Expected read from dedicated cache. Calls: {dedicated_reader_calls:?}"
+            !dedicated_client_calls.is_empty()
+                && dedicated_client_calls.iter().any(|call| call.op == "get"),
+            "Expected read from dedicated cache. Calls: {dedicated_client_calls:?}"
         );
 
         assert!(
-            !dedicated_writer_calls.is_empty()
-                && dedicated_writer_calls.iter().any(|call| call.op == "setex"),
-            "Expected write to dedicated cache. Calls: {dedicated_writer_calls:?}"
+            !dedicated_client_calls.is_empty()
+                && dedicated_client_calls.iter().any(|call| call.op == "setex"),
+            "Expected write to dedicated cache. Calls: {dedicated_client_calls:?}"
         );
     }
 }

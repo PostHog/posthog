@@ -133,7 +133,10 @@
             "intents": ["workflows"]
         }
     ],
-    "games": [{ "path": "368 Hedgehogs", "category": null, "iconType": null, "type": null, "intents": [] }],
+    "games": [
+        { "path": "368 Hedgehogs", "category": null, "iconType": null, "type": null, "intents": [] },
+        { "path": "Flappy Hog", "category": null, "iconType": null, "type": null, "intents": [] }
+    ],
     "metadata": [
         { "path": "Actions", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {

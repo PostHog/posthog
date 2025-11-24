@@ -7,9 +7,9 @@ from posthog.schema import AssistantTool, AssistantToolCallMessage, Visualizatio
 
 from posthog.models import Team, User
 
+from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
+from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.insights_graph.graph import InsightsGraph
-from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePath
