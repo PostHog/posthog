@@ -400,7 +400,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         }
 
                         if (e.status === 429) {
-                            relevantErrorMessage.content = `You've reached PostHog AI's usage limit for now. Please try again ${e.formattedRetryAfter}.`
+                            relevantErrorMessage.content = `You've reached PostHog AI's usage limit for the moment. Please try again ${e.formattedRetryAfter}.`
+                        }
+
+                        if (e.status === 402) {
+                            relevantErrorMessage.content =
+                                'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.'
                         }
 
                         if (e.status && e.status >= 500) {

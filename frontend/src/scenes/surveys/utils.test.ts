@@ -12,6 +12,7 @@ import {
 } from '~/types'
 
 import {
+    buildPartialResponsesFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
@@ -550,7 +551,7 @@ describe('survey utils', () => {
             const result = buildSurveyTimestampFilter(survey)
 
             expect(result).toBe(`AND timestamp >= '2024-08-27T00:00:00'
-        AND timestamp <= '2024-08-30T23:59:59'`)
+    AND timestamp <= '2024-08-30T23:59:59'`)
         })
 
         it('respects user date range when provided', () => {
@@ -589,6 +590,27 @@ describe('survey utils', () => {
                     Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
                 }
             })
+        })
+    })
+
+    describe('buildPartialResponsesFilter', () => {
+        it('uses same date bounds as buildSurveyTimestampFilter', () => {
+            const survey = {
+                id: 'test-survey-id',
+                created_at: '2024-11-19T00:00:00Z',
+                end_date: '2024-11-25T00:00:00Z',
+                enable_partial_responses: true,
+            } as Survey
+            const dateRange = { date_from: '2024-11-20', date_to: '2024-11-22' }
+
+            const timestampFilter = buildSurveyTimestampFilter(survey, dateRange)
+            const partialFilter = buildPartialResponsesFilter(survey, dateRange)
+
+            const fromMatch = timestampFilter.match(/timestamp >= '([^']+)'/)
+            const toMatch = timestampFilter.match(/timestamp <= '([^']+)'/)
+
+            expect(partialFilter).toContain(`greaterOrEquals(timestamp, '${fromMatch?.[1]}')`)
+            expect(partialFilter).toContain(`lessOrEquals(timestamp, '${toMatch?.[1]}')`)
         })
     })
 })

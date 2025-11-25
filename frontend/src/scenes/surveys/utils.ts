@@ -465,13 +465,15 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
-export function buildPartialResponsesFilter(survey: Survey): string {
+export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
         return `AND (
         NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
         OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
     )`
     }
+
+    const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
 
     return `AND uuid in (
         SELECT
@@ -480,8 +482,8 @@ export function buildPartialResponsesFilter(survey: Survey): string {
         WHERE and(
             equals(event, '${SurveyEventName.SENT}'),
             equals(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ID}'), '${survey.id}'),
-            greaterOrEquals(timestamp, '${getSurveyStartDateForQuery(survey)}'),
-            lessOrEquals(timestamp, '${getSurveyEndDateForQuery(survey)}')
+            greaterOrEquals(timestamp, '${fromDate}'),
+            lessOrEquals(timestamp, '${toDate}')
         )
         GROUP BY
             if(
@@ -597,37 +599,35 @@ export interface SurveyDateRange {
     date_to: string | null
 }
 
-export function buildSurveyTimestampFilter(
+export function getResolvedSurveyDateRange(
     survey: Pick<Survey, 'created_at' | 'end_date'>,
     dateRange?: SurveyDateRange | null
-): string {
-    // If no date range provided, use the survey's default date range
+): { fromDate: string; toDate: string } {
     let fromDate = getSurveyStartDateForQuery(survey)
     let toDate = getSurveyEndDateForQuery(survey)
 
-    if (!dateRange) {
-        return `AND timestamp >= '${fromDate}'
-        AND timestamp <= '${toDate}'`
-    }
-
-    // ----- Handle FROM date -----
-    if (dateRange.date_from) {
-        // Parse user-provided date and ensure it's not before survey creation
+    if (dateRange?.date_from) {
         const userFromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day')
-
         if (userFromDate && userFromDate.isAfter(fromDate)) {
             fromDate = userFromDate.format(DATE_FORMAT)
         }
     }
 
-    // ----- Handle TO date -----
-    if (dateRange.date_to) {
+    if (dateRange?.date_to) {
         const userToDate = dateStringToDayJs(dateRange.date_to)?.endOf('day')
-
         if (userToDate && userToDate.isBefore(toDate)) {
             toDate = userToDate.format(DATE_FORMAT)
         }
     }
+
+    return { fromDate, toDate }
+}
+
+export function buildSurveyTimestampFilter(
+    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    dateRange?: SurveyDateRange | null
+): string {
+    const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
 
     return `AND timestamp >= '${fromDate}'
     AND timestamp <= '${toDate}'`
