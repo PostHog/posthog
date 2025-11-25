@@ -10,7 +10,7 @@ use crate::{
     frames::RawFrame,
     langs::java::RawJavaFrame,
     metric_consts::{
-        FINGERPRINT_BATCH_TIME, FRAME_BATCH_TIME, FRAME_RESOLUTION, JAVA_FRAME_REMAP_FAILED,
+        FINGERPRINT_BATCH_TIME, FRAME_BATCH_TIME, FRAME_RESOLUTION, JAVA_EXCEPTION_REMAP_FAILED,
     },
     symbol_store::Catalog,
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
@@ -184,17 +184,18 @@ async fn remap_exception_type_and_module(
                 Some((remapped_module.to_string(), remapped_type.to_string()))
             }
             Err(_) => {
-                metrics::counter!(JAVA_FRAME_REMAP_FAILED, "reason" => "invalid_format")
+                metrics::counter!(JAVA_EXCEPTION_REMAP_FAILED, "reason" => "invalid_format")
                     .increment(1);
                 None
             }
         },
         Ok(None) => {
-            metrics::counter!(JAVA_FRAME_REMAP_FAILED, "reason" => "class_not_found").increment(1);
+            metrics::counter!(JAVA_EXCEPTION_REMAP_FAILED, "reason" => "class_not_found")
+                .increment(1);
             None
         }
         Err(_) => {
-            metrics::counter!(JAVA_FRAME_REMAP_FAILED, "reason" => "lookup_error").increment(1);
+            metrics::counter!(JAVA_EXCEPTION_REMAP_FAILED, "reason" => "lookup_error").increment(1);
             None
         }
     }
