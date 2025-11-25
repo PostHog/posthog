@@ -269,6 +269,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     @action(detail=True, methods=["POST"])
     def feedback(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
+
+        if conversation.user != request.user:
+            return Response(
+                {"error": "Cannot submit feedback for other users' conversations"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = ConversationFeedbackSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
