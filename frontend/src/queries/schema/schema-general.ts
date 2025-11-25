@@ -1638,6 +1638,14 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
+/**
+ * The target database for the query.
+ * - `'posthog'` - Query the PostHog database
+ * - `'warehouse'` - Query the external data warehouse
+ * @default 'posthog'
+ */
+export type DataTarget = 'posthog' | 'warehouse'
+
 export interface EndpointRequest {
     name?: string
     description?: string
@@ -1729,6 +1737,11 @@ export interface QueryRequest {
      * Up to 128 characters for a name.
      */
     name?: string
+    /**
+     * The target database for the query.
+     * @default 'posthog'
+     */
+    data_target?: DataTarget
 }
 
 export interface QueryUpgradeRequest {

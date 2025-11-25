@@ -21,6 +21,7 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
     DashboardFilter,
+    DataTarget,
     DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
     EndpointLastExecutionTimesRequest,
@@ -4433,6 +4434,7 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
+            dataTarget?: DataTarget
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -4449,6 +4451,7 @@ const api = {
                 refresh: queryOptions?.refresh,
                 filters_override: queryOptions?.filtersOverride,
                 variables_override: queryOptions?.variablesOverride,
+                data_target: queryOptions?.dataTarget,
             },
         })
     },

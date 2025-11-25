@@ -27,6 +27,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { queryExportContext } from '~/queries/query'
 import {
+    DataTarget,
     DataVisualizationNode,
     DatabaseSchemaViewTable,
     FileSystemIconType,
@@ -230,6 +231,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             queryInput,
             viewId,
         }),
+        setDataTarget: (dataTarget: DataTarget) => ({ dataTarget }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -376,6 +378,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as string | null,
             {
                 setHoveredNode: (_, { nodeId }) => nodeId,
+            },
+        ],
+        dataTarget: [
+            'posthog' as DataTarget,
+            {
+                setDataTarget: (_, { dataTarget }) => dataTarget,
             },
         ],
     })),
@@ -664,7 +672,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
-            }).actions.loadData(!switchTab ? 'force_async' : 'async')
+            }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, undefined, values.dataTarget)
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             LemonDialog.openForm({

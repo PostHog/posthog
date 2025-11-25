@@ -4,7 +4,7 @@ import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 
 import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
-import { LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { DataTarget, NodeKind } from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { OutputPane } from './OutputPane'
@@ -45,13 +45,23 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         currentDraft,
         changesToSave,
         inProgressViewEdits,
+        dataTarget,
     } = useValues(multitabEditorLogic)
 
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
     const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, saveAsView, saveDraft, updateView } =
-        useActions(multitabEditorLogic)
+    const {
+        setQueryInput,
+        runQuery,
+        setError,
+        setMetadata,
+        setMetadataLoading,
+        saveAsView,
+        saveDraft,
+        updateView,
+        setDataTarget,
+    } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
@@ -243,6 +253,17 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     </>
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
+                <div className="flex-1" />
+                <LemonSelect
+                    size="xsmall"
+                    value={dataTarget}
+                    onChange={(value) => setDataTarget(value as DataTarget)}
+                    options={[
+                        { value: 'posthog', label: 'PostHog' },
+                        { value: 'warehouse', label: 'Warehouse' },
+                    ]}
+                    data-attr="sql-editor-data-target-select"
+                />
             </div>
             <QueryPane
                 originalValue={originalQueryInput ?? ''}

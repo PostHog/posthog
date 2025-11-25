@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
+    DataTarget,
     HogQLQuery,
     HogQLQueryModifiers,
     QueryRequest,
@@ -59,7 +60,7 @@ from common.hogvm.python.utils import HogVMException
 
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
-) -> tuple[BaseModel, str, ExecutionMode]:
+) -> tuple[BaseModel, str, ExecutionMode, DataTarget | None]:
     """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
     query = request_data.query
 
@@ -86,7 +87,10 @@ def _process_query_request(
         qt.request_name = request_data.query.name
     qt.query = query.model_dump()
 
-    return query, query_id, execution_mode
+    # Get data_target from request (defaults to 'posthog')
+    data_target = request_data.data_target
+
+    return query, query_id, execution_mode, data_target
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -135,11 +139,16 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
         try:
-            query, client_query_id, execution_mode = _process_query_request(
+            query, client_query_id, execution_mode, data_target = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
             query_dict = query.model_dump()
+
+            # TODO: Implement data_target handling
+            # data_target specifies whether to query PostHog database or external warehouse
+            # Currently stubbed - will be implemented in future PR
+            _ = data_target  # Suppress unused variable warning
 
             result = process_query_model(
                 self.team,
