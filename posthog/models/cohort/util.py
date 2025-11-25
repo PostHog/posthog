@@ -422,6 +422,8 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
     # clickhouse-connect which requires manual SQL construction for bulk inserts
     values = []
     for person_uuid in person_uuids:
+        if person_uuid is None:
+            continue
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
         values.append(f"('{uuid.uuid4()}', '{person_uuid}', {cohort_id}, {team_id}, '{timestamp}')")
 
