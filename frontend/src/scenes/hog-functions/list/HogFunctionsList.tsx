@@ -29,6 +29,8 @@ import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
 
+const HOG_FUNCTIONS_PAGINATION_PAGE_SIZE = 10
+
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {
         return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
@@ -238,6 +240,10 @@ export function HogFunctionList({
             <BindLogic logic={hogFunctionsListLogic} props={props}>
                 <LemonTable
                     dataSource={filteredHogFunctions}
+                    pagination={{
+                        controlled: false,
+                        pageSize: HOG_FUNCTIONS_PAGINATION_PAGE_SIZE,
+                    }}
                     size="small"
                     loading={loading}
                     columns={columns}

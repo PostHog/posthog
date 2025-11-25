@@ -100,6 +100,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         await api.hogFunctions.list({
                             filter_groups: props.forceFilterGroups,
                             types: [props.type, ...(props.additionalTypes || [])],
+                            limit: 200,
                         })
                     ).results
                 },
