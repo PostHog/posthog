@@ -852,5 +852,6 @@ class TestResolver(BaseTest):
 
                 revenue_field = resolved_expr.select[0]
                 assert isinstance(revenue_field, ast.Alias)
+                assert isinstance(revenue_field.expr, ast.Field)
                 chain = revenue_field.expr.chain
                 assert chain == expected_chain
