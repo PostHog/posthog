@@ -6,9 +6,9 @@ from temporalio.common import RetryPolicy
 
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_MAX_SAMPLES = 2000
-DEFAULT_MIN_K = 3
-DEFAULT_MAX_K = 6
+DEFAULT_MAX_SAMPLES = 5000
+DEFAULT_MIN_K = 2
+DEFAULT_MAX_K = 10
 
 # Minimum traces required for clustering
 MIN_TRACES_FOR_CLUSTERING = 20
@@ -20,6 +20,7 @@ SAMPLE_EMBEDDINGS_TIMEOUT = timedelta(minutes=1)
 DETERMINE_OPTIMAL_K_TIMEOUT = timedelta(minutes=10)
 PERFORM_CLUSTERING_TIMEOUT = timedelta(minutes=5)
 EMIT_EVENTS_TIMEOUT = timedelta(minutes=1)
+CLUSTERING_ACTIVITY_TIMEOUT = timedelta(minutes=30)
 
 # Activity retry configuration
 MAX_ACTIVITY_RETRIES = 2
@@ -51,4 +52,4 @@ ALLOWED_TEAM_IDS: list[int] = [
 
 # Cluster labeling configuration
 DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING = 7  # Number of representative traces to use for LLM labeling
-GENERATE_LABELS_TIMEOUT = timedelta(minutes=2)  # Timeout for LLM label generation activity
+GENERATE_LABELS_TIMEOUT = timedelta(minutes=5)  # Timeout for LLM label generation activity

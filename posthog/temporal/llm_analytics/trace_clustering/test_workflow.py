@@ -5,9 +5,10 @@ import pytest
 import numpy as np
 
 from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
+    calculate_trace_distances,
     determine_optimal_k,
     perform_kmeans_clustering,
-    select_cluster_representatives,
+    select_representatives_from_distances,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs
 
@@ -87,23 +88,28 @@ class TestClusteringUtils:
         assert inertia > 0
         assert set(labels) == {0, 1, 2}  # Should have 3 clusters
 
-    def test_select_cluster_representatives(self, sample_embeddings):
-        """Test representative selection from clusters."""
+    def test_select_representatives_from_distances(self, sample_embeddings):
+        """Test representative selection using pre-computed distances."""
         embeddings_array = np.array([e["embedding"] for e in sample_embeddings])
         trace_ids = [e["trace_id"] for e in sample_embeddings]
 
         # Run clustering
         labels, centroids, _ = perform_kmeans_clustering(embeddings_array, k=3)
 
-        # Select representatives
-        representatives = select_cluster_representatives(
-            embeddings_array, labels, centroids, trace_ids, n_closest=5, n_random=2
-        )
+        # Compute distances once
+        distances_matrix = calculate_trace_distances(embeddings_array, centroids)
+
+        # Select representatives using pre-computed distances
+        representatives = select_representatives_from_distances(labels, distances_matrix, trace_ids, n_closest=5)
 
         assert len(representatives) == 3
-        for _cluster_id, rep_ids in representatives.items():
-            assert len(rep_ids) <= 7  # 5 closest + 2 random
+        for cluster_id, rep_ids in representatives.items():
+            assert len(rep_ids) <= 5
             assert all(isinstance(tid, str) for tid in rep_ids)
+            # Verify these are from the correct cluster
+            cluster_mask = labels == cluster_id
+            cluster_trace_ids = [trace_ids[i] for i in range(len(trace_ids)) if cluster_mask[i]]
+            assert all(tid in cluster_trace_ids for tid in rep_ids)
 
 
 class TestDetermineOptimalKActivity:
@@ -151,7 +157,7 @@ class TestWorkflowInputs:
 
     def test_clustering_inputs_defaults(self):
         """Test ClusteringInputs with default values."""
-        inputs = ClusteringInputs(team_id=1)
+        inputs = ClusteringInputs(team_id=1, current_time="2025-01-01T00:00:00Z")
 
         assert inputs.team_id == 1
         assert inputs.lookback_days == 7
@@ -163,6 +169,7 @@ class TestWorkflowInputs:
         """Test ClusteringInputs with custom values."""
         inputs = ClusteringInputs(
             team_id=1,
+            current_time="2025-01-01T00:00:00Z",
             lookback_days=14,
             max_samples=5000,
             min_k=2,
