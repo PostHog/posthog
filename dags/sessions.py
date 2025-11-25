@@ -2,8 +2,6 @@ import time
 from collections.abc import Callable
 from typing import Any, Optional
 
-from django.conf import settings
-
 from clickhouse_driver import Client
 from dagster import AssetExecutionContext, BackfillPolicy, Config, DailyPartitionsDefinition, asset, define_asset_job
 
@@ -12,9 +10,9 @@ from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
+    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
-    SHARDED_RAW_SESSIONS_TABLE_V3,
 )
 
 from dags.common import dagster_tags
@@ -81,15 +79,6 @@ def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: 
     return f"'{start_incl}' <= {timestamp_field} AND {timestamp_field} <= '{end_excl}'"
 
 
-unmerged_parts_query = f"""
-    SELECT count()
-    FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
-    WHERE database = '{settings.CLICKHOUSE_DATABASE}'
-      AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
-      AND active = 1
-"""
-
-
 def wait_for_parts_to_merge(
     context: AssetExecutionContext,
     config: SessionsBackfillConfig,
@@ -108,7 +97,7 @@ def wait_for_parts_to_merge(
 
     while True:
         # run the query
-        result = sync_execute(unmerged_parts_query, sync_client=sync_client)
+        result = sync_execute(GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS, sync_client=sync_client)
         unmerged_parts_count = result[0][0] if result else 0
 
         if unmerged_parts_count < config.max_unmerged_parts:
