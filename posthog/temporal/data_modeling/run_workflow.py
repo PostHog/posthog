@@ -45,7 +45,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.temporal.utils import DuckLakeCopyModelInput, DuckLakeCopyWorkflowInputs
+from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.models import (
@@ -1395,7 +1395,7 @@ class RunWorkflow(PostHogWorkflow):
     makes up the model, and the path or paths to the model through all of its ancestors.
     """
 
-    ducklake_copy_inputs: DuckLakeCopyWorkflowInputs | None = None
+    ducklake_copy_inputs: DataModelingDuckLakeCopyInputs | None = None
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunWorkflowInputs:
@@ -1507,7 +1507,7 @@ class RunWorkflow(PostHogWorkflow):
 
         completed, failed, ancestor_failed, ducklake_models = results
 
-        self.ducklake_copy_inputs = DuckLakeCopyWorkflowInputs(
+        self.ducklake_copy_inputs = DataModelingDuckLakeCopyInputs(
             team_id=inputs.team_id,
             job_id=job_id,
             models=ducklake_models,
@@ -1542,16 +1542,20 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        if settings.DUCKLAKE_COPY_WORKFLOW_ENABLED and self.ducklake_copy_inputs and self.ducklake_copy_inputs.models:
+        if (
+            settings.DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED
+            and self.ducklake_copy_inputs
+            and self.ducklake_copy_inputs.models
+        ):
             temporalio.workflow.logger.info(
                 "Triggering DuckLake copy child workflow",
                 job_id=job_id,
                 models=len(self.ducklake_copy_inputs.models),
             )
             await temporalio.workflow.start_child_workflow(
-                workflow="ducklake-copy",
+                workflow="ducklake-copy.data-modeling",
                 arg=dataclasses.asdict(self.ducklake_copy_inputs),
-                id=f"ducklake-copy-{job_id}",
+                id=f"ducklake-copy-data-modeling-{job_id}",
                 task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 retry_policy=temporalio.common.RetryPolicy(

@@ -12,9 +12,12 @@ def get_data_modeling_finished_metric(status: str) -> MetricCounter:
     )
 
 
-def get_ducklake_copy_finished_metric(status: str) -> MetricCounter:
+def get_ducklake_copy_data_modeling_finished_metric(status: str) -> MetricCounter:
     return (
         workflow.metric_meter()
         .with_additional_attributes({"status": status})
-        .create_counter("ducklake_copy_finished", "Number of DuckLake copy workflows finished, including failures.")
+        .create_counter(
+            "ducklake_copy_data_modeling_finished",
+            "Number of DuckLake data modeling copy workflows finished, including failures.",
+        )
     )

@@ -1030,13 +1030,13 @@ async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
     monkeypatch.setattr(run_workflow_module, "finish_run_activity", finish_run_stub)
     monkeypatch.setattr(run_workflow_module, "fail_jobs_activity", fail_jobs_stub)
 
-    with override_settings(DUCKLAKE_COPY_WORKFLOW_ENABLED=True, DATA_MODELING_TASK_QUEUE="ducklake-test"):
+    with override_settings(DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED=True, DATA_MODELING_TASK_QUEUE="ducklake-test"):
         child_ducklake_workflow_runs.clear()
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with temporalio.worker.Worker(
                 env.client,
                 task_queue="ducklake-test",
-                workflows=[RunWorkflow, DummyDuckLakeCopyWorkflow],
+                workflows=[RunWorkflow, DummyDuckLakeCopyDataModelingWorkflow],
                 activities=[
                     cleanup_stub,
                     create_job_stub,
@@ -1590,8 +1590,8 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
 child_ducklake_workflow_runs: list[dict] = []
 
 
-@temporal_workflow.defn(name="ducklake-copy")
-class DummyDuckLakeCopyWorkflow:
+@temporal_workflow.defn(name="ducklake-copy.data-modeling")
+class DummyDuckLakeCopyDataModelingWorkflow:
     @temporal_workflow.run
     async def run(self, inputs: dict) -> None:
         child_ducklake_workflow_runs.append(inputs)

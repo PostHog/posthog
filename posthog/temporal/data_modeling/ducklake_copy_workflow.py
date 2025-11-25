@@ -19,13 +19,14 @@ from posthog.ducklake.common import (
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_modeling.metrics import get_ducklake_copy_finished_metric
-from posthog.temporal.utils import DuckLakeCopyModelInput, DuckLakeCopyWorkflowInputs
+from posthog.temporal.data_modeling.metrics import get_ducklake_copy_data_modeling_finished_metric
+from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 LOGGER = get_logger(__name__)
+DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX = "data_modeling"
 
 
 @dataclasses.dataclass
@@ -46,8 +47,8 @@ class DuckLakeCopyActivityInputs:
 
 
 @activity.defn
-async def prepare_ducklake_copy_metadata_activity(
-    inputs: DuckLakeCopyWorkflowInputs,
+async def prepare_data_modeling_ducklake_metadata_activity(
+    inputs: DataModelingDuckLakeCopyInputs,
 ) -> list[DuckLakeCopyModelMetadata]:
     """Resolve saved queries referenced in the workflow inputs into copy-ready metadata."""
     bind_contextvars(team_id=inputs.team_id)
@@ -89,7 +90,7 @@ async def prepare_ducklake_copy_metadata_activity(
 
 
 @activity.defn
-def copy_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
+def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
     """Copy a single model's Delta table into the DuckLake-managed Parquet bucket."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
@@ -110,7 +111,7 @@ def copy_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
         logger.info("Copying model into DuckLake", destination=inputs.model.destination_uri)
         conn.execute(
             f"COPY (SELECT * FROM {table_name}) TO '{ducklake_escape(inputs.model.destination_uri)}' "
-            " (FORMAT PARQUET, OVERWRITE_OR_REPLACE=TRUE)"
+            " (FORMAT PARQUET, OVERWRITE TRUE)"
         )
         logger.info("Successfully copied model into DuckLake")
     finally:
@@ -121,27 +122,27 @@ def copy_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
         conn.close()
 
 
-@workflow.defn(name="ducklake-copy")
-class DuckLakeCopyWorkflow(PostHogWorkflow):
-    """Temporal workflow that copies model outputs into the DuckLake bucket."""
+@workflow.defn(name="ducklake-copy.data-modeling")
+class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
+    """Temporal workflow that copies data modeling outputs into the DuckLake bucket."""
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> DuckLakeCopyWorkflowInputs:
+    def parse_inputs(inputs: list[str]) -> DataModelingDuckLakeCopyInputs:
         loaded = json.loads(inputs[0])
         models = [DuckLakeCopyModelInput(**model) for model in loaded.get("models", [])]
         loaded["models"] = models
-        return DuckLakeCopyWorkflowInputs(**loaded)
+        return DataModelingDuckLakeCopyInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: DuckLakeCopyWorkflowInputs) -> None:
-        workflow.logger.info("Starting DuckLakeCopyWorkflow", **inputs.properties_to_log)
+    async def run(self, inputs: DataModelingDuckLakeCopyInputs) -> None:
+        workflow.logger.info("Starting DuckLakeCopyDataModelingWorkflow", **inputs.properties_to_log)
 
         if not inputs.models:
             workflow.logger.info("No models to copy - exiting early", **inputs.properties_to_log)
             return
 
         metadata = await workflow.execute_activity(
-            prepare_ducklake_copy_metadata_activity,
+            prepare_data_modeling_ducklake_metadata_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -154,7 +155,7 @@ class DuckLakeCopyWorkflow(PostHogWorkflow):
         try:
             for target in metadata:
                 await workflow.execute_activity(
-                    copy_model_to_ducklake_activity,
+                    copy_data_modeling_model_to_ducklake_activity,
                     DuckLakeCopyActivityInputs(team_id=inputs.team_id, job_id=inputs.job_id, model=target),
                     start_to_close_timeout=dt.timedelta(minutes=30),
                     heartbeat_timeout=dt.timedelta(minutes=2),
@@ -163,17 +164,20 @@ class DuckLakeCopyWorkflow(PostHogWorkflow):
                     ),
                 )
         except Exception:
-            get_ducklake_copy_finished_metric(status="failed").add(1)
+            get_ducklake_copy_data_modeling_finished_metric(status="failed").add(1)
             raise
 
-        get_ducklake_copy_finished_metric(status="completed").add(1)
+        get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
 
 
 def _build_ducklake_destination_uri(
     *, bucket: str, team_id: int, job_id: str, model_label: str, normalized_name: str
 ) -> str:
     bucket = bucket.rstrip("/")
-    return f"s3://{bucket}/data_modeling/team_{team_id}/job_{job_id}/model_{model_label}/{normalized_name}.parquet"
+    return (
+        f"s3://{bucket}/{DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX}/"
+        f"team_{team_id}/job_{job_id}/model_{model_label}/{normalized_name}.parquet"
+    )
 
 
 def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:

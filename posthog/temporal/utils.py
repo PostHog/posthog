@@ -34,8 +34,8 @@ class DuckLakeCopyModelInput:
 
 
 @dataclasses.dataclass
-class DuckLakeCopyWorkflowInputs:
-    """Workflow inputs passed to DuckLakeCopyWorkflow."""
+class DataModelingDuckLakeCopyInputs:
+    """Workflow inputs passed to DuckLakeCopyDataModelingWorkflow."""
 
     team_id: int
     job_id: str

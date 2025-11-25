@@ -8,17 +8,19 @@ from posthog.temporal.data_modeling import ducklake_copy_workflow as ducklake_mo
 from posthog.temporal.data_modeling.ducklake_copy_workflow import (
     DuckLakeCopyActivityInputs,
     DuckLakeCopyModelMetadata,
-    copy_model_to_ducklake_activity,
-    prepare_ducklake_copy_metadata_activity,
+    copy_data_modeling_model_to_ducklake_activity,
+    prepare_data_modeling_ducklake_metadata_activity,
 )
-from posthog.temporal.utils import DuckLakeCopyModelInput, DuckLakeCopyWorkflowInputs
+from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_prepare_ducklake_copy_metadata_activity_returns_models(activity_environment, ateam, monkeypatch):
+async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
+    activity_environment, ateam, monkeypatch
+):
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
         team=ateam,
         name="ducklake_model",
@@ -26,7 +28,7 @@ async def test_prepare_ducklake_copy_metadata_activity_returns_models(activity_e
     )
     job_id = uuid.uuid4().hex
     table_uri = f"s3://source/team_{ateam.pk}_model_{saved_query.id.hex}/{saved_query.normalized_name}"
-    inputs = DuckLakeCopyWorkflowInputs(
+    inputs = DataModelingDuckLakeCopyInputs(
         team_id=ateam.pk,
         job_id=job_id,
         models=[
@@ -39,7 +41,7 @@ async def test_prepare_ducklake_copy_metadata_activity_returns_models(activity_e
     )
     monkeypatch.setenv("DUCKLAKE_DATA_BUCKET", "ducklake-test-bucket")
 
-    metadata = await activity_environment.run(prepare_ducklake_copy_metadata_activity, inputs)
+    metadata = await activity_environment.run(prepare_data_modeling_ducklake_metadata_activity, inputs)
 
     assert len(metadata) == 1
     model_metadata = metadata[0]
@@ -54,7 +56,7 @@ async def test_prepare_ducklake_copy_metadata_activity_returns_models(activity_e
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_copy_model_to_ducklake_activity_uses_duckdb(monkeypatch, activity_environment):
+async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeypatch, activity_environment):
     fake_conn_calls: list[tuple[str, tuple | None]] = []
 
     class FakeDuckDBConnection:
@@ -105,7 +107,7 @@ async def test_copy_model_to_ducklake_activity_uses_duckdb(monkeypatch, activity
         OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
         USE_LOCAL_SETUP=True,
     ):
-        activity_environment.run(copy_model_to_ducklake_activity, inputs)
+        activity_environment.run(copy_data_modeling_model_to_ducklake_activity, inputs)
 
     create_calls = [
         statement

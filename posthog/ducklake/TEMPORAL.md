@@ -16,11 +16,15 @@ The workflow obtains its DuckLake configuration from the following environment v
 
 ## Target bucket layout
 
-Every model copy is written to a deterministic prefix inside the DuckLake data bucket:
+Every model copy is written to a deterministic prefix inside the DuckLake data bucket. Each workflow
+namespaces its data under a workflow identifier (e.g., `data_modeling` for the Temporal pipeline captured
+in this doc):
 
 ```text
-s3://<DUCKLAKE_DATA_BUCKET>/data_modeling/team_<team_id>/job_<job_id>/model_<model_label>/<normalized_name>.parquet
+s3://<DUCKLAKE_DATA_BUCKET>/<workflow_identifier>/team_<team_id>/job_<job_id>/model_<model_label>/<normalized_name>.parquet
 ```
+
+For the Temporal data modeling copy workflow, `<workflow_identifier>` is `data_modeling`.
 
 Re-running a copy simply overwrites the same Parquet object. Choose the bucket so its lifecycle/replication policies fit that structure.
 
