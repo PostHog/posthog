@@ -1,0 +1,357 @@
+"""
+DuckDB function name mappings from HogQL/ClickHouse functions to DuckDB equivalents.
+
+This module provides mappings for translating HogQL queries to DuckDB SQL syntax.
+Functions not in these mappings will use their original name if DuckDB supports them,
+or will need special handling in the printer.
+"""
+
+# Mapping from ClickHouse function names to DuckDB function names
+# Only includes functions where the name differs
+DUCKDB_FUNCTION_MAPPING: dict[str, str] = {
+    # Arithmetic (DuckDB supports standard operators but also function forms)
+    # Note: DuckDB prefers standard SQL operators which are handled in the printer
+    # String functions
+    "empty": "LENGTH({0}) = 0",  # DuckDB doesn't have empty(), use LENGTH check
+    "notEmpty": "LENGTH({0}) > 0",
+    "length": "LENGTH",
+    "lengthUTF8": "LENGTH",  # DuckDB LENGTH handles UTF-8 properly
+    "char_length": "LENGTH",
+    "lower": "LOWER",
+    "upper": "UPPER",
+    "lowerUTF8": "LOWER",
+    "upperUTF8": "UPPER",
+    "reverse": "REVERSE",
+    "reverseUTF8": "REVERSE",
+    "concat": "CONCAT",
+    "substring": "SUBSTRING",
+    "substringUTF8": "SUBSTRING",
+    "leftPad": "LPAD",
+    "rightPad": "RPAD",
+    "leftPadUTF8": "LPAD",
+    "rightPadUTF8": "RPAD",
+    "left": "LEFT",
+    "right": "RIGHT",
+    "trim": "TRIM",
+    "trimLeft": "LTRIM",
+    "trimRight": "RTRIM",
+    "trimBoth": "TRIM",
+    "startsWith": "STARTS_WITH",
+    "endsWith": "ENDS_WITH",
+    "position": "STRPOS",
+    "positionUTF8": "STRPOS",
+    "positionCaseInsensitive": "STRPOS",  # DuckDB STRPOS is case-sensitive by default
+    "like": "LIKE",
+    "ilike": "ILIKE",
+    "notLike": "NOT LIKE",
+    "notILike": "NOT ILIKE",
+    "match": "REGEXP_MATCHES",
+    "extract": "REGEXP_EXTRACT",
+    "extractAll": "REGEXP_EXTRACT_ALL",
+    "replaceOne": "REPLACE",
+    "replaceAll": "REPLACE",
+    "replaceRegexpOne": "REGEXP_REPLACE",
+    "replaceRegexpAll": "REGEXP_REPLACE",
+    "splitByChar": "STRING_SPLIT",
+    "splitByString": "STRING_SPLIT",
+    "arrayStringConcat": "ARRAY_TO_STRING",
+    "base64Encode": "BASE64",
+    "base64Decode": "FROM_BASE64",
+    # Type conversion functions
+    "toString": "CAST({0} AS VARCHAR)",
+    "toInt8": "CAST({0} AS TINYINT)",
+    "toInt16": "CAST({0} AS SMALLINT)",
+    "toInt32": "CAST({0} AS INTEGER)",
+    "toInt64": "CAST({0} AS BIGINT)",
+    "toInt128": "CAST({0} AS HUGEINT)",
+    "toInt256": "CAST({0} AS HUGEINT)",
+    "toUInt8": "CAST({0} AS UTINYINT)",
+    "toUInt16": "CAST({0} AS USMALLINT)",
+    "toUInt32": "CAST({0} AS UINTEGER)",
+    "toUInt64": "CAST({0} AS UBIGINT)",
+    "toFloat32": "CAST({0} AS REAL)",
+    "toFloat64": "CAST({0} AS DOUBLE)",
+    "toDecimal32": "CAST({0} AS DECIMAL(9,{1}))",
+    "toDecimal64": "CAST({0} AS DECIMAL(18,{1}))",
+    "toDecimal128": "CAST({0} AS DECIMAL(38,{1}))",
+    "toUUID": "CAST({0} AS UUID)",
+    "toUUIDOrNull": "TRY_CAST({0} AS UUID)",
+    "toDate": "CAST({0} AS DATE)",
+    "toDateTime": "CAST({0} AS TIMESTAMP)",
+    "toDateTime64": "CAST({0} AS TIMESTAMP)",
+    "parseDateTimeBestEffort": "TRY_CAST({0} AS TIMESTAMP)",
+    "parseDateTimeBestEffortOrNull": "TRY_CAST({0} AS TIMESTAMP)",
+    "parseDateTime64BestEffort": "TRY_CAST({0} AS TIMESTAMP)",
+    "parseDateTime64BestEffortOrNull": "TRY_CAST({0} AS TIMESTAMP)",
+    # Date/time functions
+    "now": "NOW()",
+    "now64": "NOW()",
+    "today": "CURRENT_DATE",
+    "yesterday": "CURRENT_DATE - INTERVAL 1 DAY",
+    "toYear": "YEAR",
+    "toQuarter": "QUARTER",
+    "toMonth": "MONTH",
+    "toDayOfYear": "DAYOFYEAR",
+    "toDayOfMonth": "DAY",
+    "toDayOfWeek": "DAYOFWEEK",
+    "toHour": "HOUR",
+    "toMinute": "MINUTE",
+    "toSecond": "SECOND",
+    "toUnixTimestamp": "EPOCH",
+    "toUnixTimestamp64Milli": "EPOCH_MS",
+    "toStartOfYear": "DATE_TRUNC('year', {0})",
+    "toStartOfQuarter": "DATE_TRUNC('quarter', {0})",
+    "toStartOfMonth": "DATE_TRUNC('month', {0})",
+    "toStartOfWeek": "DATE_TRUNC('week', {0})",
+    "toStartOfDay": "DATE_TRUNC('day', {0})",
+    "toStartOfHour": "DATE_TRUNC('hour', {0})",
+    "toStartOfMinute": "DATE_TRUNC('minute', {0})",
+    "toStartOfSecond": "DATE_TRUNC('second', {0})",
+    "toMonday": "DATE_TRUNC('week', {0})",
+    "toYYYYMM": "STRFTIME({0}, '%Y%m')",
+    "toYYYYMMDD": "STRFTIME({0}, '%Y%m%d')",
+    "toYYYYMMDDhhmmss": "STRFTIME({0}, '%Y%m%d%H%M%S')",
+    "formatDateTime": "STRFTIME",
+    "dateName": "DATE_PART",
+    "dateDiff": "DATE_DIFF",
+    "dateAdd": "DATE_ADD",
+    "dateSub": "DATE_SUB",
+    "addYears": "{0} + INTERVAL {1} YEAR",
+    "addMonths": "{0} + INTERVAL {1} MONTH",
+    "addWeeks": "{0} + INTERVAL {1} WEEK",
+    "addDays": "{0} + INTERVAL {1} DAY",
+    "addHours": "{0} + INTERVAL {1} HOUR",
+    "addMinutes": "{0} + INTERVAL {1} MINUTE",
+    "addSeconds": "{0} + INTERVAL {1} SECOND",
+    "subtractYears": "{0} - INTERVAL {1} YEAR",
+    "subtractMonths": "{0} - INTERVAL {1} MONTH",
+    "subtractWeeks": "{0} - INTERVAL {1} WEEK",
+    "subtractDays": "{0} - INTERVAL {1} DAY",
+    "subtractHours": "{0} - INTERVAL {1} HOUR",
+    "subtractMinutes": "{0} - INTERVAL {1} MINUTE",
+    "subtractSeconds": "{0} - INTERVAL {1} SECOND",
+    "toIntervalYear": "INTERVAL {0} YEAR",
+    "toIntervalQuarter": "INTERVAL ({0} * 3) MONTH",
+    "toIntervalMonth": "INTERVAL {0} MONTH",
+    "toIntervalWeek": "INTERVAL {0} WEEK",
+    "toIntervalDay": "INTERVAL {0} DAY",
+    "toIntervalHour": "INTERVAL {0} HOUR",
+    "toIntervalMinute": "INTERVAL {0} MINUTE",
+    "toIntervalSecond": "INTERVAL {0} SECOND",
+    # Math functions
+    "abs": "ABS",
+    "ceil": "CEIL",
+    "ceiling": "CEILING",
+    "floor": "FLOOR",
+    "round": "ROUND",
+    "trunc": "TRUNC",
+    "exp": "EXP",
+    "log": "LN",
+    "log2": "LOG2",
+    "log10": "LOG10",
+    "sqrt": "SQRT",
+    "cbrt": "CBRT",
+    "pow": "POW",
+    "power": "POWER",
+    "sin": "SIN",
+    "cos": "COS",
+    "tan": "TAN",
+    "asin": "ASIN",
+    "acos": "ACOS",
+    "atan": "ATAN",
+    "atan2": "ATAN2",
+    "pi": "PI()",
+    "e": "2.718281828459045",  # DuckDB doesn't have e() function
+    "sign": "SIGN",
+    "degrees": "DEGREES",
+    "radians": "RADIANS",
+    "intDiv": "{0} // {1}",  # DuckDB uses // for integer division
+    "intDivOrZero": "COALESCE({0} // NULLIF({1}, 0), 0)",
+    "modulo": "MOD",
+    "moduloOrZero": "COALESCE(MOD({0}, NULLIF({1}, 0)), 0)",
+    "gcd": "GCD",
+    "lcm": "LCM",
+    "greatest": "GREATEST",
+    "least": "LEAST",
+    # Array functions
+    "array": "LIST_VALUE",
+    "arrayConcat": "LIST_CONCAT",
+    "arrayElement": "LIST_ELEMENT",
+    "arrayJoin": "UNNEST",
+    "arrayPushBack": "LIST_APPEND",
+    "arrayPushFront": "LIST_PREPEND",
+    "arrayPopBack": "LIST_SLICE({0}, 1, LENGTH({0}) - 1)",
+    "arrayPopFront": "LIST_SLICE({0}, 2, LENGTH({0}))",
+    "arraySlice": "LIST_SLICE",
+    "arrayReverse": "LIST_REVERSE",
+    "arrayUniq": "LIST_DISTINCT",
+    "arrayDistinct": "LIST_DISTINCT",
+    "arraySort": "LIST_SORT",
+    "arrayReverseSort": "LIST_REVERSE_SORT",
+    "arrayFilter": "LIST_FILTER",
+    "arrayMap": "LIST_TRANSFORM",
+    "arrayExists": "LIST_ANY_VALUE",
+    "arrayAll": "LIST_BOOL_AND",
+    "arrayFirst": "LIST_VALUE({0})[1]",
+    "arrayLast": "LIST_VALUE({0})[-1]",
+    "has": "LIST_CONTAINS",
+    "hasAll": "LIST_HAS_ALL",
+    "hasAny": "LIST_HAS_ANY",
+    "indexOf": "LIST_POSITION",
+    "arrayCount": "LIST_COUNT",
+    "length": "LENGTH",
+    "arrayFlatten": "FLATTEN",
+    "arrayCompact": "LIST_DISTINCT",  # Not exact equivalent
+    # Conditional functions
+    "if": "IF",
+    "multiIf": "CASE WHEN",  # Needs special handling
+    "nullIf": "NULLIF",
+    "ifNull": "COALESCE",
+    "coalesce": "COALESCE",
+    "assumeNotNull": "COALESCE({0}, NULL)",  # In DuckDB this is a no-op essentially
+    # Null handling
+    "isNull": "{0} IS NULL",
+    "isNotNull": "{0} IS NOT NULL",
+    # JSON functions
+    "JSONExtract": "JSON_EXTRACT",
+    "JSONExtractString": "JSON_EXTRACT_STRING",
+    "JSONExtractInt": "CAST(JSON_EXTRACT({0}, {1}) AS INTEGER)",
+    "JSONExtractFloat": "CAST(JSON_EXTRACT({0}, {1}) AS DOUBLE)",
+    "JSONExtractBool": "CAST(JSON_EXTRACT({0}, {1}) AS BOOLEAN)",
+    "JSONExtractRaw": "JSON_EXTRACT",
+    "JSONExtractArrayRaw": "JSON_EXTRACT",
+    "JSONHas": "JSON_EXISTS",
+    "JSONLength": "JSON_ARRAY_LENGTH",
+    "JSONType": "JSON_TYPE",
+    "JSONExtractKeys": "JSON_KEYS",
+    # Aggregation functions
+    "count": "COUNT",
+    "countDistinct": "COUNT(DISTINCT {0})",
+    "countIf": "COUNT_IF",
+    "sum": "SUM",
+    "sumIf": "SUM_IF",
+    "avg": "AVG",
+    "avgIf": "AVG_IF",
+    "min": "MIN",
+    "minIf": "MIN_IF",
+    "max": "MAX",
+    "maxIf": "MAX_IF",
+    "any": "FIRST",  # Not exact equivalent
+    "anyIf": "FIRST",
+    "anyLast": "LAST",
+    "argMin": "ARG_MIN",
+    "argMax": "ARG_MAX",
+    "groupArray": "LIST",
+    "groupUniqArray": "LIST(DISTINCT {0})",
+    "groupArrayInsertAt": "LIST",  # Needs special handling
+    "arrayAgg": "ARRAY_AGG",
+    "uniq": "COUNT(DISTINCT {0})",
+    "uniqExact": "COUNT(DISTINCT {0})",
+    "uniqCombined": "APPROX_COUNT_DISTINCT",
+    "uniqCombined64": "APPROX_COUNT_DISTINCT",
+    "uniqHLL12": "APPROX_COUNT_DISTINCT",
+    "uniqTheta": "APPROX_COUNT_DISTINCT",
+    "median": "MEDIAN",
+    "quantile": "QUANTILE",
+    "quantiles": "QUANTILE",  # DuckDB syntax differs
+    "quantileExact": "QUANTILE",
+    "quantileTiming": "QUANTILE",
+    "quantileDeterministic": "QUANTILE",
+    "stddevPop": "STDDEV_POP",
+    "stddevSamp": "STDDEV_SAMP",
+    "varPop": "VAR_POP",
+    "varSamp": "VAR_SAMP",
+    "covarPop": "COVAR_POP",
+    "covarSamp": "COVAR_SAMP",
+    "corr": "CORR",
+    "entropy": "ENTROPY",
+    # Window functions
+    "row_number": "ROW_NUMBER",
+    "rank": "RANK",
+    "dense_rank": "DENSE_RANK",
+    "ntile": "NTILE",
+    "lag": "LAG",
+    "lead": "LEAD",
+    "lagInFrame": "LAG",
+    "leadInFrame": "LEAD",
+    "first_value": "FIRST_VALUE",
+    "last_value": "LAST_VALUE",
+    "nth_value": "NTH_VALUE",
+    # Hash functions
+    "sipHash64": "HASH",
+    "cityHash64": "HASH",
+    "xxHash64": "HASH",
+    "md5": "MD5",
+    "sha1": "SHA1",
+    "sha256": "SHA256",
+    # Misc functions
+    "generateUUIDv4": "UUID()",
+    "rand": "RANDOM()",
+    "rand32": "RANDOM()",
+    "rand64": "RANDOM()",
+    "randUniform": "RANDOM()",
+    "tuple": "ROW",
+    "tupleElement": "STRUCT_EXTRACT",
+    "map": "MAP",
+    "mapKeys": "MAP_KEYS",
+    "mapValues": "MAP_VALUES",
+    "mapContains": "MAP_CONTAINS",
+    "sleep": "NULL",  # DuckDB doesn't have sleep
+    "throwIf": "NULL",  # DuckDB doesn't have throwIf
+}
+
+# Functions that are completely unsupported in DuckDB and should raise an error
+DUCKDB_UNSUPPORTED_FUNCTIONS: set[str] = {
+    # ClickHouse-specific functions with no equivalent
+    "dictGet",
+    "dictGetOrDefault",
+    "dictGetOrNull",
+    "dictHas",
+    # External integrations
+    "embedText",
+    "lookupDomainType",
+    "lookupPaidSourceType",
+    "lookupPaidMediumType",
+    "lookupOrganicSourceType",
+    "lookupOrganicMediumType",
+    "convertCurrency",
+    "getSurveyResponse",
+    "uniqueSurveySubmissionsFilter",
+    # ClickHouse-specific optimizations
+    "materialize",
+    "ignore",
+    "indexHint",
+    # Special ClickHouse aggregations
+    "uniqUpTo",
+    "sequenceMatch",
+    "sequenceCount",
+    "retention",
+    "windowFunnel",
+    "histogram",
+    "stochasticLinearRegression",
+    "stochasticLogisticRegression",
+}
+
+
+def get_duckdb_function_name(clickhouse_name: str) -> str | None:
+    """
+    Get the DuckDB equivalent function name for a ClickHouse function.
+    Returns None if the function should use its original name.
+    """
+    return DUCKDB_FUNCTION_MAPPING.get(clickhouse_name)
+
+
+def is_duckdb_template_function(clickhouse_name: str) -> bool:
+    """
+    Check if the DuckDB function mapping is a template that requires argument substitution.
+    Template functions contain {0}, {1}, etc. placeholders.
+    """
+    mapping = DUCKDB_FUNCTION_MAPPING.get(clickhouse_name)
+    if mapping is None:
+        return False
+    return "{" in mapping
+
+
+def is_duckdb_unsupported(function_name: str) -> bool:
+    """Check if a function is unsupported in DuckDB."""
+    return function_name in DUCKDB_UNSUPPORTED_FUNCTIONS

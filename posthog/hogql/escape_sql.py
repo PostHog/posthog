@@ -1,13 +1,16 @@
 import re
 import math
 from datetime import date, datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.models.utils import UUIDT
+
+# Type alias for supported dialects
+Dialect = Literal["hogql", "clickhouse", "duckdb"]
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
 escape_chars_map = {
@@ -23,6 +26,7 @@ escape_chars_map = {
 }
 singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
 backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
+doublequote_escape_chars_map = {**escape_chars_map, '"': '\\"'}
 
 
 def safe_identifier(identifier: str) -> str:
@@ -60,25 +64,41 @@ def escape_clickhouse_identifier(identifier: str) -> str:
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
+# DuckDB uses double quotes for identifiers (standard SQL style)
+def escape_duckdb_identifier(identifier: str) -> str:
+    if "%" in identifier:
+        raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
+        return identifier
+    return '"{}"'.format("".join(doublequote_escape_chars_map.get(c, c) for c in identifier))
+
+
 def escape_hogql_string(
     name: float | int | str | list | tuple | date | datetime | UUID | UUIDT,
-    timezone: Optional[str] = None,
+    timezone: str | None = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="hogql").visit(name)
 
 
 def escape_clickhouse_string(
-    name: Optional[float | int | str | list | tuple | date | datetime | UUID | UUIDT],
-    timezone: Optional[str] = None,
+    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT | None,
+    timezone: str | None = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="clickhouse").visit(name)
+
+
+def escape_duckdb_string(
+    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT | None,
+    timezone: str | None = None,
+) -> str:
+    return SQLValueEscaper(timezone=timezone, dialect="duckdb").visit(name)
 
 
 class SQLValueEscaper:
     def __init__(
         self,
-        timezone: Optional[str] = None,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        timezone: str | None = None,
+        dialect: Dialect = "clickhouse",
     ):
         self._timezone = timezone or "UTC"
         self._dialect = dialect
@@ -99,6 +119,7 @@ class SQLValueEscaper:
     def visit_bool(self, value: bool):
         if self._dialect == "clickhouse":
             return "1" if value is True else "0"
+        # hogql and duckdb both use true/false
         return "true" if value is True else "false"
 
     def visit_int(self, value: int):
@@ -106,21 +127,31 @@ class SQLValueEscaper:
 
     def visit_float(self, value: float):
         if math.isnan(value):
+            if self._dialect == "duckdb":
+                return "'nan'::DOUBLE"
             return "NaN"
         if math.isinf(value):
             if value == float("-inf"):
+                if self._dialect == "duckdb":
+                    return "'-inf'::DOUBLE"
                 return "-Inf"
+            if self._dialect == "duckdb":
+                return "'inf'::DOUBLE"
             return "Inf"
         return str(value)
 
     def visit_uuid(self, value: UUID):
         if self._dialect == "hogql":
             return f"toUUID({self.visit(str(value))})"
+        elif self._dialect == "duckdb":
+            return f"CAST({self.visit(str(value))} AS UUID)"
         return f"toUUIDOrNull({self.visit(str(value))})"
 
     def visit_uuidt(self, value: UUIDT):
         if self._dialect == "hogql":
             return f"toUUID({self.visit(str(value))})"
+        elif self._dialect == "duckdb":
+            return f"CAST({self.visit(str(value))} AS UUID)"
         return f"toUUIDOrNull({self.visit(str(value))})"
 
     def visit_fakedatetime(self, value: datetime):
@@ -130,12 +161,16 @@ class SQLValueEscaper:
         datetime_string = value.astimezone(ZoneInfo(self._timezone)).strftime("%Y-%m-%d %H:%M:%S.%f")
         if self._dialect == "hogql":
             return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
+        elif self._dialect == "duckdb":
+            return f"TIMESTAMP {self.visit(datetime_string)}"
         return f"toDateTime64({self.visit(datetime_string)}, 6, {self.visit(self._timezone)})"
 
     def visit_fakedate(self, value: date):
         return self.visit_date(value)
 
     def visit_date(self, value: date):
+        if self._dialect == "duckdb":
+            return f"DATE {self.visit(value.strftime('%Y-%m-%d'))}"
         return f"toDate({self.visit(value.strftime('%Y-%m-%d'))})"
 
     def visit_list(self, value: list):

@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -26,8 +26,11 @@ from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, Function
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
+    Dialect,
     escape_clickhouse_identifier,
     escape_clickhouse_string,
+    escape_duckdb_identifier,
+    escape_duckdb_string,
     escape_hogql_identifier,
     escape_hogql_string,
     safe_identifier,
@@ -40,6 +43,11 @@ from posthog.hogql.functions import (
     find_hogql_posthog_function,
 )
 from posthog.hogql.functions.core import validate_function_args
+from posthog.hogql.functions.duckdb_mappings import (
+    DUCKDB_FUNCTION_MAPPING,
+    DUCKDB_UNSUPPORTED_FUNCTIONS,
+    is_duckdb_template_function,
+)
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
@@ -108,11 +116,11 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers
 def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Dialect,
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
-) -> tuple[str, Optional[_T_AST]]:
+) -> tuple[str, _T_AST | None]:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     if prepared_ast is None:
         return "", None
@@ -129,7 +137,7 @@ def prepare_and_print_ast(
 def prepare_ast_for_printing(
     node: _T_AST,  # node is mutated
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Dialect,
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
 ) -> _T_AST | None:
@@ -207,7 +215,7 @@ def prepare_ast_for_printing(
 def print_prepared_ast(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Dialect,
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
@@ -280,7 +288,7 @@ class _Printer(Visitor[str]):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"],
+        dialect: Dialect,
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
@@ -335,10 +343,10 @@ class _Printer(Visitor[str]):
         return ret
 
     def visit_select_query(self, node: ast.SelectQuery):
-        if self.dialect == "clickhouse":
+        if self.dialect in ("clickhouse", "duckdb"):
             if not self.context.enable_select_queries:
                 raise InternalHogQLError("Full SELECT queries are disabled if context.enable_select_queries is False")
-            if not self.context.team_id:
+            if self.dialect == "clickhouse" and not self.context.team_id:
                 raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
@@ -358,7 +366,7 @@ class _Printer(Visitor[str]):
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.type is None:
-                if self.dialect == "clickhouse":
+                if self.dialect in ("clickhouse", "duckdb"):
                     raise InternalHogQLError(
                         "Printing queries with a FROM clause is not permitted before type resolution"
                     )
@@ -385,7 +393,7 @@ class _Printer(Visitor[str]):
             next_join = next_join.next_join
 
         if node.select:
-            if self.dialect == "clickhouse":
+            if self.dialect in ("clickhouse", "duckdb"):
                 # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
                 found_aliases = {}
                 for alias in reversed(node.select):
@@ -431,6 +439,8 @@ class _Printer(Visitor[str]):
 
         array_join = ""
         if node.array_join_op is not None:
+            if self.dialect == "duckdb":
+                raise QueryError("ARRAY JOIN is not supported in DuckDB. Use UNNEST with a LATERAL join instead.")
             if node.array_join_op not in (
                 "ARRAY JOIN",
                 "LEFT ARRAY JOIN",
@@ -449,7 +459,8 @@ class _Printer(Visitor[str]):
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
-            f"PREWHERE{space}" + prewhere if prewhere else None,
+            # PREWHERE is ClickHouse-specific; for DuckDB we add it to WHERE instead
+            f"PREWHERE{space}" + prewhere if prewhere and self.dialect != "duckdb" else None,
             f"WHERE{space}" + where if where else None,
             f"GROUP BY{space}{comma.join(group_by)}" if group_by and len(group_by) > 0 else None,
             f"HAVING{space}" + having if having else None,
@@ -465,14 +476,19 @@ class _Printer(Visitor[str]):
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
                     limit.value = min(limit.value, max_limit)
                 else:
+                    # Use LEAST for DuckDB, min2 for ClickHouse
+                    func_name = "LEAST" if self.dialect == "duckdb" else "min2"
                     limit = ast.Call(
-                        name="min2",
+                        name=func_name,
                         args=[ast.Constant(value=max_limit), limit],
                     )
             else:
                 limit = ast.Constant(value=max_limit)
 
+        # LIMIT BY is ClickHouse-specific
         if node.limit_by is not None:
+            if self.dialect == "duckdb":
+                raise QueryError("LIMIT BY is not supported in DuckDB. Use window functions with ROW_NUMBER() instead.")
             clauses.append(
                 f"LIMIT {self.visit(node.limit_by.n)} {f'OFFSET {self.visit(node.limit_by.offset_value)}' if node.limit_by.offset_value else ''} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
             )
@@ -548,6 +564,10 @@ class _Printer(Visitor[str]):
                     or (node.join_type and node.join_type.startswith("GLOBAL "))
                 ):
                     sql = f"(SELECT * FROM {sql})"
+            elif self.dialect == "duckdb":
+                # For DuckDB, use the HogQL name (simple table name) for now
+                # In production, tables would be configured with DuckDB-specific paths
+                sql = table_type.table.to_printed_hogql()
             else:
                 sql = table_type.table.to_printed_hogql()
 
@@ -606,10 +626,14 @@ class _Printer(Visitor[str]):
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
             )
 
-        if node.table_final:
+        # FINAL is ClickHouse-specific, skip for DuckDB
+        if node.table_final and self.dialect != "duckdb":
             join_strings.append("FINAL")
 
+        # SAMPLE is ClickHouse-specific; DuckDB uses TABLESAMPLE which has different syntax
         if node.sample is not None:
+            if self.dialect == "duckdb":
+                raise QueryError("SAMPLE is not supported in DuckDB. Use TABLESAMPLE or USING SAMPLE instead.")
             sample_clause = self.visit_sample_expr(node.sample)
             if sample_clause is not None:
                 join_strings.append(sample_clause)
@@ -623,16 +647,35 @@ class _Printer(Visitor[str]):
         return self.visit(node.expr)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+
+        # DuckDB uses standard SQL operators
+        if self.dialect == "duckdb":
+            if node.op == ast.ArithmeticOperationOp.Add:
+                return f"({left} + {right})"
+            elif node.op == ast.ArithmeticOperationOp.Sub:
+                return f"({left} - {right})"
+            elif node.op == ast.ArithmeticOperationOp.Mult:
+                return f"({left} * {right})"
+            elif node.op == ast.ArithmeticOperationOp.Div:
+                return f"({left} / {right})"
+            elif node.op == ast.ArithmeticOperationOp.Mod:
+                return f"({left} % {right})"
+            else:
+                raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
+
+        # ClickHouse and HogQL use function syntax
         if node.op == ast.ArithmeticOperationOp.Add:
-            return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
+            return f"plus({left}, {right})"
         elif node.op == ast.ArithmeticOperationOp.Sub:
-            return f"minus({self.visit(node.left)}, {self.visit(node.right)})"
+            return f"minus({left}, {right})"
         elif node.op == ast.ArithmeticOperationOp.Mult:
-            return f"multiply({self.visit(node.left)}, {self.visit(node.right)})"
+            return f"multiply({left}, {right})"
         elif node.op == ast.ArithmeticOperationOp.Div:
-            return f"divide({self.visit(node.left)}, {self.visit(node.right)})"
+            return f"divide({left}, {right})"
         elif node.op == ast.ArithmeticOperationOp.Mod:
-            return f"modulo({self.visit(node.left)}, {self.visit(node.right)})"
+            return f"modulo({left}, {right})"
         else:
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
@@ -659,6 +702,9 @@ class _Printer(Visitor[str]):
             return "1"
         elif len(exprs) == 1:
             return exprs[0]
+        # DuckDB uses standard SQL AND operator
+        if self.dialect == "duckdb":
+            return f"({' AND '.join(exprs)})"
         return f"and({', '.join(exprs)})"
 
     def visit_or(self, node: ast.Or):
@@ -684,9 +730,15 @@ class _Printer(Visitor[str]):
             return "0"
         elif len(exprs) == 1:
             return exprs[0]
+        # DuckDB uses standard SQL OR operator
+        if self.dialect == "duckdb":
+            return f"({' OR '.join(exprs)})"
         return f"or({', '.join(exprs)})"
 
     def visit_not(self, node: ast.Not):
+        # DuckDB uses standard SQL NOT operator
+        if self.dialect == "duckdb":
+            return f"(NOT {self.visit(node.expr)})"
         return f"not({self.visit(node.expr)})"
 
     def visit_tuple_access(self, node: ast.TupleAccess):
@@ -856,6 +908,10 @@ class _Printer(Visitor[str]):
         return None  # nothing to optimize
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        # DuckDB uses standard SQL comparison operators
+        if self.dialect == "duckdb":
+            return self._visit_compare_operation_duckdb(node)
+
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
         if optimized_property_group_compare_operation := self.__get_optimized_property_group_compare_operation(node):
@@ -1042,6 +1098,57 @@ class _Printer(Visitor[str]):
         else:
             raise ImpossibleASTError("Impossible")
 
+    def _visit_compare_operation_duckdb(self, node: ast.CompareOperation) -> str:
+        """DuckDB-specific comparison using standard SQL operators."""
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+
+        if node.op == ast.CompareOperationOp.Eq:
+            return f"({left} = {right})"
+        elif node.op == ast.CompareOperationOp.NotEq:
+            return f"({left} != {right})"
+        elif node.op == ast.CompareOperationOp.Like:
+            return f"({left} LIKE {right})"
+        elif node.op == ast.CompareOperationOp.NotLike:
+            return f"({left} NOT LIKE {right})"
+        elif node.op == ast.CompareOperationOp.ILike:
+            return f"({left} ILIKE {right})"
+        elif node.op == ast.CompareOperationOp.NotILike:
+            return f"({left} NOT ILIKE {right})"
+        elif node.op == ast.CompareOperationOp.In:
+            return f"({left} IN {right})"
+        elif node.op == ast.CompareOperationOp.NotIn:
+            return f"({left} NOT IN {right})"
+        elif node.op == ast.CompareOperationOp.GlobalIn:
+            # DuckDB doesn't have globalIn, use regular IN
+            return f"({left} IN {right})"
+        elif node.op == ast.CompareOperationOp.GlobalNotIn:
+            # DuckDB doesn't have globalNotIn, use regular NOT IN
+            return f"({left} NOT IN {right})"
+        elif node.op == ast.CompareOperationOp.Regex:
+            return f"REGEXP_MATCHES({left}, {right})"
+        elif node.op == ast.CompareOperationOp.NotRegex:
+            return f"(NOT REGEXP_MATCHES({left}, {right}))"
+        elif node.op == ast.CompareOperationOp.IRegex:
+            # DuckDB regex is case-sensitive by default, prepend (?i) for case-insensitive
+            return f"REGEXP_MATCHES({left}, '(?i)' || {right})"
+        elif node.op == ast.CompareOperationOp.NotIRegex:
+            return f"(NOT REGEXP_MATCHES({left}, '(?i)' || {right}))"
+        elif node.op == ast.CompareOperationOp.Gt:
+            return f"({left} > {right})"
+        elif node.op == ast.CompareOperationOp.GtEq:
+            return f"({left} >= {right})"
+        elif node.op == ast.CompareOperationOp.Lt:
+            return f"({left} < {right})"
+        elif node.op == ast.CompareOperationOp.LtEq:
+            return f"({left} <= {right})"
+        elif node.op == ast.CompareOperationOp.InCohort:
+            raise QueryError("IN COHORT is not supported in DuckDB")
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            raise QueryError("NOT IN COHORT is not supported in DuckDB")
+        else:
+            raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
+
     def visit_between_expr(self, node: ast.BetweenExpr):
         expr = self.visit(node.expr)
         low = self.visit(node.low)
@@ -1049,7 +1156,7 @@ class _Printer(Visitor[str]):
         not_kw = " NOT" if node.negated else ""
         op = f"{expr}{not_kw} BETWEEN {low} AND {high}"
 
-        if self.dialect == "hogql":
+        if self.dialect in ("hogql", "duckdb"):
             return op
 
         nullable_expr = self._is_nullable(node.expr)
@@ -1065,6 +1172,9 @@ class _Printer(Visitor[str]):
     def visit_constant(self, node: ast.Constant):
         if self.dialect == "hogql":
             # Inline everything in HogQL
+            return self._print_escaped_string(node.value)
+        elif self.dialect == "duckdb":
+            # DuckDB: inline all constants directly (no parameterized queries needed for translation)
             return self._print_escaped_string(node.value)
         elif (
             node.value is None
@@ -1153,6 +1263,10 @@ class _Printer(Visitor[str]):
         return None  # nothing to optimize
 
     def visit_call(self, node: ast.Call):
+        # Handle DuckDB function translation
+        if self.dialect == "duckdb":
+            return self._visit_call_duckdb(node)
+
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
         # skipping indexes can be used when possible.
         if optimized_property_group_call := self.__get_optimized_property_group_call(node):
@@ -1487,6 +1601,48 @@ class _Printer(Visitor[str]):
                 )
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
+    def _visit_call_duckdb(self, node: ast.Call) -> str:
+        """Handle function calls for DuckDB dialect."""
+        # Check if function is unsupported in DuckDB
+        if node.name in DUCKDB_UNSUPPORTED_FUNCTIONS:
+            raise QueryError(f"Function '{node.name}' is not supported in DuckDB")
+
+        # Handle comparison functions through visit_compare_operation
+        if node.name in HOGQL_COMPARISON_MAPPING:
+            op = HOGQL_COMPARISON_MAPPING[node.name]
+            if len(node.args) != 2:
+                raise QueryError(f"Comparison '{node.name}' requires exactly two arguments")
+            return self.visit_compare_operation(
+                ast.CompareOperation(
+                    left=node.args[0],
+                    right=node.args[1],
+                    op=op,
+                )
+            )
+
+        args = [self.visit(arg) for arg in node.args]
+
+        # Check for DuckDB-specific function mapping
+        duckdb_func = DUCKDB_FUNCTION_MAPPING.get(node.name)
+
+        if duckdb_func:
+            # Check if it's a template function
+            if is_duckdb_template_function(node.name):
+                try:
+                    return duckdb_func.format(*args)
+                except (IndexError, KeyError) as e:
+                    raise QueryError(f"Function '{node.name}' argument mismatch: {e}")
+            else:
+                # Simple function name replacement
+                return f"{duckdb_func}({', '.join(args)})"
+
+        # Handle aggregations with DISTINCT
+        if node.distinct:
+            return f"{node.name}(DISTINCT {', '.join(args)})"
+
+        # Default: use the function name as-is
+        return f"{node.name}({', '.join(args)})"
+
     def visit_placeholder(self, node: ast.Placeholder):
         if node.field is None:
             raise QueryError("You can not use placeholders here")
@@ -1508,6 +1664,9 @@ class _Printer(Visitor[str]):
     def visit_table_type(self, type: ast.TableType):
         if self.dialect == "clickhouse":
             return type.table.to_printed_clickhouse(self.context)
+        elif self.dialect == "duckdb":
+            # For DuckDB, use HogQL table name (simple name) for now
+            return type.table.to_printed_hogql()
         else:
             return type.table.to_printed_hogql()
 
@@ -1739,7 +1898,7 @@ class _Printer(Visitor[str]):
         raise ImpossibleASTError("Unexpected ast.FieldTraverserType. This should have been resolved.")
 
     def visit_unresolved_field_type(self, type: ast.UnresolvedFieldType):
-        if self.dialect == "clickhouse":
+        if self.dialect in ("clickhouse", "duckdb"):
             raise QueryError(f"Unable to resolve field: {type.name}")
         return self._print_identifier(type.name)
 
@@ -1898,6 +2057,8 @@ class _Printer(Visitor[str]):
     def _print_identifier(self, name: str) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_identifier(name)
+        elif self.dialect == "duckdb":
+            return escape_duckdb_identifier(name)
         return escape_hogql_identifier(name)
 
     def _print_hogql_identifier_or_index(self, name: str | int) -> str:
@@ -1911,6 +2072,8 @@ class _Printer(Visitor[str]):
     ) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_string(name, timezone=self._get_timezone())
+        elif self.dialect == "duckdb":
+            return escape_duckdb_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
