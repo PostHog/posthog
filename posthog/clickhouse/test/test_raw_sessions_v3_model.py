@@ -10,6 +10,7 @@ from posthog.test.base import (
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v3 import (
+    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
@@ -692,3 +693,10 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         # Should have all unique flag keys (not values)
         assert set(result[0]["flag_keys"]) == {"$feature/flag_a", "$feature/flag_b", "$feature/flag_c"}
+
+    def test_get_number_of_umerged_parts(self):
+        # Just test that the query succeeds without errors and returns an int.
+        # We can't really guarantee anything about the number of parts on the test DB.
+        result = sync_execute(GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0][0], int)
