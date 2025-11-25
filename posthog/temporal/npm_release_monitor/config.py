@@ -53,7 +53,7 @@ MONITORED_PACKAGES: list[MonitoredPackage] = [
     MonitoredPackage(npm_package="@posthog/pagerduty-plugin", github_repo="PostHog/posthog-plugins"),
     MonitoredPackage(npm_package="@posthog/kinesis-plugin", github_repo="PostHog/posthog-plugins"),
     MonitoredPackage(npm_package="@posthog/plugin-unduplicates", github_repo="PostHog/posthog-plugins"),
-    MonitoredPackage(npm_package="@posthog/gitub-star-sync-plugin", github_repo="PostHog/posthog-plugins"),
+    MonitoredPackage(npm_package="@posthog/github-star-sync-plugin", github_repo="PostHog/posthog-plugins"),
     MonitoredPackage(npm_package="@posthog/github-release-tracking-plugin", github_repo="PostHog/posthog-plugins"),
     MonitoredPackage(npm_package="@posthog/geoip-plugin", github_repo="PostHog/posthog-plugins"),
     MonitoredPackage(npm_package="@posthog/maxmind-plugin", github_repo="PostHog/posthog-plugins"),
