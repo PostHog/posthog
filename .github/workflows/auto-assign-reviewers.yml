@@ -8,9 +8,9 @@
 # 2. Re-creating a malicious workflow using this known-compromised name
 #
 # If you need to create an auto-assign reviewers workflow, please use a
-# different name
+# different name and workflow file
 
-name: "[BLOCKED] Auto Assign Reviewers"
+name: "Auto Assign Reviewers"
 
 on:
   workflow_dispatch:
