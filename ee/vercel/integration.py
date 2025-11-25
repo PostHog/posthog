@@ -18,6 +18,8 @@ from django.utils.text import slugify
 import structlog
 from rest_framework import exceptions
 
+from posthog.schema import ProductIntentContext, ProductKey
+
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.experiment import Experiment
@@ -394,23 +396,23 @@ class VercelIntegration:
             initiating_user=installation.created_by or None,
             organization=organization,
             name=config.name,
-            has_completed_onboarding_for={
-                "product_analytics": True
-            },  # Mark one product as onboarded to show quick start sidebar
+            # Mark one product as onboarded to skip onboarding flow and show quick start sidebar instead
+            has_completed_onboarding_for={"product_analytics": True},
         )
 
+        # Populate intent, this will add to the sidebar and also to the quick start section
         if installation.created_by:
             ProductIntent.register(
                 team=team,
-                product_type="feature_flags",
-                context="vercel integration",
+                product_type=ProductKey.FEATURE_FLAGS,
+                context=ProductIntentContext.VERCEL_INTEGRATION,
                 user=installation.created_by,
             )
 
             ProductIntent.register(
                 team=team,
-                product_type="experiments",
-                context="vercel integration",
+                product_type=ProductKey.EXPERIMENTS,
+                context=ProductIntentContext.VERCEL_INTEGRATION,
                 user=installation.created_by,
             )
 

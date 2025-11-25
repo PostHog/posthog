@@ -5,9 +5,9 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationMessage
 
+from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
+from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.insights_graph.graph import InsightsGraph
-from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string

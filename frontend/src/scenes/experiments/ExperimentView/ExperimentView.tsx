@@ -266,7 +266,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                 <LoadingState />
             ) : (
                 <>
-                    {usesNewQueryRunner ? <Info /> : <LegacyExperimentInfo />}
+                    {usesNewQueryRunner ? <Info tabId={tabId} /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs
                         activeKey={activeTabKey}

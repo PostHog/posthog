@@ -606,13 +606,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             data = {"title": "Updated Task"}
 
         if method == "GET":
-            response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.get(url, headers={"authorization": f"Bearer {api_key_value}"})
         elif method == "POST":
-            response = self.client.post(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.post(url, data, format="json", headers={"authorization": f"Bearer {api_key_value}"})
         elif method == "PATCH":
-            response = self.client.patch(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.patch(url, data, format="json", headers={"authorization": f"Bearer {api_key_value}"})
         elif method == "DELETE":
-            response = self.client.delete(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.delete(url, headers={"authorization": f"Bearer {api_key_value}"})
         else:
             self.fail(f"Unsupported method: {method}")
 

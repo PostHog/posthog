@@ -77,6 +77,7 @@ import {
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
     isRevenueExampleEventsQuery,
+    isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
@@ -215,6 +216,7 @@ export function DataTable({
         showOpenEditorButton,
         showResultsTable,
         showTimings,
+        showSourceQueryOptions,
     } = queryWithDefaults
 
     const isReadOnly = !!readOnly
@@ -632,8 +634,11 @@ export function DataTable({
     )
 
     const firstRowLeft = [
-        backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
-        backToSourceQuery && isActorsQuery(query.source) && isInsightActorsQuery(query.source.source) ? (
+        showSourceQueryOptions && backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
+        showSourceQueryOptions &&
+        backToSourceQuery &&
+        isActorsQuery(query.source) &&
+        isInsightActorsQuery(query.source.source) ? (
             <InsightActorsQueryOptions
                 query={query.source.source}
                 setQuery={(q) =>
@@ -660,7 +665,7 @@ export function DataTable({
             />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
-            <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
+            <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
@@ -673,7 +678,9 @@ export function DataTable({
                 groupTypeLabel={context?.groupTypeLabel}
             />
         ) : null,
-        showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
+        showPropertyFilter &&
+        sourceFeatures.has(QueryFeature.eventPropertyFilters) &&
+        !isSessionsQuery(query.source) ? (
             <EventPropertyFilters
                 key="event-property"
                 query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery}

@@ -10,12 +10,16 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, ProductKey } from '~/types'
+import {
+    ProductIntentContext,
+    ProductKey,
+    RevenueAnalyticsEventItem,
+    SubscriptionDropoffMode,
+} from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 

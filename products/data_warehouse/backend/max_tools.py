@@ -15,14 +15,14 @@ from products.data_warehouse.backend.prompts import (
     TIME_PERIOD_PROMPT,
 )
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
-from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import base_final_answer
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 
 

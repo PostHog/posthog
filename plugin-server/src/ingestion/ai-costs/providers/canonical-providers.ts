@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-11-19 10:03:39 UTC
+// Generated at: 2025-11-25 10:03:48 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -107,7 +107,6 @@ export type CanonicalProvider =
     | 'stealth'
     | 'switchpoint'
     | 'together'
-    | 'together-fp16'
     | 'together-fp8'
     | 'together-int4'
     | 'together-turbo'

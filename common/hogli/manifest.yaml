@@ -97,6 +97,18 @@ core:
         description: Sync feature flags from configuration
         services:
             - postgresql
+    dev:sync-user-settings:
+        cmd: python manage.py sync_user_settings
+        description: Sync your user settings from PostHog cloud to local dev environment. Requires API key.
+        services:
+            - postgresql
+    dev:shell-plus:
+        cmd: python manage.py shell_plus
+        description: Launch Django shell with auto-imported models and utilities
+        services:
+            - postgresql
+            - clickhouse
+            - django
     dev:reset:
         steps:
             - docker:services:remove
@@ -259,6 +271,9 @@ build:
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)
+    build:products:
+        cmd: pnpm --filter=@posthog/frontend run build:products
+        description: Build products manifest from TypeScript/JSX files
 docker:
     docker:services:up:
         cmd: docker compose -f docker-compose.dev.yml up -d
@@ -444,6 +459,10 @@ tools:
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
+        hidden: true
+    tool:check_ducklake_up:
+        bin_script: check_ducklake_up
+        description: Healthcheck for Ducklake with self-healing
         hidden: true
 utilities:
     utilities:posthog-worktree:

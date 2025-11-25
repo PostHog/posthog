@@ -11,7 +11,6 @@ import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { cn } from 'lib/utils/css-classes'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
@@ -20,6 +19,7 @@ import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Survey } from '~/types'
 
 export function SurveysTable(): JSX.Element {
