@@ -24,6 +24,7 @@ import {
 } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
+import { logger } from '../../utils/logger'
 import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
@@ -284,10 +285,20 @@ export class CookielessManager {
         }
         try {
             return await instrumentFn(`cookieless-batch`, () => this.doBatchInner(events))
-        } catch (e) {
-            if (e instanceof RedisOperationError) {
-                cookielessRedisErrorCounter.labels({
-                    operation: e.operation,
+        } catch (error) {
+            if (error instanceof RedisOperationError) {
+                cookielessRedisErrorCounter
+                    .labels({
+                        operation: error.operation,
+                    })
+                    .inc()
+                logger.error('Cookieless processing failed due to Redis error', {
+                    operation: error.operation,
+                    error,
+                })
+            } else {
+                logger.error('Cookieless processing failed with unexpected error', {
+                    error,
                 })
             }
 
@@ -724,14 +735,24 @@ export function toYYYYMMDDInTimezoneSafe(
     if (eventTimeZone) {
         try {
             dateObj = toYearMonthDayInTimezone(timestamp, eventTimeZone)
-        } catch {
-            // pass
+        } catch (error) {
+            logger.warn('Failed to parse event timezone, falling back to team timezone', {
+                eventTimeZone,
+                teamTimeZone,
+                timestamp,
+                error,
+            })
         }
     }
     if (!dateObj) {
         try {
             dateObj = toYearMonthDayInTimezone(timestamp, teamTimeZone)
-        } catch {
+        } catch (error) {
+            logger.warn('Failed to parse team timezone, falling back to UTC', {
+                teamTimeZone,
+                timestamp,
+                error,
+            })
             dateObj = toYearMonthDayInTimezone(timestamp, TIMEZONE_FALLBACK)
         }
     }
@@ -746,13 +767,23 @@ export function toStartOfDayInTimezoneSafe(
     if (eventTimeZone) {
         try {
             return toStartOfDayInTimezone(timestamp, eventTimeZone)
-        } catch {
-            // pass
+        } catch (error) {
+            logger.warn('Failed to get start of day for event timezone, falling back to team timezone', {
+                eventTimeZone,
+                teamTimeZone,
+                timestamp,
+                error,
+            })
         }
     }
     try {
         return toStartOfDayInTimezone(timestamp, teamTimeZone)
-    } catch {
+    } catch (error) {
+        logger.warn('Failed to get start of day for team timezone, falling back to UTC', {
+            teamTimeZone,
+            timestamp,
+            error,
+        })
         return toStartOfDayInTimezone(timestamp, TIMEZONE_FALLBACK)
     }
 }
@@ -853,7 +884,11 @@ export function extractRootDomain(input: string): string {
         try {
             const ip = parse(input)
             return `[${ip.toString()}]`
-        } catch {
+        } catch (error) {
+            logger.debug('Failed to parse IPv6 address, using input as-is', {
+                input,
+                error,
+            })
             return input
         }
     }
@@ -870,8 +905,12 @@ export function extractRootDomain(input: string): string {
         const url = new URL(input)
         hostname = url.hostname
         port = url.port
-    } catch {
+    } catch (error) {
         // If the URL parsing fails, return the original host
+        logger.debug('Failed to parse URL for domain extraction, using input as-is', {
+            input,
+            error,
+        })
         return input
     }
 
