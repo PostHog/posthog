@@ -697,6 +697,9 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
     def test_get_number_of_umerged_parts(self):
         # Just test that the query succeeds without errors and returns an int.
         # We can't really guarantee anything about the number of parts on the test DB.
-        result = sync_execute(GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS)
+        query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(["202511"])
+        result = sync_execute(query)
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0][0], int)
+        self.assertIsInstance(result[0][1], str)
+        self.assertIsInstance(result[0][2], str)

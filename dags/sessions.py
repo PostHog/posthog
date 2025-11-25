@@ -1,5 +1,6 @@
 import time
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, Optional
 
 from clickhouse_driver import Client
@@ -79,6 +80,32 @@ def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: 
     return f"'{start_incl}' <= {timestamp_field} AND {timestamp_field} <= '{end_excl}'"
 
 
+def get_db_partitions_to_check(context: AssetExecutionContext) -> list[str]:
+    """Calculate all ClickHouse DB partitions (YYYYMM) that might be affected by this backfill.
+
+    Since sessions can last 24 hours, we need to check partitions starting from 1 day before
+    the Dagster partition range through the end of the range.
+
+    Args:
+        context: The Dagster execution context with partition_time_window
+
+    Returns:
+        Sorted list of DB partition names in YYYYMM format (e.g., ['202412', '202501'])
+    """
+    # Start 24 hours before the range to account for sessions that started the previous day
+    start_date = context.partition_time_window.start - timedelta(days=1)
+    end_date = context.partition_time_window.end
+
+    # Collect all unique YYYYMM partitions in the date range
+    db_partitions = set()
+    current_date = start_date
+    while current_date <= end_date:
+        db_partitions.add(current_date.strftime("%Y%m"))
+        current_date += timedelta(days=1)
+
+    return sorted(db_partitions)
+
+
 def wait_for_parts_to_merge(
     context: AssetExecutionContext,
     config: SessionsBackfillConfig,
@@ -86,42 +113,50 @@ def wait_for_parts_to_merge(
 ) -> None:
     """Check for unmerged parts and wait if there are too many.
 
-    Queries system.parts using clusterAllReplicas to count active parts across all nodes,
+    Queries system.parts using clusterAllReplicas to count active parts in the target partitions,
     and waits until the count drops below the threshold.
     """
     if config.max_unmerged_parts <= 0:
         return
 
+    # Calculate all DB partitions (YYYYMM) that might be affected
+    partitions = get_db_partitions_to_check(context)
+
     start_time = time.time()
     first_check = True
 
     while True:
-        # run the query
-        result = sync_execute(GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS, sync_client=sync_client)
-        unmerged_parts_count = result[0][0] if result else 0
+        # Check parts across all relevant partitions
+        query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions)
+        result = sync_execute(query, sync_client=sync_client)
+        (unmerged_parts_count, max_partition, max_host) = result[0]
 
         if unmerged_parts_count < config.max_unmerged_parts:
-            if not first_check:
-                context.log.info(
-                    f"Parts merged sufficiently: {unmerged_parts_count} < {config.max_unmerged_parts}. Proceeding."
-                )
+            context.log.info(
+                f"Acceptable number of active parts in partitions {partitions}: {unmerged_parts_count} < {config.max_unmerged_parts}, proceeding..."
+            )
             return
 
         elapsed = time.time() - start_time
         if elapsed > config.parts_check_max_wait_seconds:
             raise TimeoutError(
-                f"Timed out waiting for parts to merge after {elapsed:.0f}s. "
-                f"Current unmerged parts: {unmerged_parts_count}, threshold: {config.max_unmerged_parts}"
+                f"Timed out waiting for parts to merge in partitions {partitions} after {elapsed:.0f}s. "
+                f"Current unmerged parts: {unmerged_parts_count}, threshold: {config.max_unmerged_parts} "
+                f"Max was on partition {max_partition} on host {max_host}. "
             )
 
         if first_check:
             context.log.info(
-                f"Found {unmerged_parts_count} unmerged parts (threshold: {config.max_unmerged_parts}). "
+                f"Found {unmerged_parts_count} unmerged parts in partitions {partitions} (threshold: {config.max_unmerged_parts}). "
+                f"Max was on partition {max_partition} on host {max_host}. "
                 f"Waiting for parts to merge..."
             )
             first_check = False
         else:
-            context.log.info(f"Still waiting... {unmerged_parts_count} unmerged parts after {elapsed:.0f}s")
+            context.log.info(
+                f"Still waiting... {unmerged_parts_count} unmerged parts in partitions {partitions} after {elapsed:.0f}s. "
+                f"Max was on partition {max_partition} on host {max_host}. "
+            )
 
         time.sleep(config.parts_check_poll_frequency_seconds)
 
@@ -180,7 +215,9 @@ def _do_backfill(
     team_id_chunks = max(1, config.team_id_chunks or 1)
 
     context.log.info(
-        f"Running backfill for {partition_range_str} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
+        f"Running backfill for Dagster partitions {partition_range_str} "
+        f"(where='{where_clause}') "
+        f"using commit {get_git_commit_short() or 'unknown'}"
     )
     if debug_url := metabase_debug_query_url(context.run_id):
         context.log.info(f"Debug query: {debug_url}")
@@ -214,4 +251,4 @@ def _do_backfill(
 
     cluster.map_one_host_per_shard(backfill_per_shard).result()
 
-    context.log.info(f"Successfully backfilled sessions_v3 for {partition_range_str}")
+    context.log.info(f"Successfully backfilled sessions_v3 for Dagster partitions {partition_range_str}")
