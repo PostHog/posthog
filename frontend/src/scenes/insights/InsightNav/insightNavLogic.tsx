@@ -51,6 +51,7 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
@@ -156,6 +157,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 } else if (isHogQuery(query)) {
                     return InsightType.HOG
                 } else if (isInsightVizNode(query)) {
+                    // Check for Web Analytics queries first before using the mapping
+                    if (isWebAnalyticsInsightQuery(query.source)) {
+                        return InsightType.WEB_ANALYTICS
+                    }
                     return nodeKindToInsightType[query.source.kind] || InsightType.TRENDS
                 }
                 return InsightType.JSON

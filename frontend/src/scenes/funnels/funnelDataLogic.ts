@@ -199,27 +199,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 s.isTimeToConvertFunnel,
             ],
             (
-                insightData,
-                vizQuerySource,
+                _insightData,
+                _vizQuerySource,
                 querySource,
                 breakdownFilter,
                 results,
                 isTimeToConvertFunnel
             ): FunnelStepWithNestedBreakdown[] => {
-                // Web analytics queries should not be processed as funnels. Their breakdown results can have
-                // a similar array structure to funnel breakdowns, which could cause them to incorrectly pass
-                // through funnel aggregation logic. Check vizQuerySource (the raw query) not querySource
-                // (which is null for non-funnels after filtering).
-                if (isWebStatsTableQuery(vizQuerySource) || isWebOverviewQuery(vizQuerySource)) {
-                    return []
-                }
-
-                if (
-                    // TODO: Ideally we don't check filters anymore, but tests are still using this
-                    insightData?.filters?.insight !== InsightType.FUNNELS &&
-                    querySource &&
-                    querySource?.kind !== NodeKind.FunnelsQuery
-                ) {
+                if (!querySource) {
                     return []
                 }
 
@@ -246,12 +233,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ): FunnelStepWithConversionMetrics[] => {
                 const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
                 // Get optional steps from series (1-indexed)
-                const optionalSteps =
-                    querySource?.kind === NodeKind.FunnelsQuery
-                        ? querySource.series
-                              .map((_, i: number) => i + 1)
-                              .filter((_: number, i: number) => querySource.series[i]?.optionalInFunnel)
-                        : []
+                const optionalSteps = querySource
+                    ? querySource.series
+                          .map((_, i: number) => i + 1)
+                          .filter((_: number, i: number) => querySource.series[i]?.optionalInFunnel)
+                    : []
                 return stepsWithConversionMetrics(steps, stepReference, optionalSteps)
             },
         ],
@@ -352,21 +338,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.vizQuerySource, s.querySource],
-            (insightData, funnelsFilter, steps, histogramGraphData, vizQuerySource, querySource) => {
-                // Web analytics queries should never return true for hasFunnelResults, even if their
-                // data structure looks similar to funnels. This prevents InsightVizDisplay from trying
-                // to render funnel-specific UI components for web analytics queries.
-                if (isWebStatsTableQuery(vizQuerySource) || isWebOverviewQuery(vizQuerySource)) {
-                    return false
-                }
-
-                if (
-                    // TODO: Ideally we don't check filters anymore, but tests are still using this
-                    insightData?.filters?.insight !== InsightType.FUNNELS &&
-                    querySource &&
-                    querySource?.kind !== NodeKind.FunnelsQuery
-                ) {
+            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
+            (_insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
+                if (!querySource) {
                     return false
                 }
 

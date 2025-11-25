@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectClean } from 'lib/utils'
 
+import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     ActionsNode,
     BreakdownFilter,
@@ -8,7 +9,6 @@ import {
     DataWarehouseNode,
     EventsNode,
     FunnelsFilterLegacy,
-    InsightNodeKind,
     InsightQueryNode,
     LifecycleFilterLegacy,
     NodeKind,
@@ -112,33 +112,29 @@ export const hiddenLegendItemsToKeys = (
         {} as Record<string, boolean | undefined>
     )
 
-export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
+export const nodeKindToInsightType: Record<ProductAnalyticsInsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,
     [NodeKind.PathsQuery]: InsightType.PATHS,
     [NodeKind.StickinessQuery]: InsightType.STICKINESS,
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
-    [NodeKind.WebStatsTableQuery]: InsightType.WEB_ANALYTICS,
-    [NodeKind.WebOverviewQuery]: InsightType.WEB_ANALYTICS,
 }
 
-const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
+const nodeKindToFilterKey: Record<ProductAnalyticsInsightNodeKind, string> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
-    [NodeKind.WebStatsTableQuery]: 'webStatsTableFilter',
-    [NodeKind.WebOverviewQuery]: 'webOverviewFilter',
 }
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
     // Web Analytics queries don't have a legacy filter format
     if (isWebAnalyticsInsightQuery(query)) {
         return {
-            insight: nodeKindToInsightType[query.kind],
+            insight: InsightType.WEB_ANALYTICS,
         }
     }
 

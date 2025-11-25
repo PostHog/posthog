@@ -15,7 +15,14 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
 import { DataVisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isHogQuery,
+    isInsightVizNode,
+    isWebAnalyticsInsightQuery,
+} from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -145,11 +152,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 if (savedInsight.query) {
                     savedOrDefaultQuery = savedInsight.query as InsightVizNode | DataVisualizationNode
                 } else if (isInsightVizNode(query)) {
-                    const insightType = nodeKindToInsightType[query.source.kind]
                     // Web Analytics insights don't have traditional defaults, they come from tiles
-                    if (insightType === InsightType.WEB_ANALYTICS) {
-                        return false
+                    // and should always be considered "changed" for URL hash purposes
+                    if (isWebAnalyticsInsightQuery(query.source)) {
+                        return true
                     }
+                    const insightType = nodeKindToInsightType[query.source.kind]
                     savedOrDefaultQuery = getDefaultQuery(insightType, filterTestAccountsDefault)
                 } else if (isDataVisualizationNode(query)) {
                     savedOrDefaultQuery = getDefaultQuery(InsightType.SQL, filterTestAccountsDefault)

@@ -3,6 +3,7 @@ import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
+import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     ActionsNode,
     ActorsQuery,
@@ -30,7 +31,6 @@ import {
     InsightActorsQuery,
     InsightFilter,
     InsightFilterProperty,
-    InsightNodeKind,
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
@@ -41,6 +41,7 @@ import {
     NodeKind,
     PathsQuery,
     PersonsNode,
+    ProductAnalyticsInsightQueryNode,
     QuerySchema,
     QueryStatusResponse,
     ResultCustomizationBy,
@@ -201,7 +202,9 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.WebStatsTableQuery
 }
 
-export function isWebAnalyticsInsightQuery(node?: Record<string, any> | null): boolean {
+export function isWebAnalyticsInsightQuery(
+    node?: Record<string, any> | null
+): node is WebStatsTableQuery | WebOverviewQuery {
     return isWebStatsTableQuery(node) || isWebOverviewQuery(node)
 }
 
@@ -557,22 +560,20 @@ export const supportsPercentStackView = (q: InsightQueryNode | null | undefined)
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
     supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
-export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> = {
+export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
-    [NodeKind.WebStatsTableQuery]: 'properties',
-    [NodeKind.WebOverviewQuery]: 'properties',
 }
 
-export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {
+export function filterKeyForQuery(node: ProductAnalyticsInsightQueryNode): InsightFilterProperty {
     return nodeKindToFilterProperty[node.kind]
 }
 
-export function filterForQuery(node: InsightQueryNode): InsightFilter | undefined {
+export function filterForQuery(node: ProductAnalyticsInsightQueryNode): InsightFilter | undefined {
     const filterProperty = nodeKindToFilterProperty[node.kind]
     return node[filterProperty as keyof InsightQueryNode] as InsightFilter | undefined
 }
