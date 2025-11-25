@@ -322,6 +322,7 @@ class AssistantTool(StrEnum):
     FILTER_SESSION_RECORDINGS = "filter_session_recordings"
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
+    TASK = "task"
 
 
 class AssistantToolCall(BaseModel):
@@ -3219,6 +3220,15 @@ class StickinessOperator(StrEnum):
     GTE = "gte"
     LTE = "lte"
     EXACT = "exact"
+
+
+class SubagentUpdateEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: AssistantToolCall
+    id: str
+    tool_call_id: str
 
 
 class SubscriptionDropoffMode(StrEnum):

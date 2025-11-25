@@ -1946,7 +1946,8 @@
                 "summarize_sessions",
                 "filter_session_recordings",
                 "create_insight",
-                "create_form"
+                "create_form",
+                "task"
             ],
             "type": "string"
         },
@@ -28919,6 +28920,22 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SubagentUpdateEvent": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/AssistantToolCall"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "tool_call_id", "content"],
             "type": "object"
         },
         "SubscriptionDropoffMode": {

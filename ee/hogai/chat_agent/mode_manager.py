@@ -48,10 +48,19 @@ from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
-from ee.hogai.tools import CreateFormTool, ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool
+from ee.hogai.tools import (
+    CreateFormTool,
+    ReadDataTool,
+    ReadTaxonomyTool,
+    SearchTool,
+    SwitchModeTool,
+    TaskTool,
+    TodoWriteTool,
+)
 from ee.hogai.utils.feature_flags import (
     has_agent_modes_feature_flag,
     has_create_form_tool_feature_flag,
+    has_task_tool_feature_flag,
     has_phai_tasks_feature_flag,
 )
 from ee.hogai.utils.prompt import format_prompt_string
@@ -82,6 +91,11 @@ TASK_TOOLS: list[type["MaxTool"]] = [
     ListTaskRunsTool,
     ListRepositoriesTool,
 ]
+CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
+    AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
+    AgentMode.SQL: sql_agent,
+    AgentMode.SESSION_REPLAY: session_replay_agent,
+}
 
 
 class ChatAgentToolkit(AgentToolkit):
@@ -92,6 +106,8 @@ class ChatAgentToolkit(AgentToolkit):
             tools.append(CreateFormTool)
         if has_phai_tasks_feature_flag(self._team, self._user):
             tools.extend(TASK_TOOLS)
+        if has_task_tool_feature_flag(self._team, self._user):
+            tools.append(TaskTool)
         return tools
 
 
@@ -197,11 +213,7 @@ class ChatAgentModeManager(AgentModeManager):
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
-        return {
-            AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
-            AgentMode.SQL: sql_agent,
-            AgentMode.SESSION_REPLAY: session_replay_agent,
-        }
+        return CHAT_AGENT_MODE_REGISTRY
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:
