@@ -370,6 +370,7 @@ async def assert_clickhouse_records_in_snowflake(
     expected_fields: list[str] | None = None,
     expect_duplicates: bool = False,
     primary_key: list[str] | None = None,
+    uppercase_columns: list[str] | None = None,
 ):
     """Assert ClickHouse records are written to Snowflake table.
 
@@ -475,6 +476,10 @@ async def assert_clickhouse_records_in_snowflake(
                     expected_record[k] = json.dumps(v)
                 else:
                     expected_record[k] = v
+
+                if uppercase_columns and k in uppercase_columns:
+                    expected_record[k.upper()] = expected_record[k]
+                    del expected_record[k]
 
             expected_records.append(expected_record)
 

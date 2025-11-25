@@ -79,12 +79,29 @@ const getSaveDisabledReason = (
     }
 }
 
+const getInitialRadioState = (
+    schema: ExternalDataSourceSyncSchema,
+    incrementalSyncSupported: boolean,
+    appendSyncSupported: boolean
+): 'full_refresh' | 'incremental' | 'append' => {
+    if (schema.sync_type) {
+        return schema.sync_type
+    }
+    if (incrementalSyncSupported) {
+        return 'incremental'
+    }
+    if (appendSyncSupported) {
+        return 'append'
+    }
+    return 'full_refresh'
+}
+
 export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }: SyncMethodFormProps): JSX.Element => {
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
 
     const [radioValue, setRadioValue] = useState(
-        schema.sync_type ?? (incrementalSyncSupported.disabled ? 'append' : 'incremental')
+        getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled)
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
     const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)

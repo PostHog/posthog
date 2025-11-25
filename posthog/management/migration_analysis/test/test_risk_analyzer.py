@@ -1365,3 +1365,37 @@ class TestCombinationRisks:
         # Index on existing table should still be score 4
         assert migration_risk.operations[0].score == 4
         assert migration_risk.level == RiskLevel.BLOCKED
+
+
+class TestUnmanagedModels:
+    def test_is_unmanaged_model_with_managed_false_option(self):
+        """is_unmanaged_model should detect managed=False in CreateModel options"""
+        from posthog.management.migration_analysis.operations import is_unmanaged_model
+
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test_app"
+
+        # CreateModel with managed=False
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="TestModel",
+            options={"managed": False},
+        )
+
+        assert is_unmanaged_model(op, mock_migration) is True
+
+    def test_is_unmanaged_model_with_managed_true(self):
+        """is_unmanaged_model should return False for managed=True"""
+        from posthog.management.migration_analysis.operations import is_unmanaged_model
+
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test_app"
+
+        # CreateModel with managed=True
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="TestModel",
+            options={"managed": True},
+        )
+
+        assert is_unmanaged_model(op, mock_migration) is False

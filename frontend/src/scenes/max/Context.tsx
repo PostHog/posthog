@@ -155,12 +155,19 @@ export function ContextSummary({
 }
 
 export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
-    const { contextInsights, contextDashboards, contextEvents, contextActions } = useValues(maxContextLogic)
+    const { contextInsights, contextDashboards, contextEvents, contextActions, toolContextItems } =
+        useValues(maxContextLogic)
     const { removeContextInsight, removeContextDashboard, removeContextEvent, removeContextAction } =
         useActions(maxContextLogic)
 
     const allTags = useMemo(() => {
         const tags: JSX.Element[] = []
+
+        // Collect tool context item names (these have precedence and shouldn't be duplicated)
+        const toolContextNames = new Set<string>()
+        toolContextItems.forEach((item) => {
+            toolContextNames.add(item.text.toLowerCase())
+        })
 
         // Context items configuration
         const contextConfigs = [
@@ -194,11 +201,15 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
             },
         ]
 
-        // Generate tags for each context type
+        // Generate tags for each context type, skipping items already in tool context
         contextConfigs.forEach(({ items, type, icon: IconComponent, removeAction, getName }) => {
             if (items) {
                 items.forEach((item: any) => {
                     const name = getName(item)
+                    // Skip if this item is already shown in tool context
+                    if (!name || toolContextNames.has(name.toLowerCase())) {
+                        return
+                    }
                     tags.push(
                         <Tooltip key={`${type}-${item.id}`} title={name}>
                             <LemonTag
@@ -224,6 +235,7 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
         contextInsights,
         contextEvents,
         contextActions,
+        toolContextItems,
         removeContextDashboard,
         removeContextInsight,
         removeContextEvent,
@@ -237,18 +249,61 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
     return <div className="flex flex-wrap gap-1 flex-1 min-w-0 overflow-hidden">{allTags}</div>
 }
 
+export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
+    const { toolContextItems } = useValues(maxContextLogic)
+
+    if (toolContextItems.length === 0) {
+        return null
+    }
+
+    const tooltipContent =
+        toolContextItems.length === 1 ? (
+            'This context is auto-included from the current view'
+        ) : (
+            <div className="flex flex-col gap-1">
+                <div className="text-xs font-semibold mb-1">This context is auto-included from the current view:</div>
+                {toolContextItems.map((item, index) => (
+                    <div key={index} className="flex items-center gap-1.5">
+                        {item.icon}
+                        <span>{item.text}</span>
+                    </div>
+                ))}
+            </div>
+        )
+
+    return (
+        <Tooltip title={tooltipContent}>
+            <LemonTag
+                icon={toolContextItems[0].icon}
+                className={clsx(
+                    'flex items-center cursor-default border-dashed',
+                    size === 'small' ? 'max-w-20' : 'max-w-48'
+                )}
+            >
+                <span className="truncate min-w-0 flex-1">
+                    {toolContextItems[0].text}
+                    {toolContextItems.length > 1 && <span className="ml-1">+{toolContextItems.length - 1}</span>}
+                </span>
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
 interface ContextDisplayProps {
     size?: 'small' | 'default'
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
     const { deepResearchMode, showContextUI } = useValues(maxThreadLogic)
-    const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType } = useValues(maxContextLogic)
+    const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
+        useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
 
     if (!showContextUI) {
         return null
     }
+
+    const hasToolContext = toolContextItems.length > 0
 
     return (
         <div className="px-1 w-full">
@@ -273,12 +328,13 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                             groupTypes={taxonomicGroupTypes}
                             onChange={handleTaxonomicFilterChange}
                             icon={<IconAtSign />}
-                            placeholder={!hasData ? 'Add context' : null}
+                            placeholder={!hasData && !hasToolContext ? 'Add context' : null}
                             maxContextOptions={contextOptions}
                             width={450}
                         />
                     </Tooltip>
                 )}
+                <ContextToolInfoTags size={size} />
                 <ContextTags size={size} />
             </div>
         </div>

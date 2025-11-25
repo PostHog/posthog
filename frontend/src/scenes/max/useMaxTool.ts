@@ -20,6 +20,8 @@ export interface UseMaxToolOptions extends Omit<ToolRegistration, 'name' | 'desc
     initialMaxPrompt?: string
     /** Callback when Max panel opens */
     onMaxOpen?: () => void
+    /** Optional: Describes what kind of context information is being provided */
+    contextDescription?: ToolRegistration['contextDescription']
 }
 
 export interface UseMaxToolReturn {
@@ -35,6 +37,7 @@ export interface UseMaxToolReturn {
 export function useMaxTool({
     identifier,
     context,
+    contextDescription,
     introOverride,
     callback,
     suggestions,
@@ -63,6 +66,7 @@ export function useMaxTool({
                 name: definition.name,
                 description: definition.description,
                 context,
+                contextDescription,
                 introOverride,
                 suggestions,
                 callback,
@@ -74,6 +78,7 @@ export function useMaxTool({
         identifier,
         definition,
         JSON.stringify(context), // oxlint-disable-line react-hooks/exhaustive-deps
+        contextDescription,
         introOverride,
         suggestions,
         callback,

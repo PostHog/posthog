@@ -646,7 +646,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                 role="listbox"
                 tabIndex={0}
                 onKeyDown={handleKeyDown}
-                className={cn(className)}
+                className={cn(className, 'focus-visible:outline-none')}
                 aria-orientation="vertical"
                 {...props}
             >

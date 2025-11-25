@@ -8,7 +8,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.client.post(
                 f"/api/projects/{self.team.id}/insights/funnel/",
                 {
-                    "events": [{"id": "step one", "type": "events", "order": 0}],
+                    "events": [
+                        {"id": "step one", "type": "events", "order": 0},
+                        {"id": "step two", "type": "events", "order": 1},
+                    ],
                     "funnel_window_days": 14,
                     "funnel_order_type": "unordered",
                     "insight": "funnels",

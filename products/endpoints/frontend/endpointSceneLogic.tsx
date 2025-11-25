@@ -39,7 +39,7 @@ export function generateEndpointPayload(endpoint: EndpointType | null): Record<s
             variablesValues[value.code_name] = value.value
         })
 
-        return { variables_values: variablesValues }
+        return { variables: variablesValues }
     }
     return {}
 }

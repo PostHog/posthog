@@ -480,7 +480,7 @@ SELECT
 FROM
     events AS e SAMPLE 1
     LEFT OUTER JOIN (SELECT
-        argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+        tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
         person_distinct_id_overrides.distinct_id AS distinct_id
     FROM
         person_distinct_id_overrides
@@ -489,7 +489,7 @@ FROM
     GROUP BY
         person_distinct_id_overrides.distinct_id
     HAVING
-        ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+        ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0)
     SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
     LEFT JOIN (SELECT
         dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,

@@ -332,6 +332,7 @@ DEFAULT_SURVEY_APPEARANCE = {
     "displayThankYouMessage": True,
     "thankYouMessageHeader": "Thank you for your feedback!",
     "position": "bottom-right",
+    "tabPosition": "right",
     "widgetType": "tab",
     "widgetLabel": "Feedback",
     "widgetColor": "black",
