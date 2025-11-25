@@ -451,10 +451,8 @@ def get_ai_token_metrics(
     query_template = """
         SELECT
             team_id,
-            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_prompt_tokens'))) +
-                SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_input_tokens'))) as prompt_tokens,
-            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_completion_tokens'))) +
-                SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_output_tokens'))) as completion_tokens,
+            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_input_tokens'))) as prompt_tokens,
+            SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_output_tokens'))) as completion_tokens,
             SUM(toInt64OrNull(JSONExtractRaw(properties, '$ai_total_tokens'))) as total_tokens
         FROM events
         WHERE team_id IN %(team_ids)s

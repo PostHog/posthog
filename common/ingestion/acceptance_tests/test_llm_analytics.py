@@ -79,8 +79,8 @@ class TestLLMAnalytics:
             "properties": {
                 "$ai_model": "gpt-4",
                 "$ai_provider": "openai",
-                "$ai_completion_tokens": 150,
-                "$ai_prompt_tokens": 50,
+                "$ai_output_tokens": 150,
+                "$ai_input_tokens": 50,
                 "custom_property": "test_value",
             },
         }
@@ -193,8 +193,8 @@ class TestLLMAnalytics:
         # Verify standard properties
         assert event_properties.get("$ai_model") == "gpt-4"
         assert event_properties.get("$ai_provider") == "openai"
-        assert event_properties.get("$ai_completion_tokens") == 150
-        assert event_properties.get("$ai_prompt_tokens") == 50
+        assert event_properties.get("$ai_output_tokens") == 150
+        assert event_properties.get("$ai_input_tokens") == 50
         assert event_properties.get("custom_property") == "test_value"
 
         # Verify blob properties were replaced with S3 URLs
@@ -249,8 +249,8 @@ class TestLLMAnalytics:
         properties_data = {
             "$ai_model": "gpt-3.5-turbo",
             "$ai_provider": "openai",
-            "$ai_completion_tokens": 100,
-            "$ai_prompt_tokens": 25,
+            "$ai_output_tokens": 100,
+            "$ai_input_tokens": 25,
             "custom_property": "separate_test",
         }
 
@@ -347,8 +347,8 @@ class TestLLMAnalytics:
 
         assert event_properties.get("$ai_model") == "gpt-3.5-turbo"
         assert event_properties.get("$ai_provider") == "openai"
-        assert event_properties.get("$ai_completion_tokens") == 100
-        assert event_properties.get("$ai_prompt_tokens") == 25
+        assert event_properties.get("$ai_output_tokens") == 100
+        assert event_properties.get("$ai_input_tokens") == 25
         assert event_properties.get("custom_property") == "separate_test"
 
         assert "$ai_input" in event_properties
@@ -699,8 +699,8 @@ class TestLLMAnalytics:
             "properties": {
                 "$ai_model": "gpt-4-compressed",
                 "$ai_provider": "openai",
-                "$ai_completion_tokens": 75,
-                "$ai_prompt_tokens": 30,
+                "$ai_output_tokens": 75,
+                "$ai_input_tokens": 30,
                 "compression": "gzip",
             },
         }

@@ -183,8 +183,8 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
             "$ai_generation",
             2,
             properties={
-                "$ai_prompt_tokens": 100,
-                "$ai_completion_tokens": 50,
+                "$ai_input_tokens": 100,
+                "$ai_output_tokens": 50,
                 "$ai_total_tokens": 150,
             },
         )
@@ -486,8 +486,8 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
                 "$ai_output_cost_usd": 0.030,
                 "$ai_request_cost_usd": 0.001,
                 "$ai_web_search_cost_usd": 0.002,
-                "$ai_prompt_tokens": 500,
-                "$ai_completion_tokens": 200,
+                "$ai_input_tokens": 500,
+                "$ai_output_tokens": 200,
                 "$ai_total_tokens": 700,
                 "$ai_reasoning_tokens": 150,
                 "$ai_cache_read_input_tokens": 1000,
