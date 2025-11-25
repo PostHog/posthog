@@ -274,7 +274,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         feedback = ConversationFeedback.objects.create(
             conversation=conversation,
-            user=request.user,
+            user=cast(User, request.user),
             team=conversation.team,
             **serializer.validated_data,
         )
