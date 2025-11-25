@@ -21,6 +21,7 @@ from products.data_warehouse.backend.models import DataWarehouseTable, ExternalD
 from products.data_warehouse.backend.models.credential import DataWarehouseCredential
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
+    BingAdsConfig,
     ExternalConfig,
     GoogleAdsConfig,
     LinkedinAdsConfig,
@@ -30,6 +31,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     TikTokAdsConfig,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.bigquery import BigQueryAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
@@ -675,6 +677,43 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "video_watched_6s": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
                 },
             ),
+            "bing_campaigns": DataConfig(
+                csv_filename="test/bing_ads/campaigns.csv",
+                table_name="bingads_campaigns",
+                platform="Bing Ads",
+                source_type="BingAds",
+                bucket_suffix="bing_campaigns",
+                column_schema={
+                    "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "budget_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "daily_budget": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "campaign_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "languages": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "time_zone": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
+            "bing_campaign_performance_report": DataConfig(
+                csv_filename="test/bing_ads/campaign_performance_report.csv",
+                table_name="bingads_campaign_performance_report",
+                platform="Bing Ads",
+                source_type="BingAds",
+                bucket_suffix="bing_campaign_performance_report",
+                column_schema={
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "clicks": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "impressions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "spend": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "currency_code": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "time_period": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "average_cpc": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "ctr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversion_rate": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                },
+            ),
         }
 
     def setUp(self):
@@ -1018,6 +1057,24 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "TikTokAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "TikTokAdsAdapter should return list of errors"
 
+    def test_bing_ads_adapter_validation_consistency(self):
+        """Test Bing Ads adapter validation consistency."""
+        campaign_table = self._create_mock_table("bingads_campaigns", "BingAds")
+        stats_table = self._create_mock_table("bingads_campaign_performance_report", "BingAds")
+
+        config = BingAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="BingAds",
+            source_id="test_consistency",
+        )
+
+        adapter = BingAdsAdapter(config=config, context=self.context)
+        result = adapter.validate()
+
+        assert result.is_valid, "BingAdsAdapter validation should succeed"
+        assert isinstance(result.errors, list), "BingAdsAdapter should return list of errors"
+
     # ================================================================
     # QUERY GENERATION TESTS
     # ================================================================
@@ -1124,6 +1181,25 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert query is not None, "TikTokAdsAdapter should generate a query"
         self._validate_query_structure(query, "TikTokAdsAdapter")
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_bing_ads_native_query_generation(self):
+        """Test Bing Ads native adapter query generation with JOIN."""
+        campaign_table = self._create_mock_table("bing_campaigns", "BingAds")
+        stats_table = self._create_mock_table("bing_campaign_performance_report", "BingAds")
+
+        config = BingAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="BingAds",
+            source_id="bing_ads",
+        )
+
+        adapter = BingAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "BingAdsAdapter should generate a query"
+        self._validate_query_structure(query, "BingAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
     def test_tiktok_ads_query_generation(self):
