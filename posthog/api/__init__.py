@@ -110,6 +110,7 @@ from . import (
     user_home_settings,
     web_vitals,
 )
+from .column_configuration import ColumnConfigurationViewSet
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
@@ -252,6 +253,13 @@ projects_router.register(
 )
 environment_dashboards_router, legacy_project_dashboards_router = register_grandfathered_environment_nested_viewset(
     r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
+)
+
+environments_router.register(
+    r"column_configurations",
+    ColumnConfigurationViewSet,
+    "environment_column_configurations",
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(

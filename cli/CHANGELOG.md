@@ -1,5 +1,13 @@
 # posthog-cli
 
+# 0.5.16
+
+- fix: cut a new version for fixing compromised package
+
+# 0.5.15
+
+- Compromised
+
 # 0.5.14
 
 - Fix authentication issue on sourcemap upload

@@ -6,14 +6,15 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { surveyLogic } from '../surveyLogic'
 
 export interface ArchiveSurveyButtonProps {
+    surveyId: string
     responseUuid: string
 }
 
-export function ArchiveSurveyButton({ responseUuid }: ArchiveSurveyButtonProps): JSX.Element {
-    const { archivedResponseUuids } = useValues(surveyLogic)
-    const { archiveResponse, unarchiveResponse } = useActions(surveyLogic)
+export function ArchiveSurveyButton({ surveyId, responseUuid }: ArchiveSurveyButtonProps): JSX.Element {
+    const { archivedResponseUuids } = useValues(surveyLogic({ id: surveyId }))
+    const { archiveResponse, unarchiveResponse } = useActions(surveyLogic({ id: surveyId }))
 
-    const isArchived = archivedResponseUuids.has(responseUuid)
+    const isArchived = archivedResponseUuids?.has(responseUuid) ?? false
 
     return (
         <LemonButton

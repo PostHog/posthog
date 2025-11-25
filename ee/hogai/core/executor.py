@@ -1,3 +1,4 @@
+import time
 import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -6,6 +7,7 @@ from uuid import uuid4
 from django.conf import settings
 
 import structlog
+from prometheus_client import Histogram
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
@@ -30,6 +32,12 @@ from ee.hogai.utils.types import AssistantOutput
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+
+STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_stream_django_event_loop_latency_seconds",
+    "Time from receiving chunk from Temporal to yielding it in Django event loop",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
 
 
 class AgentExecutor:
@@ -136,9 +144,15 @@ class AgentExecutor:
             is_stream_available = await self._redis_stream.wait_for_stream()
             if not is_stream_available:
                 raise StreamError("Stream for this conversation not available - Temporal workflow might have failed")
-
+            last_chunk_time = time.time()
             async for chunk in self._redis_stream.read_stream():
                 message = await self._redis_stream_to_assistant_output(chunk)
+
+                temporal_to_code_latency = last_chunk_time - chunk.timestamp
+                if temporal_to_code_latency > 0:
+                    STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM.observe(temporal_to_code_latency)
+                last_chunk_time = time.time()
+
                 if message:
                     yield message
 
