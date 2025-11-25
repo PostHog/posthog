@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 from datetime import datetime
 
@@ -8,6 +9,8 @@ import structlog
 from temporalio import activity
 
 logger = structlog.get_logger(__name__)
+
+MAX_CONCURRENT_REQUESTS = 10
 
 
 @dataclasses.dataclass
@@ -49,25 +52,27 @@ class FetchNpmVersionsOutput:
 
 @activity.defn(name="npm-release-monitor-fetch-npm-versions")
 async def fetch_npm_versions(input: FetchNpmVersionsInput) -> FetchNpmVersionsOutput:
-    """Fetch recent versions from npm registry for the given packages."""
-    versions: list[dict] = []
-    errors: list[str] = []
-
+    """Fetch recent versions from npm registry for the given packages concurrently."""
     since = None
     if input.since_timestamp:
         since = datetime.fromisoformat(input.since_timestamp.replace("Z", "+00:00"))
 
-    async with aiohttp.ClientSession() as session:
-        for package in input.packages:
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+    async def fetch_single_package(session: aiohttp.ClientSession, package: str) -> tuple[list[dict], list[str]]:
+        versions: list[dict] = []
+        errors: list[str] = []
+
+        async with semaphore:
             try:
                 url = f"https://registry.npmjs.org/{package}"
                 async with session.get(url) as response:
                     if response.status == 404:
                         logger.warning("npm package not found", package=package)
-                        continue
+                        return versions, errors
                     if response.status != 200:
                         errors.append(f"Failed to fetch {package}: HTTP {response.status}")
-                        continue
+                        return versions, errors
 
                     data = await response.json()
                     time_data = data.get("time", {})
@@ -96,7 +101,18 @@ async def fetch_npm_versions(input: FetchNpmVersionsInput) -> FetchNpmVersionsOu
                 errors.append(f"Error fetching {package}: {e!s}")
                 logger.exception("Error fetching npm package", package=package, error=str(e))
 
-    return FetchNpmVersionsOutput(versions=versions, errors=errors)
+        return versions, errors
+
+    async with aiohttp.ClientSession() as session:
+        results = await asyncio.gather(*[fetch_single_package(session, package) for package in input.packages])
+
+    all_versions: list[dict] = []
+    all_errors: list[str] = []
+    for versions, errors in results:
+        all_versions.extend(versions)
+        all_errors.extend(errors)
+
+    return FetchNpmVersionsOutput(versions=all_versions, errors=all_errors)
 
 
 @dataclasses.dataclass
@@ -114,10 +130,7 @@ class FetchGitHubWorkflowRunsOutput:
 
 @activity.defn(name="npm-release-monitor-fetch-github-runs")
 async def fetch_github_workflow_runs(input: FetchGitHubWorkflowRunsInput) -> FetchGitHubWorkflowRunsOutput:
-    """Fetch workflow runs from GitHub for the given repos."""
-    runs: list[dict] = []
-    errors: list[str] = []
-
+    """Fetch workflow runs from GitHub for the given repos concurrently."""
     headers = {
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "PostHog-NPM-Release-Monitor",
@@ -127,8 +140,13 @@ async def fetch_github_workflow_runs(input: FetchGitHubWorkflowRunsInput) -> Fet
     if github_token:
         headers["Authorization"] = f"Bearer {github_token}"
 
-    async with aiohttp.ClientSession() as session:
-        for repo in input.repos:
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+    async def fetch_single_repo(session: aiohttp.ClientSession, repo: str) -> tuple[list[dict], list[str]]:
+        runs: list[dict] = []
+        errors: list[str] = []
+
+        async with semaphore:
             try:
                 url = f"https://api.github.com/repos/{repo}/actions/runs"
                 params = {"created": f">={input.since_timestamp}", "per_page": 100}
@@ -136,13 +154,13 @@ async def fetch_github_workflow_runs(input: FetchGitHubWorkflowRunsInput) -> Fet
                 async with session.get(url, headers=headers, params=params) as response:
                     if response.status == 404:
                         logger.warning("GitHub repo not found or no access", repo=repo)
-                        continue
+                        return runs, errors
                     if response.status == 403:
                         errors.append(f"Rate limited or forbidden for {repo}")
-                        continue
+                        return runs, errors
                     if response.status != 200:
                         errors.append(f"Failed to fetch runs for {repo}: HTTP {response.status}")
-                        continue
+                        return runs, errors
 
                     data = await response.json()
                     workflow_runs = data.get("workflow_runs", [])
@@ -162,7 +180,18 @@ async def fetch_github_workflow_runs(input: FetchGitHubWorkflowRunsInput) -> Fet
                 errors.append(f"Error fetching runs for {repo}: {e!s}")
                 logger.exception("Error fetching GitHub workflow runs", repo=repo, error=str(e))
 
-    return FetchGitHubWorkflowRunsOutput(runs=runs, errors=errors)
+        return runs, errors
+
+    async with aiohttp.ClientSession() as session:
+        results = await asyncio.gather(*[fetch_single_repo(session, repo) for repo in input.repos])
+
+    all_runs: list[dict] = []
+    all_errors: list[str] = []
+    for runs, errors in results:
+        all_runs.extend(runs)
+        all_errors.extend(errors)
+
+    return FetchGitHubWorkflowRunsOutput(runs=all_runs, errors=all_errors)
 
 
 @dataclasses.dataclass
