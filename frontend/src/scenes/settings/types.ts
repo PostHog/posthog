@@ -57,6 +57,7 @@ export type SettingSectionId =
     | 'user-danger-zone'
     | 'user-feature-previews'
     | 'mcp-server'
+    | 'product-logs'
 
 export type SettingId =
     | 'replay-triggers'
