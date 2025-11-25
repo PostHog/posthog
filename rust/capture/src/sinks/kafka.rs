@@ -480,6 +480,7 @@ mod tests {
         let event: CapturedEvent = CapturedEvent {
             uuid: uuid_v7(),
             distinct_id: distinct_id.clone(),
+            session_id: None,
             ip: "".to_string(),
             data: "".to_string(),
             now: "".to_string(),
@@ -527,6 +528,7 @@ mod tests {
         let captured = CapturedEvent {
             uuid: uuid_v7(),
             distinct_id: "id1".to_string(),
+            session_id: None,
             ip: "".to_string(),
             data: big_data,
             now: "".to_string(),
