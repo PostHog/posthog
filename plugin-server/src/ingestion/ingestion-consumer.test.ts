@@ -673,7 +673,7 @@ describe('IngestionConsumer', () => {
             expect(producedMessages).toHaveLength(1)
 
             const event = producedMessages[0].value as any
-            const properties = typeof event.properties === 'string' ? JSON.parse(event.properties) : event.properties
+            const properties = typeof event.properties === 'string' ? parseJSON(event.properties) : event.properties
             expect(properties).not.toHaveProperty('$ip')
             expect(properties.$browser).toBe('Chrome')
             expect(properties.custom_prop).toBe('value')
@@ -704,7 +704,7 @@ describe('IngestionConsumer', () => {
             expect(producedMessages).toHaveLength(1)
 
             const event = producedMessages[0].value as any
-            const properties = typeof event.properties === 'string' ? JSON.parse(event.properties) : event.properties
+            const properties = typeof event.properties === 'string' ? parseJSON(event.properties) : event.properties
             expect(properties.$ip).toBe('192.168.1.1')
             expect(properties.$browser).toBe('Chrome')
         })
