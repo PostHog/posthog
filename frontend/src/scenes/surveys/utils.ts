@@ -606,17 +606,13 @@ export function getResolvedSurveyDateRange(
     let fromDate = getSurveyStartDateForQuery(survey)
     let toDate = getSurveyEndDateForQuery(survey)
 
+    // date_from only is valid ("from custom date until now")
+    // date_to only is ignored to avoid impossible ranges
     if (dateRange?.date_from) {
-        const userFromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day')
-        if (userFromDate && userFromDate.isAfter(fromDate)) {
-            fromDate = userFromDate.format(DATE_FORMAT)
-        }
-    }
+        fromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day').format(DATE_FORMAT) ?? fromDate
 
-    if (dateRange?.date_to) {
-        const userToDate = dateStringToDayJs(dateRange.date_to)?.endOf('day')
-        if (userToDate && userToDate.isBefore(toDate)) {
-            toDate = userToDate.format(DATE_FORMAT)
+        if (dateRange.date_to) {
+            toDate = dateStringToDayJs(dateRange.date_to)?.endOf('day').format(DATE_FORMAT) ?? toDate
         }
     }
 
