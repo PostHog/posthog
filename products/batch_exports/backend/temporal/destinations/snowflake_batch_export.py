@@ -758,6 +758,14 @@ class SnowflakeClient:
         return results, description
 
     async def get_or_create_table(self, table: SnowflakeTable) -> SnowflakeTable:
+        """Get a table if it exists, else create it.
+
+        Arguments:
+            table: The table to get or create.
+
+        Returns:
+            A SnowflakeTable.
+        """
         try:
             table = await self.get_table(table)
         except SnowflakeTableNotFoundError:
@@ -1046,23 +1054,25 @@ class SnowflakeClient:
         """
         merge_condition = "ON "
 
-        for n, field_name in enumerate(final.primary_key):
+        for n, primary_key_field_name in enumerate(final.primary_key):
+            field = final[primary_key_field_name]
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f'final."{field_name}" = stage."{field_name}"'
+            merge_condition += f'final."{field.name}" = stage."{field.name}"'
 
         update_condition = "AND ("
 
-        for index, field_name in enumerate(final.version_key):
+        for index, version_key_field_name in enumerate(final.version_key):
+            field = final[version_key_field_name]
             if index > 0:
                 update_condition += " OR "
-            update_condition += f'final."{field_name}" < stage."{field_name}"'
+            update_condition += f'final."{field.name}" < stage."{field.name}"'
         update_condition += ")"
 
         update_clause = ""
         values = ""
         field_names = ""
-        for n, field in enumerate(field for field in final if field not in final.primary_key):
+        for n, field in enumerate(final):
             if n > 0:
                 update_clause += ", "
                 values += ", "
@@ -1086,7 +1096,7 @@ class SnowflakeClient:
             VALUES ({values});
         """
 
-        self.logger.info("Merging stage table '%s' into final table '%s'", stage.name, final.name)
+        self.logger.info("Starting merge", stage_table=stage.name, final_table=final.name)
         await self.execute_async_query(merge_query, fetch_results=False, poll_interval=1.0, timeout=timeout)
         self.logger.info("Finished merge")
 

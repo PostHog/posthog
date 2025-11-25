@@ -380,6 +380,7 @@ async def assert_clickhouse_records_in_snowflake(
     expect_duplicates: bool = False,
     primary_key: list[str] | None = None,
     timestamp_columns: collections.abc.Sequence[str] = (),
+    uppercase_columns: list[str] | None = None,
 ):
     """Assert ClickHouse records are written to Snowflake table.
 
