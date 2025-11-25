@@ -512,7 +512,7 @@ class BigQueryClient:
         # with the valid pair in both cases.
         stage_table_fields = ",".join(
             f"""
-            PARSE_JSON(
+            SAFE.PARSE_JSON(
               REGEXP_REPLACE(
                 REGEXP_REPLACE(
                   REGEXP_REPLACE(
@@ -594,7 +594,7 @@ class BigQueryClient:
             # with the valid pair in both cases.
             stage_field = (
                 f"""
-                PARSE_JSON(
+                SAFE.PARSE_JSON(
                   REGEXP_REPLACE(
                     REGEXP_REPLACE(
                       REGEXP_REPLACE(

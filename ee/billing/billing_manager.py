@@ -4,7 +4,6 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db.models import F
-from django.utils import timezone
 
 import jwt
 import requests
@@ -242,9 +241,9 @@ class BillingManager:
 
         data = billing_status["license"]
 
-        if not self.license.valid_until or self.license.valid_until < timezone.now() + timedelta(days=29):
+        if not self.license.valid_until or self.license.valid_until < datetime.now(UTC) + timedelta(days=29):
             # NOTE: License validity is a legacy concept. For now we always extend the license validity by 30 days.
-            self.license.valid_until = timezone.now() + timedelta(days=30)
+            self.license.valid_until = datetime.now(UTC) + timedelta(days=30)
             license_modified = True
 
         if self.license.plan != data["type"]:
@@ -477,6 +476,16 @@ class BillingManager:
     def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/startups/apply",
+            json=data,
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+        return res.json()
+
+    def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/coupons/claim",
             json=data,
             headers=self.get_auth_headers(organization),
         )

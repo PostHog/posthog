@@ -343,8 +343,18 @@
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
         },
+        "AgentArtifactContent": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DocumentArtifactContent"
+                },
+                {
+                    "$ref": "#/definitions/VisualizationArtifactContent"
+                }
+            ]
+        },
         "AgentMode": {
-            "enum": ["product_analytics", "noop"],
+            "enum": ["product_analytics", "sql", "session_replay"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -882,10 +892,16 @@
         "AssistantFormOption": {
             "additionalProperties": false,
             "properties": {
+                "href": {
+                    "description": "When href is set, the button opens the link rather than sending an AI message.",
+                    "type": "string"
+                },
                 "value": {
+                    "description": "Button label, which is also the message that gets sent on click.",
                     "type": "string"
                 },
                 "variant": {
+                    "description": "'primary', 'secondary', or 'tertiary' - default 'secondary'",
                     "type": "string"
                 }
             },
@@ -1839,6 +1855,7 @@
                 "create_message_template",
                 "filter_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
+                "error_tracking_explain_issue",
                 "experiment_results_summary",
                 "create_survey",
                 "analyze_survey_responses",
@@ -1850,7 +1867,13 @@
                 "read_data",
                 "todo_write",
                 "filter_revenue_analytics",
-                "create_feature_flag"
+                "filter_web_analytics",
+                "create_feature_flag",
+                "create_experiment",
+                "execute_sql",
+                "switch_mode",
+                "summarize_sessions",
+                "create_insight"
             ],
             "type": "string"
         },
@@ -8176,6 +8199,69 @@
             "required": ["customEventName"],
             "type": "object"
         },
+        "CustomerAnalyticsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "activity_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "payment_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "signup_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "signup_pageview_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                },
+                "subscription_event": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "activity_event",
+                "signup_pageview_event",
+                "signup_event",
+                "subscription_event",
+                "payment_event"
+            ],
+            "type": "object"
+        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
@@ -8194,6 +8280,9 @@
                 },
                 "date_to": {
                     "type": ["string", "null"]
+                },
+                "explicitDate": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "anyOf": [
@@ -8248,6 +8337,10 @@
                 "context": {
                     "$ref": "#/definitions/DataTableNodeViewPropsContext",
                     "description": "Context for the table, used by components like ColumnConfigurator"
+                },
+                "contextKey": {
+                    "description": "Context key for universal column configuration (e.g., \"survey:123\")",
+                    "type": "string"
                 },
                 "defaultColumns": {
                     "description": "Default columns to use when resetting column configuration",
@@ -9715,6 +9808,10 @@
                     ],
                     "description": "Include a property filter above the table"
                 },
+                "showRecordingColumn": {
+                    "description": "Show a recording column for events with session recordings",
+                    "type": "boolean"
+                },
                 "showReload": {
                     "description": "Show a reload button",
                     "type": "boolean"
@@ -9733,6 +9830,10 @@
                 },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
+                "showSourceQueryOptions": {
+                    "description": "Show actors query options and back to source",
                     "type": "boolean"
                 },
                 "showTestAccountFilters": {
@@ -10647,6 +10748,32 @@
             ],
             "type": "string"
         },
+        "DocumentArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "blocks": {
+                    "items": {
+                        "$ref": "#/definitions/DocumentBlock"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["blocks"],
+            "type": "object"
+        },
+        "DocumentBlock": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/MarkdownBlock"
+                },
+                {
+                    "$ref": "#/definitions/VisualizationBlock"
+                },
+                {
+                    "$ref": "#/definitions/SessionReplayBlock"
+                }
+            ]
+        },
         "DocumentSimilarityQuery": {
             "additionalProperties": false,
             "properties": {
@@ -10938,6 +11065,9 @@
                 "cache_age_seconds": {
                     "type": "number"
                 },
+                "derived_from_insight": {
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -10976,23 +11106,20 @@
                     "type": "string"
                 },
                 "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter"
+                    "$ref": "#/definitions/DashboardFilter",
+                    "description": "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
                 },
                 "query_override": {
+                    "description": "Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {\"kind\": \"TrendsQuery\", \"series\": [{\"kind\": \"EventsNode\",\"name\": \"$pageview\",\"event\": \"$pageview\",\"math\": \"total\"}]}   If query_override = {\"series\": [{\"kind\": \"EventsNode\",\"name\": \"$identify\",\"event\": \"$identify\",\"math\": \"total\"}]}   The query executed will return the count of $identify events, instead of $pageview's",
                     "type": "object"
                 },
                 "refresh": {
                     "$ref": "#/definitions/RefreshType",
                     "default": "blocking",
-                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
+                    "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached"
                 },
-                "variables_override": {
-                    "additionalProperties": {
-                        "type": "object"
-                    },
-                    "type": "object"
-                },
-                "variables_values": {
+                "variables": {
+                    "description": "A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {\"from_date\": \"1970-01-01\"}",
                     "type": "object"
                 }
             },
@@ -11245,6 +11372,19 @@
                 "population",
                 "status"
             ],
+            "type": "object"
+        },
+        "ErrorTrackingExplainIssueToolContext": {
+            "additionalProperties": false,
+            "properties": {
+                "issue_name": {
+                    "type": "string"
+                },
+                "stacktrace": {
+                    "type": "string"
+                }
+            },
+            "required": ["stacktrace", "issue_name"],
             "type": "object"
         },
         "ErrorTrackingExternalReference": {
@@ -12496,9 +12636,19 @@
                     "description": "Control variant stats for this breakdown"
                 },
                 "breakdown_value": {
-                    "description": "The breakdown values as an array (e.g., [\"MacOS\", \"Chrome\"] for multi-breakdown, [\"Chrome\"] for single)",
+                    "description": "The breakdown values as an array (e.g., [\"MacOS\", \"Chrome\"] for multi-breakdown, [\"Chrome\"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value.",
                     "items": {
-                        "$ref": "#/definitions/BreakdownKeyType"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/integer"
+                            },
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -13913,6 +14063,7 @@
                 "LinkedinAds",
                 "RedditAds",
                 "TikTokAds",
+                "BingAds",
                 "Shopify"
             ],
             "type": "string"
@@ -14014,9 +14165,18 @@
             "properties": {
                 "count": {
                     "type": "number"
+                },
+                "entries": {
+                    "items": {
+                        "$ref": "#/definitions/FileSystemEntry"
+                    },
+                    "type": "array"
+                },
+                "has_more": {
+                    "type": "boolean"
                 }
             },
-            "required": ["count"],
+            "required": ["count", "entries", "has_more"],
             "type": "object"
         },
         "FileSystemEntry": {
@@ -14187,6 +14347,13 @@
                 },
                 "id": {
                     "type": "string"
+                },
+                "intents": {
+                    "description": "Product key(s) that generate interest in this item when intent is triggered",
+                    "items": {
+                        "$ref": "#/definitions/ProductKey"
+                    },
+                    "type": "array"
                 },
                 "last_viewed_at": {
                     "description": "Timestamp when the file system entry was last viewed",
@@ -15330,7 +15497,7 @@
             "type": "object"
         },
         "HogLanguage": {
-            "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate"],
+            "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
             "type": "string"
         },
         "HogQLASTQuery": {
@@ -16799,7 +16966,8 @@
                 "clickup",
                 "reddit-ads",
                 "databricks",
-                "tiktok-ads"
+                "tiktok-ads",
+                "bing-ads"
             ],
             "type": "string"
         },
@@ -17365,6 +17533,20 @@
             "required": ["results"],
             "type": "object"
         },
+        "MarkdownBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "markdown",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
         "MarketingAnalyticsAggregatedQuery": {
             "additionalProperties": false,
             "properties": {
@@ -17517,6 +17699,15 @@
                         "$ref": "#/definitions/ConversionGoalFilter"
                     },
                     "type": "array"
+                },
+                "custom_source_mappings": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "type": "object"
                 },
                 "sources_map": {
                     "additionalProperties": {
@@ -18192,7 +18383,26 @@
                 "experiment_name": {
                     "type": "string"
                 },
-                "metrics_results": {
+                "exposures": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "primary_metrics_results": {
+                    "items": {
+                        "$ref": "#/definitions/MaxExperimentMetricResult"
+                    },
+                    "type": "array"
+                },
+                "secondary_metrics_results": {
                     "items": {
                         "$ref": "#/definitions/MaxExperimentMetricResult"
                     },
@@ -18212,8 +18422,10 @@
                 "experiment_id",
                 "experiment_name",
                 "description",
+                "exposures",
                 "variants",
-                "metrics_results",
+                "primary_metrics_results",
+                "secondary_metrics_results",
                 "stats_method"
             ],
             "type": "object"
@@ -19241,6 +19453,155 @@
                 "user_email",
                 "personal_api_key"
             ],
+            "type": "object"
+        },
+        "ProductIntentContext": {
+            "enum": [
+                "onboarding product selected - primary",
+                "onboarding product selected - secondary",
+                "quick start product selected",
+                "selected connector",
+                "sql editor empty state",
+                "data warehouse sources table",
+                "experiment created",
+                "experiment analyzed",
+                "feature flag created",
+                "session_replay_set_filters",
+                "error_tracking_exception_autocapture_enabled",
+                "error_tracking_issue_sorting",
+                "error_tracking_docs_viewed",
+                "error_tracking_issue_explained",
+                "llm_analytics_viewed",
+                "llm_analytics_docs_viewed",
+                "taxonomic filter empty state",
+                "create_experiment_from_funnel_button",
+                "web_analytics_insight",
+                "web_vitals_insight",
+                "web_analytics_recordings",
+                "web_analytics_error_tracking",
+                "web_analytics_errors",
+                "web_analytics_frustrating_pages",
+                "action_view_recordings",
+                "person_view_recordings",
+                "feature_flag_create_insight",
+                "feature_flag_view_recordings",
+                "early_access_feature_view_recordings",
+                "data_warehouse_stripe_source_created",
+                "surveys_viewed",
+                "survey_created",
+                "survey_launched",
+                "survey_viewed",
+                "survey_completed",
+                "survey_resumed",
+                "survey_archived",
+                "survey_unarchived",
+                "survey_deleted",
+                "survey_duplicated",
+                "survey_bulk_duplicated",
+                "survey_edited",
+                "survey_analyzed",
+                "revenue_analytics_viewed",
+                "revenue_analytics_onboarding_completed",
+                "revenue_analytics_event_created",
+                "revenue_analytics_data_source_connected",
+                "nav_panel_advertisement_clicked",
+                "vercel_integration"
+            ],
+            "type": "string"
+        },
+        "ProductItem": {
+            "additionalProperties": false,
+            "description": "Product item structure matching products.json. NOTE: These types must match the structure generated by build-products.mjs. Any changes to these types should be reflected in the build script.",
+            "properties": {
+                "category": {
+                    "type": ["string", "null"]
+                },
+                "iconType": {
+                    "type": ["string", "null"]
+                },
+                "intents": {
+                    "items": {
+                        "$ref": "#/definitions/ProductKey"
+                    },
+                    "type": "array"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["path", "category", "iconType", "type", "intents"],
+            "type": "object"
+        },
+        "ProductKey": {
+            "enum": [
+                "actions",
+                "alerts",
+                "annotations",
+                "cohorts",
+                "comments",
+                "customer_analytics",
+                "data_warehouse",
+                "data_warehouse_saved_queries",
+                "early_access_features",
+                "endpoints",
+                "error_tracking",
+                "experiments",
+                "feature_flags",
+                "group_analytics",
+                "heatmaps",
+                "history",
+                "ingestion_warnings",
+                "integrations",
+                "links",
+                "live_debugger",
+                "llm_analytics",
+                "logs",
+                "marketing_analytics",
+                "max",
+                "mobile_replay",
+                "persons",
+                "pipeline_transformations",
+                "pipeline_destinations",
+                "platform_and_support",
+                "product_analytics",
+                "revenue_analytics",
+                "session_replay",
+                "site_apps",
+                "surveys",
+                "user_interviews",
+                "teams",
+                "web_analytics",
+                "workflows"
+            ],
+            "type": "string"
+        },
+        "ProductsData": {
+            "additionalProperties": false,
+            "description": "Products data structure matching products.json. NOTE: These types must match the structure generated by build-products.mjs. Any changes to these types should be reflected in the build script.",
+            "properties": {
+                "games": {
+                    "items": {
+                        "$ref": "#/definitions/ProductItem"
+                    },
+                    "type": "array"
+                },
+                "metadata": {
+                    "items": {
+                        "$ref": "#/definitions/ProductItem"
+                    },
+                    "type": "array"
+                },
+                "products": {
+                    "items": {
+                        "$ref": "#/definitions/ProductItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["products", "games", "metadata"],
             "type": "object"
         },
         "PropertyFilterBaseValue": {
@@ -23922,6 +24283,10 @@
                     },
                     "type": "array"
                 },
+                "session_recording_id": {
+                    "description": "If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters",
+                    "type": "string"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -25336,6 +25701,10 @@
                     "$ref": "#/definitions/DataTableNodeViewPropsContext",
                     "description": "Context for the table, used by components like ColumnConfigurator"
                 },
+                "contextKey": {
+                    "description": "Context key for universal column configuration (e.g., \"survey:123\")",
+                    "type": "string"
+                },
                 "defaultColumns": {
                     "description": "Default columns to use when resetting column configuration",
                     "items": {
@@ -25437,6 +25806,10 @@
                     ],
                     "description": "Include a property filter above the table"
                 },
+                "showRecordingColumn": {
+                    "description": "Show a recording column for events with session recordings",
+                    "type": "boolean"
+                },
                 "showReload": {
                     "description": "Show a reload button",
                     "type": "boolean"
@@ -25458,6 +25831,10 @@
                 },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
+                "showSourceQueryOptions": {
+                    "description": "Show actors query options and back to source",
                     "type": "boolean"
                 },
                 "showTable": {
@@ -25958,9 +26335,33 @@
             "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
+        "SessionReplayBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "session_id": {
+                    "type": "string"
+                },
+                "timestamp_ms": {
+                    "type": "number"
+                },
+                "title": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "session_replay",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "session_id", "timestamp_ms"],
+            "type": "object"
+        },
         "SessionsQuery": {
             "additionalProperties": false,
             "properties": {
+                "actionId": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Filter sessions by action - sessions that contain events matching this action"
+                },
                 "after": {
                     "description": "Only fetch sessions that started after this timestamp",
                     "type": "string"
@@ -25968,6 +26369,17 @@
                 "before": {
                     "description": "Only fetch sessions that started before this timestamp",
                     "type": "string"
+                },
+                "event": {
+                    "description": "Filter sessions by event name - sessions that contain this event",
+                    "type": ["string", "null"]
+                },
+                "eventProperties": {
+                    "description": "Event property filters - only applies when event or actionId is set",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -26281,6 +26693,14 @@
                 },
                 "name": {
                     "$ref": "#/definitions/ExternalDataSourceType"
+                },
+                "suggestedTables": {
+                    "default": [],
+                    "description": "Tables to suggest enabling, with optional tooltip explaining why",
+                    "items": {
+                        "$ref": "#/definitions/SuggestedTable"
+                    },
+                    "type": "array"
                 },
                 "unreleasedSource": {
                     "type": "boolean"
@@ -26866,6 +27286,19 @@
             "required": ["questions"],
             "type": "object"
         },
+        "SuggestedTable": {
+            "additionalProperties": false,
+            "properties": {
+                "table": {
+                    "type": "string"
+                },
+                "tooltip": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["table"],
+            "type": "object"
+        },
         "SurveyAnalysisQuestionGroup": {
             "additionalProperties": false,
             "properties": {
@@ -26952,6 +27385,9 @@
                 "surveyPopupDelaySeconds": {
                     "type": "number"
                 },
+                "tabPosition": {
+                    "$ref": "#/definitions/SurveyTabPosition"
+                },
                 "textColor": {
                     "type": "string"
                 },
@@ -27019,6 +27455,9 @@
                     "type": "number"
                 },
                 "linked_flag_id": {
+                    "type": "number"
+                },
+                "linked_insight_id": {
                     "type": "number"
                 },
                 "name": {
@@ -27203,6 +27642,10 @@
         },
         "SurveyQuestionType": {
             "enum": ["open", "multiple_choice", "single_choice", "rating", "link"],
+            "type": "string"
+        },
+        "SurveyTabPosition": {
+            "enum": ["top", "left", "right", "bottom"],
             "type": "string"
         },
         "SurveyType": {
@@ -27580,6 +28023,9 @@
                 },
                 "date_to": {
                     "type": ["string", "null"]
+                },
+                "explicitDate": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "anyOf": [
@@ -28460,6 +28906,49 @@
             "required": ["id", "distance"],
             "type": "object"
         },
+        "VisualizationArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AssistantTrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantFunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantRetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AssistantHogQLQuery"
+                        }
+                    ]
+                }
+            },
+            "required": ["query"],
+            "type": "object"
+        },
+        "VisualizationBlock": {
+            "additionalProperties": false,
+            "properties": {
+                "artifact_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "visualization",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id"],
+            "type": "object"
+        },
         "VisualizationItem": {
             "additionalProperties": false,
             "properties": {
@@ -28559,6 +29048,35 @@
                     "type": "object"
                 }
             },
+            "type": "object"
+        },
+        "WebAnalyticsAssistantFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["properties"],
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {

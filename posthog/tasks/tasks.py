@@ -1,4 +1,5 @@
 import time
+import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -7,7 +8,6 @@ from django.db import connection
 from django.utils import timezone
 
 import requests
-import posthoganalytics
 from celery import shared_task
 from prometheus_client import Counter, Gauge
 from redis import Redis
@@ -236,7 +236,7 @@ def ingestion_lag() -> None:
     FROM events
     WHERE team_id IN %(team_ids)s
         AND event IN %(events)s
-        AND timestamp > yesterday() AND timestamp < now() + toIntervalMinute(3)
+        AND timestamp > now() - interval 72 hours AND timestamp < now() + toIntervalMinute(3)
     GROUP BY event
     """
 
@@ -528,7 +528,7 @@ def clean_stale_partials() -> None:
     """Clean stale (meaning older than 7 days) partial social auth sessions."""
     from social_django.models import Partial
 
-    Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
+    Partial.objects.filter(timestamp__lt=timezone.now() - datetime.timedelta(7)).delete()
 
 
 @shared_task(ignore_result=True)
@@ -808,22 +808,16 @@ def check_flags_to_rollback() -> None:
 
 @shared_task(ignore_result=True)
 def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
-    try:
-        from ee.session_recordings.persistence_tasks import persist_single_recording_v2
+    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_single_recording_v2
 
-        persist_single_recording_v2(id, team_id)
-    except ImportError:
-        pass
+    persist_single_recording_v2(id, team_id)
 
 
 @shared_task(ignore_result=True)
 def ee_persist_finished_recordings_v2() -> None:
-    try:
-        from ee.session_recordings.persistence_tasks import persist_finished_recordings_v2
-    except ImportError:
-        pass
-    else:
-        persist_finished_recordings_v2()
+    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_finished_recordings_v2
+
+    persist_finished_recordings_v2()
 
 
 @shared_task(
@@ -831,15 +825,11 @@ def ee_persist_finished_recordings_v2() -> None:
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
 )
 def count_items_in_playlists() -> None:
-    try:
-        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-            enqueue_recordings_that_match_playlist_filters,
-        )
-    except ImportError as ie:
-        posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
-        logger.exception("Failed to import task to count items in playlists", error=ie)
-    else:
-        enqueue_recordings_that_match_playlist_filters()
+    from posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+        enqueue_recordings_that_match_playlist_filters,
+    )
+
+    enqueue_recordings_that_match_playlist_filters()
 
 
 @shared_task(ignore_result=True)

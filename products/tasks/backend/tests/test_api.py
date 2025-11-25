@@ -377,6 +377,91 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
+    def test_upload_artifacts(self, mock_tag, mock_write):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        payload = {
+            "artifacts": [
+                {
+                    "name": "plan.md",
+                    "type": "plan",
+                    "content": "# Plan",
+                    "content_type": "text/markdown",
+                }
+            ]
+        }
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_write.assert_called_once()
+        mock_tag.assert_called_once()
+
+        run.refresh_from_db()
+        self.assertEqual(len(run.artifacts), 1)
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["name"], "plan.md")
+        self.assertEqual(artifact["type"], "plan")
+        self.assertIn("storage_path", artifact)
+
+    def test_upload_artifacts_requires_items(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            {"artifacts": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    def test_presign_artifact_url(self, mock_presign):
+        mock_presign.return_value = "https://example.com/artifact?sig=123"
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[
+                {
+                    "name": "plan.md",
+                    "type": "plan",
+                    "storage_path": "tasks/artifacts/team_1/task_2/run_3/plan.md",
+                }
+            ],
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/presign/",
+            {"storage_path": "tasks/artifacts/team_1/task_2/run_3/plan.md"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["url"], "https://example.com/artifact?sig=123")
+        self.assertIn("expires_in", response.json())
+
+    def test_presign_artifact_not_found(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, artifacts=[])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/presign/",
+            {"storage_path": "unknown"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
 
 class TestTasksAPIPermissions(BaseTaskAPITest):
     def setUp(self):
@@ -473,7 +558,6 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
-            ("no_scope", "GET", "/api/projects/@current/agents/", False),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
             ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
@@ -522,13 +606,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             data = {"title": "Updated Task"}
 
         if method == "GET":
-            response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.get(url, headers={"authorization": f"Bearer {api_key_value}"})
         elif method == "POST":
-            response = self.client.post(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.post(url, data, format="json", headers={"authorization": f"Bearer {api_key_value}"})
         elif method == "PATCH":
-            response = self.client.patch(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.patch(url, data, format="json", headers={"authorization": f"Bearer {api_key_value}"})
         elif method == "DELETE":
-            response = self.client.delete(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.delete(url, headers={"authorization": f"Bearer {api_key_value}"})
         else:
             self.fail(f"Unsupported method: {method}")
 
