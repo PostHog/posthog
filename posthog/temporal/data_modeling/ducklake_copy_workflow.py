@@ -100,16 +100,10 @@ def copy_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
     try:
         _configure_source_storage(conn, logger)
         logger.info("Loading Delta table into DuckDB", table_uri=inputs.model.table_uri)
-        try:
-            conn.execute(
-                f"CREATE OR REPLACE TEMP TABLE {table_name} AS SELECT * FROM delta_scan(?)",
-                [inputs.model.table_uri],
-            )
-        except duckdb.CatalogException:
-            conn.execute(
-                f"CREATE OR REPLACE TEMP TABLE {table_name} AS SELECT * FROM read_delta(?)",
-                [inputs.model.table_uri],
-            )
+        conn.execute(
+            f"CREATE OR REPLACE TEMP TABLE {table_name} AS SELECT * FROM delta_scan(?)",
+            [inputs.model.table_uri],
+        )
 
         configure_connection(conn, config, install_extension=True)
         _ensure_ducklake_bucket_exists(config)
@@ -193,19 +187,23 @@ def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
     region = getattr(settings, "AIRBYTE_BUCKET_REGION", "")
 
     endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
+    normalized_endpoint = ""
+    use_ssl = True
     if endpoint:
         normalized_endpoint, use_ssl = _normalize_object_storage_endpoint(endpoint)
-        conn.execute(f"SET s3_endpoint='{ducklake_escape(normalized_endpoint)}'")
-        conn.execute(f"SET s3_use_ssl={'true' if use_ssl else 'false'}")
+    secret_parts = ["TYPE S3"]
+    secret_parts = ["TYPE S3"]
     if access_key:
-        conn.execute(f"SET s3_access_key_id='{ducklake_escape(access_key)}'")
+        secret_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
     if secret_key:
-        conn.execute(f"SET s3_secret_access_key='{ducklake_escape(secret_key)}'")
+        secret_parts.append(f"SECRET '{ducklake_escape(secret_key)}'")
     if region:
-        conn.execute(f"SET s3_region='{ducklake_escape(region)}'")
-
-    conn.execute("SET s3_url_style='path'")
-    logger.debug("Configured DuckDB connection for PostHog object storage access")
+        secret_parts.append(f"REGION '{ducklake_escape(region)}'")
+    if normalized_endpoint:
+        secret_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
+    secret_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
+    secret_parts.append("URL_STYLE 'path'")
+    conn.execute(f"CREATE OR REPLACE SECRET ducklake_minio ({', '.join(secret_parts)})")
 
 
 def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:
