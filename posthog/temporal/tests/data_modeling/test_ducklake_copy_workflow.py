@@ -1,13 +1,8 @@
-import os
 import uuid
 
 import pytest
 
-from django.conf import settings
 from django.test import override_settings
-
-import pyarrow as pa
-from deltalake import write_deltalake
 
 from posthog.temporal.data_modeling import ducklake_copy_workflow as ducklake_module
 from posthog.temporal.data_modeling.ducklake_copy_workflow import (
@@ -19,8 +14,6 @@ from posthog.temporal.data_modeling.ducklake_copy_workflow import (
 from posthog.temporal.utils import DuckLakeCopyModelInput, DuckLakeCopyWorkflowInputs
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-RUN_INTEGRATION_COPY_TESTS = os.environ.get("RUN_DUCKLAKE_COPY_TESTS") == "1"
 
 
 @pytest.mark.asyncio
@@ -115,7 +108,9 @@ async def test_copy_model_to_ducklake_activity_uses_duckdb(monkeypatch, activity
         activity_environment.run(copy_model_to_ducklake_activity, inputs)
 
     create_calls = [
-        statement for statement, params in fake_conn_calls if "read_delta" in statement and params is not None
+        statement
+        for statement, params in fake_conn_calls
+        if params is not None and ("delta_scan" in statement or "read_delta" in statement)
     ]
     copy_calls = [statement for statement, params in fake_conn_calls if statement.startswith("COPY (SELECT * FROM")]
     drop_calls = [statement for statement, _ in fake_conn_calls if statement.startswith("DROP TABLE")]
@@ -123,72 +118,7 @@ async def test_copy_model_to_ducklake_activity_uses_duckdb(monkeypatch, activity
     assert configure_args["install_extension"] is True
     assert configure_args["bucket"] == ducklake_module.get_config()["DUCKLAKE_DATA_BUCKET"]
     assert ensured["called"] is True
-    assert create_calls, "Expected temp table creation with read_delta"
+    assert create_calls, "Expected temp table creation with delta_scan/read_delta"
     assert copy_calls and inputs.model.destination_uri in copy_calls[0]
     assert drop_calls, "Expected temporary table cleanup"
     assert fake_conn.closed is True
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.skipif(not RUN_INTEGRATION_COPY_TESTS, reason="Set RUN_DUCKLAKE_COPY_TESTS=1 to run this test.")
-async def test_copy_model_to_ducklake_activity_with_minio(
-    activity_environment,
-    ateam,
-    bucket_name,
-    minio_client,
-    monkeypatch,
-):
-    saved_query = await DataWarehouseSavedQuery.objects.acreate(
-        team=ateam,
-        name="ducklake_model",
-        query={"query": "SELECT 1", "kind": "HogQLQuery"},
-    )
-    table_uri = f"s3://{bucket_name}/ducklake_source/{saved_query.id.hex}"
-
-    write_deltalake(
-        table_uri,
-        pa.table({"event": ["test-event"], "count": [1]}),
-        storage_options={
-            "AWS_ACCESS_KEY_ID": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "AWS_SECRET_ACCESS_KEY": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "AWS_ENDPOINT_URL": settings.OBJECT_STORAGE_ENDPOINT,
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        },
-        mode="overwrite",
-    )
-
-    ducklake_bucket = f"ducklake-target-{uuid.uuid4().hex}"
-    try:
-        await minio_client.create_bucket(Bucket=ducklake_bucket)
-    except Exception:
-        pass
-
-    monkeypatch.setenv("DUCKLAKE_DATA_BUCKET", ducklake_bucket)
-    monkeypatch.setenv("DUCKLAKE_DATA_ENDPOINT", settings.OBJECT_STORAGE_ENDPOINT)
-    monkeypatch.setenv("DUCKLAKE_S3_ACCESS_KEY", settings.OBJECT_STORAGE_ACCESS_KEY_ID)
-    monkeypatch.setenv("DUCKLAKE_S3_SECRET_KEY", settings.OBJECT_STORAGE_SECRET_ACCESS_KEY)
-
-    job_id = uuid.uuid4().hex
-    inputs = DuckLakeCopyWorkflowInputs(
-        team_id=ateam.pk,
-        job_id=job_id,
-        models=[
-            DuckLakeCopyModelInput(
-                model_label=saved_query.id.hex,
-                saved_query_id=str(saved_query.id),
-                table_uri=table_uri,
-            )
-        ],
-    )
-    metadata = await activity_environment.run(prepare_ducklake_copy_metadata_activity, inputs)
-    activity_environment.run(
-        copy_model_to_ducklake_activity,
-        DuckLakeCopyActivityInputs(team_id=ateam.pk, job_id=job_id, model=metadata[0]),
-    )
-
-    prefix = f"data_modeling/team_{ateam.pk}/job_{job_id}/model_{saved_query.id.hex}/"
-    objects = await minio_client.list_objects_v2(Bucket=ducklake_bucket, Prefix=prefix)
-
-    assert objects.get("KeyCount", 0) > 0

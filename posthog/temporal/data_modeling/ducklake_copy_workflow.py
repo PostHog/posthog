@@ -100,10 +100,16 @@ def copy_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
     try:
         _configure_source_storage(conn, logger)
         logger.info("Loading Delta table into DuckDB", table_uri=inputs.model.table_uri)
-        conn.execute(
-            f"CREATE OR REPLACE TEMP TABLE {table_name} AS SELECT * FROM read_delta(?)",
-            [inputs.model.table_uri],
-        )
+        try:
+            conn.execute(
+                f"CREATE OR REPLACE TEMP TABLE {table_name} AS SELECT * FROM delta_scan(?)",
+                [inputs.model.table_uri],
+            )
+        except duckdb.CatalogException:
+            conn.execute(
+                f"CREATE OR REPLACE TEMP TABLE {table_name} AS SELECT * FROM read_delta(?)",
+                [inputs.model.table_uri],
+            )
 
         configure_connection(conn, config, install_extension=True)
         _ensure_ducklake_bucket_exists(config)
