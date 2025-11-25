@@ -413,17 +413,21 @@ def format_cohort_subquery(
 
 def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
     tag_queries(cohort_id=cohort_id, team_id=team_id, name="insert_static_cohort", feature=Feature.COHORT)
-    persons = [
-        {
-            "id": str(uuid.uuid4()),
-            "person_id": str(person_uuid),
-            "cohort_id": cohort_id,
-            "team_id": team_id,
-            "_timestamp": datetime.now(),
-        }
-        for person_uuid in person_uuids
-    ]
-    sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+
+    if not person_uuids:
+        return
+
+    # Build VALUES tuples as strings for clickhouse-connect (HTTP client) compatibility
+    # The old pattern of passing list[dict] worked with clickhouse-driver but fails with
+    # clickhouse-connect which requires manual SQL construction for bulk inserts
+    values = []
+    for person_uuid in person_uuids:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+        values.append(f"('{uuid.uuid4()}', '{person_uuid}', {cohort_id}, {team_id}, '{timestamp}')")
+
+    # Concatenate SQL template with comma-separated VALUES tuples
+    sql = INSERT_PERSON_STATIC_COHORT + ", ".join(values)
+    sync_execute(sql)
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
