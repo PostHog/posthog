@@ -414,8 +414,8 @@ const WebVitalsPathBreakdown: WebVitalsPathBreakdownQuery = {
     thresholds: [WEB_VITALS_THRESHOLDS['CLS'].good, WEB_VITALS_THRESHOLDS['CLS'].poor],
 }
 
-const WebAnalyticsReferrerDomain: DataTableNode = {
-    kind: NodeKind.DataTableNode,
+const WebAnalyticsReferrerDomain: InsightVizNode = {
+    kind: NodeKind.InsightVizNode,
     source: {
         kind: NodeKind.WebStatsTableQuery,
         properties: [],
@@ -431,8 +431,8 @@ const WebAnalyticsReferrerDomain: DataTableNode = {
     },
 }
 
-const WebAnalyticsPath: DataTableNode = {
-    kind: NodeKind.DataTableNode,
+const WebAnalyticsPath: InsightVizNode = {
+    kind: NodeKind.InsightVizNode,
     source: {
         kind: NodeKind.WebStatsTableQuery,
         properties: [],
@@ -448,8 +448,8 @@ const WebAnalyticsPath: DataTableNode = {
     },
 }
 
-const WebAnalyticsBrowser: DataTableNode = {
-    kind: NodeKind.DataTableNode,
+const WebAnalyticsBrowser: InsightVizNode = {
+    kind: NodeKind.InsightVizNode,
     source: {
         kind: NodeKind.WebStatsTableQuery,
         properties: [],
