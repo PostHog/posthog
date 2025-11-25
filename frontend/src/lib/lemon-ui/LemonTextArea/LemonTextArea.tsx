@@ -60,6 +60,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
         stopPropagation,
         actions,
         rightFooter,
+        autoFocus,
         ...textProps
     },
     ref
@@ -77,7 +78,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     return (
         <div
             className={cn('flex flex-col rounded', {
-                'animate-input-focus-pulse': textProps.autoFocus && textProps.autoFocus !== 'true-without-pulse',
+                'animate-input-focus-pulse': autoFocus && autoFocus !== 'true-without-pulse',
             })}
         >
             <TextareaAutosize
@@ -110,6 +111,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     setTextLength((event.currentTarget.value ?? '').length)
                     return onChange?.(event.currentTarget.value ?? '')
                 }}
+                autoFocus={!!autoFocus}
                 {...textProps}
             />
             {hasFooter ? (
