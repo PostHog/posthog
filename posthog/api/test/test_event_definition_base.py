@@ -11,7 +11,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
         [
             (
                 "Hashes should be deterministic for the same input",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("field1", "String", True)])],
                 [("1", "event_a", [("field1", "String", True)])],
@@ -19,7 +18,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             ),
             (
                 "If a type changes, the hashes should differ",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("field1", "String", True)])],
                 [("1", "event_a", [("field1", "Numeric", True)])],
@@ -27,7 +25,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             ),
             (
                 "If the required flag changes, the hashes should defer",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("field1", "String", True)])],
                 [("1", "event_a", [("field1", "String", False)])],
@@ -35,7 +32,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             ),
             (
                 "If the name changes, the hashes should differ",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("field1", "String", True)])],
                 [("1", "event_a", [("field2", "String", True)])],
@@ -43,7 +39,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             ),
             (
                 "If the generator version changes, the hashes should differ",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("field1", "String", True)])],
                 [("1", "event_a", [("field1", "String", True)])],
@@ -51,18 +46,7 @@ class TestEventDefinitionGeneratorBase(BaseTest):
                 "2.0.0",
             ),
             (
-                "If the language changes, the hashes should differ",
-                "Go",
-                "1.0.0",
-                [("1", "event_a", [("field1", "String", True)])],
-                [("1", "event_a", [("field1", "String", True)])],
-                False,
-                "1.0.0",
-                "TypeScript",
-            ),
-            (
                 "Hashes should be deterministic regardless of the order of properties",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("zzz_field", "String", True), ("aaa_field", "Numeric", False)])],
                 [("1", "event_a", [("aaa_field", "Numeric", False), ("zzz_field", "String", True)])],
@@ -70,7 +54,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             ),
             (
                 "Hashes should be deterministic regardless of the order of events",
-                "Go",
                 "1.0.0",
                 [("1", "zzz_event", [("field", "String", True)]), ("2", "aaa_event", [("field", "String", True)])],
                 [("2", "aaa_event", [("field", "String", True)]), ("1", "zzz_event", [("field", "String", True)])],
@@ -78,7 +61,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             ),
             (
                 "New properties should generate a new hash",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("field1", "String", True)])],
                 [("1", "event_a", [("field1", "String", True), ("field2", "Numeric", False)])],
@@ -86,7 +68,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             ),
             (
                 "Removed propeties should generate a new hash",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("field1", "String", True), ("field2", "Numeric", False)])],
                 [("1", "event_a", [("field1", "String", True)])],
@@ -94,7 +75,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             ),
             (
                 "New events should generate a new hash",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("field1", "String", True)])],
                 [("1", "event_a", [("field1", "String", True)]), ("2", "event_b", [("field2", "Numeric", False)])],
@@ -102,7 +82,6 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             ),
             (
                 "Removed events should generate a new hash",
-                "Go",
                 "1.0.0",
                 [("1", "event_a", [("field1", "String", True)]), ("2", "event_b", [("field2", "Numeric", False)])],
                 [("1", "event_a", [("field1", "String", True)])],
@@ -113,22 +92,19 @@ class TestEventDefinitionGeneratorBase(BaseTest):
     def test_calculate_schema_hash(
         self,
         name: str,
-        language1: str,
         version1: str,
         schema1_spec: list[tuple[str, str, list[tuple[str, str, bool]]]],
         schema2_spec: list[tuple[str, str, list[tuple[str, str, bool]]]],
         should_be_equal: bool,
         version2: str | None = None,
-        language2: str | None = None,
     ) -> None:
         version2 = version2 or version1
-        language2 = language2 or language1
 
         events1, schema_map1 = self._build_schema(schema1_spec)
-        hash1 = EventDefinitionGenerator.calculate_schema_hash(language1, version1, events1, schema_map1)
+        hash1 = EventDefinitionGenerator.calculate_schema_hash(version1, events1, schema_map1)
 
         events2, schema_map2 = self._build_schema(schema2_spec)
-        hash2 = EventDefinitionGenerator.calculate_schema_hash(language2, version2, events2, schema_map2)
+        hash2 = EventDefinitionGenerator.calculate_schema_hash(version2, events2, schema_map2)
 
         self.assertEqual(
             hash1 == hash2,

@@ -48,7 +48,6 @@ class EventDefinitionGenerator(ABC):
 
     @staticmethod
     def calculate_schema_hash(
-        language: str,
         generator_version: str,
         event_definitions: QuerySet[EventDefinition],
         schema_map: dict[str, list[SchemaPropertyGroupProperty]],
@@ -72,7 +71,6 @@ class EventDefinitionGenerator(ABC):
 
         # Include generator version to force regeneration on structural changes
         hash_input = {
-            "language": language,
             "version": generator_version,
             "schemas": schema_data,
         }

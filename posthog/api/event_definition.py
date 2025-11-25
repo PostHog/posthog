@@ -414,7 +414,6 @@ class EventDefinitionViewSet(
 
         # Calculate the deterministic hash for this update
         schema_hash = EventDefinitionGenerator.calculate_schema_hash(
-            language,
             generator_version,
             event_definitions,
             schema_map,
@@ -640,9 +639,7 @@ export * from 'posthog-js'
         event_definitions, schema_map = EventDefinitionGenerator.fetch_event_definitions_and_schemas(self.project_id)
 
         # Calculate the deterministic hash for this update
-        schema_hash = generator.calculate_schema_hash(
-            generator.language_name(), generator.generator_version(), event_definitions, schema_map
-        )
+        schema_hash = generator.calculate_schema_hash(generator.generator_version(), event_definitions, schema_map)
 
         # Generate Go code using the generator
         go_content = generator.generate(event_definitions, schema_map)
