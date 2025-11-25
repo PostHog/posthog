@@ -169,10 +169,10 @@ class EntitySearchTool(MaxSubtool):
 
         result_dict = {
             "name": extra_fields.get("name", f"{entity_type.upper()} {result_id}"),
-            "id": result_id,
-            "extra_fields": extra_fields,
             "type": entity_type.title(),
+            "id": result_id,
             "url": self._build_url(entity_type, result_id),
+            "extra_fields": extra_fields,
         }
 
         cleaned_dict = self._omit_none_values(result_dict)
