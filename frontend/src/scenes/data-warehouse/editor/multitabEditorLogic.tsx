@@ -27,13 +27,13 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { queryExportContext } from '~/queries/query'
 import {
-    Database,
     DataVisualizationNode,
     DatabaseSchemaViewTable,
     FileSystemIconType,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
+    WarehouseTarget,
 } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
@@ -231,7 +231,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             queryInput,
             viewId,
         }),
-        setDatabase: (database: Database) => ({ database }),
+        setWarehouseTarget: (warehouseTarget: WarehouseTarget) => ({ warehouseTarget }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -380,10 +380,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setHoveredNode: (_, { nodeId }) => nodeId,
             },
         ],
-        database: [
-            'posthog' as Database,
+        warehouseTarget: [
+            'posthog' as WarehouseTarget,
             {
-                setDatabase: (_, { database }) => database,
+                setWarehouseTarget: (_, { warehouseTarget }) => warehouseTarget,
             },
         ],
     })),
@@ -672,7 +672,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
-            }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, undefined, values.database)
+            }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, undefined, values.warehouseTarget)
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             LemonDialog.openForm({

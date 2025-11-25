@@ -87,10 +87,10 @@ def _process_query_request(
         qt.request_name = request_data.query.name
     qt.query = query.model_dump()
 
-    # Get database from request (defaults to 'posthog')
-    database = request_data.database
+    # Get warehouse target from request (defaults to 'posthog')
+    warehouse_target = request_data.database
 
-    return query, query_id, execution_mode, database
+    return query, query_id, execution_mode, warehouse_target
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -139,16 +139,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
         try:
-            query, client_query_id, execution_mode, database = _process_query_request(
+            query, client_query_id, execution_mode, warehouse_target = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
             query_dict = query.model_dump()
-
-            # TODO: Implement database handling
-            # database specifies whether to query PostHog database or external warehouse
-            # Currently stubbed - will be implemented in future PR
-            _ = database  # Suppress unused variable warning
 
             result = process_query_model(
                 self.team,
@@ -168,6 +163,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     and get_query_tag_value("access_method") != "personal_api_key"
                     else None
                 ),
+                warehouse_target=warehouse_target,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)

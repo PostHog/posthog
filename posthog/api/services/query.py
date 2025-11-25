@@ -1,5 +1,3 @@
-from typing import Optional
-
 import structlog
 import pydantic_core
 from pydantic import BaseModel
@@ -7,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DashboardFilter,
+    Database as WarehouseTarget,
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
     DataWarehouseViewLink,
@@ -44,15 +43,16 @@ def process_query_dict(
     team: Team,
     query_json: dict,
     *,
-    dashboard_filters_json: Optional[dict] = None,
-    variables_override_json: Optional[dict] = None,
-    limit_context: Optional[LimitContext] = None,
+    dashboard_filters_json: dict | None = None,
+    variables_override_json: dict | None = None,
+    limit_context: LimitContext | None = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: Optional[User] = None,
-    query_id: Optional[str] = None,
-    insight_id: Optional[int] = None,
-    dashboard_id: Optional[int] = None,
+    user: User | None = None,
+    query_id: str | None = None,
+    insight_id: int | None = None,
+    dashboard_id: int | None = None,
     is_query_service: bool = False,
+    warehouse_target: WarehouseTarget | None = None,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
     try:
@@ -101,6 +101,7 @@ def process_query_dict(
         insight_id=insight_id,
         dashboard_id=dashboard_id,
         is_query_service=is_query_service,
+        warehouse_target=warehouse_target,
     )
 
 
@@ -108,21 +109,22 @@ def process_query_model(
     team: Team,
     query: BaseModel,  # mypy has problems with unions and isinstance
     *,
-    dashboard_filters: Optional[DashboardFilter] = None,
-    variables_override: Optional[list[HogQLVariable]] = None,
-    limit_context: Optional[LimitContext] = None,
+    dashboard_filters: DashboardFilter | None = None,
+    variables_override: list[HogQLVariable] | None = None,
+    limit_context: LimitContext | None = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    user: Optional[User] = None,
-    query_id: Optional[str] = None,
-    insight_id: Optional[int] = None,
-    dashboard_id: Optional[int] = None,
+    user: User | None = None,
+    query_id: str | None = None,
+    insight_id: int | None = None,
+    dashboard_id: int | None = None,
     is_query_service: bool = False,
-    cache_age_seconds: Optional[int] = None,
+    cache_age_seconds: int | None = None,
+    warehouse_target: WarehouseTarget | None = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
     try:
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
+        query_runner = get_query_runner(query, team, limit_context=limit_context, warehouse_target=warehouse_target)
     except ValueError:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
@@ -138,6 +140,7 @@ def process_query_model(
                 dashboard_id=dashboard_id,
                 is_query_service=is_query_service,
                 cache_age_seconds=cache_age_seconds,
+                warehouse_target=warehouse_target,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss

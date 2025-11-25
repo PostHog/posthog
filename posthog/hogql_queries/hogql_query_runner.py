@@ -1,10 +1,13 @@
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
+
+import structlog
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
     DashboardFilter,
+    Database as WarehouseTarget,
     DateRange,
     HogQLASTQuery,
     HogQLFilters,
@@ -26,23 +29,28 @@ from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
+logger = structlog.get_logger(__name__)
+
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery | HogQLASTQuery
     cached_response: CachedHogQLQueryResponse
-    settings: Optional[HogQLGlobalSettings]
+    settings: HogQLGlobalSettings | None
+    warehouse_target: WarehouseTarget | None
 
     def __init__(
         self,
         *args,
-        settings: Optional[HogQLGlobalSettings] = None,
+        settings: HogQLGlobalSettings | None = None,
+        warehouse_target: WarehouseTarget | None = None,
         **kwargs,
     ):
         self.settings = settings or HogQLGlobalSettings()
+        self.warehouse_target = warehouse_target
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
         if last_refresh is None:
             return None
 
@@ -53,7 +61,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        values: Optional[dict[str, ast.Expr]] = (
+        values: dict[str, ast.Expr] | None = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
@@ -84,6 +92,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def _calculate(self) -> HogQLQueryResponse:
+        # Fork execution based on warehouse target
+        if self.warehouse_target == WarehouseTarget.WAREHOUSE:
+            return self._calculate_warehouse()
+        else:
+            # Default to PostHog database (ClickHouse)
+            return self._calculate_posthog()
+
+    def _calculate_posthog(self) -> HogQLQueryResponse:
+        """Execute query against PostHog database (ClickHouse)."""
         query = self.to_query()
         paginator = None
         if isinstance(query, ast.SelectQuery) and not query.limit:
@@ -119,6 +136,37 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
         return response
+
+    def _calculate_warehouse(self) -> HogQLQueryResponse:
+        """Execute query against external data warehouse (DuckDB)."""
+        from posthog.hogql_queries.duckdb_client import get_duckdb_client
+
+        # Get the raw SQL query string
+        if isinstance(self.query, HogQLQuery):
+            sql_query = self.query.query
+        else:
+            # For HogQLASTQuery, we need to convert the AST to SQL
+            # For now, raise an error as this requires more work
+            raise NotImplementedError("HogQLASTQuery is not yet supported for warehouse queries")
+
+        logger.info("executing_warehouse_query", query_preview=sql_query[:200] if sql_query else None)
+
+        client = get_duckdb_client()
+        try:
+            results, columns = client.execute(sql_query)
+
+            # Build column types (DuckDB doesn't provide detailed type info like ClickHouse)
+            types = [(col, "String") for col in columns]
+
+            return HogQLQueryResponse(
+                results=results,
+                columns=columns,
+                types=types,
+                hogql=sql_query,
+                timings=self.timings.to_list(),
+            )
+        finally:
+            client.close()
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()

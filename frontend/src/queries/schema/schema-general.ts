@@ -1639,12 +1639,12 @@ export type RefreshType =
     | 'lazy_async'
 
 /**
- * The target database for the query.
+ * The target warehouse for the query.
  * - `'posthog'` - Query the PostHog database
  * - `'warehouse'` - Query the external data warehouse
  * @default 'posthog'
  */
-export type Database = 'posthog' | 'warehouse'
+export type WarehouseTarget = 'posthog' | 'warehouse'
 
 export interface EndpointRequest {
     name?: string
@@ -1738,10 +1738,10 @@ export interface QueryRequest {
      */
     name?: string
     /**
-     * The target database for the query.
+     * The target warehouse for the query.
      * @default 'posthog'
      */
-    database?: Database
+    warehouseTarget?: WarehouseTarget
 }
 
 export interface QueryUpgradeRequest {
