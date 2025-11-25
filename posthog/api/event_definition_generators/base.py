@@ -89,7 +89,7 @@ class EventDefinitionGenerator(ABC):
         """
         report_user_action(
             user,
-            "generated event definitions",
+            "event definitions generated",
             {
                 "language": language_name,
                 "generator_version": generator_version,
