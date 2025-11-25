@@ -926,6 +926,11 @@ class DataWarehouseViewLinkConfiguration(BaseModel):
     experiments_timestamp_key: Optional[str] = None
 
 
+class Database(StrEnum):
+    POSTHOG = "posthog"
+    WAREHOUSE = "warehouse"
+
+
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -2602,17 +2607,6 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
-
-
-class Database(StrEnum):
-    """
-    The target database for the query.
-    - `'posthog'` - Query the PostHog database
-    - `'warehouse'` - Query the external data warehouse
-    """
-
-    POSTHOG = "posthog"
-    WAREHOUSE = "warehouse"
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -16295,6 +16289,7 @@ class QueryRequest(BaseModel):
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
+    database: Optional[Database] = Field(default=Database.POSTHOG, description="The target database for the query.")
     filters_override: Optional[DashboardFilter] = None
     name: Optional[str] = Field(
         default=None,
@@ -16392,10 +16387,6 @@ class QueryRequest(BaseModel):
         ),
     )
     variables_override: Optional[dict[str, dict[str, Any]]] = None
-    database: Optional[Database] = Field(
-        default=Database.POSTHOG,
-        description="The target database for the query. Defaults to 'posthog'.",
-    )
 
 
 class QuerySchemaRoot(

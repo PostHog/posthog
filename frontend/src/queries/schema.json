@@ -10198,6 +10198,12 @@
             },
             "type": "object"
         },
+        "Database": {
+            "default": "posthog",
+            "description": "The target database for the query.\n- `'posthog'` - Query the PostHog database\n- `'warehouse'` - Query the external data warehouse",
+            "enum": ["posthog", "warehouse"],
+            "type": "string"
+        },
         "DatabaseSchemaBatchExportTable": {
             "additionalProperties": false,
             "properties": {
@@ -19783,6 +19789,11 @@
                 "client_query_id": {
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
+                },
+                "database": {
+                    "$ref": "#/definitions/Database",
+                    "default": "posthog",
+                    "description": "The target database for the query."
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
