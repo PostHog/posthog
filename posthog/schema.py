@@ -2604,7 +2604,7 @@ class RefreshType(StrEnum):
     LAZY_ASYNC = "lazy_async"
 
 
-class DataTarget(StrEnum):
+class Database(StrEnum):
     """
     The target database for the query.
     - `'posthog'` - Query the PostHog database
@@ -16392,8 +16392,8 @@ class QueryRequest(BaseModel):
         ),
     )
     variables_override: Optional[dict[str, dict[str, Any]]] = None
-    data_target: Optional[DataTarget] = Field(
-        default=DataTarget.POSTHOG,
+    database: Optional[Database] = Field(
+        default=Database.POSTHOG,
         description="The target database for the query. Defaults to 'posthog'.",
     )
 

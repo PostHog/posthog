@@ -1644,7 +1644,7 @@ export type RefreshType =
  * - `'warehouse'` - Query the external data warehouse
  * @default 'posthog'
  */
-export type DataTarget = 'posthog' | 'warehouse'
+export type Database = 'posthog' | 'warehouse'
 
 export interface EndpointRequest {
     name?: string
@@ -1741,7 +1741,7 @@ export interface QueryRequest {
      * The target database for the query.
      * @default 'posthog'
      */
-    data_target?: DataTarget
+    database?: Database
 }
 
 export interface QueryUpgradeRequest {

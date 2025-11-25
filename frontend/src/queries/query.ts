@@ -5,7 +5,7 @@ import { delay } from 'lib/utils'
 import {
     DashboardFilter,
     DataNode,
-    DataTarget,
+    Database,
     HogQLQuery,
     HogQLQueryResponse,
     HogQLVariable,
@@ -93,7 +93,7 @@ async function executeQuery<N extends DataNode>(
      * This is important in shared contexts, where we cannot create arbitrary queries via POST – we can only GET.
      */
     pollOnly = false,
-    dataTarget?: DataTarget
+    database?: Database
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         // Determine the refresh type based on the query node type and refresh parameter
@@ -115,7 +115,7 @@ async function executeQuery<N extends DataNode>(
             refresh: refreshParam,
             filtersOverride,
             variablesOverride,
-            dataTarget,
+            database,
         })
 
         if (response.detail) {
@@ -151,7 +151,7 @@ export async function performQuery<N extends DataNode>(
     filtersOverride?: DashboardFilter | null,
     variablesOverride?: Record<string, HogQLVariable> | null,
     pollOnly = false,
-    dataTarget?: DataTarget
+    database?: Database
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
@@ -170,7 +170,7 @@ export async function performQuery<N extends DataNode>(
                 filtersOverride,
                 variablesOverride,
                 pollOnly,
-                dataTarget
+                database
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
