@@ -351,6 +351,7 @@ export function SessionGroupSummary(): JSX.Element {
                 }
             })
             .filter((pattern): pattern is EnrichedSessionGroupSummaryPattern => pattern !== null)
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- matchesIssueTypeFilter only depends on issueTypeFilters which is already in deps
     }, [summary.patterns, debouncedSearchValue, issueTypeFilters])
 
     const sortedPatterns = useMemo(() => {
