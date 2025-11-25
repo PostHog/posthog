@@ -924,6 +924,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     const trackedHeaders = [
         'token',
         'distinct_id',
+        'session_id',
         'timestamp',
         'event',
         'uuid',
