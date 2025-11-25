@@ -1,4 +1,5 @@
 import json
+import datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -6,7 +7,6 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.test import override_settings
-from django.utils import timezone
 from django.utils.timezone import now
 
 from dateutil.parser import isoparse
@@ -313,7 +313,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(
             Dashboard.objects.get().last_accessed_at,
             now(),
-            delta=timezone.timedelta(seconds=5),
+            delta=datetime.timedelta(seconds=5),
         )
         self.assertEqual(response["tiles"][0]["insight"]["result"][0]["count"], 0)
 
@@ -506,12 +506,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.assertAlmostEqual(
                 item_default.caching_state.last_refresh,
                 now(),
-                delta=timezone.timedelta(seconds=5),
+                delta=datetime.timedelta(seconds=5),
             )
             self.assertAlmostEqual(
                 item_trends.caching_state.last_refresh,
                 now(),
-                delta=timezone.timedelta(seconds=5),
+                delta=datetime.timedelta(seconds=5),
             )
 
     def test_dashboard_endpoints(self):
