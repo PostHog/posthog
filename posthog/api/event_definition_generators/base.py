@@ -1,6 +1,5 @@
 import hashlib
 from abc import ABC, abstractmethod
-from typing import Any
 
 from django.db.models import Q, QuerySet
 
@@ -110,7 +109,8 @@ class EventDefinitionGenerator(ABC):
         Note: This is a `staticmethod` temporarily only until the typescript generator has been migrated to this
         setup as well.
 
-        Fetch event definitions and build schema map.
+        Fetch event definitions and build schema map. The key of `schema_map` references a EventDefinition.ID
+        from the returned event_definitions set.
         """
         # System events that users should be able to manually capture
         # These are commonly used in user code and should be typed
@@ -138,7 +138,7 @@ class EventDefinitionGenerator(ABC):
         )
 
         # Build a mapping of event_definition_id -> property group properties
-        schema_map: dict[str, list[Any]] = {}
+        schema_map: dict[str, list[SchemaPropertyGroupProperty]] = {}
         for event_schema in event_schemas:
             event_id = str(event_schema.event_definition_id)
             if event_id not in schema_map:

@@ -620,7 +620,7 @@ func main() {
                 f"Go compilation failed. This indicates the generated code is invalid.\n\n"
                 f"STDOUT:\n{build_result.stdout}\n\n"
                 f"STDERR:\n{build_result.stderr}\n\n"
-                f"Generated Go file location: {typed_file}",
+                f"Generated Go file:\n{go_content}",
             )
 
     def _test_telemetry_called(self, mock_report, event_count: int) -> None:
