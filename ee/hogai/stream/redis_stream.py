@@ -33,6 +33,24 @@ REDIS_TO_CLIENT_LATENCY_HISTOGRAM = Histogram(
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
 )
 
+REDIS_READ_ITERATION_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_redis_read_iteration_latency_seconds",
+    "Time between iterations in the Redis stream read loop",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
+
+REDIS_WRITE_ITERATION_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_redis_write_iteration_latency_seconds",
+    "Time between iterations in the Redis stream write loop",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
+
+REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_redis_stream_init_iteration_latency_seconds",
+    "Time between iterations in the stream initialization wait loop",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
+
 # Redis stream configuration
 CONVERSATION_STREAM_MAX_LENGTH = 1000  # Maximum number of messages to keep in stream
 CONVERSATION_STREAM_CONCURRENT_READ_COUNT = 8
@@ -192,8 +210,15 @@ class ConversationRedisStream:
         max_delay = 2.0  # Cap at 2 seconds
         timeout = 60.0  # 60 seconds timeout
         start_time = asyncio.get_event_loop().time()
+        last_iteration_time = None
 
         while True:
+            current_time = time.time()
+            if last_iteration_time is not None:
+                iteration_duration = current_time - last_iteration_time
+                REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
+            last_iteration_time = current_time
+
             elapsed_time = asyncio.get_event_loop().time() - start_time
             if elapsed_time >= timeout:
                 logger.debug(
@@ -233,8 +258,15 @@ class ConversationRedisStream:
         """
         current_id = start_id
         start_time = asyncio.get_event_loop().time()
+        last_iteration_time = None
 
         while True:
+            current_time = time.time()
+            if last_iteration_time is not None:
+                iteration_duration = current_time - last_iteration_time
+                REDIS_READ_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
+            last_iteration_time = current_time
+
             if asyncio.get_event_loop().time() - start_time > self._timeout:
                 raise StreamError("Stream timeout - conversation took too long to complete")
 
@@ -303,7 +335,14 @@ class ConversationRedisStream:
         try:
             await self._redis_client.expire(self._stream_key, self._timeout)
 
+            last_iteration_time = None
             async for chunk in generator:
+                current_time = time.time()
+                if last_iteration_time is not None:
+                    iteration_duration = current_time - last_iteration_time
+                    REDIS_WRITE_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
+                last_iteration_time = current_time
+
                 message = self._serializer.dumps(chunk)
                 if message is not None:
                     await self._redis_client.xadd(

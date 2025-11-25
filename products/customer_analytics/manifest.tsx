@@ -11,7 +11,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/CustomerAnalyticsScene'),
             projectBased: true,
             name: 'Customer analytics',
-            description: 'Analyze your customers',
+            description: 'Understand how your customers interact with your product ',
             iconType: 'cohort',
         },
     },

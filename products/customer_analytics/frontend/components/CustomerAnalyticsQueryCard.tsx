@@ -7,12 +7,16 @@ import { InsightMetaContent } from 'lib/components/Cards/InsightCard/InsightMeta
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 
+import { QuerySchema } from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
+
 import {
     InsightDefinition,
     customerAnalyticsSceneLogic,
 } from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
 
-import { SERIES_TO_EVENT_NAME_MAPPING } from '../constants'
+import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID, SERIES_TO_EVENT_NAME_MAPPING } from '../constants'
+import { buildDashboardItemId } from '../utils'
 import { eventConfigModalLogic } from './Insights/eventConfigModalLogic'
 
 interface CustomerAnalyticsQueryCardProps {
@@ -33,6 +37,12 @@ function getEmptySeriesNames(requiredSeries: object): string[] {
 export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalyticsQueryCardProps): JSX.Element {
     const { addEventToHighlight, toggleModalOpen } = useActions(eventConfigModalLogic)
     const needsConfig = insight?.requiredSeries ? anyValueIsNull(insight.requiredSeries) : false
+    const uniqueKey = `${insight.name}-${tabId}`
+    const insightProps: InsightLogicProps<QuerySchema> = {
+        dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
+        dashboardItemId: buildDashboardItemId(uniqueKey),
+        query: insight.query,
+    }
 
     if (needsConfig) {
         const missingSeries = insight?.requiredSeries ? getEmptySeriesNames(insight.requiredSeries) : []
@@ -69,7 +79,7 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
             title={insight.name}
             description={insight.description}
             query={insight.query}
-            context={{ refresh: 'force_blocking' }}
+            context={{ refresh: 'force_blocking', insightProps }}
             className={insight?.className || ''}
             attachTo={customerAnalyticsSceneLogic}
         />
