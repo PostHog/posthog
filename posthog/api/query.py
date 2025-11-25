@@ -145,11 +145,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self._tag_client_query_id(client_query_id)
             query_dict = query.model_dump()
 
-            # TODO: Implement database handling
-            # database specifies whether to query PostHog database or external warehouse
-            # Currently stubbed - will be implemented in future PR
-            _ = database  # Suppress unused variable warning
-
             result = process_query_model(
                 self.team,
                 query,
@@ -168,6 +163,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     and get_query_tag_value("access_method") != "personal_api_key"
                     else None
                 ),
+                database=database,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
