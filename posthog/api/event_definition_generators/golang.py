@@ -68,48 +68,23 @@ import (
 )
 
 """
-        usage_guide = """// USAGE GUIDE
+        usage_guide = """// USAGE GUIDE:
 //
-// Each defined event has its own capture functions. For example, if you have
-// a "downloaded_file" event with required properties (file_name, file_size, file_type)
-// and optional property (file_extension):
+// 1. Please store this file in a folder called `typed` (e.g. `./src/lib/typed`).
+// 2. Import this package inside your code.
+// 3. Make use of the typed capture functions. Every event has 2 sets of functions:
+//    a) func <EventName>Capture
+//    b) func <EventName>CaptureFromBase
+//    generally we would recommend to use option A, unless you want to exercise full control over the underlying
+//    `posthog.Capture` model.
 //
-//   // Basic usage with required properties only:
-//   cap := typed.DownloadedFileCapture(
-//       "user_123",           // distinctId
-//       "document.pdf",       // file_name (required)
-//       1024,                 // file_size (required)
-//       "application/pdf",    // file_type (required)
-//   )
-//   client.Enqueue(cap)
-//
-//   // With optional properties:
-//   cap := typed.DownloadedFileCapture(
-//       "user_123",
-//       "document.pdf",
-//       1024,
-//       "application/pdf",
-//       typed.DownloadedFileWithFileExtension("pdf"),        // optional property
-//       typed.DownloadedFileWithExtraProps(posthog.Properties{
-//           "custom_field": "custom_value",
-//       }),
-//   )
-//
-//   // Extending an existing capture:
-//   base := posthog.Capture{
-//       DistinctId: "user_123",
-//       Properties: posthog.Properties{"plan": "enterprise"},
-//   }
-//   cap := typed.DownloadedFileCaptureFromBase(
-//       base,
-//       "document.pdf",
-//       1024,
-//       "application/pdf",
-//   )
-//
-// Each event has its own <EventName>Option type, so you cannot accidentally
-// use options from one event with another event's capture functions.
-//
+//    Optional properties can be passed through the option pattern, where all available options are type hinted
+//    as: <EventName>Option.
+//    Finally, any untyped optional parameters can be passed through the `<EventName>WithExtraProps` function.
+// 4. Pass the typed object to `posthog.Enqueue`. For example:
+// ```
+// err := posthog.Enqueue(typed.UserSignedUpCapture("user_456", "user@example.com", "premium"))
+// ```
 """
 
         return header + "\n".join(event_blocks) + "\n" + usage_guide
