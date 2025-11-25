@@ -386,7 +386,9 @@ describe('llmAnalyticsPlaygroundLogic', () => {
 
             logic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(logic.values.systemPrompt).toBe('You are a helpful assistant.\n\nAlways respond in a friendly manner.\n\nUse markdown formatting when appropriate.')
+            expect(logic.values.systemPrompt).toBe(
+                'You are a helpful assistant.\n\nAlways respond in a friendly manner.\n\nUse markdown formatting when appropriate.'
+            )
             expect(logic.values.messages).toEqual([
                 { role: 'user', content: 'Hello' },
                 { role: 'assistant', content: 'Hi there!' },

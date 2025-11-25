@@ -468,14 +468,14 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     // Case 1: Input is a standard messages array
                     if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
                         // Find and concatenate all system messages
-                        const systemMessages = input.filter((msg) => msg.role === 'system')
-                        if (systemMessages.length > 0) {
-                            const systemContents = systemMessages
-                                .map((msg) => msg.content)
-                                .filter((content): content is string => typeof content === 'string' && content.trim().length > 0)
-                            if (systemContents.length > 0) {
-                                systemPromptContent = systemContents.join('\n\n')
-                            }
+                        const systemContents = input
+                            .filter((msg) => msg.role === 'system')
+                            .map((msg) => msg.content)
+                            .filter(
+                                (content): content is string => typeof content === 'string' && content.trim().length > 0
+                            )
+                        if (systemContents.length > 0) {
+                            systemPromptContent = systemContents.join('\n\n')
                         }
 
                         // Extract user and assistant messages for history (skip system messages as they're handled separately)
