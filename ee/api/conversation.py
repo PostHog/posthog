@@ -20,7 +20,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
@@ -32,6 +32,7 @@ from posthog.temporal.ai.chat_agent import (
 )
 from posthog.utils import get_instance_region
 
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.utils.aio import async_to_sync
@@ -160,6 +161,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         - If message is provided: Start new conversation processing
         - If no message: Stream from existing conversation
         """
+
+        if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+            raise QuotaLimitExceeded(
+                "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation_id = serializer.validated_data["conversation"]
@@ -232,9 +239,11 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 yield event.encode("utf-8")
 
         return StreamingHttpResponse(
-            async_stream(workflow_inputs)
-            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-            else async_to_sync(lambda: async_stream(workflow_inputs)),
+            (
+                async_stream(workflow_inputs)
+                if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+                else async_to_sync(lambda: async_stream(workflow_inputs))
+            ),
             content_type="text/event-stream",
         )
 
