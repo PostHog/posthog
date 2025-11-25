@@ -102,7 +102,12 @@ export function Navigation({
                 >
                     <SceneLayout sceneConfig={sceneConfig}>
                         {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
-                            <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                            <div
+                                className={cn({
+                                    'px-4': sceneConfig?.layout === 'app-raw-no-header',
+                                    'pt-4': sceneConfig?.layout === 'app-raw',
+                                })}
+                            >
                                 {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
                                 {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
                             </div>

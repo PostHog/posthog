@@ -15,6 +15,7 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     attribution_window_days: DEFAULT_ATTRIBUTION_WINDOW_DAYS,
     attribution_mode: AttributionMode.LastTouch,
     campaign_name_mappings: {},
+    custom_source_mappings: {},
 })
 
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
@@ -50,6 +51,9 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         }),
         updateCampaignNameMappings: (campaignNameMappings: Record<string, Record<string, string[]>>) => ({
             campaignNameMappings,
+        }),
+        updateCustomSourceMappings: (customSourceMappings: Record<string, string[]>) => ({
+            customSourceMappings,
         }),
     }),
     reducers(({ values }) => ({
@@ -148,6 +152,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, campaign_name_mappings: campaignNameMappings }
                 },
+                updateCustomSourceMappings: (state: MarketingAnalyticsConfig | null, { customSourceMappings }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), custom_source_mappings: customSourceMappings }
+                    }
+                    return { ...state, custom_source_mappings: customSourceMappings }
+                },
             },
         ],
         savedMarketingAnalyticsConfig: [
@@ -199,6 +209,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateAttributionWindowWeeks: updateCurrentTeam,
             updateAttributionMode: updateCurrentTeam,
             updateCampaignNameMappings: updateCurrentTeam,
+            updateCustomSourceMappings: updateCurrentTeam,
         }
     }),
     loaders(({ values }) => ({

@@ -32,12 +32,15 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     const { setDates } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const dateFilter = <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+
     return (
         <FilterBar
             top={tabs}
             left={
                 <>
                     <ReloadAll iconOnly />
+                    {featureFlags[FEATURE_FLAGS.LEFT_ALIGN_DATE_FILTER] && dateFilter}
 
                     <WebAnalyticsDomainSelector />
                     <WebAnalyticsDeviceToggle />
@@ -50,7 +53,8 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
             }
             right={
                 <>
-                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                    {!featureFlags[FEATURE_FLAGS.LEFT_ALIGN_DATE_FILTER] && dateFilter}
+
                     <WebAnalyticsCompareFilter />
 
                     {(!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]) && (

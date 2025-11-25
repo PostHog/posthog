@@ -294,7 +294,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed(f"{auth_type.title()} authentication failed")
 
     def _get_bearer_token(self, request: Request) -> str | None:
-        if auth_header := request.META.get("HTTP_AUTHORIZATION"):
+        if auth_header := request.headers.get("authorization"):
             parts = auth_header.split()
             if len(parts) == 2 and parts[0].lower() == "bearer":
                 return parts[1]
