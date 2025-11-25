@@ -2,12 +2,12 @@ import hashlib
 from abc import ABC, abstractmethod
 from typing import Any
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 import orjson
 
 from posthog.event_usage import report_user_action
-from posthog.models import EventDefinition, EventSchema
+from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroupProperty, User
 
 
 class EventDefinitionGenerator(ABC):
@@ -31,7 +31,9 @@ class EventDefinitionGenerator(ABC):
         pass
 
     @abstractmethod
-    def generate(self, event_definitions, schema_map: dict[str, list[Any]]) -> str:
+    def generate(
+        self, event_definitions: QuerySet[EventDefinition], schema_map: dict[str, list[SchemaPropertyGroupProperty]]
+    ) -> str:
         """
         Generate (multiline) code for the given event definitions and their schemas.
         """
@@ -47,7 +49,10 @@ class EventDefinitionGenerator(ABC):
 
     @staticmethod
     def calculate_schema_hash(
-        language: str, generator_version: str, event_definitions, schema_map: dict[str, list[Any]]
+        language: str,
+        generator_version: str,
+        event_definitions: QuerySet[EventDefinition],
+        schema_map: dict[str, list[SchemaPropertyGroupProperty]],
     ) -> str:
         """
         Note: This is a `staticmethod` temporarily only until the typescript generator has been migrated to this
@@ -77,7 +82,7 @@ class EventDefinitionGenerator(ABC):
 
     @staticmethod
     def record_report_generation(
-        language_name: str, generator_version: str, user, team_id: int, project_id: int, event_count: int
+        language_name: str, generator_version: str, user: User, team_id: int, project_id: int, event_count: int
     ) -> None:
         """
         Note: This is a `staticmethod` temporarily only until the typescript generator has been migrated to this
@@ -98,7 +103,9 @@ class EventDefinitionGenerator(ABC):
         )
 
     @staticmethod
-    def fetch_event_definitions_and_schemas(project_id: int) -> tuple[Any, dict[str, list[Any]]]:
+    def fetch_event_definitions_and_schemas(
+        project_id: int,
+    ) -> tuple[QuerySet[EventDefinition], dict[str, list[SchemaPropertyGroupProperty]]]:
         """
         Note: This is a `staticmethod` temporarily only until the typescript generator has been migrated to this
         setup as well.

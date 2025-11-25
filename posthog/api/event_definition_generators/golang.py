@@ -1,9 +1,11 @@
 import re
 from datetime import datetime
-from typing import Any
+
+from django.db.models import QuerySet
 
 import orjson
 
+from ...models import EventDefinition, SchemaPropertyGroupProperty
 from .base import EventDefinitionGenerator
 
 
@@ -14,8 +16,9 @@ class GolangGenerator(EventDefinitionGenerator):
     def language_name(self) -> str:
         return "Go"
 
-    # TODO decide if we want this to be so complex with all the magic or simplify it
-    def generate(self, event_definitions, schema_map: dict[str, list[Any]]) -> str:
+    def generate(
+        self, event_definitions: QuerySet[EventDefinition], schema_map: dict[str, list[SchemaPropertyGroupProperty]]
+    ) -> str:
         """Generate complete Go package code for all event definitions"""
         now = datetime.now().isoformat()
 
@@ -56,7 +59,7 @@ class GolangGenerator(EventDefinitionGenerator):
 // 1. Check your event/property names in PostHog.
 // 2. Avoid special characters, reserved keywords, or names starting with numbers.
 // 3. Use snake_case or kebab-case for best results.
-// 4. If the above is not possible, please update the generated code.
+// 4. If the above is not possible, please let us know and (for now) manually update the generated code whilst we work on a fix.
 
 package typed
 
@@ -136,7 +139,7 @@ func {func_name}(distinctId string, properties ...posthog.Properties) posthog.Ca
 
 """
 
-    def _generate_event_with_properties(self, event_name: str, properties: list[Any]) -> str:
+    def _generate_event_with_properties(self, event_name: str, properties: list[SchemaPropertyGroupProperty]) -> str:
         """Generate complete code block for an event with schema properties"""
         event_name = orjson.dumps(event_name).decode("utf-8")
         base_name = self._to_go_func_name(event_name)
@@ -193,7 +196,7 @@ func {func_name_extra}(props posthog.Properties) {option_type_name} {{
         event_name: str,
         base_name: str,
         option_type_name: str,
-        prop: Any,
+        prop: SchemaPropertyGroupProperty,
         used_function_names: set[str],
     ) -> str:
         """Generate a With* option function for an optional property"""
@@ -215,7 +218,7 @@ func {func_name}({param_name} {param_type}) {option_type_name} {{
 """
 
     def _generate_capture_function(
-        self, event_name: str, base_name: str, option_type_name: str, required_props: list[Any]
+        self, event_name: str, base_name: str, option_type_name: str, required_props: list[SchemaPropertyGroupProperty]
     ) -> str:
         func_name = f"{base_name}Capture"
 
@@ -263,7 +266,7 @@ func {func_name}(
 """
 
     def _generate_capture_from_base_function(
-        self, event_name: str, base_name: str, option_type_name: str, required_props: list[Any]
+        self, event_name: str, base_name: str, option_type_name: str, required_props: list[SchemaPropertyGroupProperty]
     ) -> str:
         func_name = f"{base_name}CaptureFromBase"
 
