@@ -36,7 +36,7 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
             if (triggerExportProps.export_context && triggerExportProps.export_context.filename?.startsWith('export')) {
                 modifiedContext = {
                     ...triggerExportProps.export_context,
-                    filename: `export-${timestamp}`,
+                    filename: `${triggerExportProps.export_context.filename}-${timestamp}`,
                 }
             }
             const modifiedProps = {
