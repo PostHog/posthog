@@ -1,7 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonTable, LemonTableColumn, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
@@ -10,6 +9,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 import { HogFunctionType } from '~/types'
 
@@ -25,44 +25,25 @@ export function HogFunctionList({
     hideFeedback = false,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
+    const { filteredHogFunctions, filters, loading, pagination, totalCount, searchValue, currentPage } = useValues(
+        hogFunctionsListLogic(props)
+    )
     const {
-        filteredActiveHogFunctions,
-        filteredPausedHogFunctions,
-        filters,
-        activeLoading,
-        pausedLoading,
-        activePagination,
-        pausedPagination,
-        activeTotalCount,
-        pausedTotalCount,
-        isPausedExpanded,
-        activeSearchValue,
-        pausedSearchValue,
-        activeCurrentPage,
-        pausedCurrentPage,
-        canGoForwardActive,
-        canGoBackwardActive,
-        canGoForwardPaused,
-        canGoBackwardPaused,
-    } = useValues(hogFunctionsListLogic(props))
-    const {
-        loadActiveHogFunctions,
+        loadHogFunctions,
         setFilters,
         toggleEnabled,
         deleteHogFunction,
         setReorderModalOpen,
         setPagination,
-        setIsPausedExpanded,
-        setActiveSearchValue,
-        setPausedSearchValue,
+        setSearchValue,
     } = useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
-    const humanizedType = humanizeHogFunctionType(props.type)
+    const humanizedType = humanizeHogFunctionType(props.type, true)
 
     useOnMountEffect(() => {
-        loadActiveHogFunctions()
+        loadHogFunctions()
     })
 
     const isManualFunction = useCallback(
@@ -219,9 +200,6 @@ export function HogFunctionList({
         return columns
     }, [props.type, toggleEnabled, deleteHogFunction, isManualFunction, setReorderModalOpen])
 
-    const activeColumns = buildColumns
-    const pausedColumns = buildColumns
-
     return (
         <div className="flex flex-col gap-4">
             {extraControls && (
@@ -232,15 +210,14 @@ export function HogFunctionList({
             )}
 
             <BindLogic logic={hogFunctionsListLogic} props={props}>
-                {/* Active Functions Table */}
                 <div>
-                    <h3 className="mb-2">Active {humanizedType}s</h3>
+                    <h3 className="mb-2">{capitalizeFirstLetter(humanizedType)}</h3>
                     <div className="flex gap-2 items-center mb-2">
                         <LemonInput
                             type="search"
                             placeholder="Search active..."
-                            value={activeSearchValue}
-                            onChange={setActiveSearchValue}
+                            value={searchValue}
+                            onChange={setSearchValue}
                         />
                         {!hideFeedback && (
                             <Link
@@ -253,109 +230,40 @@ export function HogFunctionList({
                         )}
                     </div>
                     <LemonTable
-                        dataSource={filteredActiveHogFunctions}
+                        dataSource={filteredHogFunctions}
                         size="small"
-                        loading={activeLoading}
-                        columns={activeColumns}
+                        loading={loading}
+                        columns={buildColumns}
                         pagination={{
                             controlled: true,
-                            pageSize: activePagination.limit,
-                            currentPage: activeCurrentPage,
-                            entryCount: activeTotalCount,
-                            onForward: canGoForwardActive
-                                ? () =>
-                                      setPagination('active', {
-                                          offset: activePagination.offset + activePagination.limit,
-                                      })
-                                : undefined,
-                            onBackward: canGoBackwardActive
-                                ? () =>
-                                      setPagination('active', {
-                                          offset: Math.max(0, activePagination.offset - activePagination.limit),
-                                      })
-                                : undefined,
+                            pageSize: pagination.limit,
+                            currentPage: currentPage,
+                            entryCount: totalCount,
                         }}
+                        defaultSorting={{
+                            columnKey: 'updated_at',
+                            order: -1,
+                        }}
+                        onSort={(newSorting) =>
+                            setPagination({
+                                order: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                                page: 1,
+                            })
+                        }
+                        noSortingCancellation
                         emptyState={
-                            filteredActiveHogFunctions.length === 0 && !activeLoading ? (
+                            filteredHogFunctions.length === 0 && !loading ? (
                                 <>
-                                    No active {humanizedType}s found.{' '}
-                                    {filters.activeSearch && (
-                                        <Link onClick={() => setFilters({ activeSearch: '' })}>Clear search</Link>
+                                    No {humanizedType} found.{' '}
+                                    {filters.search && (
+                                        <Link onClick={() => setFilters({ search: '' })}>Clear search</Link>
                                     )}
                                 </>
                             ) : undefined
                         }
                     />
-                </div>
-
-                {/* Paused Functions Table */}
-                <div>
-                    <div
-                        className="flex items-center gap-2 cursor-pointer mb-2"
-                        onClick={() => setIsPausedExpanded(!isPausedExpanded)}
-                    >
-                        {isPausedExpanded ? <IconChevronDown /> : <IconChevronRight />}
-                        <h3 className="mb-0">
-                            Paused {humanizedType}s {pausedTotalCount > 0 && `(${pausedTotalCount})`}
-                        </h3>
-                    </div>
-                    {isPausedExpanded && (
-                        <>
-                            <div className="flex gap-2 items-center mb-2">
-                                <LemonInput
-                                    type="search"
-                                    placeholder="Search paused..."
-                                    value={pausedSearchValue}
-                                    onChange={setPausedSearchValue}
-                                />
-                                {!hideFeedback && (
-                                    <Link
-                                        className="text-sm font-semibold"
-                                        subtle
-                                        onClick={() => openFeedbackDialog(props.type)}
-                                    >
-                                        Can't find what you're looking for?
-                                    </Link>
-                                )}
-                            </div>
-                            <LemonTable
-                                dataSource={filteredPausedHogFunctions}
-                                size="small"
-                                loading={pausedLoading}
-                                columns={pausedColumns}
-                                pagination={{
-                                    controlled: true,
-                                    pageSize: pausedPagination.limit,
-                                    currentPage: pausedCurrentPage,
-                                    entryCount: pausedTotalCount,
-                                    onForward: canGoForwardPaused
-                                        ? () =>
-                                              setPagination('paused', {
-                                                  offset: pausedPagination.offset + pausedPagination.limit,
-                                              })
-                                        : undefined,
-                                    onBackward: canGoBackwardPaused
-                                        ? () =>
-                                              setPagination('paused', {
-                                                  offset: Math.max(0, pausedPagination.offset - pausedPagination.limit),
-                                              })
-                                        : undefined,
-                                }}
-                                emptyState={
-                                    filteredPausedHogFunctions.length === 0 && !pausedLoading ? (
-                                        <>
-                                            No paused {humanizedType}s found.{' '}
-                                            {filters.pausedSearch && (
-                                                <Link onClick={() => setFilters({ pausedSearch: '' })}>
-                                                    Clear search
-                                                </Link>
-                                            )}
-                                        </>
-                                    ) : undefined
-                                }
-                            />
-                        </>
-                    )}
                 </div>
 
                 <HogFunctionOrderModal />
