@@ -722,9 +722,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         useMapping: [
-            (s) => [s.hogFunction, s.mappingTemplates],
-            (hogFunction: HogFunctionType | null, mappingTemplates: HogFunctionMappingType[]) =>
-                Array.isArray(hogFunction?.mappings) || mappingTemplates.length > 0,
+            (s) => [s.hogFunction, s.mappingTemplates, s.type],
+            (hogFunction: HogFunctionType | null, mappingTemplates: HogFunctionMappingType[]) => {
+                return Array.isArray(hogFunction?.mappings) || mappingTemplates.length > 0
+            },
         ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
@@ -1103,8 +1104,25 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         mappingTemplates: [
-            (s) => [s.hogFunction, s.template],
-            (hogFunction, template) => template?.mapping_templates ?? hogFunction?.template?.mapping_templates ?? [],
+            (s) => [s.hogFunction, s.template, s.type],
+            (hogFunction, template, type): HogFunctionMappingTemplateType[] => {
+                const templates = template?.mapping_templates ?? hogFunction?.template?.mapping_templates ?? []
+
+                // For destination types without templates, provide a default to enable adding mappings
+                if (templates.length === 0 && (type === 'destination' || type === 'site_destination')) {
+                    // Use the function's input schema for the mapping template
+                    const inputSchema = hogFunction?.inputs_schema ?? template?.inputs_schema ?? []
+                    return [
+                        {
+                            name: 'New mapping',
+                            include_by_default: false,
+                            inputs_schema: inputSchema,
+                        },
+                    ]
+                }
+
+                return templates
+            },
         ],
 
         usesGroups: [
