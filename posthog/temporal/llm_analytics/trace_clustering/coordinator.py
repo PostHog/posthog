@@ -51,7 +51,7 @@ def query_teams_with_embeddings(lookback_days: int, min_embeddings: int) -> list
     from posthog.clickhouse.client.execute import sync_execute
 
     end_dt = timezone.now()
-    start_dt = end_dt - timezone.timedelta(days=lookback_days)
+    start_dt = end_dt - timedelta(days=lookback_days)
 
     result = sync_execute(
         """
