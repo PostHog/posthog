@@ -1,6 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
+import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonTable, LemonTableColumn, Link, Tooltip } from '@posthog/lemon-ui'
@@ -11,7 +10,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { urls } from 'scenes/urls'
 
 import { HogFunctionType } from '~/types'
 
@@ -20,17 +18,7 @@ import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
-import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
-
-const urlForHogFunction = (hogFunction: HogFunctionType): string => {
-    if (hogFunction.id.startsWith('plugin-')) {
-        return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
-    }
-    if (hogFunction.id.startsWith('batch-export-')) {
-        return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
-    }
-    return urls.hogFunction(hogFunction.id)
-}
+import { HogFunctionListLogicProps, hogFunctionsListLogic, urlForHogFunction } from './hogFunctionsListLogic'
 
 export function HogFunctionList({
     extraControls,
@@ -47,59 +35,31 @@ export function HogFunctionList({
         pausedPagination,
         activeTotalCount,
         pausedTotalCount,
+        isPausedExpanded,
+        activeSearchValue,
+        pausedSearchValue,
+        activeCurrentPage,
+        pausedCurrentPage,
+        canGoForwardActive,
+        canGoBackwardActive,
+        canGoForwardPaused,
+        canGoBackwardPaused,
     } = useValues(hogFunctionsListLogic(props))
     const {
         loadActiveHogFunctions,
-        loadPausedHogFunctions,
         setFilters,
         toggleEnabled,
         deleteHogFunction,
         setReorderModalOpen,
         setPagination,
+        setIsPausedExpanded,
+        setActiveSearchValue,
+        setPausedSearchValue,
     } = useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     const humanizedType = humanizeHogFunctionType(props.type)
-    const [isPausedExpanded, setIsPausedExpanded] = useState(false)
-    const [activeSearchValue, setActiveSearchValue] = useState(filters.activeSearch ?? '')
-    const [pausedSearchValue, setPausedSearchValue] = useState(filters.pausedSearch ?? '')
-
-    // Debounced search for active table
-    const debouncedSetActiveSearch = useDebouncedCallback((search: string) => {
-        setFilters({ activeSearch: search })
-    }, 300)
-
-    // Debounced search for paused table
-    const debouncedSetPausedSearch = useDebouncedCallback((search: string) => {
-        setFilters({ pausedSearch: search })
-    }, 300)
-
-    // Update local search value immediately, debounce the filter update
-    const handleActiveSearchChange = useCallback(
-        (value: string) => {
-            setActiveSearchValue(value)
-            debouncedSetActiveSearch(value)
-        },
-        [debouncedSetActiveSearch]
-    )
-
-    const handlePausedSearchChange = useCallback(
-        (value: string) => {
-            setPausedSearchValue(value)
-            debouncedSetPausedSearch(value)
-        },
-        [debouncedSetPausedSearch]
-    )
-
-    // Sync local search values with filters when they change externally (e.g., reset)
-    useEffect(() => {
-        setActiveSearchValue(filters.activeSearch ?? '')
-    }, [filters.activeSearch])
-
-    useEffect(() => {
-        setPausedSearchValue(filters.pausedSearch ?? '')
-    }, [filters.pausedSearch])
 
     useOnMountEffect(() => {
         loadActiveHogFunctions()
@@ -112,7 +72,7 @@ export function HogFunctionList({
         [props.manualFunctions]
     )
 
-    const buildColumns = useCallback((): LemonTableColumn<HogFunctionType, any>[] => {
+    const buildColumns = useMemo((): LemonTableColumn<HogFunctionType, any>[] => {
         const columns: LemonTableColumn<HogFunctionType, any>[] = [
             {
                 title: '',
@@ -256,8 +216,8 @@ export function HogFunctionList({
         return columns
     }, [props.type, toggleEnabled, deleteHogFunction, isManualFunction, setReorderModalOpen])
 
-    const activeColumns = useMemo(() => buildColumns(), [buildColumns])
-    const pausedColumns = useMemo(() => buildColumns(), [buildColumns])
+    const activeColumns = buildColumns
+    const pausedColumns = buildColumns
 
     return (
         <div className="flex flex-col gap-4">
@@ -277,7 +237,7 @@ export function HogFunctionList({
                             type="search"
                             placeholder="Search active..."
                             value={activeSearchValue}
-                            onChange={handleActiveSearchChange}
+                            onChange={setActiveSearchValue}
                         />
                         {!hideFeedback && (
                             <Link
@@ -297,22 +257,20 @@ export function HogFunctionList({
                         pagination={{
                             controlled: true,
                             pageSize: activePagination.limit,
-                            currentPage: Math.floor(activePagination.offset / activePagination.limit) + 1,
+                            currentPage: activeCurrentPage,
                             entryCount: activeTotalCount,
-                            onForward:
-                                activePagination.offset + activePagination.limit < activeTotalCount
-                                    ? () =>
-                                          setPagination('active', {
-                                              offset: activePagination.offset + activePagination.limit,
-                                          })
-                                    : undefined,
-                            onBackward:
-                                activePagination.offset > 0
-                                    ? () =>
-                                          setPagination('active', {
-                                              offset: Math.max(0, activePagination.offset - activePagination.limit),
-                                          })
-                                    : undefined,
+                            onForward: canGoForwardActive
+                                ? () =>
+                                      setPagination('active', {
+                                          offset: activePagination.offset + activePagination.limit,
+                                      })
+                                : undefined,
+                            onBackward: canGoBackwardActive
+                                ? () =>
+                                      setPagination('active', {
+                                          offset: Math.max(0, activePagination.offset - activePagination.limit),
+                                      })
+                                : undefined,
                         }}
                         emptyState={
                             filteredActiveHogFunctions.length === 0 && !activeLoading ? (
@@ -331,13 +289,7 @@ export function HogFunctionList({
                 <div>
                     <div
                         className="flex items-center gap-2 cursor-pointer mb-2"
-                        onClick={() => {
-                            const newExpanded = !isPausedExpanded
-                            setIsPausedExpanded(newExpanded)
-                            if (newExpanded) {
-                                loadPausedHogFunctions()
-                            }
-                        }}
+                        onClick={() => setIsPausedExpanded(!isPausedExpanded)}
                     >
                         {isPausedExpanded ? <IconChevronDown /> : <IconChevronRight />}
                         <h3 className="mb-0">
@@ -351,7 +303,7 @@ export function HogFunctionList({
                                     type="search"
                                     placeholder="Search paused..."
                                     value={pausedSearchValue}
-                                    onChange={handlePausedSearchChange}
+                                    onChange={setPausedSearchValue}
                                 />
                                 {!hideFeedback && (
                                     <Link
@@ -371,25 +323,20 @@ export function HogFunctionList({
                                 pagination={{
                                     controlled: true,
                                     pageSize: pausedPagination.limit,
-                                    currentPage: Math.floor(pausedPagination.offset / pausedPagination.limit) + 1,
+                                    currentPage: pausedCurrentPage,
                                     entryCount: pausedTotalCount,
-                                    onForward:
-                                        pausedPagination.offset + pausedPagination.limit < pausedTotalCount
-                                            ? () =>
-                                                  setPagination('paused', {
-                                                      offset: pausedPagination.offset + pausedPagination.limit,
-                                                  })
-                                            : undefined,
-                                    onBackward:
-                                        pausedPagination.offset > 0
-                                            ? () =>
-                                                  setPagination('paused', {
-                                                      offset: Math.max(
-                                                          0,
-                                                          pausedPagination.offset - pausedPagination.limit
-                                                      ),
-                                                  })
-                                            : undefined,
+                                    onForward: canGoForwardPaused
+                                        ? () =>
+                                              setPagination('paused', {
+                                                  offset: pausedPagination.offset + pausedPagination.limit,
+                                              })
+                                        : undefined,
+                                    onBackward: canGoBackwardPaused
+                                        ? () =>
+                                              setPagination('paused', {
+                                                  offset: Math.max(0, pausedPagination.offset - pausedPagination.limit),
+                                              })
+                                        : undefined,
                                 }}
                                 emptyState={
                                     filteredPausedHogFunctions.length === 0 && !pausedLoading ? (

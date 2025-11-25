@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -49,6 +50,16 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
     return true
 }
 
+export const urlForHogFunction = (hogFunction: HogFunctionType): string => {
+    if (hogFunction.id.startsWith('plugin-')) {
+        return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
+    }
+    if (hogFunction.id.startsWith('batch-export-')) {
+        return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
+    }
+    return urls.hogFunction(hogFunction.id)
+}
+
 export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
     props({} as HogFunctionListLogicProps),
     key((props) =>
@@ -80,6 +91,9 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             tableType,
             pagination,
         }),
+        setIsPausedExpanded: (expanded: boolean) => ({ expanded }),
+        setActiveSearchValue: (value: string) => ({ value }),
+        setPausedSearchValue: (value: string) => ({ value }),
     }),
     reducers(() => ({
         filters: [
@@ -114,6 +128,28 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             false as boolean,
             {
                 setReorderModalOpen: (_, { open }) => open,
+            },
+        ],
+        isPausedExpanded: [
+            false as boolean,
+            {
+                setIsPausedExpanded: (_, { expanded }) => expanded,
+            },
+        ],
+        activeSearchValue: [
+            '' as string,
+            {
+                setActiveSearchValue: (_, { value }) => value,
+                setFilters: (state, { filters }) => (filters.activeSearch !== undefined ? filters.activeSearch : state),
+                resetFilters: () => '',
+            },
+        ],
+        pausedSearchValue: [
+            '' as string,
+            {
+                setPausedSearchValue: (_, { value }) => value,
+                setFilters: (state, { filters }) => (filters.pausedSearch !== undefined ? filters.pausedSearch : state),
+                resetFilters: () => '',
             },
         ],
     })),
@@ -247,9 +283,36 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             (s) => [s.filteredActiveHogFunctions],
             (activeHogFunctions: HogFunctionType[]): HogFunctionType[] => activeHogFunctions,
         ],
+        // Pagination helpers
+        activeCurrentPage: [
+            (s) => [s.activePagination],
+            (pagination: HogFunctionListPagination) => Math.floor(pagination.offset / pagination.limit) + 1,
+        ],
+        pausedCurrentPage: [
+            (s) => [s.pausedPagination],
+            (pagination: HogFunctionListPagination) => Math.floor(pagination.offset / pagination.limit) + 1,
+        ],
+        canGoForwardActive: [
+            (s) => [s.activePagination, s.activeTotalCount],
+            (pagination: HogFunctionListPagination, totalCount: number) =>
+                pagination.offset + pagination.limit < totalCount,
+        ],
+        canGoBackwardActive: [
+            (s) => [s.activePagination],
+            (pagination: HogFunctionListPagination) => pagination.offset > 0,
+        ],
+        canGoForwardPaused: [
+            (s) => [s.pausedPagination, s.pausedTotalCount],
+            (pagination: HogFunctionListPagination, totalCount: number) =>
+                pagination.offset + pagination.limit < totalCount,
+        ],
+        canGoBackwardPaused: [
+            (s) => [s.pausedPagination],
+            (pagination: HogFunctionListPagination) => pagination.offset > 0,
+        ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
         saveHogFunctionOrderSuccess: () => {
             actions.setReorderModalOpen(false)
             lemonToast.success('Order updated successfully')
@@ -272,6 +335,26 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             } else {
                 actions.loadPausedHogFunctions()
             }
+        },
+        setIsPausedExpanded: ({ expanded }) => {
+            if (expanded && values.pausedHogFunctions.length === 0) {
+                actions.loadPausedHogFunctions()
+            }
+        },
+        // Handle debounced search
+        setActiveSearchValue: async ({ value }, breakpoint) => {
+            if (cache.activeSearchTimeout) {
+                clearTimeout(cache.activeSearchTimeout)
+            }
+            await breakpoint(300)
+            actions.setFilters({ activeSearch: value })
+        },
+        setPausedSearchValue: async ({ value }, breakpoint) => {
+            if (cache.pausedSearchTimeout) {
+                clearTimeout(cache.pausedSearchTimeout)
+            }
+            await breakpoint(300)
+            actions.setFilters({ pausedSearch: value })
         },
     })),
 
