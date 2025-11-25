@@ -365,7 +365,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOGS_REDIS_HOST: '127.0.0.1',
         LOGS_REDIS_PORT: 6479,
         LOGS_REDIS_PASSWORD: '',
-        LOGS_REDIS_TLS: true,
+        LOGS_REDIS_TLS: isProdEnv() ? true : false,
         LOGS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_LIMITER_BUCKET_SIZE_KB: 10000, // 10MB burst
         LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: 1000, // 1MB/second refill rate
