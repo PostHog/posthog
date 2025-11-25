@@ -36,17 +36,17 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery | HogQLASTQuery
     cached_response: CachedHogQLQueryResponse
     settings: HogQLGlobalSettings | None
-    database_target: DatabaseTarget | None
+    warehouse_target: DatabaseTarget | None
 
     def __init__(
         self,
         *args,
         settings: HogQLGlobalSettings | None = None,
-        database: DatabaseTarget | None = None,
+        warehouse_target: DatabaseTarget | None = None,
         **kwargs,
     ):
         self.settings = settings or HogQLGlobalSettings()
-        self.database_target = database
+        self.warehouse_target = warehouse_target
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
@@ -92,8 +92,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def _calculate(self) -> HogQLQueryResponse:
-        # Fork execution based on database target
-        if self.database_target == DatabaseTarget.WAREHOUSE:
+        # Fork execution based on warehouse target
+        if self.warehouse_target == DatabaseTarget.WAREHOUSE:
             return self._calculate_warehouse()
         else:
             # Default to PostHog database (ClickHouse)

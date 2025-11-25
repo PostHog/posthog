@@ -190,7 +190,7 @@ def get_query_runner(
     timings: HogQLTimings | None = None,
     limit_context: LimitContext | None = None,
     modifiers: HogQLQueryModifiers | None = None,
-    database: DatabaseTarget | None = None,
+    warehouse_target: DatabaseTarget | None = None,
 ) -> "QueryRunner":
     try:
         kind = get_from_dict_or_attr(query, "kind")
@@ -375,7 +375,7 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            database=database,
+            warehouse_target=warehouse_target,
         )
     if kind == "SessionsTimelineQuery":
         from .sessions_timeline_query_runner import SessionsTimelineQueryRunner
@@ -785,11 +785,11 @@ def get_query_runner_or_none(
     timings: HogQLTimings | None = None,
     limit_context: LimitContext | None = None,
     modifiers: HogQLQueryModifiers | None = None,
-    database: DatabaseTarget | None = None,
+    warehouse_target: DatabaseTarget | None = None,
 ) -> Optional["QueryRunner"]:
     try:
         return get_query_runner(
-            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers, database=database
+            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers, warehouse_target=warehouse_target
         )
     except ValueError as e:
         if "Can't get a runner for an unknown" in str(e):

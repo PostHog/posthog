@@ -52,7 +52,7 @@ def process_query_dict(
     insight_id: int | None = None,
     dashboard_id: int | None = None,
     is_query_service: bool = False,
-    database: DatabaseTarget | None = None,
+    warehouse_target: DatabaseTarget | None = None,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
     try:
@@ -101,7 +101,7 @@ def process_query_dict(
         insight_id=insight_id,
         dashboard_id=dashboard_id,
         is_query_service=is_query_service,
-        database=database,
+        warehouse_target=warehouse_target,
     )
 
 
@@ -119,12 +119,12 @@ def process_query_model(
     dashboard_id: int | None = None,
     is_query_service: bool = False,
     cache_age_seconds: int | None = None,
-    database: DatabaseTarget | None = None,
+    warehouse_target: DatabaseTarget | None = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
     try:
-        query_runner = get_query_runner(query, team, limit_context=limit_context, database=database)
+        query_runner = get_query_runner(query, team, limit_context=limit_context, warehouse_target=warehouse_target)
     except ValueError:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
@@ -140,7 +140,7 @@ def process_query_model(
                 dashboard_id=dashboard_id,
                 is_query_service=is_query_service,
                 cache_age_seconds=cache_age_seconds,
-                database=database,
+                warehouse_target=warehouse_target,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
