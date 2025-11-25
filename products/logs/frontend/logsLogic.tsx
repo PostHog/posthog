@@ -25,6 +25,9 @@ const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
+const DEFAULT_WRAP_BODY = true
+const DEFAULT_PRETTIFY_JSON = true
+const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
@@ -51,6 +54,15 @@ export const logsLogic = kea<logsLogicType>([
             }
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
+            }
+            if (params.wrapBody !== undefined && params.wrapBody !== values.wrapBody) {
+                actions.setWrapBody(params.wrapBody)
+            }
+            if (params.prettifyJson !== undefined && params.prettifyJson !== values.prettifyJson) {
+                actions.setPrettifyJson(params.prettifyJson)
+            }
+            if (params.timestampFormat && params.timestampFormat !== values.timestampFormat) {
+                actions.setTimestampFormat(params.timestampFormat)
             }
         }
         return {
@@ -94,6 +106,22 @@ export const logsLogic = kea<logsLogicType>([
             })
         }
 
+        const updateUrlWithDisplayPreferences = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'wrapBody', values.wrapBody, DEFAULT_WRAP_BODY)
+                updateSearchParams(params, 'prettifyJson', values.prettifyJson, DEFAULT_PRETTIFY_JSON)
+                updateSearchParams(params, 'timestampFormat', values.timestampFormat, DEFAULT_TIMESTAMP_FORMAT)
+                return params
+            })
+        }
+
         return {
             setDateRange: () => buildURL(),
             setFilterGroup: () => buildURL(),
@@ -102,6 +130,9 @@ export const logsLogic = kea<logsLogicType>([
             setServiceNames: () => buildURL(),
             setHighlightedLogId: () => updateHighlightURL(),
             setOrderBy: () => buildURL(),
+            setWrapBody: () => updateUrlWithDisplayPreferences(),
+            setPrettifyJson: () => updateUrlWithDisplayPreferences(),
+            setTimestampFormat: () => updateUrlWithDisplayPreferences(),
         }
     }),
 
@@ -143,62 +174,54 @@ export const logsLogic = kea<logsLogicType>([
     reducers({
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
         orderBy: [
             DEFAULT_ORDER_BY,
-            { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
         searchTerm: [
             '' as LogsQuery['searchTerm'],
-            { persist: true },
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
         severityLevels: [
             DEFAULT_SEVERITY_LEVELS,
-            { persist: true },
             {
                 setSeverityLevels: (_, { severityLevels }) => severityLevels,
             },
         ],
         serviceNames: [
             DEFAULT_SERVICE_NAMES,
-            { persist: true },
             {
                 setServiceNames: (_, { serviceNames }) => serviceNames,
             },
         ],
         filterGroup: [
             DEFAULT_UNIVERSAL_GROUP_FILTER,
-            { persist: false },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
         ],
         wrapBody: [
-            true as boolean,
+            DEFAULT_WRAP_BODY as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
             },
         ],
         prettifyJson: [
-            true as boolean,
-            { persist: true },
+            DEFAULT_PRETTIFY_JSON as boolean,
             {
                 setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
         timestampFormat: [
-            'absolute' as 'absolute' | 'relative',
-            { persist: true },
+            DEFAULT_TIMESTAMP_FORMAT as 'absolute' | 'relative',
             {
                 setTimestampFormat: (_, { timestampFormat }) => timestampFormat,
             },
@@ -260,7 +283,6 @@ export const logsLogic = kea<logsLogicType>([
         ],
         highlightedLogId: [
             DEFAULT_HIGHLIGHTED_LOG_ID,
-            { persist: false },
             {
                 setHighlightedLogId: (_, { highlightedLogId }) => highlightedLogId,
             },
