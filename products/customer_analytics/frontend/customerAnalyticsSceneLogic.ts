@@ -5,11 +5,12 @@ import { FunnelLayout } from 'lib/constants'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { getDefaultInterval } from 'lib/utils'
+import { capitalizeFirstLetter, getDefaultInterval, wordPluralize } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { groupsModel } from '~/models/groupsModel'
 import { ActionsNode, AnyEntityNode, EventsNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     BaseMathType,
@@ -81,10 +82,14 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 'subscriptionEvent',
                 'paymentEvent',
             ],
+            groupsModel,
+            ['aggregationLabel', 'groupsEnabled', 'groupTypesRaw'],
         ],
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setBusinessType: (businessType: string) => ({ businessType }),
+        setSelectedGroupType: (selectedGroupType: number) => ({ selectedGroupType }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -96,6 +101,20 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     dateFrom,
                     interval: getDefaultCustomerAnalyticsInterval(dateFrom, dateTo),
                 }),
+            },
+        ],
+        businessType: [
+            'b2c' as string,
+            persistConfig,
+            {
+                setBusinessType: (_, { businessType }) => businessType,
+            },
+        ],
+        selectedGroupType: [
+            0,
+            persistConfig,
+            {
+                setSelectedGroupType: (_, { selectedGroupType }) => selectedGroupType,
             },
         ],
     })),
@@ -112,12 +131,30 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 },
             ],
         ],
+        customerLabel: [
+            (s) => [s.aggregationLabel, s.businessType, s.selectedGroupType],
+            (aggregationLabel, businessType, selectedGroupType) => {
+                if (businessType === 'b2c') {
+                    return aggregationLabel(undefined, true)
+                }
+                return aggregationLabel(selectedGroupType)
+            },
+        ],
         dateRange: [
             (s) => [s.dateFilter],
             (dateFilter) => ({
                 date_from: dateFilter.dateFrom,
                 date_to: dateFilter.dateTo,
             }),
+        ],
+        groupOptions: [
+            (s) => [s.groupTypesRaw],
+            (groupTypesRaw) => {
+                return groupTypesRaw.map((groupType) => ({
+                    label: capitalizeFirstLetter(groupType.name_plural || wordPluralize(groupType.group_type)),
+                    value: groupType.group_type_index,
+                }))
+            },
         ],
         dauSeries: [
             (s) => [s.activityEvent],
@@ -204,8 +241,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             },
         ],
         activeUsersInsights: [
-            (s) => [s.dauSeries, s.wauSeries, s.mauSeries, s.dateRange],
+            (s) => [s.customerLabel, s.dauSeries, s.wauSeries, s.mauSeries, s.dateRange],
             (
+                customerLabel: Record<string, string>,
                 dauSeries: AnyEntityNode | null,
                 wauSeries: AnyEntityNode | null,
                 mauSeries: AnyEntityNode | null,
@@ -217,7 +255,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 }
                 return [
                     {
-                        name: 'Active users (DAU/WAU/MAU)',
+                        name: `Active ${customerLabel.plural} (daily/weekly/monthly)`,
                         className: 'row-span-2 h-[576px]',
                         query: {
                             kind: NodeKind.InsightVizNode,
@@ -249,7 +287,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         },
                     },
                     {
-                        name: 'Weekly active users',
+                        name: `Weekly active ${customerLabel.plural}`,
                         className: 'h-[284px]',
                         query: {
                             kind: NodeKind.InsightVizNode,
@@ -283,7 +321,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         },
                     },
                     {
-                        name: 'Monthly active users',
+                        name: `Monthly active ${customerLabel.plural}`,
                         className: 'h-[284px]',
                         query: {
                             kind: NodeKind.InsightVizNode,
@@ -321,8 +359,8 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             },
         ],
         sessionInsights: [
-            () => [],
-            () => [
+            (s) => [s.customerLabel],
+            (customerLabel) => [
                 {
                     name: 'Unique sessions',
                     description: 'Events without session IDs are excluded.',
@@ -364,7 +402,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Unique users',
+                    name: `Unique ${customerLabel.plural}`,
                     className: 'h-[284px]',
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -450,6 +488,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         signupInsights: [
             (s) => [
+                s.customerLabel,
                 s.signupSeries,
                 s.paymentSeries,
                 s.subscriptionSeries,
@@ -458,6 +497,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 s.dateRange,
             ],
             (
+                customerLabel,
                 signupSeries,
                 paymentSeries,
                 subscriptionSeries,
@@ -466,7 +506,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 dateRange
             ): InsightDefinition[] => [
                 {
-                    name: 'User signups',
+                    name: `${capitalizeFirstLetter(customerLabel.singular)} signups`,
                     requiredSeries: { signupSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -501,7 +541,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Total paying customers',
+                    name: `Total paying ${customerLabel.plural}`,
                     requiredSeries: { paymentSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -532,7 +572,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'User signups and subscriptions',
+                    name: `${capitalizeFirstLetter(customerLabel.singular)} signups and subscriptions`,
                     requiredSeries: { signupSeries, subscriptionSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -661,7 +701,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Which customers are highly engaged?',
+                    name: `Which ${customerLabel.plural} are highly engaged?`,
                     requiredSeries: { dauSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
@@ -684,7 +724,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     },
                 },
                 {
-                    name: 'Free to paid user conversion',
+                    name: 'Free-to-paid conversion',
                     requiredSeries: { signupSeries, paymentSeries },
                     query: {
                         kind: NodeKind.InsightVizNode,
