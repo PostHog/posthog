@@ -276,7 +276,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 setResponse: (response) => response,
                 clearResponse: () => null,
-                loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery, warehouseTarget }, breakpoint) => {
+                loadData: async (
+                    { refresh: refreshArg, queryId, pollOnly, overrideQuery, warehouseTarget },
+                    breakpoint
+                ) => {
                     const query = addTags(overrideQuery ?? props.query)
 
                     // Use the explicit refresh type passed, or determine it based on query type
