@@ -170,15 +170,15 @@ fn find_index_with_matching_frame_id(id: &RawFrameId, list: &[(usize, RawErrProp
 }
 
 async fn remap_exception_type_and_module(
-    module: &String,
-    exception_type: &String,
+    module: &str,
+    exception_type: &str,
     team_id: i32,
     frame: &RawJavaFrame,
     catalog: &Catalog,
 ) -> Option<(String, String)> {
-    let class = &format!("{module}.{exception_type}");
+    let class = format!("{module}.{exception_type}");
 
-    match frame.remap_class(team_id, class, catalog).await {
+    match frame.remap_class(team_id, &class, catalog).await {
         Ok(Some(s)) => match split_last_dot(&s) {
             Ok((remapped_module, remapped_type)) => {
                 Some((remapped_module.to_string(), remapped_type.to_string()))
@@ -300,15 +300,9 @@ mod test {
             meta: CommonFrameMetadata::default(),
         };
 
-        let result = remap_exception_type_and_module(
-            &"a1".to_string(),
-            &"c".to_string(),
-            team_id,
-            &frame,
-            &c,
-        )
-        .await
-        .unwrap();
+        let result = remap_exception_type_and_module("a1", "c", team_id, &frame, &c)
+            .await
+            .unwrap();
 
         assert_eq!(
             result,
