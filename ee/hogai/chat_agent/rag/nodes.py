@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import (
@@ -96,7 +97,8 @@ class InsightRagContextNode(AssistantNode):
                 team=self._team,
                 query=VectorSearchQuery(embedding=embedding, embeddingVersion=LATEST_ACTIONS_EMBEDDING_VERSION),
             )
-            response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+                response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
             if isinstance(response, CachedVectorSearchQueryResponse) and response.results:
                 ids = list({row.id for row in response.results} | set(ids))
                 distances = [row.distance for row in response.results]
