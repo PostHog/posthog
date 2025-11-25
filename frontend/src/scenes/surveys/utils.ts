@@ -101,6 +101,15 @@ export const getResponseFieldWithId = (
     }
 }
 
+export function getSurveyResponseValue(
+    eventProperties: Record<string, any>,
+    questionIndex: number,
+    questionId?: string
+): any {
+    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(questionIndex, questionId)
+    return (idBasedKey && eventProperties[idBasedKey]) ?? eventProperties[indexBasedKey]
+}
+
 export function sanitizeSurveyDisplayConditions(
     displayConditions?: SurveyDisplayConditions | null,
     surveyType?: SurveyType
