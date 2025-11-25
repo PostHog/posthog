@@ -43,11 +43,7 @@ from posthog.hogql.functions import (
     find_hogql_posthog_function,
 )
 from posthog.hogql.functions.core import validate_function_args
-from posthog.hogql.functions.duckdb_mappings import (
-    DUCKDB_FUNCTION_MAPPING,
-    DUCKDB_UNSUPPORTED_FUNCTIONS,
-    is_duckdb_template_function,
-)
+from posthog.hogql.functions.duckdb_mappings import DUCKDB_FUNCTION_MAPPING, DUCKDB_UNSUPPORTED_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
@@ -153,7 +149,8 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
-    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
+    # DuckDB doesn't support IN COHORT - skip cohort resolution
+    if dialect != "duckdb" and context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
@@ -204,7 +201,8 @@ def prepare_ast_for_printing(
                     settings.__setattr__(key, value)
             node.settings = None
 
-    if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
+    # DuckDB doesn't support IN COHORT - skip cohort resolution
+    if dialect != "duckdb" and context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context)
 
@@ -1603,8 +1601,12 @@ class _Printer(Visitor[str]):
 
     def _visit_call_duckdb(self, node: ast.Call) -> str:
         """Handle function calls for DuckDB dialect."""
+        # Get canonical function name via HogQL function lookup
+        func_meta = find_hogql_aggregation(node.name) or find_hogql_function(node.name)
+        canonical_name = func_meta.clickhouse_name if func_meta else node.name
+
         # Check if function is unsupported in DuckDB
-        if node.name in DUCKDB_UNSUPPORTED_FUNCTIONS:
+        if node.name in DUCKDB_UNSUPPORTED_FUNCTIONS or canonical_name in DUCKDB_UNSUPPORTED_FUNCTIONS:
             raise QueryError(f"Function '{node.name}' is not supported in DuckDB")
 
         # Handle comparison functions through visit_compare_operation
@@ -1622,12 +1624,12 @@ class _Printer(Visitor[str]):
 
         args = [self.visit(arg) for arg in node.args]
 
-        # Check for DuckDB-specific function mapping
-        duckdb_func = DUCKDB_FUNCTION_MAPPING.get(node.name)
+        # Check for DuckDB-specific function mapping using canonical name
+        duckdb_func = DUCKDB_FUNCTION_MAPPING.get(canonical_name) or DUCKDB_FUNCTION_MAPPING.get(node.name)
 
         if duckdb_func:
-            # Check if it's a template function
-            if is_duckdb_template_function(node.name):
+            # Check if it's a template function (contains placeholders like {0}, {1})
+            if "{" in duckdb_func:
                 try:
                     return duckdb_func.format(*args)
                 except (IndexError, KeyError) as e:
@@ -1636,12 +1638,19 @@ class _Printer(Visitor[str]):
                 # Simple function name replacement
                 return f"{duckdb_func}({', '.join(args)})"
 
-        # Handle aggregations with DISTINCT
-        if node.distinct:
-            return f"{node.name}(DISTINCT {', '.join(args)})"
+        # Handle aggregations - uppercase the function name for DuckDB
+        if func_meta and find_hogql_aggregation(node.name):
+            func_name = canonical_name.upper()
+            if node.distinct:
+                return f"{func_name}(DISTINCT {', '.join(args)})"
+            return f"{func_name}({', '.join(args)})"
 
-        # Default: use the function name as-is
-        return f"{node.name}({', '.join(args)})"
+        # Handle DISTINCT for other functions
+        if node.distinct:
+            return f"{node.name.upper()}(DISTINCT {', '.join(args)})"
+
+        # Default: use the canonical function name uppercased for DuckDB SQL convention
+        return f"{canonical_name.upper()}({', '.join(args)})"
 
     def visit_placeholder(self, node: ast.Placeholder):
         if node.field is None:
@@ -1675,6 +1684,10 @@ class _Printer(Visitor[str]):
 
     def visit_lambda_argument_type(self, type: ast.LambdaArgumentType):
         return self._print_identifier(type.name)
+
+    def visit_expression_field_type(self, type: ast.ExpressionFieldType):
+        # ExpressionFieldType wraps an expression with a name, visit the underlying expression
+        return self.visit(type.expr)
 
     def visit_field_type(self, type: ast.FieldType):
         try:
