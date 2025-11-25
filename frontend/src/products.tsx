@@ -213,6 +213,14 @@ export const productConfiguration: Record<string, any> = {
             'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
         iconType: 'data_warehouse',
     },
+    SQLEditor: {
+        projectBased: true,
+        name: 'SQL editor',
+        defaultDocsPath: '/docs/cdp/sources',
+        layout: 'app-raw-no-header',
+        hideProjectNotice: true,
+        description: 'Write and execute SQL queries against your data warehouse',
+    },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -935,7 +943,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         sceneKey: 'DataWarehouse',
-        sceneKeys: ['DataWarehouse'],
+        sceneKeys: ['DataWarehouse', 'SQLEditor'],
     },
     {
         path: 'Early access features',
@@ -1268,7 +1276,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataWarehouse'],
+        sceneKeys: ['DataWarehouse', 'SQLEditor'],
     },
     {
         path: 'Marketing settings',
