@@ -1,5 +1,6 @@
+import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Optional
 
 from clickhouse_driver import Client
 from dagster import AssetExecutionContext, BackfillPolicy, Config, DailyPartitionsDefinition, asset, define_asset_job
@@ -9,6 +10,7 @@ from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
+    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
@@ -41,7 +43,10 @@ class SessionsBackfillConfig(Config):
     """
 
     clickhouse_settings: dict[str, Any] | None = None
-    team_id_chunks: int | None = None
+    team_id_chunks: int | None = 16
+    max_unmerged_parts: int = 300
+    parts_check_poll_frequency_seconds: int = 30
+    parts_check_max_wait_seconds: int = 3600
 
 
 daily_partitions = DailyPartitionsDefinition(
@@ -53,13 +58,15 @@ daily_partitions = DailyPartitionsDefinition(
 ONE_HOUR_IN_SECONDS = 60 * 60
 ONE_GB_IN_BYTES = 1024 * 1024 * 1024
 
-settings = {
+clickhouse_settings = {
     # see this run which took around 2hrs 10min for 1 day https://posthog.dagster.plus/prod-us/runs/0ba8afaa-f3cc-4845-97c5-96731ec8231d?focusedTime=1762898705269&selection=sessions_v3_backfill&logs=step%3Asessions_v3_backfill
     # so to give some margin, allow 4 hours per partition
     "max_execution_time": MAX_PARTITIONS_PER_RUN * 4 * ONE_HOUR_IN_SECONDS,
     "max_memory_usage": 100 * ONE_GB_IN_BYTES,
     "distributed_aggregation_memory_efficient": "1",
-    "insert_distributed_sync": "1",
+    # use insert_distributed_sync=0 to avoid OOM (even 100GB wasn't enough with sync=1)
+    # instead, we use preflight checks on unmerged parts count to prevent TOO_MANY_PARTS errors
+    "insert_distributed_sync": "0",
 }
 
 
@@ -70,6 +77,53 @@ def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: 
     # it's ok that we use inclusive equality for both comparisons here, adding events to this table is idempotent
     # so if an event did get added twice on the exact boundary, the data would still be correct
     return f"'{start_incl}' <= {timestamp_field} AND {timestamp_field} <= '{end_excl}'"
+
+
+def wait_for_parts_to_merge(
+    context: AssetExecutionContext,
+    config: SessionsBackfillConfig,
+    sync_client: Optional[Client] = None,
+) -> None:
+    """Check for unmerged parts and wait if there are too many.
+
+    Queries system.parts using clusterAllReplicas to count active parts across all nodes,
+    and waits until the count drops below the threshold.
+    """
+    if config.max_unmerged_parts <= 0:
+        return
+
+    start_time = time.time()
+    first_check = True
+
+    while True:
+        # run the query
+        result = sync_execute(GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS, sync_client=sync_client)
+        unmerged_parts_count = result[0][0] if result else 0
+
+        if unmerged_parts_count < config.max_unmerged_parts:
+            if not first_check:
+                context.log.info(
+                    f"Parts merged sufficiently: {unmerged_parts_count} < {config.max_unmerged_parts}. Proceeding."
+                )
+            return
+
+        elapsed = time.time() - start_time
+        if elapsed > config.parts_check_max_wait_seconds:
+            raise TimeoutError(
+                f"Timed out waiting for parts to merge after {elapsed:.0f}s. "
+                f"Current unmerged parts: {unmerged_parts_count}, threshold: {config.max_unmerged_parts}"
+            )
+
+        if first_check:
+            context.log.info(
+                f"Found {unmerged_parts_count} unmerged parts (threshold: {config.max_unmerged_parts}). "
+                f"Waiting for parts to merge..."
+            )
+            first_check = False
+        else:
+            context.log.info(f"Still waiting... {unmerged_parts_count} unmerged parts after {elapsed:.0f}s")
+
+        time.sleep(config.parts_check_poll_frequency_seconds)
 
 
 @asset(
@@ -118,7 +172,7 @@ def _do_backfill(
     context.log.info(f"Config: {config}")
 
     # Merge custom clickhouse settings with defaults
-    merged_settings = settings.copy()
+    merged_settings = clickhouse_settings.copy()
     if config.clickhouse_settings:
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
@@ -137,6 +191,9 @@ def _do_backfill(
     def backfill_per_shard(client: Client):
         with tags_context(kind="dagster", dagster=tags):
             for chunk_i in range(team_id_chunks):
+                # Check for too many unmerged parts before processing each chunk
+                wait_for_parts_to_merge(context, config, sync_client=client)
+
                 # Add team_id chunking to the where clause if needed
                 if team_id_chunks > 1:
                     chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
