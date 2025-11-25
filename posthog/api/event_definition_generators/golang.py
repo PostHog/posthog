@@ -91,7 +91,7 @@ import (
 
     def _generate_event_without_properties(self, event_name: str) -> str:
         """Generate a minimal capture function for events without defined properties"""
-        event_name = orjson.dumps(event_name).decode("utf-8")
+        event_name = self._escape_go_string(event_name)
         base_name = self._to_go_func_name(event_name)
         func_name = f"{base_name}Capture"
 
@@ -116,7 +116,7 @@ func {func_name}(distinctId string, properties ...posthog.Properties) posthog.Ca
 
     def _generate_event_with_properties(self, event_name: str, properties: list[SchemaPropertyGroupProperty]) -> str:
         """Generate complete code block for an event with schema properties"""
-        event_name = orjson.dumps(event_name).decode("utf-8")
+        event_name = self._escape_go_string(event_name)
         base_name = self._to_go_func_name(event_name)
         option_type_name = f"{base_name}Option"
 
@@ -176,7 +176,7 @@ func {func_name_extra}(props posthog.Properties) {option_type_name} {{
     ) -> str:
         """Generate a With* option function for an optional property"""
         param_type = self.map_property_type(prop.property_type)
-        prop_name = orjson.dumps(prop.name).decode("utf-8")
+        prop_name = self._escape_go_string(prop.name)
         param_name = self._to_go_param_name(prop_name)
         suffix = self._to_pascal_name(prop_name)
         func_name = self._get_unique_name(f"{base_name}With{suffix}", used_function_names)
@@ -203,8 +203,7 @@ func {func_name}({param_name} {param_type}) {option_type_name} {{
         used_param_names: set[str] = {"distinctId"}
 
         for prop in required_props:
-            # TODO centralise this logic?
-            prop_name = orjson.dumps(prop.name).decode("utf-8")
+            prop_name = self._escape_go_string(prop.name)
             param_name = self._get_unique_name(self._to_go_param_name(prop_name), used_param_names)
             props_init_lines.append(f"\t\t{prop_name}: {param_name},")
 
@@ -251,7 +250,7 @@ func {func_name}(
         used_param_names: set[str] = {"base"}
 
         for prop in required_props:
-            prop_name = orjson.dumps(prop.name).decode("utf-8")
+            prop_name = self._escape_go_string(prop.name)
             param_name = self._get_unique_name(self._to_go_param_name(prop_name), used_param_names)
             props_init_lines.append(f"\t\t{prop_name}: {param_name},")
 
@@ -401,3 +400,9 @@ func {func_name}(
         unique_name = f"{base_name}{i}"
         used_names.add(unique_name)
         return unique_name
+
+    def _escape_go_string(self, value: str) -> str:
+        """
+        Escape a string value for use in Go string literals.
+        """
+        return orjson.dumps(value).decode("utf-8")
