@@ -437,6 +437,7 @@ export interface OrganizationType extends OrganizationBasicType {
     default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
+    company_type?: 'b2b' | 'b2c' | 'other' | null
 }
 
 export interface OrganizationDomainType {

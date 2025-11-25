@@ -30,6 +30,7 @@ export interface SignupForm {
     name: string
     organization_name: string
     role_at_organization: string
+    company_type: string
     referral_source: string
 }
 
@@ -92,6 +93,7 @@ export const signupLogic = kea<signupLogicType>([
                 name: '',
                 organization_name: '',
                 role_at_organization: '',
+                company_type: '',
                 referral_source: '',
             } as SignupForm,
             errors: ({ name, role_at_organization }) => ({

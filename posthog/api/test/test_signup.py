@@ -95,6 +95,7 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the org was properly created
         self.assertEqual(organization.name, "Hedgehogs United, LLC")
+        self.assertIsNone(organization.company_type)  # Not provided in this test
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
@@ -367,6 +368,125 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(response.json()["email"], "hedgehog4@posthog.com")
             self.assertEqual(Organization.objects.count(), count + 1)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
+    def test_api_sign_up_with_company_type(self, mock_capture):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "last_name": "Doe",
+                "email": "hedgehog_b2b@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "B2B Company Inc",
+                "role_at_organization": "product",
+                "company_type": "b2b",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+        organization = cast(Organization, user.organization)
+
+        self.assertEqual(organization.company_type, "b2b")
+        self.assertEqual(organization.name, "B2B Company Inc")
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
+    def test_api_sign_up_with_company_type_b2c(self, mock_capture):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Jane",
+                "email": "hedgehog_b2c@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "B2C Company Inc",
+                "role_at_organization": "founder",
+                "company_type": "b2c",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+        organization = cast(Organization, user.organization)
+
+        self.assertEqual(organization.company_type, "b2c")
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
+    def test_api_sign_up_with_company_type_other(self, mock_capture):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Bob",
+                "email": "hedgehog_other@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Other Company Inc",
+                "role_at_organization": "engineering",
+                "company_type": "other",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+        organization = cast(Organization, user.organization)
+
+        self.assertEqual(organization.company_type, "other")
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
+    def test_api_sign_up_without_company_type(self, mock_capture):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Alice",
+                "email": "hedgehog_no_type@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "No Type Company",
+                "role_at_organization": "marketing",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+        organization = cast(Organization, user.organization)
+
+        self.assertIsNone(organization.company_type)
+
+    @pytest.mark.skip_on_multitenancy
+    def test_api_sign_up_with_invalid_company_type(self):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Test",
+                "email": "hedgehog_invalid@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Invalid Company",
+                "role_at_organization": "product",
+                "company_type": "invalid_type",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Invalid company type selected",
+                "attr": "company_type",
+            },
+        )
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
@@ -1928,10 +2048,34 @@ class TestInviteSignupAPI(APIBaseTest):
             ).count(),
             1,
         )
-        self.assertEqual(
-            Organization.objects.filter(name="Org test_api_social_invite_sign_up").count(),
-            1,
+        organization = Organization.objects.get(name="Org test_api_social_invite_sign_up")
+        self.assertIsNone(organization.company_type)
+
+    def test_api_social_signup_with_company_type(self):
+        Organization.objects.all().delete()  # Can only create organizations in fresh instances
+        # Simulate SSO process started
+        session = self.client.session
+        session.update(
+            {
+                "backend": "google-oauth2",
+                "email": "test_social_b2b@posthog.com",
+            }
         )
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup",
+            {
+                "organization_name": "Social B2B Org",
+                "first_name": "Max",
+                "role_at_organization": "founder",
+                "company_type": "b2b",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        organization = Organization.objects.get(name="Social B2B Org")
+        self.assertEqual(organization.company_type, "b2b")
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")

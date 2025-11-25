@@ -5,6 +5,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import SignupCompanyTypeSelect from 'lib/components/SignupCompanyTypeSelect'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -24,6 +25,8 @@ export const scene: SceneExport = {
 export function ConfirmOrganization(): JSX.Element {
     const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
+
+    const disabledReason = isConfirmOrganizationSubmitting ? 'Please wait for the form to submit' : undefined
 
     return (
         <BridgePage view="org-creation-confirmation" hedgehog>
@@ -80,8 +83,9 @@ export function ConfirmOrganization(): JSX.Element {
                     <LemonInput className="ph-ignore-input" placeholder="Hogflix Movies" />
                 </LemonField>
 
-                <SignupRoleSelect />
-                <SignupReferralSource disabled={isConfirmOrganizationSubmitting} />
+                <SignupRoleSelect disabledReason={disabledReason} />
+                <SignupCompanyTypeSelect disabledReason={disabledReason} />
+                <SignupReferralSource disabledReason={disabledReason} />
 
                 <LemonButton
                     htmlType="submit"

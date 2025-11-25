@@ -1,12 +1,18 @@
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-export default function SignupRoleSelect({ className }: { className?: string }): JSX.Element {
+interface SignupRoleSelectProps {
+    className?: string
+    disabledReason?: string
+}
+
+export default function SignupRoleSelect({ className, disabledReason }: SignupRoleSelectProps): JSX.Element {
     return (
         <LemonField name="role_at_organization" label="What is your role?" className={className}>
             <LemonSelect
                 fullWidth
                 data-attr="signup-role-at-organization"
+                disabledReason={disabledReason}
                 options={[
                     {
                         label: 'Engineering',

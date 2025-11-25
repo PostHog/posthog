@@ -76,6 +76,7 @@ class SignupSerializer(serializers.Serializer):
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
+    company_type: serializers.Field = serializers.CharField(max_length=16, required=False, allow_blank=True)
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
     # Slightly hacky: self vars for internal use
@@ -106,6 +107,11 @@ class SignupSerializer(serializers.Serializer):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
         return value
 
+    def validate_company_type(self, value):
+        if value and value not in ["b2b", "b2c", "other"]:
+            raise serializers.ValidationError("Invalid company type selected")
+        return value
+
     def is_email_auto_verified(self):
         return self.is_social_signup
 
@@ -117,7 +123,12 @@ class SignupSerializer(serializers.Serializer):
 
         organization_name = validated_data.pop("organization_name", f"{validated_data['first_name']}'s Organization")
         role_at_organization = validated_data.pop("role_at_organization", "")
+        company_type = validated_data.pop("company_type", "")
         referral_source = validated_data.pop("referral_source", "")
+
+        organization_fields = {}
+        if company_type:
+            organization_fields["company_type"] = company_type
 
         try:
             self._organization, self._team, self._user = User.objects.bootstrap(
@@ -126,6 +137,7 @@ class SignupSerializer(serializers.Serializer):
                 is_staff=is_instance_first_user,
                 is_email_verified=self.is_email_auto_verified(),
                 role_at_organization=role_at_organization,
+                organization_fields=organization_fields,
                 **validated_data,
             )
         except IntegrityError:
@@ -348,6 +360,7 @@ class SocialSignupSerializer(serializers.Serializer):
     organization_name: serializers.Field = serializers.CharField(max_length=128)
     first_name: serializers.Field = serializers.CharField(max_length=128)
     role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
+    company_type: serializers.Field = serializers.CharField(max_length=16, required=False, allow_blank=True)
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
@@ -360,6 +373,7 @@ class SocialSignupSerializer(serializers.Serializer):
         email = request.session.get("email")
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
+        company_type = validated_data.get("company_type", "")
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
@@ -369,6 +383,7 @@ class SocialSignupSerializer(serializers.Serializer):
                 "email": email,
                 "password": None,
                 "role_at_organization": role_at_organization,
+                "company_type": company_type,
             },
             context={"request": request},
         )

@@ -58,7 +58,7 @@ const productBenefits = [
     },
     {
         benefit: 'Join industry leaders that run on PostHog',
-        description: 'Airbus, Hasura, Y Combinator, Staples, and thousands more trust PostHog as their Product OS.',
+        description: 'Airbus, Lovable, Y Combinator, ElevenLabs, and thousands more trust PostHog as their Product OS.',
     },
 ]
 

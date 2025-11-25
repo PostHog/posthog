@@ -12,6 +12,7 @@ export interface ConfirmOrganizationFormValues {
     organization_name?: string
     first_name?: string
     role_at_organization?: string
+    company_type?: string
 }
 
 export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([

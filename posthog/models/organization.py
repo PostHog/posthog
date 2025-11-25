@@ -137,6 +137,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         BAYESIAN = "bayesian", "Bayesian"
         FREQUENTIST = "frequentist", "Frequentist"
 
+    class CompanyType(models.TextChoices):
+        B2B = "b2b", "B2B"
+        B2C = "b2c", "B2C"
+        OTHER = "other", "Other"
+
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -221,6 +226,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     objects: OrganizationManager = OrganizationManager()
 
     is_platform = models.BooleanField(default=False, null=True, blank=True)
+
+    company_type = models.CharField(max_length=16, choices=CompanyType.choices, null=True, blank=True)
 
     def __str__(self):
         return self.name

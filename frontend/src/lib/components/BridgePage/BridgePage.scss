@@ -46,7 +46,7 @@
     .BridgePage__content {
         position: relative;
         width: 100%;
-        padding: 2rem;
+        padding: 1.5rem;
         background-color: white;
         border-radius: var(--radius);
         box-shadow: var(--shadow-elevation-3000);
@@ -62,7 +62,7 @@
         gap: 10%;
         justify-content: center;
         width: 100%;
-        margin: 1rem 0;
+        margin: 0.5rem 0;
         font-weight: 500;
         color: var(--color-text-secondary);
     }

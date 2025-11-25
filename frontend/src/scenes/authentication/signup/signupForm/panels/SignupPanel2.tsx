@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
+import SignupCompanyTypeSelect from 'lib/components/SignupCompanyTypeSelect'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -17,9 +18,11 @@ export function SignupPanel2(): JSX.Element | null {
     const { setSignupPanel2ManualErrors } = useActions(signupLogic)
     const { isSignupPanel2Submitting } = useValues(signupLogic)
 
+    const disabledReason = isSignupPanel2Submitting ? 'Please wait for the form to submit' : undefined
+
     return (
-        <div className="deprecated-space-y-4 Signup__panel__2">
-            <Form logic={signupLogic} formKey="signupPanel2" className="deprecated-space-y-4" enableFormOnSubmit>
+        <div className="deprecated-space-y-2 Signup__panel__2">
+            <Form logic={signupLogic} formKey="signupPanel2" className="flex flex-col gap-2" enableFormOnSubmit>
                 <LemonField name="name" label="Your name">
                     <LemonInput
                         className="ph-ignore-input"
@@ -36,9 +39,10 @@ export function SignupPanel2(): JSX.Element | null {
                         disabled={isSignupPanel2Submitting}
                     />
                 </LemonField>
-                <SignupRoleSelect />
-                <SignupReferralSource disabled={isSignupPanel2Submitting} />
-                <div className="divider" />
+
+                <SignupCompanyTypeSelect disabledReason={disabledReason} />
+                <SignupRoleSelect disabledReason={disabledReason} />
+                <SignupReferralSource disabledReason={disabledReason} />
 
                 <LemonButton
                     fullWidth
@@ -48,9 +52,10 @@ export function SignupPanel2(): JSX.Element | null {
                     data-attr="signup-submit"
                     onClick={() => setSignupPanel2ManualErrors({})}
                     loading={isSignupPanel2Submitting}
-                    disabled={isSignupPanel2Submitting}
+                    disabledReason={disabledReason}
                     status="alt"
                     size="large"
+                    className="mt-3"
                 >
                     {!preflight?.demo
                         ? 'Create account'
