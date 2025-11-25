@@ -147,7 +147,6 @@ func SimpleClickCapture(distinctId string, properties ...posthog.Properties) pos
             self._create_mock_property("metadata", "Object", required=False),
         ]
 
-        # // TODO include a thing with invalid chars?
         code = self.generator._generate_event_with_properties("file_uploaded", props)
         self.assertEqual(
             """// FileUploadedOption configures optional properties for a "file_uploaded" capture.
@@ -244,6 +243,83 @@ func FileUploadedCaptureFromBase(
 	}
 
 	base.Event = "file_uploaded"
+	if base.Properties == nil {
+		base.Properties = posthog.Properties{}
+	}
+	base.Properties = base.Properties.Merge(props)
+
+	for _, opt := range options {
+		opt(&base)
+	}
+
+	return base
+}""",
+            code.strip(),
+        )
+
+    def test_generate_event_with_quoted_and_escaped_properties(self):
+        props = [
+            self._create_mock_property("esc'ap\"eing", "String", required=True),
+        ]
+
+        code = self.generator._generate_event_with_properties("creative_naming", props)
+        self.assertEqual(
+            """// CreativeNamingOption configures optional properties for a "creative_naming" capture.
+type CreativeNamingOption func(*posthog.Capture)
+
+// CreativeNamingWithExtraProps adds additional properties to a "creative_naming" event.
+func CreativeNamingWithExtraProps(props posthog.Properties) CreativeNamingOption {
+	return func(c *posthog.Capture) {
+		if c.Properties == nil {
+			c.Properties = posthog.Properties{}
+		}
+		for k, v := range props {
+			c.Properties[k] = v
+		}
+	}
+}
+
+// CreativeNamingCapture is a wrapper for the "creative_naming" event.
+// It manages the creation of the `posthog.Capture`. If you need control over this, please make use of
+// the CreativeNamingCaptureFromBase function.
+// Required properties from the schema are explicit parameters; optional properties
+// should be passed via CreativeNamingWith* option functions.
+func CreativeNamingCapture(
+	distinctId string,
+	escApEing string,
+	options ...CreativeNamingOption,
+) posthog.Capture {
+	props := posthog.Properties{
+		"esc'ap\\"eing": escApEing,
+	}
+
+	c := posthog.Capture{
+		DistinctId: distinctId,
+		Event:      "creative_naming",
+		Properties: props,
+	}
+
+	for _, opt := range options {
+		opt(&c)
+	}
+
+	return c
+}
+
+// CreativeNamingCaptureFromBase creates a posthog.Capture for the "creative_naming" event
+// starting from an existing base capture. The event name is overridden, and
+// required properties from the schema are merged on top. Optional properties
+// should be passed via CreativeNamingWith* option functions.
+func CreativeNamingCaptureFromBase(
+	base posthog.Capture,
+	escApEing string,
+	options ...CreativeNamingOption,
+) posthog.Capture {
+	props := posthog.Properties{
+		"esc'ap\\"eing": escApEing,
+	}
+
+	base.Event = "creative_naming"
 	if base.Properties == nil {
 		base.Properties = posthog.Properties{}
 	}
