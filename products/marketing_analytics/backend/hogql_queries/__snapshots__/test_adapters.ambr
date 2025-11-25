@@ -7,6 +7,15 @@
   WHERE and(greaterOrEquals(toDateTime(report_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(report_date), toDateTime('2024-12-31 23:59:59')))
   '''
 # ---
+# name: TestMarketingAnalyticsAdapters.test_bing_ads_native_query_generation
+  '''
+  
+  SELECT toString(bing_campaigns.name) AS campaign, toString('bing') AS source, toFloat(SUM(toFloatOrZero(bing_campaign_performance_report.impressions))) AS impressions, toFloat(SUM(toFloatOrZero(bing_campaign_performance_report.clicks))) AS clicks, SUM(toFloatOrZero(bing_campaign_performance_report.spend)) AS cost, toFloat(SUM(toFloatOrZero(bing_campaign_performance_report.conversions))) AS reported_conversion 
+  FROM bing_campaigns LEFT JOIN bing_campaign_performance_report ON equals(toString(bing_campaigns.id), toString(bing_campaign_performance_report.campaign_id)) 
+  WHERE and(greaterOrEquals(toDateTime(bing_campaign_performance_report.time_period), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(bing_campaign_performance_report.time_period), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(bing_campaigns.name)
+  '''
+# ---
 # name: TestMarketingAnalyticsAdapters.test_cloudflare_r2_adapter_query_generation
   '''
   
