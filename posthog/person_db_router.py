@@ -91,6 +91,7 @@ class PersonDBRouter:
             # GroupTypeMapping -> Project: GroupTypeMapping.project has db_constraint=False
             # GroupTypeMapping -> Dashboard: GroupTypeMapping.detail_dashboard has db_constraint=False
             from posthog.models import Dashboard, Person, Project, Team
+            from posthog.models.cohort import Cohort, CohortPeople
             from posthog.models.group_type_mapping import GroupTypeMapping
 
             # Allow any persons_db model -> Team relation
@@ -113,9 +114,6 @@ class PersonDBRouter:
                 return True
 
             # Allow Cohort -> CohortPeople relation (for cohort.people.add())
-            from posthog.models import Person
-            from posthog.models.cohort import Cohort, CohortPeople
-
             if isinstance(obj1, Cohort) and isinstance(obj2, Person | CohortPeople):
                 return True
             if isinstance(obj1, Person | CohortPeople) and isinstance(obj2, Cohort):
