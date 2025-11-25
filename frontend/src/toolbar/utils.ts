@@ -59,6 +59,9 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
         const unescapedSelector = `[${name}="${value}"]`
 
         if (querySelectorAllDeep(escapedSelector).length == 1) {
+            // if we return the _valid_ escaped CSS,
+            // the action matching in PostHog might not match it
+            // because it's not really CSS matching
             return unescapedSelector
         }
     }
@@ -66,8 +69,11 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
     try {
         const foundSelector = finder(element, {
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
+            // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
             seedMinLength: 5,
             attr: (name) => {
+                // preference to data attributes if they exist
+                // that aren't in the PostHog preferred list - they were returned early above
                 return name.startsWith('data-')
             },
         })
