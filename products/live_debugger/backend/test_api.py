@@ -1,7 +1,12 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
+import responses
 from rest_framework import status
 
+from posthog.models.integration import Integration
+
+from products.live_debugger.backend import github_client
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint
 
 
@@ -946,3 +951,461 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["filename"], "admin_accessible_file.py")
+
+
+class TestLiveDebuggerRepoBrowserAPI(APIBaseTest):
+    """Test cases for repository browser API endpoints"""
+
+    @patch("products.live_debugger.backend.github_client.list_repositories")
+    def test_repositories_endpoint_success(self, mock_list_repos):
+        """Test successful repository listing"""
+        mock_list_repos.return_value = [
+            {"name": "posthog", "full_name": "PostHog/posthog"},
+            {"name": "billing", "full_name": "PostHog/billing"},
+        ]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/live_debugger_repo_browser/repositories/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("repositories", data)
+        self.assertEqual(len(data["repositories"]), 2)
+        self.assertEqual(data["repositories"][0]["name"], "posthog")
+        self.assertEqual(data["repositories"][0]["full_name"], "PostHog/posthog")
+
+    @patch("products.live_debugger.backend.github_client.get_github_integration")
+    def test_repositories_endpoint_no_integration(self, mock_get_integration):
+        """Test repository listing when no GitHub integration exists"""
+        mock_get_integration.side_effect = github_client.GitHubIntegrationNotFoundError("No GitHub integration found")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/live_debugger_repo_browser/repositories/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("error", response.json())
+
+    @patch("products.live_debugger.backend.github_client.get_branch_sha")
+    @patch("products.live_debugger.backend.github_client.get_repository_tree")
+    @patch("products.live_debugger.backend.github_cache.get_cached_tree")
+    def test_tree_endpoint_success(self, mock_get_cached, mock_get_tree, mock_get_sha):
+        """Test successful tree retrieval"""
+        mock_get_cached.return_value = None
+        mock_get_sha.return_value = "abc123"
+        mock_get_tree.return_value = {
+            "sha": "abc123",
+            "url": "https://api.github.com/repos/PostHog/posthog/git/trees/abc123",
+            "tree": [
+                {
+                    "path": "test.py",
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": "def456",
+                    "size": 100,
+                    "url": "https://api.github.com/repos/PostHog/posthog/git/blobs/def456",
+                }
+            ],
+            "truncated": False,
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/live_debugger_repo_browser/tree/?repo=posthog&branch=master"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["sha"], "abc123")
+        self.assertEqual(len(data["tree"]), 1)
+        self.assertEqual(data["tree"][0]["path"], "test.py")
+
+    @patch("products.live_debugger.backend.github_client.get_branch_sha")
+    @patch("products.live_debugger.backend.github_cache.get_cached_tree")
+    def test_tree_endpoint_from_cache(self, mock_get_cached, mock_get_sha):
+        """Test tree retrieval from cache"""
+        mock_get_sha.return_value = "cached123"
+        cached_data = {
+            "sha": "cached123",
+            "url": "https://api.github.com/repos/PostHog/posthog/git/trees/cached123",
+            "tree": [{"path": "cached.py", "mode": "100644", "type": "blob", "sha": "xyz789", "size": 50}],
+            "truncated": False,
+        }
+        mock_get_cached.return_value = cached_data
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/live_debugger_repo_browser/tree/?repo=posthog&branch=master"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["sha"], "cached123")
+        self.assertEqual(data["tree"][0]["path"], "cached.py")
+
+    def test_tree_endpoint_missing_repo(self):
+        """Test tree endpoint with missing repo parameter"""
+        response = self.client.get(f"/api/projects/{self.team.id}/live_debugger_repo_browser/tree/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.json())
+
+    @patch("products.live_debugger.backend.github_client.get_branch_sha")
+    def test_tree_endpoint_no_integration(self, mock_get_sha):
+        """Test tree endpoint when no GitHub integration exists"""
+        mock_get_sha.side_effect = github_client.GitHubIntegrationNotFoundError("No GitHub integration found")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/live_debugger_repo_browser/tree/?repo=posthog&branch=master"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("error", response.json())
+
+    @patch("products.live_debugger.backend.github_client.get_branch_sha")
+    @patch("products.live_debugger.backend.github_client.get_file_content")
+    @patch("products.live_debugger.backend.github_cache.get_cached_file")
+    def test_file_endpoint_success(self, mock_get_cached, mock_get_file, mock_get_sha):
+        """Test successful file content retrieval"""
+        mock_get_cached.return_value = None
+        mock_get_sha.return_value = "abc123"
+        mock_get_file.return_value = {
+            "name": "test.py",
+            "path": "posthog/test.py",
+            "sha": "file123",
+            "size": 200,
+            "url": "https://api.github.com/repos/PostHog/posthog/contents/posthog/test.py",
+            "html_url": "https://github.com/PostHog/posthog/blob/master/posthog/test.py",
+            "git_url": "https://api.github.com/repos/PostHog/posthog/git/blobs/file123",
+            "download_url": "https://raw.githubusercontent.com/PostHog/posthog/master/posthog/test.py",
+            "type": "file",
+            "content": "def test(): pass",
+            "encoding": "utf-8",
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/live_debugger_repo_browser/file/?repo=posthog&branch=master&path=posthog/test.py"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["name"], "test.py")
+        self.assertEqual(data["content"], "def test(): pass")
+
+    @patch("products.live_debugger.backend.github_client.get_branch_sha")
+    @patch("products.live_debugger.backend.github_cache.get_cached_file")
+    def test_file_endpoint_from_cache(self, mock_get_cached, mock_get_sha):
+        """Test file retrieval from cache"""
+        mock_get_sha.return_value = "abc123"
+        cached_data = {
+            "name": "cached.py",
+            "path": "posthog/cached.py",
+            "sha": "cached_file123",
+            "size": 100,
+            "content": "# cached content",
+            "encoding": "utf-8",
+        }
+        mock_get_cached.return_value = cached_data
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/live_debugger_repo_browser/file/?repo=posthog&branch=master&path=posthog/cached.py"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["name"], "cached.py")
+        self.assertEqual(data["content"], "# cached content")
+
+    def test_file_endpoint_missing_repo(self):
+        """Test file endpoint with missing repo parameter"""
+        response = self.client.get(f"/api/projects/{self.team.id}/live_debugger_repo_browser/file/?path=test.py")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.json())
+
+    def test_file_endpoint_missing_path(self):
+        """Test file endpoint with missing path parameter"""
+        response = self.client.get(f"/api/projects/{self.team.id}/live_debugger_repo_browser/file/?repo=posthog")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.json())
+
+    @patch("products.live_debugger.backend.github_client.get_branch_sha")
+    def test_file_endpoint_no_integration(self, mock_get_sha):
+        """Test file endpoint when no GitHub integration exists"""
+        mock_get_sha.side_effect = github_client.GitHubIntegrationNotFoundError("No GitHub integration found")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/live_debugger_repo_browser/file/?repo=posthog&branch=master&path=test.py"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("error", response.json())
+
+
+class TestGitHubClientIntegration(APIBaseTest):
+    """
+    Integration tests for GitHub client using responses library.
+    Tests actual HTTP request construction, headers, and response parsing.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Create a mock GitHub integration
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"organization": "PostHog"},
+            sensitive_config={"access_token": "fake_token_12345"},
+        )
+
+        # Mock the GitHubIntegration wrapper
+        self.mock_github_integration = MagicMock()
+        self.mock_github_integration.organization.return_value = "PostHog"
+        self.mock_github_integration.integration.sensitive_config = {"access_token": "fake_token_12345"}
+        self.mock_github_integration.access_token_expired.return_value = False
+
+        # Patch get_github_integration to return our mock
+        self.get_integration_patcher = patch(
+            "products.live_debugger.backend.github_client.get_github_integration",
+            return_value=self.mock_github_integration,
+        )
+        self.get_integration_patcher.start()
+
+    def tearDown(self):
+        self.get_integration_patcher.stop()
+        super().tearDown()
+
+    def test_list_repositories_calls_integration(self):
+        """Test that list_repositories calls the GitHubIntegration.list_repositories method"""
+        # Mock the integration's list_repositories method
+        self.mock_github_integration.list_repositories.side_effect = [
+            ["posthog", "billing"],
+            [],  # Empty list signals end of pagination
+        ]
+
+        repos = github_client.list_repositories(self.team)
+
+        self.assertEqual(len(repos), 2)
+        self.assertEqual(repos[0]["name"], "posthog")
+        self.assertEqual(repos[0]["full_name"], "PostHog/posthog")
+        self.assertEqual(repos[1]["name"], "billing")
+        self.assertEqual(repos[1]["full_name"], "PostHog/billing")
+
+        # Verify the integration method was called with correct pages
+        self.assertEqual(self.mock_github_integration.list_repositories.call_count, 2)
+        self.mock_github_integration.list_repositories.assert_any_call(page=1)
+        self.mock_github_integration.list_repositories.assert_any_call(page=2)
+
+    def test_list_repositories_pagination(self):
+        """Test that list_repositories handles pagination correctly"""
+        # Simulate multiple pages of results
+        self.mock_github_integration.list_repositories.side_effect = [
+            [f"repo{i}" for i in range(100)],  # Page 1
+            ["final-repo"],  # Page 2
+            [],  # End of results
+        ]
+
+        repos = github_client.list_repositories(self.team)
+
+        self.assertEqual(len(repos), 101)
+        self.assertEqual(repos[-1]["name"], "final-repo")
+        self.assertEqual(repos[-1]["full_name"], "PostHog/final-repo")
+        # Should have called with 3 pages
+        self.assertEqual(self.mock_github_integration.list_repositories.call_count, 3)
+
+    @responses.activate
+    def test_get_branch_sha_http_request(self):
+        """Test that get_branch_sha makes correct HTTP request and parses response"""
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/PostHog/posthog/branches/master",
+            json={"name": "master", "commit": {"sha": "abc123def456", "url": "..."}},
+            status=200,
+        )
+
+        sha = github_client.get_branch_sha(self.team, "posthog", "master")
+
+        self.assertEqual(sha, "abc123def456")
+
+        # Verify request
+        self.assertEqual(len(responses.calls), 1)
+        request = responses.calls[0].request
+        self.assertEqual(request.url, "https://api.github.com/repos/PostHog/posthog/branches/master")
+        self.assertEqual(request.headers["Authorization"], "Bearer fake_token_12345")
+        self.assertEqual(request.headers["Accept"], "application/vnd.github+json")
+
+    @responses.activate
+    def test_get_branch_sha_404_handling(self):
+        """Test that get_branch_sha handles 404 correctly"""
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/PostHog/posthog/branches/nonexistent",
+            json={"message": "Branch not found"},
+            status=404,
+        )
+
+        with self.assertRaises(github_client.GitHubClientError) as ctx:
+            github_client.get_branch_sha(self.team, "posthog", "nonexistent")
+
+        self.assertIn("Branch 'nonexistent' not found", str(ctx.exception))
+
+    @responses.activate
+    def test_get_repository_tree_http_request(self):
+        """Test that get_repository_tree makes correct request and filters Python files"""
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/PostHog/posthog/git/trees/abc123",
+            json={
+                "sha": "abc123",
+                "url": "...",
+                "tree": [
+                    {"path": "test.py", "type": "blob", "sha": "file1"},
+                    {"path": "README.md", "type": "blob", "sha": "file2"},
+                    {"path": "posthog/models.py", "type": "blob", "sha": "file3"},
+                    {"path": "posthog", "type": "tree", "sha": "dir1"},
+                    {"path": "package.json", "type": "blob", "sha": "file4"},
+                ],
+                "truncated": False,
+            },
+            status=200,
+        )
+
+        tree_data = github_client.get_repository_tree(self.team, "posthog", "abc123")
+
+        # Should only include .py files and directories
+        self.assertEqual(len(tree_data["tree"]), 3)
+        paths = [item["path"] for item in tree_data["tree"]]
+        self.assertIn("test.py", paths)
+        self.assertIn("posthog/models.py", paths)
+        self.assertIn("posthog", paths)
+        self.assertNotIn("README.md", paths)
+        self.assertNotIn("package.json", paths)
+
+        # Verify request
+        request = responses.calls[0].request
+        self.assertEqual(request.url, "https://api.github.com/repos/PostHog/posthog/git/trees/abc123?recursive=1")
+        self.assertEqual(request.headers["Authorization"], "Bearer fake_token_12345")
+
+    @responses.activate
+    def test_get_file_content_http_request(self):
+        """Test that get_file_content makes correct request and decodes base64 content"""
+        import base64
+
+        content = "def test():\n    pass"
+        encoded_content = base64.b64encode(content.encode()).decode()
+
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/PostHog/posthog/contents/test.py",
+            json={
+                "name": "test.py",
+                "path": "test.py",
+                "sha": "file123",
+                "size": len(content),
+                "encoding": "base64",
+                "content": encoded_content,
+                "url": "...",
+            },
+            status=200,
+        )
+
+        file_data = github_client.get_file_content(self.team, "posthog", "test.py")
+
+        # Should decode base64 content
+        self.assertEqual(file_data["name"], "test.py")
+        self.assertEqual(file_data["content"], content)
+        self.assertEqual(file_data["encoding"], "base64")
+
+        # Verify request
+        request = responses.calls[0].request
+        self.assertEqual(request.url, "https://api.github.com/repos/PostHog/posthog/contents/test.py")
+        self.assertEqual(request.headers["Authorization"], "Bearer fake_token_12345")
+
+    @responses.activate
+    def test_get_file_content_404_handling(self):
+        """Test that get_file_content handles 404 correctly"""
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/PostHog/posthog/contents/nonexistent.py",
+            json={"message": "Not Found"},
+            status=404,
+        )
+
+        with self.assertRaises(github_client.GitHubClientError) as ctx:
+            github_client.get_file_content(self.team, "posthog", "nonexistent.py")
+
+        self.assertIn("File 'nonexistent.py' not found", str(ctx.exception))
+
+    @responses.activate
+    def test_token_refresh_on_401(self):
+        """Test that 401 triggers token refresh and retry"""
+
+        # Setup refresh to update token
+        def refresh_token():
+            self.mock_github_integration.integration.sensitive_config["access_token"] = "new_token"
+
+        self.mock_github_integration.refresh_access_token.side_effect = refresh_token
+
+        # First request returns 401
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/PostHog/posthog/branches/master",
+            json={"message": "Unauthorized"},
+            status=401,
+        )
+        # Second request (after refresh) succeeds
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/PostHog/posthog/branches/master",
+            json={"name": "master", "commit": {"sha": "abc123"}},
+            status=200,
+        )
+
+        sha = github_client.get_branch_sha(self.team, "posthog", "master")
+
+        self.assertEqual(sha, "abc123")
+        # Should have made 2 requests
+        self.assertEqual(len(responses.calls), 2)
+        # Token refresh should have been called
+        self.mock_github_integration.refresh_access_token.assert_called_once()
+
+    @responses.activate
+    def test_python_file_filtering_comprehensive(self):
+        """Test comprehensive Python file filtering in get_repository_tree"""
+        responses.add(
+            responses.GET,
+            "https://api.github.com/repos/PostHog/posthog/git/trees/abc123",
+            json={
+                "sha": "abc123",
+                "tree": [
+                    # Should include
+                    {"path": "models.py", "type": "blob"},
+                    {"path": "deep/nested/utils.py", "type": "blob"},
+                    {"path": "__init__.py", "type": "blob"},
+                    {"path": "src", "type": "tree"},
+                    # Should exclude
+                    {"path": "README.md", "type": "blob"},
+                    {"path": "package.json", "type": "blob"},
+                    {"path": "test.js", "type": "blob"},
+                    {"path": "Dockerfile", "type": "blob"},
+                    {"path": ".gitignore", "type": "blob"},
+                    {"path": "setup.py~", "type": "blob"},  # backup file
+                    {"path": "test.pyc", "type": "blob"},  # compiled python
+                ],
+            },
+            status=200,
+        )
+
+        tree_data = github_client.get_repository_tree(self.team, "posthog", "abc123")
+
+        paths = {item["path"] for item in tree_data["tree"]}
+        # Should include .py files and directories
+        self.assertIn("models.py", paths)
+        self.assertIn("deep/nested/utils.py", paths)
+        self.assertIn("__init__.py", paths)
+        self.assertIn("src", paths)
+
+        # Should exclude non-.py files
+        self.assertNotIn("README.md", paths)
+        self.assertNotIn("package.json", paths)
+        self.assertNotIn("test.js", paths)
+        self.assertNotIn("Dockerfile", paths)
+        self.assertNotIn(".gitignore", paths)
+        self.assertNotIn("setup.py~", paths)
+        self.assertNotIn("test.pyc", paths)
