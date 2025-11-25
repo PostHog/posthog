@@ -13,7 +13,7 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { UUID7 } from '../../utils/utils'
-import { isOkResult } from '../pipelines/results'
+import { PipelineResultType, isOkResult } from '../pipelines/results'
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
@@ -665,6 +665,139 @@ describe('CookielessManager', () => {
 
                 expect(result.headers).toEqual(testHeaders)
                 expect(result.event).toBe(nonCookielessEvent)
+            })
+        })
+
+        describe('ingestion warnings', () => {
+            beforeEach(async () => {
+                await setModeForTeam(CookielessServerHashMode.Stateful)
+            })
+
+            it('should emit warning when timestamp is missing', async () => {
+                const eventWithoutTimestamp = deepFreeze({
+                    ...event,
+                    now: undefined as any,
+                    timestamp: undefined as any,
+                    sent_at: undefined as any,
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    {
+                        event: eventWithoutTimestamp,
+                        team,
+                        message,
+                        headers: { force_disable_person_processing: false },
+                    },
+                ])
+                expect(response.length).toBe(1)
+                const result = response[0]
+
+                expect(result.type).toBe(PipelineResultType.DROP)
+                if (result.type === PipelineResultType.DROP) {
+                    expect(result.reason).toBe('cookieless_missing_timestamp')
+                }
+                expect(result.warnings).toHaveLength(1)
+                expect(result.warnings[0]).toMatchObject({
+                    type: 'cookieless_missing_timestamp',
+                    details: {
+                        eventUuid: eventWithoutTimestamp.uuid,
+                        event: eventWithoutTimestamp.event,
+                        distinctId: eventWithoutTimestamp.distinct_id,
+                    },
+                })
+            })
+
+            it('should emit warning when user agent is missing', async () => {
+                const eventWithoutUA = deepFreeze({
+                    ...event,
+                    properties: {
+                        ...event.properties,
+                        $raw_user_agent: undefined,
+                    },
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    { event: eventWithoutUA, team, message, headers: { force_disable_person_processing: false } },
+                ])
+                expect(response.length).toBe(1)
+                const result = response[0]
+
+                expect(result.type).toBe(PipelineResultType.DROP)
+                if (result.type === PipelineResultType.DROP) {
+                    expect(result.reason).toBe('cookieless_missing_ua')
+                }
+                expect(result.warnings).toHaveLength(1)
+                expect(result.warnings[0]).toMatchObject({
+                    type: 'cookieless_missing_user_agent',
+                    details: {
+                        eventUuid: eventWithoutUA.uuid,
+                        event: eventWithoutUA.event,
+                        distinctId: eventWithoutUA.distinct_id,
+                        missingProperty: '$raw_user_agent',
+                    },
+                })
+            })
+
+            it('should emit warning when IP is missing', async () => {
+                const eventWithoutIP = deepFreeze({
+                    ...event,
+                    properties: {
+                        ...event.properties,
+                        $ip: undefined,
+                    },
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    { event: eventWithoutIP, team, message, headers: { force_disable_person_processing: false } },
+                ])
+                expect(response.length).toBe(1)
+                const result = response[0]
+
+                expect(result.type).toBe(PipelineResultType.DROP)
+                if (result.type === PipelineResultType.DROP) {
+                    expect(result.reason).toBe('cookieless_missing_ip')
+                }
+                expect(result.warnings).toHaveLength(1)
+                expect(result.warnings[0]).toMatchObject({
+                    type: 'cookieless_missing_ip',
+                    details: {
+                        eventUuid: eventWithoutIP.uuid,
+                        event: eventWithoutIP.event,
+                        distinctId: eventWithoutIP.distinct_id,
+                        missingProperty: '$ip',
+                    },
+                })
+            })
+
+            it('should emit warning when host is missing', async () => {
+                const eventWithoutHost = deepFreeze({
+                    ...event,
+                    properties: {
+                        ...event.properties,
+                        $host: undefined,
+                    },
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    { event: eventWithoutHost, team, message, headers: { force_disable_person_processing: false } },
+                ])
+                expect(response.length).toBe(1)
+                const result = response[0]
+
+                expect(result.type).toBe(PipelineResultType.DROP)
+                if (result.type === PipelineResultType.DROP) {
+                    expect(result.reason).toBe('cookieless_missing_host')
+                }
+                expect(result.warnings).toHaveLength(1)
+                expect(result.warnings[0]).toMatchObject({
+                    type: 'cookieless_missing_host',
+                    details: {
+                        eventUuid: eventWithoutHost.uuid,
+                        event: eventWithoutHost.event,
+                        distinctId: eventWithoutHost.distinct_id,
+                        missingProperty: '$host',
+                    },
+                })
             })
         })
     })

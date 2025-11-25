@@ -353,7 +353,20 @@ export class CookielessManager {
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
             if (!timestamp) {
-                results[i] = drop('cookieless_missing_timestamp')
+                results[i] = drop(
+                    'cookieless_missing_timestamp',
+                    [],
+                    [
+                        {
+                            type: 'cookieless_missing_timestamp',
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                        },
+                    ]
+                )
                 continue
             }
 
@@ -376,8 +389,38 @@ export class CookielessManager {
                 timezone: eventTimeZone,
             } = getProperties(event, timestamp)
             if (!userAgent || !ip || !host) {
+                let reason: string
+                let type: string
+                let missingProperty: string
+
+                if (!userAgent) {
+                    reason = 'cookieless_missing_ua'
+                    type = 'cookieless_missing_user_agent'
+                    missingProperty = '$raw_user_agent'
+                } else if (!ip) {
+                    reason = 'cookieless_missing_ip'
+                    type = 'cookieless_missing_ip'
+                    missingProperty = '$ip'
+                } else {
+                    reason = 'cookieless_missing_host'
+                    type = 'cookieless_missing_host'
+                    missingProperty = '$host'
+                }
+
                 results[i] = drop(
-                    !userAgent ? 'cookieless_missing_ua' : !ip ? 'cookieless_missing_ip' : 'cookieless_missing_host'
+                    reason,
+                    [],
+                    [
+                        {
+                            type,
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                                missingProperty,
+                            },
+                        },
+                    ]
                 )
                 continue
             }
