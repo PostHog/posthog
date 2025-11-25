@@ -1078,7 +1078,6 @@ class SnowflakeClient:
                 values += ", "
                 field_names += ", "
 
-            field_name = field[0]
             update_clause += f'final."{field.name}" = stage."{field.name}"'
             field_names += f'"{field.name}"'
             values += f'stage."{field.name}"'
