@@ -548,7 +548,6 @@ export const logsLogic = kea<logsLogicType>([
                 return newest
             },
         ],
-        logsCanLoadMore: [(s) => [s.hasMoreLogsToLoad], (hasMoreLogsToLoad) => hasMoreLogsToLoad],
     })),
 
     listeners(({ values, actions }) => ({

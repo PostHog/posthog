@@ -64,7 +64,7 @@ export function LogsScene(): JSX.Element {
         sparklineLoading,
         timestampFormat,
         isPinned,
-        logsCanLoadMore,
+        hasMoreLogsToLoad,
     } = useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline, loadMoreLogs } = useActions(logsLogic)
 
@@ -167,9 +167,9 @@ export function LogsScene(): JSX.Element {
                                 loading={logsLoading}
                                 fullWidth
                                 center
-                                disabled={!logsCanLoadMore || logsLoading}
+                                disabled={!hasMoreLogsToLoad || logsLoading}
                             >
-                                {logsCanLoadMore
+                                {hasMoreLogsToLoad
                                     ? `Showing first ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'} – click to load more`
                                     : `Showing all ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'}`}
                             </LemonButton>
