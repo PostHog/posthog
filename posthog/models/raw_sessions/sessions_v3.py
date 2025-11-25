@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
 
     -- urls
-    urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+    urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
     entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     end_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
     last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC')),
@@ -161,6 +161,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- Flags - store every seen value for each flag
     flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+    flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+
+    -- Event names - store unique event names seen in this session
+    event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
 
     -- Replay
     has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -172,9 +176,26 @@ def SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3():
     return AggregatingMergeTree(TABLE_BASE_NAME_V3, replication_scheme=ReplicationScheme.SHARDED)
 
 
+def SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3():
+    # try to make the backfill self-regulating by leaning on insert delays
+    return "parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000"
+
+
 def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
+    # For the sharded table, we need to add the index definition in the column list
+    # Remove the closing parenthesis and ENGINE from base SQL
+    base_sql = RAW_SESSIONS_TABLE_BASE_SQL_V3.replace(
+        ") ENGINE = {engine}",
+        """,
+
+    -- Indexes
+    INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+    INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
+) ENGINE = {engine}""",
+    )
+
     return (
-        RAW_SESSIONS_TABLE_BASE_SQL_V3
+        base_sql
         + """
 PARTITION BY toYYYYMM(session_timestamp)
 ORDER BY (
@@ -182,10 +203,18 @@ ORDER BY (
     session_timestamp,
     session_id_v7
 )
+SETTINGS {settings}
 """
     ).format(
         table_name=SHARDED_RAW_SESSIONS_TABLE_V3(),
         engine=SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
+        settings=SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3(),
+    )
+
+
+def ALTER_SHARDED_RAW_SESSIONS_TABLE_SETTINGS_V3():
+    return (
+        f"ALTER TABLE {SHARDED_RAW_SESSIONS_TABLE_V3()} MODIFY SETTING {SHARDED_RAW_SESSIONS_DATA_TABLE_SETTINGS_V3()}"
     )
 
 
@@ -344,6 +373,10 @@ SELECT
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+    mapKeys(properties_group_feature_flags) as flag_keys,
+
+    -- event names
+    [event] as event_names,
 
     false as has_replay_events
 FROM {source_table} AS source_table
@@ -462,6 +495,10 @@ SELECT
 
     -- flags
     initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+    CAST([], 'Array(String)') as flag_keys,
+
+    -- event names
+    CAST([], 'Array(String)') as event_names,
 
     -- replay
     true as has_replay_events
@@ -492,7 +529,7 @@ AS
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE"):
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE", use_sharded_source=True):
     return """
 INSERT INTO {database}.{writable_table}
 {select_sql}
@@ -501,12 +538,14 @@ INSERT INTO {database}.{writable_table}
         writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=where,
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
+            if use_sharded_source
+            else f"{settings.CLICKHOUSE_DATABASE}.events",
         ),
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where="TRUE"):
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where="TRUE", use_sharded_source=True):
     return """
 INSERT INTO {database}.{writable_table}
 {select_sql}
@@ -515,7 +554,9 @@ INSERT INTO {database}.{writable_table}
         writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
             where=where,
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_session_replay_events"
+            if use_sharded_source
+            else f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
         ),
     )
 
@@ -568,7 +609,7 @@ SELECT
     max(max_inserted_at) as max_inserted_at,
 
     -- urls
-    arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
+    groupUniqArrayArray(2000)(urls) AS urls,
     argMinMerge(entry_url) as entry_url,
     argMaxMerge(end_url) as end_url,
     argMaxMerge(last_external_click_url) as last_external_click_url,
@@ -619,6 +660,10 @@ SELECT
 
     -- flags
     groupUniqArrayMapMerge(flag_values) as flag_values,
+    groupUniqArrayArray(flag_keys) as flag_keys,
+
+    -- event names
+    groupUniqArrayArray(2000)(event_names) as event_names,
 
     -- replay
     max(has_replay_events) as has_replay_events

@@ -47,6 +47,7 @@ from posthog.schema import (
     SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
+    SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
     SuggestedQuestionsQuery,
@@ -286,6 +287,16 @@ def get_query_runner(
 
         return EventsQueryRunner(
             query=cast(EventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "SessionsQuery":
+        from .sessions_query_runner import SessionsQueryRunner
+
+        return SessionsQueryRunner(
+            query=cast(SessionsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1270,6 +1281,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "products_modifiers": {
                 "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
                 "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
+                "customer_analytics": self.team.customer_analytics_config.to_cache_key_dict(),
             },
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
@@ -1278,7 +1290,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         }
 
     def get_cache_key(self) -> str:
-        return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
+        return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
     def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
         """
@@ -1420,6 +1432,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.query.dateRange = DateRange()
             self.query.dateRange.date_from = dashboard_filter.date_from
             self.query.dateRange.date_to = dashboard_filter.date_to
+
+            if dashboard_filter.explicitDate is not None:
+                self.query.dateRange.explicitDate = dashboard_filter.explicitDate
 
         if dashboard_filter.breakdown_filter:
             if hasattr(self.query, "breakdownFilter"):

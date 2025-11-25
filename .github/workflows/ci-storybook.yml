@@ -1,6 +1,7 @@
 name: Storybook
 on:
     pull_request:
+    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -19,6 +20,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run storybook checks
+        if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
             frontend: ${{ steps.filter.outputs.frontend }}
@@ -105,10 +107,10 @@ jobs:
                     echo "Workflow triggered by: $AUTHOR"
                     if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
                       echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
+                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
                       echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "✓ Running in UPDATE mode - snapshots can be updated"
+                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
                     fi
                   fi
 
@@ -339,7 +341,7 @@ jobs:
 
                     if [ $EXIT_CODE -ne 0 ]; then
                       # Still failing - check if we should update snapshots
-                      if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to be the same size)" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log 2>/dev/null; then
+                      if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to)" /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt2.log 2>/dev/null; then
                         echo "Snapshot failure confirmed on attempt 2 - updating snapshots"
                         # Attempt 3: Update snapshots
                         echo "Attempt 3: Running @storybook/test-runner (update)"

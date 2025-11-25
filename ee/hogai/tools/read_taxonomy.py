@@ -5,9 +5,10 @@ from pydantic import BaseModel, Field, create_model
 
 from posthog.models import Team, User
 
+from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.helpers import format_events_yaml
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
@@ -16,6 +17,7 @@ Use this tool to explore the user's taxonomy (i.e. data schema).
 The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc.
 Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else.
 Events or properties starting from "$" are system properties automatically captured by SDKs.
+Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.
 
 # Examples of when to use the read_taxonomy tool
 
@@ -146,7 +148,9 @@ class ReadTaxonomyTool(MaxTool):
             case ReadEntitySamplePropertyValues() as schema:
                 res = toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
             case _:
-                raise ValueError(f"Invalid query: {query}")
+                raise MaxToolRetryableError(
+                    f"Invalid query type: The query structure '{type(validated_query).__name__}' is not recognized."
+                )
         return res, None
 
     @classmethod

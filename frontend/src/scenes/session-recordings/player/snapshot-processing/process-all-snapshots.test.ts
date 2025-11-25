@@ -338,7 +338,7 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots(convertInput(mockCompressedData), sessionId)
 
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock)
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock, { isParallel: false })
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe('1')
             expect(result[0].timestamp).toBe(1234567890)
@@ -422,7 +422,7 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots(fakeRawSnappyData, sessionId)
 
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData)
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData, { isParallel: false })
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe('1')
             expect(result[0].timestamp).toBe(1234567890)

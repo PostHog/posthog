@@ -25,7 +25,12 @@ from psycopg import sql
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
-from products.batch_exports.backend.temporal.pipeline.table import Table, TypeTupleToCastMapping, are_types_compatible
+from products.batch_exports.backend.temporal.pipeline.table import (
+    Field,
+    Table,
+    TypeTupleToCastMapping,
+    are_types_compatible,
+)
 
 logger = get_write_only_logger()
 
@@ -704,6 +709,21 @@ class CSVStreamTransformer:
         return buffer.getvalue()
 
 
+class IncompatibleTypesError(TypeError):
+    """Exception for incompatible types between source and destination.
+
+    We subclass `TypeError` as Temporal matches on exception name to decide whether to
+    retry or not. With a subclass this means we can decide whether this particular error
+    is retryable or not while allowing callers to still handle it with
+    `except TypeError`.
+    """
+
+    def __init__(self, field: Field, array_type: pa.DataType):
+        super().__init__(
+            f"'{field.name}' has incoming type '{array_type}' which is not compatible with destination field's type: '{field.data_type}'"
+        )
+
+
 class SchemaTransformer:
     """Transformer to cast record batches into a new schema."""
 
@@ -711,9 +731,11 @@ class SchemaTransformer:
         self,
         table: Table,
         extra_compatible_types: TypeTupleToCastMapping | None = None,
+        raise_on_incompatible: bool = False,
     ):
         self.table = table
         self.extra_compatible_types = extra_compatible_types
+        self.raise_on_incompatible = raise_on_incompatible
 
     async def iter(
         self,
@@ -725,9 +747,13 @@ class SchemaTransformer:
     def cast_record_batch(self, record_batch: pa.RecordBatch) -> pa.RecordBatch:
         """Cast a record batch into a new schema that matches `self.table`.
 
-        If the record batch's schema already matches table, then nothing is cast.
+        If the record batch's schema already matches table, then nothing is cast. If a
+        particular field cannot be cast to the corresponding target field type, then an
+        exception is raised when `self.raise_on_incompatible` is `True`, otherwise we
+        optimistically assume the destination can handle the inconsistency.
         """
-        field_names = [field.name for field in self.table.fields]
+        schema_names = {field.name for field in record_batch.schema}
+        field_names = [field.name for field in self.table.fields if field.name in schema_names]
 
         arrays = []
         for field_name, array in zip(field_names, record_batch.select(field_names).itercolumns()):
@@ -741,12 +767,19 @@ class SchemaTransformer:
 
             if compatible:
                 assert cast is not None, "If types are compatible cast function should be defined"
-
                 arrays.append(cast(array))
             else:
-                raise TypeError(
-                    f"'{field_name}' has type '{array.type}' which is not compatible with field's type: '{field.data_type}'"
+                if self.raise_on_incompatible:
+                    raise IncompatibleTypesError(field, array.type)
+
+                logger.warning(
+                    "Detected incompatible types",
+                    field=field.name,
+                    source_type=array.type,
+                    field_type=field.data_type,
+                    table=self.table.fully_qualified_name,
                 )
+                arrays.append(array)
 
         return pa.RecordBatch.from_arrays(
             arrays,

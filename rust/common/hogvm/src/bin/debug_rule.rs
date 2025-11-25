@@ -7,6 +7,7 @@ use serde_json::Value;
 pub fn main() {
     // Load the rows - expected to be in the format of a JSON array, the result of
     // `select * from posthog_errortrackingassignmentrules WHERE <blah> LIMIT 1`
+    // nosemgrep: rust.lang.security.args.args
     let input_file = std::env::args().nth(1).expect("No input file provided");
     let data = std::fs::read_to_string(input_file).unwrap();
     let mut json: Value = serde_json::from_str(&data).unwrap();

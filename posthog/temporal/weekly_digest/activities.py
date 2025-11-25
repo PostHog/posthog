@@ -14,7 +14,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
-from posthog.ph_client import get_regional_ph_client
+from posthog.ph_client import get_client as get_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
@@ -51,7 +51,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateOrganizationDigestInput,
     OrganizationDigest,
     PlaylistCount,
-    RecordingList,
+    RecordingCount,
     SendWeeklyDigestBatchInput,
     SurveyList,
     TeamDigest,
@@ -262,7 +262,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
         )
 
 
-TTL_THRESHOLD = 7  # days
+TTL_THRESHOLD = 10  # days
 
 
 @activity.defn(name="generate-recording-lookup")
@@ -276,13 +276,13 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
             batch_end=input.batch[1],
         )
         logger = LOGGER.bind()
-        logger.info(f"Generating Replay recording batch")
+        logger.info(f"Generating Replay recording count batch")
 
         recording_count = 0
         team_count = 0
 
         async with redis.from_url(_redis_url(input.common)) as r, get_ch_client() as ch_client:
-            ch_query: str = SessionReplayEvents.get_soon_to_expire_sessions_query(format="JSON")
+            ch_query: str = SessionReplayEvents.count_soon_to_expire_sessions_query(format="JSON")
 
             batch_start, batch_end = input.batch
             async for team in query_teams_for_digest()[batch_start:batch_end]:
@@ -292,7 +292,6 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                         "python_now": datetime.now(UTC),
                         "ttl_days": await database_sync_to_async(ttl_days)(team),
                         "ttl_threshold": TTL_THRESHOLD,
-                        "limit": 10,
                     }
 
                     raw_response: bytes = b""
@@ -304,23 +303,23 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                         raw_response = await ch_response.content.read()
 
                     response = ClickHouseResponse.model_validate_json(raw_response)
-                    recordings = RecordingList.model_validate(response.data)
+                    expiring_recordings = RecordingCount.model_validate(response.data[0])
 
                     key: str = f"{input.digest.key}-expiring-recordings-{team.id}"
-                    await r.setex(key, input.common.redis_ttl, recordings.model_dump_json())
+                    await r.setex(key, input.common.redis_ttl, expiring_recordings.model_dump_json())
 
                     team_count += 1
-                    recording_count += len(recordings.root)
+                    recording_count += expiring_recordings.recording_count
                 except Exception as e:
                     logger.warning(
-                        f"Failed to generate Replay recordings for team {team.id}, skipping...",
+                        f"Failed to generate Replay recording count for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
                     )
                     continue
 
         logger.info(
-            f"Finished generating Replay recording batch",
+            f"Finished generating Replay recording count batch",
             recording_count=recording_count,
             team_count=team_count,
         )
@@ -406,21 +405,36 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
                             ]
                         )
 
-                        digest_data: list[str] = ["[]" if v is None else v for v in results]
+                        defaults = [
+                            DashboardList(root=[]),
+                            EventDefinitionList(root=[]),
+                            ExperimentList(root=[]),
+                            ExperimentList(root=[]),
+                            ExternalDataSourceList(root=[]),
+                            FeatureFlagList(root=[]),
+                            FilterList(root=[]),
+                            RecordingCount(recording_count=0),
+                            SurveyList(root=[]),
+                        ]
+
+                        digest_data = [
+                            default if result is None else default.__class__.model_validate_json(result)
+                            for default, result in zip(defaults, results)
+                        ]
 
                         team_digests.append(
                             TeamDigest(
                                 id=team.id,
                                 name=team.name,
-                                dashboards=DashboardList.model_validate_json(digest_data[0]),
-                                event_definitions=EventDefinitionList.model_validate_json(digest_data[1]),
-                                experiments_launched=ExperimentList.model_validate_json(digest_data[2]),
-                                experiments_completed=ExperimentList.model_validate_json(digest_data[3]),
-                                external_data_sources=ExternalDataSourceList.model_validate_json(digest_data[4]),
-                                feature_flags=FeatureFlagList.model_validate_json(digest_data[5]),
-                                filters=FilterList.model_validate_json(digest_data[6]),
-                                recordings=RecordingList.model_validate_json(digest_data[7]),
-                                surveys_launched=SurveyList.model_validate_json(digest_data[8]),
+                                dashboards=digest_data[0],
+                                event_definitions=digest_data[1],
+                                experiments_launched=digest_data[2],
+                                experiments_completed=digest_data[3],
+                                external_data_sources=digest_data[4],
+                                feature_flags=digest_data[5],
+                                filters=digest_data[6],
+                                expiring_recordings=digest_data[7],
+                                surveys_launched=digest_data[8],
                             )
                         )
                         team_count += 1
@@ -451,6 +465,10 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
         )
 
 
+RECORD_BATCH_SIZE = 100
+DIGEST_ITEM_COUNT_THRESHOLD = 4
+
+
 @activity.defn(name="send-weekly-digest-batch")
 async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     async with Heartbeater():
@@ -462,11 +480,14 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
-        ph_client: Posthog = get_regional_ph_client()
+        # Only US deployment forwards email events to customer.io
+        ph_client: Posthog = get_ph_client(region="US", sync_mode=True)
 
         if not ph_client and not input.dry_run:
             logger.error("Failed to set up Posthog client")
             return
+
+        messaging_record_batch: list[MessagingRecord] = []
 
         async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
@@ -481,9 +502,9 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         )
                         continue
 
-                    org_digest = OrganizationDigest.model_validate_json(raw_digest)
+                    org_digest: OrganizationDigest = OrganizationDigest.model_validate_json(raw_digest)
 
-                    if org_digest.is_empty():
+                    if org_digest.is_empty() or org_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD:
                         logger.warning(
                             "Got empty digest for organization, skipping...", organization_id=organization.id
                         )
@@ -494,7 +515,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
                     )
 
-                    if not created and messaging_record.sent_at:
+                    if not created and messaging_record.sent_at and not input.allow_already_sent:
                         logger.info(
                             f"Digest already sent for organization, skipping...", organization_id=organization.id
                         )
@@ -507,7 +528,10 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         )
                         user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
 
-                        if user_specific_digest.is_empty():
+                        if (
+                            user_specific_digest.is_empty()
+                            or user_specific_digest.count_items() < DIGEST_ITEM_COUNT_THRESHOLD
+                        ):
                             logger.warning(
                                 "Got empty digest for user, skipping...",
                                 organization_id=organization.id,
@@ -546,12 +570,15 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                     continue
                 finally:
                     if not input.dry_run and partial:
-                        ph_client.flush()
                         messaging_record.sent_at = timezone.now()
-                        await messaging_record.asave()
+                        messaging_record_batch.append(messaging_record)
 
-        if ph_client:
-            ph_client.shutdown()
+                    if len(messaging_record_batch) >= RECORD_BATCH_SIZE:
+                        await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
+                        messaging_record_batch = []
+
+        if len(messaging_record_batch) > 0:
+            await MessagingRecord.objects.abulk_update(messaging_record_batch, ["sent_at"])
 
         logger.info(
             "Finished sending weekly digest batch",

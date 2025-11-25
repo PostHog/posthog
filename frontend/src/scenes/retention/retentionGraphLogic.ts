@@ -3,6 +3,7 @@ import { connect, kea, key, path, props, selectors } from 'kea'
 import { QUnitType, dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { dateOptionPlurals } from 'scenes/retention/constants'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,6 +14,7 @@ import { InsightLogicProps, RetentionPeriod } from '~/types'
 import { dateOptionToTimeIntervalMap } from './constants'
 import type { retentionGraphLogicType } from './retentionGraphLogicType'
 import { MeanRetentionValue, retentionLogic } from './retentionLogic'
+import { formatRetentionCohortLabel } from './utils'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -50,11 +52,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         days: cohortRetention.values.map((value) => value.cellDate.toISOString()),
                         labels: cohortRetention.values.map((_, index) => `${period} ${index}`),
                         count: 0,
-                        label: cohortRetention.date
-                            ? period === 'Hour'
-                                ? cohortRetention.date.format('MMM D, h A')
-                                : cohortRetention.date.format('MMM D')
-                            : cohortRetention.label,
+                        label: formatRetentionCohortLabel(cohortRetention, period),
                         data: cohortRetention.values.map((value) => value.percentage),
                         index: datasetIndex,
                     }
@@ -254,6 +252,46 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 }
                 // Return series with matching breakdown value
                 return trendSeries.filter((series) => series.breakdown_value === selectedBreakdownValue)
+            },
+        ],
+
+        xAxisLabels: [
+            (s) => [s.retentionFilter, s.results, s.filteredResults],
+            (retentionFilter, results, filteredResults) => {
+                if (!retentionFilter || !results) {
+                    return []
+                }
+                const { period, retentionCustomBrackets, selectedInterval } = retentionFilter
+
+                // When an interval is selected, show cohort dates on x-axis
+                if (selectedInterval !== null && selectedInterval !== undefined) {
+                    const formatCohortLabel = (cohort: ProcessedRetentionPayload): string => {
+                        if (cohort.date) {
+                            return period === 'Hour' ? cohort.date.format('MMM D, h A') : cohort.date.format('MMM D')
+                        }
+                        return cohort.label
+                    }
+                    return filteredResults.map(formatCohortLabel)
+                }
+
+                const unit = dateOptionPlurals[period || 'Day']
+
+                if (retentionCustomBrackets) {
+                    const labels = [`${period || 'Day'} 0`]
+                    let cumulativeTotal = 1
+                    for (const bracketSize of retentionCustomBrackets) {
+                        const start = cumulativeTotal
+                        const end = cumulativeTotal + bracketSize - 1
+                        if (start === end) {
+                            labels.push(`${unit} ${start}`)
+                        } else {
+                            labels.push(`${unit} ${start}-${end}`)
+                        }
+                        cumulativeTotal += bracketSize
+                    }
+                    return labels
+                }
+                return results?.[0]?.values.map((_, i) => `${period} ${i}`)
             },
         ],
     }),

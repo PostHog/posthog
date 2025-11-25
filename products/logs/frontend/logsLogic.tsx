@@ -1,3 +1,4 @@
+import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -13,14 +14,16 @@ import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
+import { ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
+const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
@@ -41,6 +44,9 @@ export const logsLogic = kea<logsLogicType>([
             }
             if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
                 actions.setServiceNames(params.serviceNames)
+            }
+            if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
+                actions.setOrderBy(params.orderBy)
             }
         }
         return {
@@ -63,7 +69,8 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
-                actions.runQuery(300)
+                updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
+                actions.runQuery()
                 return params
             })
         }
@@ -74,6 +81,7 @@ export const logsLogic = kea<logsLogicType>([
             setSearchTerm: () => buildURL(),
             setSeverityLevels: () => buildURL(),
             setServiceNames: () => buildURL(),
+            setOrderBy: () => buildURL(),
         }
     }),
 
@@ -101,6 +109,14 @@ export const logsLogic = kea<logsLogicType>([
         zoomDateRange: (multiplier: number) => ({ multiplier }),
         setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
         setTimestampFormat: (timestampFormat: 'absolute' | 'relative') => ({ timestampFormat }),
+        addFilter: (key: string, value: string, operator: PropertyOperator = PropertyOperator.Exact) => ({
+            key,
+            value,
+            operator,
+        }),
+        togglePinLog: (logId: string) => ({ logId }),
+        pinLog: (log: LogMessage) => ({ log }),
+        unpinLog: (logId: string) => ({ logId }),
     }),
 
     reducers({
@@ -112,7 +128,7 @@ export const logsLogic = kea<logsLogicType>([
             },
         ],
         orderBy: [
-            'latest' as LogsQuery['orderBy'],
+            DEFAULT_ORDER_BY,
             { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
@@ -213,6 +229,14 @@ export const logsLogic = kea<logsLogicType>([
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
             },
         ],
+        pinnedLogs: [
+            [] as LogMessage[],
+            { persist: true },
+            {
+                pinLog: (state, { log }) => [...state, log],
+                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -286,6 +310,40 @@ export const logsLogic = kea<logsLogicType>([
                     : dateRange.date_to,
                 explicitDate: dateRange.explicitDate,
             }),
+        ],
+        parsedLogs: [
+            (s) => [s.logs],
+            (logs: LogMessage[]): ParsedLogMessage[] => {
+                return logs.map((log: LogMessage) => {
+                    const cleanBody = colors.unstyle(log.body)
+                    let parsedBody: JsonType | null = null
+                    try {
+                        parsedBody = JSON.parse(cleanBody)
+                    } catch {
+                        // Not JSON, that's fine
+                    }
+                    return { ...log, cleanBody, parsedBody }
+                })
+            },
+        ],
+        pinnedParsedLogs: [
+            (s) => [s.pinnedLogs],
+            (pinnedLogs: LogMessage[]): ParsedLogMessage[] => {
+                return pinnedLogs.map((log: LogMessage) => {
+                    const cleanBody = colors.unstyle(log.body)
+                    let parsedBody: JsonType | null = null
+                    try {
+                        parsedBody = JSON.parse(cleanBody)
+                    } catch {
+                        // Not JSON, that's fine
+                    }
+                    return { ...log, cleanBody, parsedBody }
+                })
+            },
+        ],
+        isPinned: [
+            (s) => [s.pinnedLogs],
+            (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
         ],
         sparklineData: [
             (s) => [s.sparkline],
@@ -374,6 +432,35 @@ export const logsLogic = kea<logsLogicType>([
                 date_to: dateTo,
             }
             actions.setDateRange(newDateRange)
+        },
+        addFilter: ({ key, value, operator }) => {
+            const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
+
+            const newGroup: UniversalFiltersGroup = {
+                ...currentGroup,
+                values: [
+                    ...currentGroup.values,
+                    {
+                        key,
+                        value: [value],
+                        operator,
+                        type: PropertyFilterType.Log,
+                    },
+                ],
+            }
+
+            actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
+        },
+        togglePinLog: ({ logId }) => {
+            const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
+            if (isPinned) {
+                actions.unpinLog(logId)
+            } else {
+                const logToPin = values.logs.find((log) => log.uuid === logId)
+                if (logToPin) {
+                    actions.pinLog(logToPin)
+                }
+            }
         },
     })),
 ])

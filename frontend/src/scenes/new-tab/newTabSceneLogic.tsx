@@ -187,8 +187,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             dataset,
             prefix,
         }),
-        setSearchInputRef: (ref: RefObject<SearchInputHandle> | null) => ({ ref }),
-        focusSearchInput: true,
+        setNewTabSearchInputRef: (ref: RefObject<SearchInputHandle> | null) => ({ ref }),
+        focusNewTabSearchInput: true,
     }),
     loaders(({ values, actions }) => ({
         sceneLogViews: [
@@ -594,10 +594,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 },
             },
         ],
-        searchInputRef: [
+        newTabSearchInputRef: [
             null as RefObject<SearchInputHandle> | null,
             {
-                setSearchInputRef: (_, { ref }) => ref,
+                setNewTabSearchInputRef: (_, { ref }) => ref,
             },
         ],
     }),
@@ -826,7 +826,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'ask-ai',
                     name: searchTerm ? `Ask: ${searchTerm}` : 'Ask Posthog AI anything...',
                     category: 'askAI',
-                    href: urls.max(undefined, searchTerm),
+                    href: urls.ai(undefined, searchTerm),
                     icon: <IconSparkles />,
                     record: {
                         type: 'ai',
@@ -840,7 +840,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'open-ai',
                     name: 'Open',
                     category: 'askAI',
-                    href: urls.max(undefined, undefined),
+                    href: urls.ai(undefined, undefined),
                     icon: <IconArrowRight />,
                     record: {
                         type: 'ai',
@@ -1721,9 +1721,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             await breakpoint(300)
             actions.loadGroupSearchResults({ searchTerm })
         },
-        focusSearchInput: () => {
-            if (values.searchInputRef?.current) {
-                values.searchInputRef.current.focus()
+        focusNewTabSearchInput: () => {
+            if (values.newTabSearchInputRef?.current) {
+                values.newTabSearchInputRef.current.focus()
             }
         },
     })),
