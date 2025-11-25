@@ -1,3 +1,4 @@
+import time
 from collections.abc import AsyncGenerator
 from typing import cast
 
@@ -8,6 +9,7 @@ import pydantic
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
+from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -38,6 +40,12 @@ from ee.hogai.utils.types.base import AssistantMode
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+
+STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_stream_iteration_latency_seconds",
+    "Time between iterations in the async stream loop",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
 
 
 def is_team_exempt_from_rate_limits(team_id: int) -> bool:
@@ -214,7 +222,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             stream_manager = AgentExecutor(
                 conversation, timeout=CHAT_AGENT_WORKFLOW_TIMEOUT, max_length=CHAT_AGENT_STREAM_MAX_LENGTH
             )
+            last_iteration_time = time.time()
             async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
+                chunk_received_time = time.time()
+                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(chunk_received_time - last_iteration_time)
+                last_iteration_time = chunk_received_time
+
                 event = await serializer.dumps(chunk)
                 yield event.encode("utf-8")
 

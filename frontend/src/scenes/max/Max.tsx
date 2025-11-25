@@ -94,6 +94,7 @@ export const MaxInstance = React.memo(function MaxInstance({
     tabId,
     isAIOnlyMode,
 }: MaxInstanceProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         threadVisible,
         conversationHistoryVisible,
@@ -189,9 +190,11 @@ export const MaxInstance = React.memo(function MaxInstance({
                             {chatTitle || (
                                 <>
                                     PostHog AI
-                                    <LemonTag size="small" type="warning" className="ml-2">
-                                        BETA
-                                    </LemonTag>
+                                    {!featureFlags[FEATURE_FLAGS.POSTHOG_AI_GENERAL_AVAILABILITY] && (
+                                        <LemonTag size="small" type="warning" className="ml-2">
+                                            BETA
+                                        </LemonTag>
+                                    )}
                                 </>
                             )}
                         </h3>

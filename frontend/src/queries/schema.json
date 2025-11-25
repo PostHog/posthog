@@ -8338,6 +8338,10 @@
                     "$ref": "#/definitions/DataTableNodeViewPropsContext",
                     "description": "Context for the table, used by components like ColumnConfigurator"
                 },
+                "contextKey": {
+                    "description": "Context key for universal column configuration (e.g., \"survey:123\")",
+                    "type": "string"
+                },
                 "defaultColumns": {
                     "description": "Default columns to use when resetting column configuration",
                     "items": {
@@ -17696,6 +17700,15 @@
                     },
                     "type": "array"
                 },
+                "custom_source_mappings": {
+                    "additionalProperties": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "type": "object"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "$ref": "#/definitions/SourceMap"
@@ -25687,6 +25700,10 @@
                 "context": {
                     "$ref": "#/definitions/DataTableNodeViewPropsContext",
                     "description": "Context for the table, used by components like ColumnConfigurator"
+                },
+                "contextKey": {
+                    "description": "Context key for universal column configuration (e.g., \"survey:123\")",
+                    "type": "string"
                 },
                 "defaultColumns": {
                     "description": "Default columns to use when resetting column configuration",
