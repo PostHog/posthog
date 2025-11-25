@@ -26,11 +26,13 @@ const TriggerPopover = ({
     const { blastRadius } = useValues(
         batchTriggerLogic({
             id: props.id,
-            filters: workflow?.trigger.type === 'batch' ? workflow.trigger.filters : null,
+            filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
         })
     )
 
-    const isScheduleTrigger = Boolean(workflow?.trigger?.scheduled_at)
+    const isScheduleTrigger =
+        (workflow?.trigger?.type === 'schedule' || workflow?.trigger?.type === 'batch') &&
+        Boolean(workflow?.trigger?.scheduled_at)
 
     const getButtonCopy = (): string => {
         switch (workflow?.trigger?.type) {
