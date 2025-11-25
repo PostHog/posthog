@@ -240,7 +240,7 @@ async def create_npm_release_monitor_schedule(client: Client):
                     lookback_hours=1,
                     github_token=getattr(settings, "GITHUB_TOKEN", None),
                     slack_webhook_url=getattr(settings, "NPM_RELEASE_MONITOR_SLACK_WEBHOOK", None),
-                    alert_email=getattr(settings, "NPM_RELEASE_MONITOR_ALERT_EMAIL", None),
+                    incident_io_api_key=getattr(settings, "INCIDENT_IO_API_KEY", None),
                 )
             ),
             id="npm-release-monitor-schedule",

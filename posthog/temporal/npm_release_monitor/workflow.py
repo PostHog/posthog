@@ -28,7 +28,7 @@ class NpmReleaseMonitorInputs:
     lookback_hours: int = 1
     github_token: str | None = None
     slack_webhook_url: str | None = None
-    alert_email: str | None = None
+    incident_io_api_key: str | None = None
 
 
 @workflow.defn(name="npm-release-monitor")
@@ -128,7 +128,7 @@ class NpmReleaseMonitorWorkflow(PostHogWorkflow):
                 SendAlertsInput(
                     unauthorized_releases=correlation_result.unauthorized_releases,
                     slack_webhook_url=inputs.slack_webhook_url,
-                    alert_email=inputs.alert_email,
+                    incident_io_api_key=inputs.incident_io_api_key,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
@@ -140,6 +140,7 @@ class NpmReleaseMonitorWorkflow(PostHogWorkflow):
                 "unauthorized_releases": correlation_result.unauthorized_releases,
                 "correlated_releases": correlation_result.correlated_releases,
                 "alerts_sent": alert_result.alerts_sent,
+                "incidents_created": alert_result.incidents_created,
                 "alert_errors": alert_result.errors,
                 "npm_errors": npm_result.errors,
                 "github_errors": github_result.errors,

@@ -285,27 +285,28 @@ async def correlate_releases(input: CorrelateReleasesInput) -> CorrelateReleases
 @dataclasses.dataclass
 class SendAlertsInput:
     unauthorized_releases: list[dict]
-    alert_email: str | None = None
     slack_webhook_url: str | None = None
+    incident_io_api_key: str | None = None
 
 
 @dataclasses.dataclass
 class SendAlertsOutput:
     alerts_sent: int
+    incidents_created: int
     errors: list[str]
 
 
 @activity.defn(name="npm-release-monitor-send-alerts")
 async def send_alerts(input: SendAlertsInput) -> SendAlertsOutput:
-    """Send alerts for unauthorized releases."""
+    """Send alerts for unauthorized releases via Slack and incident.io."""
     from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
-    from posthog.email import EmailMessage
 
     alerts_sent = 0
+    incidents_created = 0
     errors: list[str] = []
 
     if not input.unauthorized_releases:
-        return SendAlertsOutput(alerts_sent=0, errors=[])
+        return SendAlertsOutput(alerts_sent=0, incidents_created=0, errors=[])
 
     for release in input.unauthorized_releases:
         logger.critical(
@@ -338,12 +339,12 @@ async def send_alerts(input: SendAlertsInput) -> SendAlertsOutput:
             errors.append(f"Failed to produce internal event: {e!s}")
             logger.exception("Failed to send alert", error=str(e))
 
-    if input.slack_webhook_url:
-        async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession() as session:
+        if input.slack_webhook_url:
             for release in input.unauthorized_releases:
                 try:
                     payload = {
-                        "text": f":rotating_light: *SECURITY ALERT: Unauthorized npm release detected*",
+                        "text": ":rotating_light: *SECURITY ALERT: Unauthorized npm release detected*",
                         "blocks": [
                             {
                                 "type": "header",
@@ -380,29 +381,61 @@ async def send_alerts(input: SendAlertsInput) -> SendAlertsOutput:
                     async with session.post(input.slack_webhook_url, json=payload) as response:
                         if response.status != 200:
                             errors.append(f"Slack webhook failed: HTTP {response.status}")
+                        else:
+                            alerts_sent += 1
                 except Exception as e:
                     errors.append(f"Slack webhook error: {e!s}")
 
-    if input.alert_email:
-        try:
-            for release in input.unauthorized_releases:
-                message = EmailMessage(
-                    campaign_key=f"npm-unauthorized-release-{release['package']}-{release['version']}",
-                    subject=f"SECURITY ALERT: Unauthorized npm release - {release['package']}@{release['version']}",
-                    template_name="npm_unauthorized_release_alert",
-                    template_context={
-                        "package": release["package"],
-                        "version": release["version"],
-                        "published_at": release["published_at"],
-                        "github_repo": release["github_repo"],
-                        "reason": release["reason"],
-                        "npm_url": f"https://www.npmjs.com/package/{release['package']}",
-                    },
-                )
-                message.add_recipient(email=input.alert_email)
-                message.send()
-                alerts_sent += 1
-        except Exception as e:
-            errors.append(f"Email alert error: {e!s}")
+        if input.incident_io_api_key:
+            packages_affected = [r["package"] for r in input.unauthorized_releases]
+            packages_summary = ", ".join(packages_affected[:3])
+            if len(packages_affected) > 3:
+                packages_summary += f" (+{len(packages_affected) - 3} more)"
 
-    return SendAlertsOutput(alerts_sent=alerts_sent, errors=errors)
+            incident_payload = {
+                "idempotency_key": f"npm-unauthorized-release-{input.unauthorized_releases[0]['published_at']}",
+                "visibility": "public",
+                "incident_type_id": None,
+                "name": f"Unauthorized npm release detected: {packages_summary}",
+                "summary": (
+                    f"The npm release monitor detected {len(input.unauthorized_releases)} package(s) "
+                    f"published to npm without corresponding CI/CD workflow runs. "
+                    f"This may indicate a supply chain compromise similar to the Shai-Hulud attack."
+                ),
+                "severity_id": None,
+                "incident_status_id": None,
+                "mode": "standard",
+                "custom_field_entries": [],
+            }
+
+            headers = {
+                "Authorization": f"Bearer {input.incident_io_api_key}",
+                "Content-Type": "application/json",
+            }
+
+            try:
+                async with session.post(
+                    "https://api.incident.io/v2/incidents",
+                    json=incident_payload,
+                    headers=headers,
+                ) as response:
+                    if response.status in (200, 201):
+                        incidents_created += 1
+                        data = await response.json()
+                        logger.info(
+                            "Created incident.io incident",
+                            incident_id=data.get("incident", {}).get("id"),
+                        )
+                    else:
+                        error_text = await response.text()
+                        errors.append(f"incident.io API failed: HTTP {response.status} - {error_text}")
+                        logger.error(
+                            "Failed to create incident.io incident",
+                            status=response.status,
+                            error=error_text,
+                        )
+            except Exception as e:
+                errors.append(f"incident.io API error: {e!s}")
+                logger.exception("Failed to create incident.io incident", error=str(e))
+
+    return SendAlertsOutput(alerts_sent=alerts_sent, incidents_created=incidents_created, errors=errors)
