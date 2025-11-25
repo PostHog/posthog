@@ -70,12 +70,30 @@ export class LogsRateLimiterService {
 
     private isRateLimitingEnabledForTeam(teamId: number): boolean {
         const enabledTeams = this.hub.LOGS_LIMITER_ENABLED_TEAMS
+        const disabledForTeams = this.hub.LOGS_LIMITER_DISABLED_FOR_TEAMS
+
+        if (disabledForTeams === '*') {
+            return false
+        }
+
+        if (
+            disabledForTeams &&
+            disabledForTeams
+                .split(',')
+                .map((id) => parseInt(id.trim(), 10))
+                .includes(teamId)
+        ) {
+            return false
+        }
+
         if (enabledTeams === '*') {
             return true
         }
+
         if (!enabledTeams) {
             return false
         }
+
         const teamIds = enabledTeams.split(',').map((id) => parseInt(id.trim(), 10))
         return teamIds.includes(teamId)
     }

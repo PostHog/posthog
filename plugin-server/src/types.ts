@@ -240,6 +240,7 @@ export type LogsIngestionConsumerConfig = {
     LOGS_REDIS_PASSWORD: string
     LOGS_REDIS_TLS: boolean
     LOGS_LIMITER_ENABLED_TEAMS: string
+    LOGS_LIMITER_DISABLED_FOR_TEAMS: string
     LOGS_LIMITER_BUCKET_SIZE_KB: number
     LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: number
     LOGS_LIMITER_TTL_SECONDS: number
