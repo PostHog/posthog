@@ -41,10 +41,12 @@ import {
     FailureMessage,
     HumanMessage,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { EnhancedToolCall } from './Thread'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -52,10 +54,12 @@ import type { maxThreadLogicType } from './maxThreadLogicType'
 import { RENDERABLE_UI_PAYLOAD_TOOLS } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import {
+    getToolCallTextContent,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
     isNotebookUpdateMessage,
+    isSubagentUpdateEvent,
     threadEndsWithMultiQuestionForm,
 } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
@@ -169,11 +173,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
-        setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
+        setToolCallUpdate: (update: AssistantUpdateEvent | SubagentUpdateEvent) => ({ update }),
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
     }),
 
-    reducers(({ props }) => ({
+    reducers(({ props, values }) => ({
         conversation: [
             props.conversation ? (removeConversationMessages(props.conversation) ?? null) : null,
             {
@@ -255,14 +259,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         toolCallUpdateMap: [
             new Map<string, string[]>(),
             {
-                setToolCallUpdate: (value, { update }: { update: AssistantUpdateEvent }) => {
+                setToolCallUpdate: (value, { update }: { update: AssistantUpdateEvent | SubagentUpdateEvent }) => {
                     const currentValue = value.get(update.tool_call_id) || []
-                    if (currentValue.includes(update.content) || update.content === '') {
+                    const newMap = new Map(value)
+                    let newValue: string
+                    if (isSubagentUpdateEvent(update)) {
+                        newValue = getToolCallTextContent(update.content as EnhancedToolCall, values.toolMap)
+                    } else {
+                        newValue = update.content
+                    }
+                    if (currentValue.includes(newValue) || newValue === '') {
                         return value
                     }
-
-                    const newMap = new Map(value)
-                    newMap.set(update.tool_call_id, [...currentValue, update.content])
+                    newMap.set(update.tool_call_id, [...currentValue, newValue])
                     return newMap
                 },
             },
@@ -940,7 +949,7 @@ async function onEventImplementation(
         actions.setConversation(conversationWithTitle)
         actions.updateGlobalConversationCache(conversationWithTitle)
     } else if (event === AssistantEventType.Update) {
-        const parsedResponse = parseResponse<AssistantUpdateEvent>(data)
+        const parsedResponse = parseResponse<AssistantUpdateEvent | SubagentUpdateEvent>(data)
         if (!parsedResponse) {
             return
         }

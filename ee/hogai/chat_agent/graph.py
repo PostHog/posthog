@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Literal
 
 from ee.hogai.chat_agent.loop_graph.graph import ChatAgentLoopGraph
 from ee.hogai.chat_agent.memory.nodes import (
@@ -121,7 +122,7 @@ class AssistantGraph(ChatAgentLoopGraph):
 
         return self
 
-    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         return (
             self.add_title_generator()
             .add_slash_command_handler()

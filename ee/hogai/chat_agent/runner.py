@@ -10,13 +10,8 @@ from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyNodeName
 from ee.hogai.core.runner import BaseAgentRunner
-from ee.hogai.utils.types import (
-    AssistantMode,
-    AssistantNodeName,
-    AssistantOutput,
-    AssistantState,
-    PartialAssistantState,
-)
+from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AgentType
 from ee.models import Conversation
 
 if TYPE_CHECKING:
@@ -67,22 +62,25 @@ class ChatAgentRunner(BaseAgentRunner):
         trace_id: Optional[str | UUID] = None,
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantState | PartialAssistantState] = None,
+        agent_type: AgentType = AgentType.GENERAL_PURPOSE,
+        use_checkpointer: bool = True,
     ):
         super().__init__(
             team,
             conversation,
             new_message=new_message,
             user=user,
-            graph=AssistantGraph(team, user).compile_full_graph(),
+            graph_class=AssistantGraph,
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
-            mode=AssistantMode.ASSISTANT,
             session_id=session_id,
             contextual_tools=contextual_tools,
             is_new_conversation=is_new_conversation,
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
+            agent_type=agent_type,
+            use_checkpointer=use_checkpointer,
             stream_processor=ChatAgentStreamProcessor(
                 verbose_nodes=VERBOSE_NODES,
                 streaming_nodes=STREAMING_NODES,
@@ -100,6 +98,7 @@ class ChatAgentRunner(BaseAgentRunner):
                 query_generation_retry_count=0,
                 graph_status=None,
                 rag_context=None,
+                agent_type=self._agent_type,
             )
         else:
             return AssistantState(messages=[])
@@ -126,6 +125,10 @@ class ChatAgentRunner(BaseAgentRunner):
             if isinstance(message, AssistantMessage):
                 last_ai_message = message
             yield stream_event
+
+        if not self._use_checkpointer:
+            # we don't want to track subagent conversations
+            return
 
         output = last_ai_message.content if isinstance(last_ai_message, AssistantMessage) else None
         await self._report_conversation_state(

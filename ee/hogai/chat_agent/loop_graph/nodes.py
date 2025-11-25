@@ -13,6 +13,7 @@ class AgentLoopGraphNode(AssistantNode):
             node_path=self.node_path,
             context_manager=self.context_manager,
             mode=state.agent_mode,
+            agent_type=state.agent_type,
         )
         new_state = await manager.node(state, config)
         return new_state
@@ -24,6 +25,7 @@ class AgentLoopGraphNode(AssistantNode):
             node_path=self.node_path,
             context_manager=self.context_manager,
             mode=state.agent_mode,
+            agent_type=state.agent_type,
         )
         next_node = manager.node.router(state)
         return next_node
@@ -37,6 +39,7 @@ class AgentLoopGraphToolsNode(AssistantNode):
             node_path=self.node_path,
             context_manager=self.context_manager,
             mode=state.agent_mode,
+            agent_type=state.agent_type,
         )
         new_state = await manager.tools_node(state, config)
         return new_state
@@ -48,6 +51,7 @@ class AgentLoopGraphToolsNode(AssistantNode):
             node_path=self.node_path,
             context_manager=self.context_manager,
             mode=state.agent_mode,
+            agent_type=state.agent_type,
         )
         next_node = manager.tools_node.router(state)
         return next_node

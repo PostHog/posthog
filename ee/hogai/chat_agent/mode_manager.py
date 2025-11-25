@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable
+from typing import Optional
 
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -9,6 +10,7 @@ from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
+from ee.hogai.chat_agent.agents import CHAT_AGENTS
 from ee.hogai.chat_agent.prompts import (
     AGENT_CORE_MEMORY_PROMPT,
     AGENT_PROMPT,
@@ -29,19 +31,28 @@ from ee.hogai.chat_agent.prompts import (
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
-from ee.hogai.core.agent_modes.presets.product_analytics import product_analytics_agent
-from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agent
-from ee.hogai.core.agent_modes.presets.sql import sql_agent
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
-from ee.hogai.tools import CreateFormTool, ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool
-from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag, has_create_form_tool_feature_flag
+from ee.hogai.tools import (
+    CreateFormTool,
+    ReadDataTool,
+    ReadTaxonomyTool,
+    SearchTool,
+    SubagentTool,
+    SwitchModeTool,
+    TodoWriteTool,
+)
+from ee.hogai.utils.feature_flags import (
+    has_agent_modes_feature_flag,
+    has_create_form_tool_feature_flag,
+    has_subagent_tool_feature_flag,
+)
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantState, NodePath
+from ee.hogai.utils.types.base import AgentType, AssistantState, NodePath
 
 # Remove with the full modes release
 LEGACY_DEFAULT_TOOLS: list[type["MaxTool"]] = [
@@ -66,6 +77,8 @@ class ChatAgentToolkit(AgentToolkit):
         tools = list(DEFAULT_TOOLS if has_agent_modes_feature_flag(self._team, self._user) else LEGACY_DEFAULT_TOOLS)
         if has_create_form_tool_feature_flag(self._team, self._user):
             tools.append(CreateFormTool)
+        if has_subagent_tool_feature_flag(self._team, self._user):
+            tools.append(SubagentTool)
         return tools
 
 
@@ -161,21 +174,22 @@ class ChatAgentModeManager(AgentModeManager):
         user: User,
         node_path: tuple[NodePath, ...],
         context_manager: AssistantContextManager,
+        agent_type: Optional[str] = None,
         mode: AgentMode | None = None,
     ):
         super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, mode=mode)
+        self._agent_type = agent_type or AgentType.GENERAL_PURPOSE
         if has_agent_modes_feature_flag(team, user):
-            self._mode = mode or AgentMode.PRODUCT_ANALYTICS
+            if not mode:
+                agent_description = CHAT_AGENTS[AgentType(self._agent_type)]
+                mode = agent_description.default_mode
+            self._mode = mode
         else:
             self._mode = AgentMode.PRODUCT_ANALYTICS
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
-        return {
-            AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
-            AgentMode.SQL: sql_agent,
-            AgentMode.SESSION_REPLAY: session_replay_agent,
-        }
+        return CHAT_AGENTS[AgentType(self._agent_type)].mode_registry
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:

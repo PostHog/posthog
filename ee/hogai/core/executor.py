@@ -48,12 +48,14 @@ class AgentExecutor:
         conversation: Conversation,
         timeout: int = CONVERSATION_STREAM_TIMEOUT,
         max_length: int = CONVERSATION_STREAM_MAX_LENGTH,
+        can_reconnect: bool = True,
     ) -> None:
         self._conversation = conversation
         self._redis_stream = ConversationRedisStream(
             get_conversation_stream_key(conversation.id), timeout=timeout, max_length=max_length
         )
         self._workflow_id = f"conversation-{conversation.id}"
+        self._can_reconnect = can_reconnect
 
     async def astream(self, workflow: type[AgentBaseWorkflow], inputs: Any) -> AsyncGenerator[AssistantOutput, Any]:
         """Stream agent workflow updates from Redis stream.
@@ -66,8 +68,8 @@ class AgentExecutor:
             AssistantOutput generator
         """
         # If this is a reconnection attempt, we resume streaming
-        if self._conversation.status != Conversation.Status.IDLE:
-            if inputs.message is not None:
+        if self._conversation.status != Conversation.Status.IDLE and self._can_reconnect:
+            if hasattr(inputs, "message") and inputs.message is not None:
                 raise ValueError("Cannot resume streaming with a new message")
             async for chunk in self.stream_conversation():
                 yield chunk

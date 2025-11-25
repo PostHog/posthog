@@ -11,10 +11,7 @@ from temporalio.client import WorkflowExecutionStatus
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
-from posthog.temporal.ai.chat_agent import (
-    AssistantConversationRunnerWorkflow,
-    AssistantConversationRunnerWorkflowInputs,
-)
+from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import (
@@ -25,8 +22,8 @@ from ee.hogai.stream.redis_stream import (
     StreamError,
     StreamEvent,
     StreamStatusEvent,
+    get_conversation_stream_key,
 )
-from ee.hogai.utils.types import AssistantMode
 from ee.hogai.utils.types.base import AssistantOutput
 from ee.models.assistant import Conversation
 
@@ -65,17 +62,17 @@ class TestAgentExecutor(BaseTest):
             mock_stream.return_value = mock_stream_gen()
             mock_wait_for_start.return_value = True
 
-            workflow_inputs = AssistantConversationRunnerWorkflowInputs(
+            workflow_inputs = ChatAgentWorkflowInputs(
                 team_id=self.team_id,
                 user_id=self.user_id,
                 conversation_id=self.conversation.id,
-                mode=AssistantMode.ASSISTANT,
+                stream_key=get_conversation_stream_key(self.conversation.id),
                 trace_id=str(uuid4()),
             )
 
             # Call the method
             results = []
-            async for chunk in self.manager.astream(AssistantConversationRunnerWorkflow, workflow_inputs):
+            async for chunk in self.manager.astream(ChatAgentWorkflow, workflow_inputs):
                 results.append(chunk)
 
             # Verify results
@@ -88,7 +85,7 @@ class TestAgentExecutor(BaseTest):
             call_args = mock_client.start_workflow.call_args
 
             # Check workflow function and inputs
-            self.assertEqual(call_args[0][0], AssistantConversationRunnerWorkflow.run)
+            self.assertEqual(call_args[0][0], ChatAgentWorkflow.run)
             self.assertEqual(call_args[0][1], workflow_inputs)
 
             # Check keyword arguments
@@ -101,17 +98,17 @@ class TestAgentExecutor(BaseTest):
         # Setup mock to raise exception
         mock_connect.side_effect = Exception("Connection failed")
 
-        workflow_inputs = AssistantConversationRunnerWorkflowInputs(
+        workflow_inputs = ChatAgentWorkflowInputs(
             team_id=self.team_id,
             user_id=self.user_id,
             conversation_id=self.conversation.id,
-            mode=AssistantMode.ASSISTANT,
+            stream_key=get_conversation_stream_key(self.conversation.id),
             trace_id=str(uuid4()),
         )
 
         # Call the method
         results = []
-        async for chunk in self.manager.astream(AssistantConversationRunnerWorkflow, workflow_inputs):
+        async for chunk in self.manager.astream(ChatAgentWorkflow, workflow_inputs):
             results.append(chunk)
 
         # Verify failure message is returned

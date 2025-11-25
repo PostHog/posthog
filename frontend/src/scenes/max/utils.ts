@@ -12,11 +12,13 @@ import {
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
+    AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -31,6 +33,7 @@ import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
+import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
@@ -60,6 +63,12 @@ export function isAssistantToolCallMessage(
     message: RootAssistantMessage | undefined | null
 ): message is AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>> {
     return message?.type === AssistantMessageType.ToolCall && message.ui_payload !== undefined
+}
+
+export function isSubagentUpdateEvent(
+    message: AssistantUpdateEvent | SubagentUpdateEvent | undefined | null
+): message is SubagentUpdateEvent {
+    return message?.content instanceof Object && 'type' in message.content && message.content.type === 'tool_call'
 }
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
@@ -252,4 +261,22 @@ export function captureFeedback(
             $ai_trace_id: traceId,
         })
     }
+}
+
+export const getToolCallTextContent = (
+    toolCall: EnhancedToolCall,
+    registeredToolMap: Record<string, ToolRegistration>
+): string => {
+    const commentary = toolCall.args.commentary as string
+    const definition = getToolDefinitionFromToolCall(toolCall)
+    let description = `Executing ${toolCall.name}`
+    if (definition) {
+        if (definition.displayFormatter) {
+            description = definition.displayFormatter(toolCall, { registeredToolMap })
+        }
+        if (commentary) {
+            description = commentary
+        }
+    }
+    return description
 }

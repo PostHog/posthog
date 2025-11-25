@@ -312,6 +312,12 @@ export interface AssistantUpdateEvent {
     content: string
 }
 
+export interface SubagentUpdateEvent {
+    id: string
+    tool_call_id: string
+    content: AssistantToolCall
+}
+
 export enum AssistantGenerationStatusType {
     Acknowledged = 'ack',
     GenerationError = 'generation_error',
@@ -366,6 +372,7 @@ export type AssistantTool =
     | 'filter_session_recordings'
     | 'create_insight'
     | 'create_form'
+    | 'agent'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

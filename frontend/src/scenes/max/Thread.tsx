@@ -85,6 +85,7 @@ import { MAX_SLASH_COMMANDS } from './slash-commands'
 import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
+    getToolCallTextContent,
     isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
@@ -939,10 +940,9 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
             {regularToolCalls.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                     {regularToolCalls.map((toolCall) => {
-                        const commentary = toolCall.args.commentary as string
                         const updates = toolCall.updates ?? []
                         const definition = getToolDefinitionFromToolCall(toolCall)
-                        let description = `Executing ${toolCall.name}`
+                        const description = getToolCallTextContent(toolCall, registeredToolMap)
                         let widget: JSX.Element | null = null
                         if (definition) {
                             if (definition.displayFormatter) {
@@ -966,9 +966,6 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                                             break
                                     }
                                 }
-                            }
-                            if (commentary) {
-                                description = commentary
                             }
                         }
                         return (

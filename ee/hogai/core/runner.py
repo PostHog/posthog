@@ -24,6 +24,7 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
+    SubagentUpdateEvent,
 )
 
 from posthog import event_usage
@@ -34,14 +35,15 @@ from posthog.ph_client import get_client
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
+from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_PROVIDER_ERROR_COUNTER, GenerationCanceled
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 from ee.hogai.utils.helpers import extract_stream_update, find_last_message_of_type
 from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.types.base import (
+    AgentType,
     AssistantDispatcherEvent,
-    AssistantMode,
     AssistantOutput,
     AssistantResultUnion,
     AssistantStreamedMessageUnion,
@@ -59,7 +61,6 @@ class BaseAgentRunner(ABC):
     _user: User
     _state_type: type[AssistantMaxGraphState]
     _partial_state_type: type[AssistantMaxPartialGraphState]
-    _mode: AssistantMode
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _session_id: Optional[str]
@@ -70,7 +71,8 @@ class BaseAgentRunner(ABC):
     _billing_context: Optional[MaxBillingContext]
     _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
     _stream_processor: AssistantStreamProcessorProtocol
-    """The stream processor that processes dispatcher actions and message chunks."""
+    _agent_type: AgentType
+    _use_checkpointer: bool
 
     def __init__(
         self,
@@ -79,10 +81,9 @@ class BaseAgentRunner(ABC):
         *,
         new_message: Optional[HumanMessage] = None,
         user: User,
-        graph: CompiledStateGraph,
+        graph_class: type[BaseAssistantGraph],
         state_type: type[AssistantMaxGraphState],
         partial_state_type: type[AssistantMaxPartialGraphState],
-        mode: AssistantMode,
         session_id: Optional[str] = None,
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
@@ -90,6 +91,8 @@ class BaseAgentRunner(ABC):
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
         callback_handler: Optional[BaseCallbackHandler] = None,
+        agent_type: AgentType = AgentType.GENERAL_PURPOSE,
+        use_checkpointer: bool = True,
         stream_processor: AssistantStreamProcessorProtocol,
     ):
         self._team = team
@@ -100,9 +103,13 @@ class BaseAgentRunner(ABC):
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
         self._is_new_conversation = is_new_conversation
         self._state = None
-        self._graph = graph
         self._state_type = state_type
         self._partial_state_type = partial_state_type
+        self._agent_type = agent_type
+        self._use_checkpointer = use_checkpointer
+        # Set the checkpointer to None to use the global checkpointer, if the agent uses a checkpointer, otherwise set it to False.
+        graph = graph_class(team, user).compile_full_graph(checkpointer=None if self._use_checkpointer else False)
+        self._graph = graph
 
         self._callback_handlers = []
         if callback_handler:
@@ -115,7 +122,8 @@ class BaseAgentRunner(ABC):
                     "$ai_session_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
-                    "assistant_mode": mode.value,
+                    "agent_type": self._agent_type,
+                    "is_subagent": not self._use_checkpointer,
                     "$groups": event_usage.groups(team=team),
                 }
                 return CallbackHandler(
@@ -138,7 +146,6 @@ class BaseAgentRunner(ABC):
 
         self._trace_id = trace_id
         self._billing_context = billing_context
-        self._mode = mode
         self._initial_state = initial_state
         # Initialize the stream processor with node configuration
         self._stream_processor = stream_processor
@@ -210,7 +217,7 @@ class BaseAgentRunner(ABC):
 
                             if isinstance(message, AssistantGenerationStatusEvent):
                                 yield AssistantEventType.STATUS, message
-                            elif isinstance(message, AssistantUpdateEvent):
+                            elif isinstance(message, AssistantUpdateEvent | SubagentUpdateEvent):
                                 yield AssistantEventType.UPDATE, message
 
                 # Check if the assistant has requested help.
@@ -298,7 +305,7 @@ class BaseAgentRunner(ABC):
                 "billing_context": self._billing_context,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
-                    "assistant_mode": self._mode.value,
+                    "agent_type": self._agent_type.value,
                     "tag": "max_ai",
                 },
             },

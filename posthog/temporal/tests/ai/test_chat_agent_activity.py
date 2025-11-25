@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from posthog.models import Team, User
 from posthog.temporal.ai.chat_agent import (
-    AssistantConversationRunnerWorkflowInputs,
+    ChatAgentWorkflowInputs,
     get_conversation_stream_key,
+    process_chat_agent_activity,
     process_conversation_activity,
 )
 
 from ee.hogai.stream.redis_stream import CONVERSATION_STREAM_PREFIX
-from ee.hogai.utils.types import AssistantMode
 from ee.models import Conversation
 
 
@@ -72,14 +72,14 @@ class TestProcessChatAgentActivity:
     @pytest.fixture
     def conversation_inputs(self):
         """Basic conversation inputs."""
-        return AssistantConversationRunnerWorkflowInputs(
+        return ChatAgentWorkflowInputs(
             team_id=1,
             user_id=2,
             conversation_id=uuid4(),
             message={"content": "Hello", "type": "human"},
             is_new_conversation=True,
             trace_id="test-trace",
-            mode=AssistantMode.ASSISTANT,
+            stream_key=get_conversation_stream_key(uuid4()),
         )
 
     @pytest.mark.asyncio
@@ -168,11 +168,12 @@ class TestProcessChatAgentActivity:
         mock_assistant,
     ):
         """Test processing without a message."""
-        inputs = AssistantConversationRunnerWorkflowInputs(
+        inputs = ChatAgentWorkflowInputs(
             team_id=1,
             user_id=2,
             conversation_id=uuid4(),
             message=None,  # No message
+            stream_key=get_conversation_stream_key(uuid4()),
         )
 
         with (
@@ -188,7 +189,7 @@ class TestProcessChatAgentActivity:
             ) as mock_assistant_create,
         ):
             # Execute the activity
-            await process_conversation_activity(inputs)
+            await process_chat_agent_activity(inputs)
 
             # Verify Assistant was created with None message
             mock_assistant_create.assert_called_once()

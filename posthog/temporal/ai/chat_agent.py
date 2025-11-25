@@ -17,6 +17,7 @@ from posthog.temporal.ai.base import AgentBaseWorkflow
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.stream.redis_stream import ConversationRedisStream, get_conversation_stream_key
 from ee.hogai.utils.types import AssistantMode
+from ee.hogai.utils.types.base import AgentType
 from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -32,7 +33,7 @@ CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 
 @dataclass
 class AssistantConversationRunnerWorkflowInputs:
-    """Inputs for the chat agent workflow."""
+    """LEGACY: DO NOT USE THIS WORKFLOW. Use ChatAgentWorkflowInputs instead."""
 
     team_id: int
     user_id: int
@@ -48,7 +49,7 @@ class AssistantConversationRunnerWorkflowInputs:
 
 @workflow.defn(name="conversation-processing")
 class AssistantConversationRunnerWorkflow(AgentBaseWorkflow):
-    """Temporal workflow for processing chat agent activities asynchronously."""
+    """LEGACY: DO NOT USE THIS WORKFLOW. Use ChatAgentWorkflow instead."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> AssistantConversationRunnerWorkflowInputs:
@@ -102,5 +103,84 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
 
     stream_key = get_conversation_stream_key(inputs.conversation_id)
     redis_stream = ConversationRedisStream(stream_key)
+
+    await redis_stream.write_to_stream(assistant.astream(), activity.heartbeat)
+
+
+@dataclass
+class ChatAgentWorkflowInputs:
+    """Inputs for the chat agent workflow."""
+
+    team_id: int
+    user_id: int
+    conversation_id: UUID
+    stream_key: str
+    message: Optional[dict[str, Any]] = None
+    agent_type: AgentType = AgentType.GENERAL_PURPOSE
+    use_checkpointer: bool = True
+    contextual_tools: Optional[dict[str, Any]] = None
+    trace_id: Optional[str] = None
+    session_id: Optional[str] = None
+    is_new_conversation: bool = False
+    billing_context: Optional[MaxBillingContext] = None
+
+
+@workflow.defn(name="chat-agent")
+class ChatAgentWorkflow(AgentBaseWorkflow):
+    """Temporal workflow for processing chat agent activities."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> ChatAgentWorkflowInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return ChatAgentWorkflowInputs(**loaded)
+
+    @workflow.run
+    async def run(self, inputs: ChatAgentWorkflowInputs) -> None:
+        """Execute the subagent workflow."""
+        await workflow.execute_activity(
+            process_chat_agent_activity,
+            inputs,
+            start_to_close_timeout=timedelta(seconds=CHAT_AGENT_WORKFLOW_TIMEOUT),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_INTERVAL),
+                maximum_interval=timedelta(seconds=CHAT_AGENT_ACTIVITY_RETRY_MAX_INTERVAL),
+                maximum_attempts=CHAT_AGENT_ACTIVITY_RETRY_MAX_ATTEMPTS,
+            ),
+            heartbeat_timeout=timedelta(seconds=CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT),
+        )
+
+
+@activity.defn
+async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
+    """Process a chat agent task and stream results to Redis.
+
+    Args:
+        inputs: Temporal workflow inputs
+
+    """
+    team, user, conversation = await asyncio.gather(
+        Team.objects.aget(id=inputs.team_id),
+        User.objects.aget(id=inputs.user_id),
+        Conversation.objects.aget(id=inputs.conversation_id),
+    )
+
+    human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
+
+    assistant = ChatAgentRunner(
+        team,
+        conversation,
+        new_message=human_message,
+        user=user,
+        is_new_conversation=False,
+        trace_id=inputs.trace_id,
+        session_id=inputs.session_id,
+        billing_context=inputs.billing_context,
+        agent_type=inputs.agent_type,
+        use_checkpointer=inputs.use_checkpointer,
+        contextual_tools=inputs.contextual_tools,
+    )
+
+    redis_stream = ConversationRedisStream(inputs.stream_key)
 
     await redis_stream.write_to_stream(assistant.astream(), activity.heartbeat)

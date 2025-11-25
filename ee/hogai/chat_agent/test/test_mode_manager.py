@@ -385,3 +385,99 @@ class TestRootNodeTools(BaseTest):
             assert isinstance(result.messages[0], AssistantToolCallMessage)
             self.assertEqual(result.messages[0].tool_call_id, "tool-123")
             self.assertIn("does not exist", result.messages[0].content)
+
+
+class TestChatAgentModeManager(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.context_manager = MagicMock()
+
+    def test_default_agent_type_is_general_purpose(self):
+        from posthog.schema import AgentMode
+
+        from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
+        from ee.hogai.utils.types.base import NodePath
+
+        with patch("ee.hogai.chat_agent.mode_manager.has_agent_modes_feature_flag", return_value=True):
+            manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=(NodePath(name="test", tool_call_id="tc_1", message_id="msg_1"),),
+                context_manager=self.context_manager,
+            )
+
+            self.assertEqual(manager._agent_type, "general_purpose")
+            self.assertEqual(manager._mode, AgentMode.PRODUCT_ANALYTICS)
+
+    def test_other_agent_types(self):
+        from posthog.schema import AgentMode
+
+        from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
+        from ee.hogai.utils.types.base import AgentType, NodePath
+
+        with patch("ee.hogai.chat_agent.mode_manager.has_agent_modes_feature_flag", return_value=True):
+            manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=(NodePath(name="test", tool_call_id="tc_1", message_id="msg_1"),),
+                context_manager=self.context_manager,
+                agent_type=AgentType.SQL,
+            )
+
+            self.assertEqual(manager._agent_type, AgentType.SQL)
+            self.assertEqual(manager._mode, AgentMode.SQL)
+
+    def test_mode_registry_returns_correct_registry_for_agent_type(self):
+        from ee.hogai.chat_agent.agents import CHAT_AGENTS
+        from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
+        from ee.hogai.utils.types.base import AgentType, NodePath
+
+        with patch("ee.hogai.chat_agent.mode_manager.has_agent_modes_feature_flag", return_value=True):
+            for agent_type in AgentType:
+                manager = ChatAgentModeManager(
+                    team=self.team,
+                    user=self.user,
+                    node_path=(NodePath(name="test", tool_call_id="tc_1", message_id="msg_1"),),
+                    context_manager=self.context_manager,
+                    agent_type=agent_type,
+                )
+
+                expected_registry = CHAT_AGENTS[agent_type].mode_registry
+                self.assertEqual(manager.mode_registry, expected_registry)
+
+    def test_explicit_mode_overrides_default(self):
+        from posthog.schema import AgentMode
+
+        from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
+        from ee.hogai.utils.types.base import AgentType, NodePath
+
+        with patch("ee.hogai.chat_agent.mode_manager.has_agent_modes_feature_flag", return_value=True):
+            # SQL agent with explicit PRODUCT_ANALYTICS mode
+            manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=(NodePath(name="test", tool_call_id="tc_1", message_id="msg_1"),),
+                context_manager=self.context_manager,
+                agent_type=AgentType.SQL,
+                mode=AgentMode.PRODUCT_ANALYTICS,
+            )
+
+            self.assertEqual(manager._mode, AgentMode.PRODUCT_ANALYTICS)
+
+    def test_without_agent_modes_feature_flag_uses_product_analytics(self):
+        from posthog.schema import AgentMode
+
+        from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
+        from ee.hogai.utils.types.base import AgentType, NodePath
+
+        with patch("ee.hogai.chat_agent.mode_manager.has_agent_modes_feature_flag", return_value=False):
+            manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=(NodePath(name="test", tool_call_id="tc_1", message_id="msg_1"),),
+                context_manager=self.context_manager,
+                agent_type=AgentType.SQL,  # Even with SQL agent type
+            )
+
+            # Without feature flag, mode is always PRODUCT_ANALYTICS
+            self.assertEqual(manager._mode, AgentMode.PRODUCT_ANALYTICS)
