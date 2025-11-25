@@ -54,7 +54,7 @@ class TestCampaignFieldPreferencesValidation(BaseTest):
 
     def test_missing_match_field(self):
         """Test that match_field is required"""
-        invalid_preferences = {"GoogleAds": {}}
+        invalid_preferences: dict = {"GoogleAds": {}}
 
         with pytest.raises(ValidationError) as exc_info:
             self.team.marketing_analytics_config.campaign_field_preferences = invalid_preferences
