@@ -33,8 +33,6 @@ pub struct RawJavaFrame {
     pub method_synthetic: bool,
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
-    #[serde(skip)]
-    pub exception_type: Option<String>,
 }
 
 impl RawJavaFrame {
@@ -97,22 +95,10 @@ impl RawJavaFrame {
             ),
         };
 
-        let mut res: Vec<Frame> = mapper
+        let res: Vec<Frame> = mapper
             .remap_frame(&frame)
             .map(|re| (self, re).into())
             .collect();
-
-        for res in res.iter_mut() {
-            res.exception_type = self
-                .exception_type
-                .as_ref()
-                .and_then(|t| {
-                    println!("Gets here {:?}", t);
-                    println!("{:?}", mapper.remap_class("a1.c"));
-                    mapper.remap_class(t)
-                })
-                .map(|s| s.to_string());
-        }
 
         if res.is_empty() {
             warn!(
@@ -144,21 +130,16 @@ impl RawJavaFrame {
     pub async fn remap_class<C>(
         &self,
         team_id: i32,
-        module: &String,
         class: &str,
         catalog: &C,
-    ) -> Result<String, ResolveError>
+    ) -> Result<Option<String>, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<ProguardRef>, FetchedMapping>,
     {
-        let module_and_class = &format!("{}.{}", module, class);
         let r = self.get_ref()?;
         let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
         let mapper = map.get_mapper();
-        let result = mapper
-            .remap_class(module_and_class)
-            .unwrap_or(module_and_class)
-            .to_string();
+        let result = mapper.remap_class(class).map(|s| s.to_string());
         Ok(result)
     }
 }
@@ -183,7 +164,6 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
             context: None,
             suspicious: false,
             module: Some(remapped.class().to_string()),
-            exception_type: None,
         };
 
         add_raw_to_junk(&mut f, raw);
@@ -212,114 +192,10 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             context: None,
             suspicious: false,
             module: Some(raw.module.clone()),
-            exception_type: raw.exception_type.clone(),
         };
 
         add_raw_to_junk(&mut f, raw);
 
         f
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::sync::Arc;
-
-    use chrono::Utc;
-    use mockall::predicate;
-    use posthog_symbol_data::write_symbol_data;
-    use sqlx::PgPool;
-    use uuid::Uuid;
-
-    use crate::{
-        config::Config,
-        langs::{java::RawJavaFrame, CommonFrameMetadata},
-        symbol_store::{
-            chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
-            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, S3Client,
-        },
-    };
-
-    const PROGUARD_MAP: &str = include_str!("../../tests/static/proguard/mapping_example.txt");
-
-    #[sqlx::test(migrations = "./tests/test_migrations")]
-    async fn test_proguard_resolution(db: PgPool) {
-        let team_id = 1;
-        let mut config = Config::init_with_defaults().unwrap();
-        config.object_storage_bucket = "test-bucket".to_string();
-
-        let map_id = "com.posthog.android.sample@3.0+3".to_string();
-
-        let mut record = SymbolSetRecord {
-            id: Uuid::now_v7(),
-            team_id,
-            set_ref: map_id.clone(),
-            storage_ptr: Some(map_id.clone()),
-            failure_reason: None,
-            created_at: Utc::now(),
-            content_hash: Some("fake-hash".to_string()),
-            last_used: Some(Utc::now()),
-        };
-
-        record.save(&db).await.unwrap();
-
-        let mut client = S3Client::default();
-
-        client
-            .expect_get()
-            .with(
-                predicate::eq(config.object_storage_bucket.clone()),
-                predicate::eq(map_id.clone()), // We set the map id as the storage ptr above, in production it will be a different value with a prefix
-            )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
-
-        let client = Arc::new(client);
-
-        let hmp = HermesMapProvider {};
-        let hmp = ChunkIdFetcher::new(
-            hmp,
-            client.clone(),
-            db.clone(),
-            config.object_storage_bucket.clone(),
-        );
-
-        let smp = SourcemapProvider::new(&config);
-        let smp = ChunkIdFetcher::new(
-            smp,
-            client.clone(),
-            db.clone(),
-            config.object_storage_bucket.clone(),
-        );
-
-        let pgp = ChunkIdFetcher::new(
-            ProguardProvider {},
-            client.clone(),
-            db.clone(),
-            config.object_storage_bucket.clone(),
-        );
-
-        let c = Catalog::new(smp, hmp, pgp);
-
-        let frame = RawJavaFrame {
-            exception_type: Some("c".to_string()),
-            module: "a1.d".to_string(),
-            filename: Some("SourceFile".to_string()),
-            function: "onClick".to_string(),
-            lineno: Some(14),
-            map_id: Some(map_id),
-            method_synthetic: false,
-            meta: CommonFrameMetadata::default(),
-        };
-
-        let res = frame.resolve(team_id, &c).await.unwrap().pop().unwrap();
-        assert!(true);
-        // assert!(res.resolved);
-    }
-
-    fn get_symbol_data_bytes() -> Vec<u8> {
-        write_symbol_data(posthog_symbol_data::ProguardMapping {
-            content: PROGUARD_MAP.to_string(),
-        })
-        .unwrap()
     }
 }

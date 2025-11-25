@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use common_types::error_tracking::{FrameData, FrameId, RawFrameId};
 use releases::ReleaseRecord;
@@ -15,11 +15,7 @@ use crate::{
     },
     metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
-    symbol_store::{
-        chunk_id::OrChunkId,
-        proguard::{FetchedMapping, ProguardRef},
-        Catalog, SymbolCatalog,
-    },
+    symbol_store::Catalog,
 };
 
 pub mod records;
@@ -187,8 +183,6 @@ pub struct Frame {
     pub context: Option<Context>,
     #[serde(skip)]
     pub release: Option<ReleaseRecord>,
-    #[serde(skip)]
-    pub exception_type: Option<String>, // Used for java exceptions, where we have to demangle the exception type, and do so alongside the frame
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
