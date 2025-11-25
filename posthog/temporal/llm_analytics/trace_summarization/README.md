@@ -180,11 +180,10 @@ Each trace gets a `$ai_trace_summary` event with properties:
     "$ai_batch_run_id": "team_123_2025-01-15T12:00:00Z",
     "$ai_summary_mode": "detailed",  # or "minimal"
     "$ai_summary_title": "User authentication flow",
-    "$ai_summary_text_repr": "L1: TRACE...\n",  # Full text representation
     "$ai_summary_flow_diagram": "graph TD; A-->B;",  # Mermaid diagram
     "$ai_summary_bullets": "[{\"text\": \"...\", \"line_refs\": \"L1-5\"}]",
     "$ai_summary_interesting_notes": "[{\"text\": \"...\", \"line_refs\": \"L10\"}]",
-    "$ai_text_repr_length": 1234,
+    "$ai_text_repr_length": 1234,  # Length of text repr (not stored, too large)
     "$ai_event_count": 5
 }
 ```

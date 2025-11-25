@@ -87,7 +87,6 @@ async def generate_and_save_summary_activity(
             "$ai_batch_run_id": batch_run_id,
             "$ai_summary_mode": mode,
             "$ai_summary_title": summary_result.title,
-            "$ai_summary_text_repr": text_repr,
             "$ai_summary_flow_diagram": summary_result.flow_diagram,
             "$ai_summary_bullets": summary_bullets_json,
             "$ai_summary_interesting_notes": summary_notes_json,
