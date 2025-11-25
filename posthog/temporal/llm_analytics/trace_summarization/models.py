@@ -44,18 +44,36 @@ class BatchSummarizationInputs:
 
 
 @dataclass
+class SummarizationActivityResult:
+    """Result from generate_and_save_summary_activity."""
+
+    trace_id: str
+    success: bool
+    text_repr_length: int
+    event_count: int
+    skipped: bool = False
+    skip_reason: str | None = None
+
+
+@dataclass
+class BatchSummarizationMetrics:
+    """Metrics from batch trace summarization workflow."""
+
+    traces_queried: int = 0
+    summaries_skipped: int = 0
+    summaries_failed: int = 0
+    summaries_generated: int = 0
+    embeddings_requested: int = 0
+    embeddings_failed: int = 0
+    duration_seconds: float = 0.0
+
+
+@dataclass
 class BatchSummarizationResult:
     """Results from batch trace summarization workflow."""
 
     batch_run_id: str
-    traces_queried: int
-    summaries_requested: int
-    summaries_failed: int
-    summaries_generated: int
-    events_emitted: int
-    embeddings_requested: int
-    embeddings_failed: int
-    duration_seconds: float
+    metrics: BatchSummarizationMetrics
 
 
 @dataclass
@@ -67,3 +85,24 @@ class CoordinatorResult:
     failed_team_ids: list[int]
     total_traces: int
     total_summaries: int
+
+
+@dataclass
+class EmbeddingActivityResult:
+    """Result from embed_summaries_activity."""
+
+    embeddings_requested: int
+    embeddings_failed: int
+
+
+@dataclass
+class SingleEmbeddingResult:
+    """Result from a single embedding attempt."""
+
+    success: bool
+    trace_id: str
+    error: str | None = None
+
+
+# Type alias for ClickHouse summary row
+SummaryRow = tuple[str, str, str, str, str]  # (trace_id, title, flow_diagram, bullets, notes)

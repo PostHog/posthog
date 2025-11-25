@@ -1,7 +1,6 @@
-"""Activity for querying traces from a time window."""
+"""Activity for querying trace IDs from a time window."""
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import structlog
 import temporalio
@@ -17,24 +16,15 @@ logger = structlog.get_logger(__name__)
 
 
 @temporalio.activity.defn
-async def query_traces_in_window_activity(inputs: BatchSummarizationInputs) -> list[dict[str, Any]]:
+async def query_traces_in_window_activity(inputs: BatchSummarizationInputs) -> list[str]:
     """
-    Query traces from a time window using TracesQueryRunner.
+    Query trace IDs from a time window using TracesQueryRunner.
 
     Queries up to max_traces from the specified time window (or last N minutes if not specified).
-    Returns trace metadata (id, timestamp) ordered by timestamp DESC (most recent first).
-
-    This approach is idempotent - rerunning on the same window will return the same traces.
+    Returns a list of trace IDs in random order for sampling.
     """
-    if inputs.window_start and inputs.window_end:
-        date_from = inputs.window_start
-        date_to = inputs.window_end
-    else:
-        now = datetime.now(UTC)
-        date_to = now.isoformat()
-        date_from = (now - timedelta(minutes=inputs.window_minutes)).isoformat()
 
-    def _execute_traces_query():
+    def _execute_traces_query(date_from: str, date_to: str) -> list[str]:
         team = Team.objects.get(id=inputs.team_id)
 
         query = TracesQuery(
@@ -45,19 +35,17 @@ async def query_traces_in_window_activity(inputs: BatchSummarizationInputs) -> l
 
         runner = TracesQueryRunner(team=team, query=query)
         response = runner.calculate()
-        results = response.results
 
-        trace_list = [
-            {
-                "trace_id": trace.id,
-                "trace_timestamp": trace.createdAt,
-                "team_id": inputs.team_id,
-            }
-            for trace in results
-        ]
+        return [trace.id for trace in response.results]
 
-        return trace_list
+    if inputs.window_start and inputs.window_end:
+        date_from = inputs.window_start
+        date_to = inputs.window_end
+    else:
+        now = datetime.now(UTC)
+        date_to = now.isoformat()
+        date_from = (now - timedelta(minutes=inputs.window_minutes)).isoformat()
 
-    trace_list = await database_sync_to_async(_execute_traces_query, thread_sensitive=False)()
+    trace_ids = await database_sync_to_async(_execute_traces_query, thread_sensitive=False)(date_from, date_to)
 
-    return trace_list
+    return trace_ids

@@ -32,8 +32,8 @@ function IssueCohortCreate({ issue }: { issue: ErrorTrackingRelationalIssue }): 
         [issue, createIssueCohort]
     )
     return (
-        <ButtonPrimitive variant="panel" fullWidth onClick={() => createIssueCohortForm(issue, onCreate)}>
-            Create Cohort
+        <ButtonPrimitive fullWidth onClick={() => createIssueCohortForm(issue, onCreate)}>
+            Create cohort
         </ButtonPrimitive>
     )
 }
@@ -42,7 +42,7 @@ type IssueCohortFormHandler = (name: string, description?: string) => void
 
 function createIssueCohortForm(issue: ErrorTrackingRelationalIssue, onSubmit: IssueCohortFormHandler): void {
     LemonDialog.openForm({
-        title: 'Create Cohort',
+        title: 'Create cohort',
         shouldAwaitSubmit: true,
         initialValues: {
             cohortName: `Impacted by Issue [${issue.name}${issue.description ? ` - ${issue.description.substring(0, 200)}` : ''}]`,

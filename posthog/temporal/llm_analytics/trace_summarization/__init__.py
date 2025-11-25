@@ -14,7 +14,7 @@ from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     BatchTraceSummarizationCoordinatorInputs,
     BatchTraceSummarizationCoordinatorWorkflow,
 )
-from posthog.temporal.llm_analytics.trace_summarization.embedding import embed_summaries_from_events_activity
+from posthog.temporal.llm_analytics.trace_summarization.embedding import embed_summaries_activity
 
 # Export models
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
@@ -27,7 +27,7 @@ from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTra
 
 __all__ = [
     # Activities
-    "embed_summaries_from_events_activity",
+    "embed_summaries_activity",
     "generate_and_save_summary_activity",
     "query_traces_in_window_activity",
     # Constants
@@ -39,7 +39,6 @@ __all__ = [
     "WORKFLOW_NAME",
     # Models
     "BatchSummarizationInputs",
-    "TraceSummary",
     "BatchTraceSummarizationCoordinatorInputs",
     # Workflows
     "BatchTraceSummarizationWorkflow",

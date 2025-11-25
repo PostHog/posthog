@@ -1,9 +1,26 @@
 """Activity for generating trace summaries using LLM."""
 
-from typing import Any
+from uuid import uuid4
 
 import structlog
 import temporalio
+
+from posthog.schema import DateRange, TraceQuery
+
+from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
+from posthog.models.event.util import create_event
+from posthog.models.team import Team
+from posthog.sync import database_sync_to_async
+from posthog.temporal.llm_analytics.trace_summarization import constants
+from posthog.temporal.llm_analytics.trace_summarization.models import SummarizationActivityResult
+
+from products.llm_analytics.backend.summarization.llm import summarize
+from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
+from products.llm_analytics.backend.text_repr.formatters import (
+    FormatterOptions,
+    format_trace_text_repr,
+    llm_trace_to_formatter_format,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -12,84 +29,36 @@ logger = structlog.get_logger(__name__)
 async def generate_and_save_summary_activity(
     trace_id: str,
     team_id: int,
-    timestamp: str,
+    window_start: str,
+    window_end: str,
     mode: str,
     batch_run_id: str,
     model: str | None = None,
-) -> dict[str, Any]:
+) -> SummarizationActivityResult:
     """
     Generate summary for a trace and save it to ClickHouse.
 
-    Fetches trace data, generates summary, and immediately saves it as an event.
-    This avoids passing large TraceSummary objects through workflow history.
-
-    Returns:
-        Dict with trace_id, success status, and metadata
+    Fetches trace data, generates LLM summary, and saves it as an event.
+    Saves directly to avoid passing large objects through workflow history.
     """
-    from datetime import datetime, timedelta
-    from uuid import uuid4
 
-    from posthog.schema import DateRange, TraceQuery
-
-    from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
-    from posthog.models.team import Team
-    from posthog.sync import database_sync_to_async
-    from posthog.temporal.llm_analytics.trace_summarization import constants
-
-    from products.llm_analytics.backend.summarization.llm import summarize
-    from products.llm_analytics.backend.text_repr.formatters import FormatterOptions, format_trace_text_repr
-
-    def _fetch_generate_and_save():
-        # Get team object
+    def _fetch_trace_and_format(
+        trace_id: str, team_id: int, window_start: str, window_end: str
+    ) -> tuple[dict, list, str, Team]:
+        """Fetch trace data and format text representation."""
         team = Team.objects.get(id=team_id)
 
-        # Parse timestamp to create date range
-        trace_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        date_from = (trace_time - timedelta(minutes=15)).isoformat()
-        date_to = (trace_time + timedelta(minutes=15)).isoformat()
-
-        # Build query using TraceQueryRunner
         query = TraceQuery(
             traceId=trace_id,
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=window_start, date_to=window_end),
         )
 
-        # Execute query
         runner = TraceQueryRunner(team=team, query=query)
         response = runner.calculate()
 
-        if not response.results:
-            raise ValueError(f"No events found for trace {trace_id}")
-
-        # Get the trace data
         llm_trace = response.results[0]
+        trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
 
-        # Convert to format for text repr
-        trace_dict = {
-            "id": llm_trace.id,
-            "properties": {
-                "$ai_trace_id": llm_trace.id,
-                "$ai_span_name": llm_trace.traceName,
-                "$ai_session_id": llm_trace.aiSessionId,
-                "$ai_input_state": llm_trace.inputState,
-                "$ai_output_state": llm_trace.outputState,
-            },
-        }
-
-        hierarchy = [
-            {
-                "event": {
-                    "id": event.id,
-                    "event": event.event,
-                    "properties": event.properties,
-                    "timestamp": event.createdAt,
-                },
-                "children": [],
-            }
-            for event in llm_trace.events
-        ]
-
-        # Generate text representation
         options: FormatterOptions = {
             "include_line_numbers": True,
             "truncated": False,
@@ -103,11 +72,58 @@ async def generate_and_save_summary_activity(
             options=options,
         )
 
-        # Generate summary using LLM (this is async and will be awaited outside)
         return trace_dict, hierarchy, text_repr, team
 
-    # Fetch trace data and prepare (sync operation)
-    trace, hierarchy, text_repr, team = await database_sync_to_async(_fetch_generate_and_save, thread_sensitive=False)()
+    def _save_summary_event(summary_result: SummarizationResponse, hierarchy: list, text_repr: str, team: Team) -> None:
+        """Save summary as $ai_trace_summary event to ClickHouse."""
+
+        event_uuid = uuid4()
+
+        summary_bullets_json = [bullet.model_dump() for bullet in summary_result.summary_bullets]
+        summary_notes_json = [note.model_dump() for note in summary_result.interesting_notes]
+
+        properties = {
+            "$ai_trace_id": trace_id,
+            "$ai_batch_run_id": batch_run_id,
+            "$ai_summary_mode": mode,
+            "$ai_summary_title": summary_result.title,
+            "$ai_summary_text_repr": text_repr,
+            "$ai_summary_flow_diagram": summary_result.flow_diagram,
+            "$ai_summary_bullets": summary_bullets_json,
+            "$ai_summary_interesting_notes": summary_notes_json,
+            "$ai_text_repr_length": len(text_repr),
+            "$ai_event_count": len(hierarchy),
+        }
+
+        create_event(
+            event_uuid=event_uuid,
+            event=constants.EVENT_NAME_TRACE_SUMMARY,
+            team=team,
+            distinct_id=f"trace_summary_{team_id}",
+            properties=properties,
+        )
+
+    # Fetch trace data and format text representation
+    trace, hierarchy, text_repr, team = await database_sync_to_async(_fetch_trace_and_format, thread_sensitive=False)(
+        trace_id, team_id, window_start, window_end
+    )
+
+    # Check if trace is too large for LLM processing
+    if len(text_repr) > constants.MAX_TEXT_REPR_LENGTH:
+        logger.warning(
+            "Skipping trace - text representation too large for LLM",
+            trace_id=trace_id,
+            text_repr_length=len(text_repr),
+            max_length=constants.MAX_TEXT_REPR_LENGTH,
+        )
+        return SummarizationActivityResult(
+            trace_id=trace_id,
+            success=False,
+            skipped=True,
+            skip_reason="text_repr_too_large",
+            text_repr_length=len(text_repr),
+            event_count=len(hierarchy),
+        )
 
     # Generate summary using LLM
     summary_result = await summarize(
@@ -119,48 +135,13 @@ async def generate_and_save_summary_activity(
     )
 
     # Save event to ClickHouse immediately
-    def _save_event():
-        from posthog.models.event.util import create_event
+    await database_sync_to_async(_save_summary_event, thread_sensitive=False)(
+        summary_result, hierarchy, text_repr, team
+    )
 
-        event_uuid = uuid4()
-        timestamp = datetime.now()
-
-        # Serialize summary bullets and notes as JSON strings
-        import json
-
-        summary_bullets_json = json.dumps([bullet.model_dump() for bullet in summary_result.summary_bullets])
-        summary_notes_json = json.dumps([note.model_dump() for note in summary_result.interesting_notes])
-
-        # Create event properties with flattened summary fields
-        properties = {
-            constants.PROP_TRACE_ID: trace_id,
-            constants.PROP_BATCH_RUN_ID: batch_run_id,
-            constants.PROP_SUMMARY_MODE: mode,
-            constants.PROP_SUMMARY_TITLE: summary_result.title,
-            constants.PROP_SUMMARY_TEXT_REPR: text_repr,
-            constants.PROP_SUMMARY_FLOW_DIAGRAM: summary_result.flow_diagram,
-            constants.PROP_SUMMARY_BULLETS: summary_bullets_json,
-            constants.PROP_SUMMARY_INTERESTING_NOTES: summary_notes_json,
-            constants.PROP_TEXT_REPR_LENGTH: len(text_repr),
-            constants.PROP_EVENT_COUNT: len(hierarchy),
-        }
-
-        # Use low-level ClickHouse insert
-        create_event(
-            event_uuid=event_uuid,
-            event=constants.EVENT_NAME_TRACE_SUMMARY,
-            team=team,
-            distinct_id=f"trace_summary_{team_id}",
-            timestamp=timestamp,
-            properties=properties,
-            person_id=None,
-        )
-
-    await database_sync_to_async(_save_event, thread_sensitive=False)()
-
-    return {
-        "trace_id": trace_id,
-        "success": True,
-        "text_repr_length": len(text_repr),
-        "event_count": len(hierarchy),
-    }
+    return SummarizationActivityResult(
+        trace_id=trace_id,
+        success=True,
+        text_repr_length=len(text_repr),
+        event_count=len(hierarchy),
+    )
