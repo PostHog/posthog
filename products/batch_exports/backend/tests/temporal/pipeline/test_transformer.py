@@ -152,6 +152,7 @@ async def test_csv_stream_transformer_writes_record_batches():
 class TestField(Field):
     def __init__(self, name: str, data_type: pa.DataType):
         self.name = name
+        self.alias = name
         self.data_type = data_type
 
     @classmethod
