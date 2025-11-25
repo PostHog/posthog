@@ -60,7 +60,7 @@ impl Language {
    go get github.com/posthog/posthog-go
 2. Store the generated Go code in a folder named `typed` (e.g. `/src/lib/typed`):
    mkdir -p <your-directory>/src/lib/typed
-   mv {0}.go <your-diretory>/src/lib/typed
+   mv {0}.go <your-directory>/src/lib/typed
    > If you prefer a different folder, you will need to update the `package` at the top of
    > the generated file.
 3. Migrate your code to the typed event captures:

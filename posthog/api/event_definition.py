@@ -405,7 +405,7 @@ class EventDefinitionViewSet(
         """Generate TypeScript definitions from event schemas"""
         # Version of the TypeScript generator - increment when changing the structure
         # This ensures clients update even when schemas don't change
-        # TODO migrate to its own custom genarator.
+        # TODO migrate to its own custom generator.
         generator_version = "1.0.0"
         language = "TypeScript"
 
@@ -649,7 +649,7 @@ export * from 'posthog-js'
             generator.language_name(),
             generator.generator_version(),
             self.request.user,
-            self.team.id,
+            self.team_id,
             self.project_id,
             len(event_definitions),
         )
