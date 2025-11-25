@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
@@ -253,12 +253,22 @@ export function SessionRecordingsPageTabs(): JSX.Element {
         </div>
     )
 }
-export function SessionsRecordings(): JSX.Element {
+
+export interface SessionsRecordingsProps {
+    tabId?: string
+}
+
+export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX.Element {
+    if (!tabId) {
+        throw new Error('<SessionsRecordings /> must receive a tabId prop')
+    }
     return (
-        <SceneContent className="h-full">
-            <SessionRecordingsPageTabs />
-            <MainPanel />
-        </SceneContent>
+        <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
+            <SceneContent className="h-full">
+                <SessionRecordingsPageTabs />
+                <MainPanel />
+            </SceneContent>
+        </BindLogic>
     )
 }
 

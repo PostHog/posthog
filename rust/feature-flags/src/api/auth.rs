@@ -40,8 +40,7 @@ pub async fn validate_secret_api_token(state: &AppState, token: &str) -> Result<
     let token_str = token.to_string();
 
     team_operations::fetch_team_from_redis_with_fallback(
-        state.redis_reader.clone(),
-        state.redis_writer.clone(),
+        state.redis_client.clone(),
         token,
         Some(state.config.team_cache_ttl_seconds),
         || async move {

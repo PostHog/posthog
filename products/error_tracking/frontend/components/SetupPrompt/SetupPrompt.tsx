@@ -4,10 +4,9 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
 

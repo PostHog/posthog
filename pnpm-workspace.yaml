@@ -12,3 +12,4 @@ packages:
     - products/*
     - products/mcp/typescript
     - rust/cyclotron-node
+minimumReleaseAge: 1440

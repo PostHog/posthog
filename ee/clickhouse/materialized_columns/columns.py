@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import random
 import logging
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
@@ -17,7 +18,11 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
+from posthog.clickhouse.materialized_columns import (
+    MATERIALIZATION_VALID_TABLES,
+    ColumnName,
+    TablesWithMaterializedColumns,
+)
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
@@ -81,7 +86,8 @@ class MaterializedColumn:
 
     @staticmethod
     def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, bool]]:
-        if MATERIALIZED_COLUMNS_USE_CACHE:
+        refresh_cache = random.random() < 0.002  # we run around 50 of those queries per minute
+        if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
             cache_key: str = f"materialized_columns:{table}"
 
             try:
@@ -98,15 +104,15 @@ class MaterializedColumn:
                 SELECT name, comment, type like 'Nullable(%%)' as is_nullable
                 FROM system.columns
                 WHERE database = %(database)s
-                    AND table = %(table)s
-                    AND comment LIKE '%%column_materializer::%%'
-                    AND comment not LIKE '%%column_materializer::elements_chain::%%'
-            """,
+                  AND table = %(table)s
+                  AND comment LIKE '%%column_materializer::%%'
+                  AND comment not LIKE '%%column_materializer::elements_chain::%%'
+                """,
                 {"database": CLICKHOUSE_DATABASE, "table": table},
                 ch_user=ClickHouseUser.HOGQL,
             )
 
-        if MATERIALIZED_COLUMNS_USE_CACHE:
+        if table in MATERIALIZATION_VALID_TABLES and MATERIALIZED_COLUMNS_USE_CACHE:
             try:
                 cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
             except Exception:
@@ -117,8 +123,11 @@ class MaterializedColumn:
 
     @staticmethod
     def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
-        rows = MaterializedColumn._get_all(table)
+        if table not in MATERIALIZATION_VALID_TABLES:
+            logger.error("HogQL trying to get materialized columns for table: %s", table)
+            return
 
+        rows = MaterializedColumn._get_all(table)
         for name, comment, is_nullable in rows:
             yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment), is_nullable)
 
@@ -361,7 +370,9 @@ def check_index_exists(client: Client, table: str, index: str) -> bool:
         """
         SELECT count()
         FROM system.data_skipping_indices
-        WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
+        WHERE database = currentDatabase()
+          AND table = %(table)s
+          AND name = %(name)s
         """,
         {"table": table, "name": index},
     )
@@ -374,7 +385,9 @@ def check_column_exists(client: Client, table: str, column: str) -> bool:
         """
         SELECT count()
         FROM system.columns
-        WHERE database = currentDatabase() AND table = %(table)s AND name = %(name)s
+        WHERE database = currentDatabase()
+          AND table = %(table)s
+          AND name = %(name)s
         """,
         {"table": table, "name": column},
     )

@@ -177,7 +177,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         response = self.client.get(
             f"/api/scoped_environments/{self.team.id}/scoped_foos/",
-            HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}",
+            headers={"authorization": f"Bearer {self.access_token.token}"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -195,7 +195,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         response = self.client.get(
             f"/api/scoped_environments/{other_team.id}/scoped_foos/",
-            HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}",
+            headers={"authorization": f"Bearer {self.access_token.token}"},
         )
 
         # Should not have access to other org's team (self.user is not a member of other_org)
@@ -207,7 +207,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         response = self.client.get(
             f"/api/scoped_organizations/{self.organization.id}/scoped_foos/",
-            HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}",
+            headers={"authorization": f"Bearer {self.access_token.token}"},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -225,7 +225,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         response = self.client.get(
             f"/api/scoped_environments/{self.team.id}/scoped_foos/",
-            HTTP_AUTHORIZATION=f"Bearer {expired_token.token}",
+            headers={"authorization": f"Bearer {expired_token.token}"},
         )
 
         self.assertEqual(response.status_code, 401)
@@ -246,7 +246,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         # Now use OAuth token
         response = self.client.get(
             f"/api/scoped_environments/{self.team.id}/scoped_foos/",
-            HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}",
+            headers={"authorization": f"Bearer {self.access_token.token}"},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)

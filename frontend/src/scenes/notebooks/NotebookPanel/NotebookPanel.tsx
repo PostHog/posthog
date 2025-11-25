@@ -3,7 +3,6 @@ import './NotebookPanel.scss'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -54,7 +53,6 @@ export function NotebookPanel(): JSX.Element | null {
                             size="small"
                             to={urls.notebook(selectedNotebook)}
                             onClick={() => closeSidePanel()}
-                            icon={<IconExternal />}
                             targetBlank
                             tooltip="Open as main focus"
                             tooltipPlacement="bottom-end"

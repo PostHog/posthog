@@ -1,8 +1,8 @@
+import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { deleteKeysWithPrefix } from '../../_tests/redis'
-import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { BASE_REDIS_KEY, HogRateLimiterService } from './hog-rate-limiter.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
@@ -14,7 +14,7 @@ describe('HogRateLimiter', () => {
         let now: number
         let hub: Hub
         let rateLimiter: HogRateLimiterService
-        let redis: CdpRedis
+        let redis: RedisV2
         const id1 = 'hog-function-id-1'
         const id2 = 'hog-function-id-2'
 
@@ -27,7 +27,7 @@ describe('HogRateLimiter', () => {
             hub.CDP_RATE_LIMITER_REFILL_RATE = 10
             hub.CDP_RATE_LIMITER_TTL = 60 * 60 * 24
 
-            redis = createCdpRedisPool(hub)
+            redis = createRedisV2Pool(hub, 'cdp')
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
             rateLimiter = new HogRateLimiterService(hub, redis)

@@ -45,7 +45,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         </LemonButton>
                     )}
                     {event.event === SurveyEventName.SENT && event.uuid && event.properties.$survey_id ? (
-                        <ArchiveSurveyButton responseUuid={event.uuid} />
+                        <ArchiveSurveyButton surveyId={event.properties.$survey_id} responseUuid={event.uuid} />
                     ) : null}
                     {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
                     <ViewRecordingButton

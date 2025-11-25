@@ -1,7 +1,8 @@
+import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
+
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { HealthCheckResult, Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
-import { CdpRedis, createCdpRedisPool } from '../redis'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
@@ -25,7 +26,7 @@ export interface TeamIDWithConfig {
 }
 
 export abstract class CdpConsumerBase {
-    redis: CdpRedis
+    redis: RedisV2
     isStopping = false
 
     hogExecutor: HogExecutorService
@@ -53,7 +54,7 @@ export abstract class CdpConsumerBase {
     protected heartbeat = () => {}
 
     constructor(protected hub: Hub) {
-        this.redis = createCdpRedisPool(hub)
+        this.redis = createRedisV2Pool(hub, 'cdp')
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)

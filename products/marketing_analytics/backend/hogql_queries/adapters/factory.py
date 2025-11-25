@@ -1,8 +1,11 @@
 # Marketing Source Adapter Factory
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import structlog
+
+if TYPE_CHECKING:
+    from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
 from posthog.schema import SourceMap
 
@@ -68,16 +71,45 @@ class MarketingSourceFactory:
     }
 
     @classmethod
-    def get_all_source_identifier_mappings(cls) -> dict[str, list[str]]:
+    def get_all_source_identifier_mappings(
+        cls, team_config: Optional["TeamMarketingAnalyticsConfig"] = None
+    ) -> dict[str, list[str]]:
         """
-        Collect source identifier mappings from all registered adapters.
+        Collect source identifier mappings from all registered adapters
+        and merge with team's custom source mappings.
         Returns a combined dictionary of {primary_source: [all_utm_sources]}.
+
+        Args:
+            team_config: Optional TeamMarketingAnalyticsConfig to merge custom mappings from
         """
+        # Get hardcoded adapter mappings
         combined_mappings: dict[str, list[str]] = {}
         for adapter_class in cls._adapter_registry.values():
             mapping = adapter_class.get_source_identifier_mapping()
             if mapping:
                 combined_mappings.update(mapping)
+
+        # Merge custom mappings from team config if provided
+        if team_config:
+            custom_mappings = team_config.custom_source_mappings
+            for integration_type, custom_utm_sources in custom_mappings.items():
+                # Get the adapter class for this integration type
+                custom_adapter_class = cls._adapter_registry.get(integration_type)
+                if not custom_adapter_class:
+                    # Skip if integration type not found in registry
+                    continue
+
+                # Get the source identifier mapping for this adapter
+                adapter_mapping = custom_adapter_class.get_source_identifier_mapping()
+                if not adapter_mapping:
+                    continue
+
+                # Extend each primary source in the adapter's mapping with custom UTM sources
+                for primary_source in adapter_mapping.keys():
+                    if primary_source in combined_mappings:
+                        # Extend existing mapping with custom UTM sources
+                        combined_mappings[primary_source].extend(custom_utm_sources)
+
         return combined_mappings
 
     def __init__(self, context: QueryContext):

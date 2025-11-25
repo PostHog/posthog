@@ -449,6 +449,16 @@ wheels = [
 ]
 
 [[package]]
+name = "bingads"
+version = "13.0.25.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "suds-community" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f3/66/b3752bab9a139edb4dd90f6a2987e71494c02c2b280e2b62f67c748db226/bingads-13.0.25.3.tar.gz", hash = "sha256:13a404eef6b1b13dcce1ac70ade56595582cfe8a162056fdd612f80f62549857", size = 399262, upload-time = "2025-09-12T14:06:03.77Z" }
+
+[[package]]
 name = "black"
 version = "23.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1927,6 +1937,20 @@ wheels = [
 ]
 
 [[package]]
+name = "duckdb"
+version = "1.4.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/81/99/ac6c105118751cc3ccae980b12e44847273f3402e647ec3197aff2251e23/duckdb-1.4.2.tar.gz", hash = "sha256:df81acee3b15ecb2c72eb8f8579fb5922f6f56c71f5c8892ea3bc6fab39aa2c4", size = 18469786, upload-time = "2025-11-12T13:18:04.203Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/29/2f68c57e7c4242fedbf4b3fdc24fce2ffcf60640c936621d8a645593a161/duckdb-1.4.2-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:9356fe17af2711e0a5ace4b20a0373e03163545fd7516e0c3c40428f44597052", size = 29015814, upload-time = "2025-11-12T13:16:59.329Z" },
+    { url = "https://files.pythonhosted.org/packages/34/b7/030cc278a4ae788800a833b2901b9a7da7a6993121053c4155c359328531/duckdb-1.4.2-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:946a8374c0252db3fa41165ab9952b48adc8de06561a6b5fd62025ac700e492f", size = 15403892, upload-time = "2025-11-12T13:17:02.141Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/a2/67f4798a7a29bd0813f8a1e94a83e857e57f5d1ba14cf3edc5551aad0095/duckdb-1.4.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:389fa9abe4ca37d091332a2f8c3ebd713f18e87dc4cb5e8efd3e5aa8ddf8885f", size = 13733622, upload-time = "2025-11-12T13:17:04.502Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/ac/d0d0e3feae9663334b2336f15785d280b54a56c3ffa10334e20a51a87ecd/duckdb-1.4.2-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:7be8c0c40f2264b91500b89c688f743e1c7764966e988f680b1f19416b00052e", size = 18470220, upload-time = "2025-11-12T13:17:07.049Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/52/7570a50430cbffc8bd702443ac28a446b0fa4f77747a3821d4b37a852b15/duckdb-1.4.2-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c6a21732dd52a76f1e61484c06d65800b18f57fe29e8102a7466c201a2221604", size = 20481138, upload-time = "2025-11-12T13:17:09.459Z" },
+    { url = "https://files.pythonhosted.org/packages/95/5e/be05f46a290ea27630c112ff9e01fd01f585e599967fc52fe2edc7bc2039/duckdb-1.4.2-cp312-cp312-win_amd64.whl", hash = "sha256:769440f4507c20542ae2e5b87f6c6c6d3f148c0aa8f912528f6c97e9aedf6a21", size = 12330737, upload-time = "2025-11-12T13:17:12.02Z" },
+]
+
+[[package]]
 name = "durationpy"
 version = "0.10"
 source = { registry = "https://pypi.org/simple" }
@@ -2648,14 +2672,14 @@ wheels = [
 
 [[package]]
 name = "hogql-parser"
-version = "1.2.11"
+version = "1.2.12"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ed/99/9383ab191b3eef0f18e74fcc20faf74fc4a7374626147c4d562395098f15/hogql_parser-1.2.11.tar.gz", hash = "sha256:b197e68a5cad646f19ecd0413ff2e9f7347b242f703389885ce16f14f4b9cfb6", size = 81974, upload-time = "2025-10-30T16:01:00.885Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/72/7841e88ae25ecfa97943fdd12ad80e51ad8bc05d165e7f5bcb3a2cb4d252/hogql_parser-1.2.12.tar.gz", hash = "sha256:d39e6787df46af84e510d462b413718536c1f1a97dd320b8aba82cecf2065862", size = 82028, upload-time = "2025-11-21T12:09:17.311Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d5/3a/ba403cc40d339d887a19866788c30a94077c2f05315a6d946bf0a3c50345/hogql_parser-1.2.11-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:5ee59caba3c622535bc980349485de785089fffee97974f83c6fe47ae60fa2a3", size = 552774, upload-time = "2025-10-30T16:00:48.48Z" },
-    { url = "https://files.pythonhosted.org/packages/93/92/44b90f6909fd7fb6eb4fe275a82fe2547c1951755dd5be2439f0801a493d/hogql_parser-1.2.11-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:154c4fa8b33b2b31bd0102cb9f83587c183690e1c19e3f960ee8b44f9e26562d", size = 536374, upload-time = "2025-10-30T16:00:49.966Z" },
-    { url = "https://files.pythonhosted.org/packages/a0/4a/f3fc2a369d18ea3b479a33df4ab94b9922faf5eae0cc964ee46594724f06/hogql_parser-1.2.11-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:3f2e15e5d548de8e98cdd5cdf8205badc07645a1bd92cdb06d129a7df036fa3b", size = 3119309, upload-time = "2025-10-30T16:00:51.294Z" },
-    { url = "https://files.pythonhosted.org/packages/0f/da/34f262a3edb613d85ce0627b07e72f9fffa1e84a8f800512974ab3231b40/hogql_parser-1.2.11-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:7ceb62c6fc04c15d5ef309f8a28557d1c3550d170481cb6daedcf75abdcbc336", size = 3219166, upload-time = "2025-10-30T16:00:52.771Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/58/f42abd5d27832deaf3033dd04c52ef841fe5652b27ceb662cae1b7bcb2d1/hogql_parser-1.2.12-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:408349caddf73bdcb6ca8059850a21af3f70a2f4481504365a069cff34de3cf5", size = 552773, upload-time = "2025-11-21T12:09:05.457Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/9c/cc9a9ef2bbff5587461016065da06471129e152abb78d9b2556362446519/hogql_parser-1.2.12-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:be4fff0d9e491fdc67dafc9559ecd44f214dd950f14c3c5f08a3d6f86f07ea4e", size = 536322, upload-time = "2025-11-21T12:09:06.681Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/c8/e82eb04e4f0c2715c33d6b90ccc9bd906e0e509ddec5926546bf9ec8f57a/hogql_parser-1.2.12-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:ef4839d931d93f0be4049db2299d36c95b8285f7f1b9ccbe4f520d17a9f03b47", size = 3117257, upload-time = "2025-11-21T12:09:08.382Z" },
+    { url = "https://files.pythonhosted.org/packages/62/13/e7ee0d8986b090c8ce6b7baaf855317ec7e95a4447b5646f6a139c0a6ff1/hogql_parser-1.2.12-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:4d7964744e611e5491729b497612fc772435abf9f179532bcd4be84c486ee5ca", size = 3217742, upload-time = "2025-11-21T12:09:09.942Z" },
 ]
 
 [[package]]
@@ -4353,6 +4377,7 @@ dependencies = [
     { name = "azure-ai-inference" },
     { name = "azure-ai-projects" },
     { name = "beautifulsoup4" },
+    { name = "bingads" },
     { name = "boto3" },
     { name = "brotli" },
     { name = "cachetools" },
@@ -4406,6 +4431,7 @@ dependencies = [
     { name = "drf-exceptions-hog" },
     { name = "drf-extensions" },
     { name = "drf-spectacular" },
+    { name = "duckdb" },
     { name = "elevenlabs" },
     { name = "emoji" },
     { name = "fastavro" },
@@ -4600,6 +4626,7 @@ requires-dist = [
     { name = "azure-ai-inference", specifier = ">=1.0.0b9" },
     { name = "azure-ai-projects", specifier = ">=1.0.0b11" },
     { name = "beautifulsoup4", specifier = "==4.12.3" },
+    { name = "bingads", specifier = ">=13.0.25.3" },
     { name = "boto3", specifier = "==1.40.49" },
     { name = "brotli", specifier = "==1.1.0" },
     { name = "cachetools", specifier = ">=5.5.2" },
@@ -4653,6 +4680,7 @@ requires-dist = [
     { name = "drf-exceptions-hog", specifier = "==0.4.0" },
     { name = "drf-extensions", specifier = "~=0.8.0" },
     { name = "drf-spectacular", specifier = "~=0.28.0" },
+    { name = "duckdb", specifier = ">=1.3.0" },
     { name = "elevenlabs", specifier = ">=1.58.1" },
     { name = "emoji", specifier = "==2.14.1" },
     { name = "fastavro", specifier = ">=1.12.0" },
@@ -4665,7 +4693,7 @@ requires-dist = [
     { name = "google-genai", specifier = "==1.46.0" },
     { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.2.11" },
+    { name = "hogql-parser", specifier = "==1.2.12" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=9578c79f29635ee2c1d01b7979e89adab8383de2" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.0.6" },
@@ -4778,7 +4806,7 @@ dev = [
     { name = "dagster-dg-cli", specifier = ">=1.10.18" },
     { name = "datamodel-code-generator", specifier = "==0.28.5" },
     { name = "debugpy", specifier = ">=1.8.0" },
-    { name = "deepdiff", specifier = ">=8.5.0" },
+    { name = "deepdiff", specifier = ">=8.6.1" },
     { name = "django-linear-migrations", specifier = "~=2.17.0" },
     { name = "django-stubs", specifier = "~=5.2.0" },
     { name = "djangorestframework-stubs", specifier = "~=3.16.0" },
@@ -6388,6 +6416,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/79/b9/6e672db4fec07349e7a8a8172c1a6ae235c58679ca29c3f86a61b5e59ff3/structlog-25.4.0.tar.gz", hash = "sha256:186cd1b0a8ae762e29417095664adf1d6a31702160a46dacb7796ea82f7409e4", size = 1369138, upload-time = "2025-06-02T08:21:12.971Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/4a/97ee6973e3a73c74c8120d59829c3861ea52210667ec3e7a16045c62b64d/structlog-25.4.0-py3-none-any.whl", hash = "sha256:fe809ff5c27e557d14e613f45ca441aabda051d119ee5a0102aaba6ce40eed2c", size = 68720, upload-time = "2025-06-02T08:21:11.43Z" },
+]
+
+[[package]]
+name = "suds-community"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/5d/da767935b4cb869417307fbd6dec93d2bf3723228214302b6e6b277f474b/suds_community-1.2.0.tar.gz", hash = "sha256:ab3b24dc9ba06b5e6598e2a5d34d2a7d06c79e613d81cedc028475bfbd3bb90c", size = 271408, upload-time = "2024-08-24T20:07:23.122Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/0e/513c353018247dc846074d9460f3c9adeeea360ac85abd5a7750eb53fc03/suds_community-1.2.0-py3-none-any.whl", hash = "sha256:505b191865bca125f12e8ff9598b24d9c0108b98826671bdd700ed51def44e36", size = 145270, upload-time = "2024-08-24T20:07:21.588Z" },
 ]
 
 [[package]]
