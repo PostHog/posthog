@@ -77,8 +77,7 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                 const resolveMethod = match(parsed.provider)
                     .with('github', () => api.gitProviderFileLinks.resolveGithub)
                     .with('gitlab', () => api.gitProviderFileLinks.resolveGitlab)
-                    .with('unknown', () => null)
-                    .exhaustive()
+                    .otherwise(() => null)
 
                 if (!resolveMethod) {
                     return

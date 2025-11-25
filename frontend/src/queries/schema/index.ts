@@ -5,6 +5,7 @@
 // (even though our actual app's esbuild setup compiles perfectly well.)
 
 // sort-imports-ignore
+export * from './schema-assistant-artifacts'
 export * from './schema-assistant-messages'
 export * from './schema-assistant-queries'
 export * from './schema-assistant-replay'

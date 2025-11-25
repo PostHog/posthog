@@ -118,13 +118,8 @@ fn get_minimal_flags_response(
     };
 
     // Create empty flags response with minimal config
-    let response = FlagsResponse {
-        errors_while_computing_flags: false,
-        flags: HashMap::new(),
-        quota_limited: None,
-        request_id,
-        config,
-    };
+    let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
+    response.config = config;
 
     // Return versioned response
     let service_response = if version_num >= 2 {

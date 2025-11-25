@@ -19,6 +19,7 @@ export type DateFilterLogicProps = {
     isFixedDateMode?: boolean
     placeholder?: string
     allowTimePrecision?: boolean
+    explicitDate?: boolean
 }
 
 export const CUSTOM_OPTION_KEY = 'Custom'

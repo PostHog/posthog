@@ -92,6 +92,63 @@ def validate_campaign_name_mappings(mappings: dict) -> None:
                     )
 
 
+def validate_custom_source_mappings(mappings: dict) -> None:
+    """
+    Validate custom_source_mappings structure: dict of integration type -> list of custom UTM sources.
+
+    Structure: {
+        "GoogleAds": ["partner_a", "custom_source_1"],
+        "MetaAds": ["influencer_campaign", "partner_b"]
+    }
+
+    The integration type (e.g., "GoogleAds") should match the keys in the adapter registry.
+
+    Important: Custom UTM sources must be unique across all integrations. You cannot map
+    the same UTM source value to multiple integrations (e.g., mapping "partner_a" to both
+    GoogleAds and MetaAds will cause conflicts in attribution).
+    """
+    if not isinstance(mappings, dict):
+        raise ValidationError("custom_source_mappings must be a dictionary")
+
+    # Track all custom sources across integrations to detect duplicates
+    seen_sources: dict[str, str] = {}  # lowercase source -> integration type
+
+    for integration_type, utm_sources in mappings.items():
+        if not isinstance(integration_type, str):
+            raise ValidationError(f"Integration type '{integration_type}' must be a string")
+
+        if not isinstance(utm_sources, list):
+            raise ValidationError(f"UTM sources for integration '{integration_type}' must be a list")
+
+        # Check for duplicates within the same integration
+        seen_within_integration: set[str] = set()
+
+        for utm_source in utm_sources:
+            if not isinstance(utm_source, str):
+                raise ValidationError(
+                    f"UTM source '{utm_source}' for integration '{integration_type}' must be a string"
+                )
+
+            source_lower = utm_source.lower()
+
+            # Check for duplicates within the same integration
+            if source_lower in seen_within_integration:
+                raise ValidationError(
+                    f"Custom UTM source '{utm_source}' appears multiple times in {integration_type}. "
+                    f"Each source should only be listed once per integration."
+                )
+            seen_within_integration.add(source_lower)
+
+            # Check for duplicates across integrations
+            if source_lower in seen_sources:
+                raise ValidationError(
+                    f"Custom UTM source '{utm_source}' cannot be mapped to multiple integrations. "
+                    f"It is already used in {seen_sources[source_lower]}, cannot also add to {integration_type}. "
+                    f"Each custom UTM source must be unique across all integrations."
+                )
+            seen_sources[source_lower] = integration_type
+
+
 def validate_conversion_goals(conversion_goals: list) -> None:
     """Validate conversion goals structure: list of dicts with name, event, and properties."""
     if not isinstance(conversion_goals, list):
@@ -186,6 +243,13 @@ class TeamMarketingAnalyticsConfig(models.Model):
         blank=True,
         help_text="Maps campaign names to lists of raw UTM values per data source",
     )
+    _custom_source_mappings = models.JSONField(
+        default=dict,
+        db_column="custom_source_mappings",
+        null=False,
+        blank=True,
+        help_text="Custom UTM source mappings: maps integration types to lists of custom UTM source values",
+    )
 
     def clean(self):
         """Validate model fields"""
@@ -248,6 +312,19 @@ class TeamMarketingAnalyticsConfig(models.Model):
         except ValidationError as e:
             raise ValidationError(f"Invalid campaign name mappings: {str(e)}")
 
+    @property
+    def custom_source_mappings(self) -> dict[str, list[str]]:
+        return self._custom_source_mappings or {}
+
+    @custom_source_mappings.setter
+    def custom_source_mappings(self, value: dict) -> None:
+        value = value or {}
+        try:
+            validate_custom_source_mappings(value)
+            self._custom_source_mappings = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid custom source mappings: {str(e)}")
+
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""
 
@@ -291,6 +368,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             "attribution_window_days": self.attribution_window_days,
             "attribution_mode": self.attribution_mode,
             "campaign_name_mappings": self.campaign_name_mappings,
+            "custom_source_mappings": self.custom_source_mappings,
         }
 
 

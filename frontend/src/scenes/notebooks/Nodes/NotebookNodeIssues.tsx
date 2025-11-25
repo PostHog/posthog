@@ -85,10 +85,11 @@ const IssuesQuery = ({ personId, groupKey, groupTypeIndex, logicKey }: IssuesQue
     const insightProps: InsightLogicProps = {
         dashboardItemId: `new-NotebookNodeIssues-${personId || groupKey}`,
     }
+    const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
-            <Query uniqueKey={logicKey} attachTo={groupLogic} query={{ ...query, embedded: true }} context={context} />
+            <Query uniqueKey={logicKey} attachTo={attachTo} query={{ ...query, embedded: true }} context={context} />
         </BindLogic>
     )
 }
