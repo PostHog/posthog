@@ -1,4 +1,3 @@
-import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -18,13 +17,17 @@ import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType
 import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
-// Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<HogFunctionType> {}
 
 export type HogFunctionListFilters = {
     search?: string
-    showPaused?: boolean
 }
+
+export type HogFunctionListPagination = {
+    offset: number
+    limit: number
+}
+
+export type HogFunctionTableType = 'active' | 'paused'
 
 export type HogFunctionListLogicProps = {
     logicKey?: string
@@ -72,6 +75,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         addHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setReorderModalOpen: (open: boolean) => ({ open }),
         saveHogFunctionOrder: (newOrders: Record<string, number>) => ({ newOrders }),
+        setPagination: (tableType: HogFunctionTableType, pagination: Partial<HogFunctionListPagination>) => ({
+            tableType,
+            pagination,
+        }),
     }),
     reducers(() => ({
         filters: [
@@ -84,6 +91,36 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 resetFilters: () => ({}),
             },
         ],
+        activePagination: [
+            { offset: 0, limit: 10 } as HogFunctionListPagination,
+            {
+                setPagination: (state, { tableType, pagination }) =>
+                    tableType === 'active' ? { ...state, ...pagination } : state,
+                setFilters: () => ({ offset: 0, limit: 10 }),
+                resetFilters: () => ({ offset: 0, limit: 10 }),
+            },
+        ],
+        pausedPagination: [
+            { offset: 0, limit: 10 } as HogFunctionListPagination,
+            {
+                setPagination: (state, { tableType, pagination }) =>
+                    tableType === 'paused' ? { ...state, ...pagination } : state,
+                setFilters: () => ({ offset: 0, limit: 10 }),
+                resetFilters: () => ({ offset: 0, limit: 10 }),
+            },
+        ],
+        activeTotalCount: [
+            0 as number,
+            {
+                loadActiveHogFunctionsSuccess: (_, { activeHogFunctions }) => (activeHogFunctions as any).count ?? 0,
+            },
+        ],
+        pausedTotalCount: [
+            0 as number,
+            {
+                loadPausedHogFunctionsSuccess: (_, { pausedHogFunctions }) => (pausedHogFunctions as any).count ?? 0,
+            },
+        ],
         reorderModalOpen: [
             false as boolean,
             {
@@ -92,20 +129,19 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         ],
     })),
     loaders(({ values, actions, props }) => ({
-        hogFunctions: [
+        activeHogFunctions: [
             [] as HogFunctionType[],
             {
-                loadHogFunctions: async () => {
-                    return (
-                        await api.hogFunctions.list({
-                            filter_groups: props.forceFilterGroups,
-                            types: [props.type, ...(props.additionalTypes || [])],
-                            limit: 200,
-                        })
-                    ).results
-                },
-                saveHogFunctionOrder: async ({ newOrders }) => {
-                    return await api.hogFunctions.rearrange(newOrders)
+                loadActiveHogFunctions: async () => {
+                    const response = await api.hogFunctions.list({
+                        filter_groups: props.forceFilterGroups,
+                        types: [props.type, ...(props.additionalTypes || [])],
+                        limit: values.activePagination.limit,
+                        offset: values.activePagination.offset,
+                        search: values.filters.search,
+                        enabled: true,
+                    })
+                    return Object.assign(response.results, { count: response.count })
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({
@@ -116,7 +152,8 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         },
                         callback: (undo) => {
                             if (undo) {
-                                actions.loadHogFunctions()
+                                actions.loadActiveHogFunctions()
+                                actions.loadPausedHogFunctions()
                                 refreshTreeItem('hog_function/', hogFunction.id)
                             } else {
                                 deleteFromTree('hog_function/', hogFunction.id)
@@ -124,76 +161,90 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         },
                     })
 
-                    return values.hogFunctions.filter((x) => x.id !== hogFunction.id)
+                    return values.activeHogFunctions.filter((x) => x.id !== hogFunction.id)
                 },
                 toggleEnabled: async ({ hogFunction, enabled }) => {
-                    const { hogFunctions } = values
-                    const hogFunctionIndex = hogFunctions.findIndex((hf) => hf.id === hogFunction.id)
-                    const response = await api.hogFunctions.update(hogFunction.id, {
+                    await api.hogFunctions.update(hogFunction.id, {
                         enabled,
                     })
-                    return [
-                        ...hogFunctions.slice(0, hogFunctionIndex),
-                        response,
-                        ...hogFunctions.slice(hogFunctionIndex + 1),
-                    ]
+                    // Reload both tables since toggling moves items between them
+                    actions.loadActiveHogFunctions()
+                    actions.loadPausedHogFunctions()
+                    return values.activeHogFunctions
                 },
                 addHogFunction: ({ hogFunction }) => {
-                    return [hogFunction, ...values.hogFunctions]
+                    if (hogFunction.enabled) {
+                        return [hogFunction, ...values.activeHogFunctions]
+                    }
+                    return values.activeHogFunctions
+                },
+            },
+        ],
+        pausedHogFunctions: [
+            [] as HogFunctionType[],
+            {
+                loadPausedHogFunctions: async () => {
+                    const response = await api.hogFunctions.list({
+                        filter_groups: props.forceFilterGroups,
+                        types: [props.type, ...(props.additionalTypes || [])],
+                        limit: values.pausedPagination.limit,
+                        offset: values.pausedPagination.offset,
+                        search: values.filters.search,
+                        enabled: false,
+                    })
+                    return Object.assign(response.results, { count: response.count })
+                },
+            },
+        ],
+        savedHogFunctionOrder: [
+            [] as HogFunctionType[],
+            {
+                saveHogFunctionOrder: async ({ newOrders }) => {
+                    return await api.hogFunctions.rearrange(newOrders)
                 },
             },
         ],
     })),
     selectors({
-        loading: [(s) => [s.hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
-        sortedHogFunctions: [
-            (s) => [s.hogFunctions, (_, props) => props.manualFunctions ?? []],
-            (hogFunctions, manualFunctions): HogFunctionType[] => {
-                const enabledFirst = [...hogFunctions, ...manualFunctions].sort(
-                    (a, b) => Number(b.enabled) - Number(a.enabled)
-                )
-                return enabledFirst
+        loading: [
+            (s) => [s.activeHogFunctionsLoading, s.pausedHogFunctionsLoading],
+            (activeLoading, pausedLoading) => activeLoading || pausedLoading,
+        ],
+        activeLoading: [(s) => [s.activeHogFunctionsLoading], (loading) => loading],
+        pausedLoading: [(s) => [s.pausedHogFunctionsLoading], (loading) => loading],
+        // Combined list for backwards compatibility
+        hogFunctions: [
+            (s) => [s.activeHogFunctions, s.pausedHogFunctions],
+            (active, paused): HogFunctionType[] => [...active, ...paused],
+        ],
+        filteredActiveHogFunctions: [
+            (s) => [s.activeHogFunctions, s.user, (_, props) => props.manualFunctions ?? []],
+            (
+                hogFunctions: HogFunctionType[],
+                user: UserType | null,
+                manualFunctions: HogFunctionType[]
+            ): HogFunctionType[] => {
+                // Add manual functions if they're enabled
+                const enabledManual = manualFunctions.filter((f: HogFunctionType) => f.enabled)
+                return [...hogFunctions, ...enabledManual].filter((x) => shouldShowHogFunction(x, user))
             },
         ],
+        filteredPausedHogFunctions: [
+            (s) => [s.pausedHogFunctions, s.user, (_, props) => props.manualFunctions ?? []],
+            (
+                hogFunctions: HogFunctionType[],
+                user: UserType | null,
+                manualFunctions: HogFunctionType[]
+            ): HogFunctionType[] => {
+                // Add manual functions if they're paused
+                const pausedManual = manualFunctions.filter((f: HogFunctionType) => !f.enabled)
+                return [...hogFunctions, ...pausedManual].filter((x) => shouldShowHogFunction(x, user))
+            },
+        ],
+        // Enabled hog functions for order modal (just uses active functions)
         enabledHogFunctions: [
-            (s) => [s.sortedHogFunctions],
-            (hogFunctions): HogFunctionType[] => {
-                return hogFunctions.filter((hogFunction) => hogFunction.enabled)
-            },
-        ],
-        hogFunctionsFuse: [
-            (s) => [s.sortedHogFunctions],
-            (hogFunctions): Fuse => {
-                return new FuseClass(hogFunctions || [], {
-                    keys: ['name', 'description'],
-                    threshold: 0.3,
-                })
-            },
-        ],
-
-        filteredHogFunctions: [
-            (s) => [s.filters, s.sortedHogFunctions, s.hogFunctionsFuse, s.user],
-            (filters, hogFunctions, hogFunctionsFuse, user): HogFunctionType[] => {
-                const { search, showPaused } = filters
-
-                return (search ? hogFunctionsFuse.search(search).map((x) => x.item) : hogFunctions).filter((x) => {
-                    if (!shouldShowHogFunction(x, user)) {
-                        return false
-                    }
-
-                    if (!showPaused && !x.enabled) {
-                        return false
-                    }
-                    return true
-                })
-            },
-        ],
-
-        hiddenHogFunctions: [
-            (s) => [s.sortedHogFunctions, s.filteredHogFunctions],
-            (sortedHogFunctions, filteredHogFunctions): HogFunctionType[] => {
-                return sortedHogFunctions.filter((hogFunction) => !filteredHogFunctions.includes(hogFunction))
-            },
+            (s) => [s.filteredActiveHogFunctions],
+            (activeHogFunctions: HogFunctionType[]): HogFunctionType[] => activeHogFunctions,
         ],
     }),
 
@@ -204,6 +255,17 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         },
         saveHogFunctionOrderFailure: () => {
             lemonToast.error('Failed to update order')
+        },
+        setFilters: () => {
+            actions.loadActiveHogFunctions()
+            actions.loadPausedHogFunctions()
+        },
+        setPagination: ({ tableType }) => {
+            if (tableType === 'active') {
+                actions.loadActiveHogFunctions()
+            } else {
+                actions.loadPausedHogFunctions()
+            }
         },
     })),
 

@@ -1,16 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import {
-    LemonBadge,
-    LemonButton,
-    LemonCheckbox,
-    LemonInput,
-    LemonTable,
-    LemonTableColumn,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonInput, LemonTable, LemonTableColumn, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -29,8 +20,6 @@ import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
 
-const HOG_FUNCTIONS_PAGINATION_PAGE_SIZE = 10
-
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {
         return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
@@ -46,17 +35,36 @@ export function HogFunctionList({
     hideFeedback = false,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
-        hogFunctionsListLogic(props)
-    )
-    const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
-        useActions(hogFunctionsListLogic(props))
+    const {
+        filteredActiveHogFunctions,
+        filteredPausedHogFunctions,
+        filters,
+        activeLoading,
+        pausedLoading,
+        activePagination,
+        pausedPagination,
+        activeTotalCount,
+        pausedTotalCount,
+    } = useValues(hogFunctionsListLogic(props))
+    const {
+        loadActiveHogFunctions,
+        loadPausedHogFunctions,
+        setFilters,
+        resetFilters,
+        toggleEnabled,
+        deleteHogFunction,
+        setReorderModalOpen,
+        setPagination,
+    } = useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     const humanizedType = humanizeHogFunctionType(props.type)
 
-    useOnMountEffect(loadHogFunctions)
+    useOnMountEffect(() => {
+        loadActiveHogFunctions()
+        loadPausedHogFunctions()
+    })
 
     const isManualFunction = useCallback(
         (hogFunction: HogFunctionType): boolean => {
@@ -65,7 +73,7 @@ export function HogFunctionList({
         [props.manualFunctions]
     )
 
-    const columns = useMemo(() => {
+    const buildColumns = useCallback((): LemonTableColumn<HogFunctionType, any>[] => {
         const columns: LemonTableColumn<HogFunctionType, any>[] = [
             {
                 title: '',
@@ -103,7 +111,6 @@ export function HogFunctionList({
                 width: 0,
                 render: (_, hogFunction) => {
                     if (hogFunction.id.startsWith('batch-export-')) {
-                        // TODO: Make this less hacky, maybe with some extended type for managing these values
                         const batchExportId = hogFunction.id.replace('batch-export-', '')
                         return (
                             <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
@@ -162,7 +169,6 @@ export function HogFunctionList({
                                     items={
                                         isManualFunction(hogFunction)
                                             ? [
-                                                  // TRICKY: Hack for now to just link out to the full view
                                                   {
                                                       label: 'View & configure',
                                                       to: urlForHogFunction(hogFunction),
@@ -175,7 +181,7 @@ export function HogFunctionList({
                                                   },
                                                   {
                                                       label: 'Delete',
-                                                      status: 'danger' as const, // for typechecker happiness
+                                                      status: 'danger' as const,
                                                       onClick: () => deleteHogFunction(hogFunction),
                                                   },
                                               ]
@@ -189,7 +195,6 @@ export function HogFunctionList({
         ]
 
         if (props.type === 'transformation') {
-            // insert it in the second column
             columns.splice(1, 0, {
                 title: 'Prio',
                 key: 'execution_order',
@@ -210,7 +215,10 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [props.type, toggleEnabled, deleteHogFunction, isManualFunction, setReorderModalOpen])
+
+    const activeColumns = useMemo(() => buildColumns(), [buildColumns])
+    const pausedColumns = useMemo(() => buildColumns(), [buildColumns])
 
     return (
         <div className="flex flex-col gap-4">
@@ -227,52 +235,88 @@ export function HogFunctionList({
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                <LemonCheckbox
-                    label="Show paused"
-                    bordered
-                    size="small"
-                    checked={filters.showPaused}
-                    onChange={(e) => setFilters({ showPaused: e ?? undefined })}
-                />
                 {extraControls}
             </div>
 
             <BindLogic logic={hogFunctionsListLogic} props={props}>
-                <LemonTable
-                    dataSource={filteredHogFunctions}
-                    pagination={{
-                        controlled: false,
-                        pageSize: HOG_FUNCTIONS_PAGINATION_PAGE_SIZE,
-                    }}
-                    size="small"
-                    loading={loading}
-                    columns={columns}
-                    emptyState={
-                        hogFunctions.length === 0 && !loading ? (
-                            `No ${humanizedType}s found`
-                        ) : (
-                            <>
-                                No {humanizedType}s matching filters.{' '}
-                                <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
-                            </>
-                        )
-                    }
-                    footer={
-                        hiddenHogFunctions.length > 0 && (
-                            <div className="p-3 text-secondary">
-                                {hiddenHogFunctions.length} hidden.{' '}
-                                <Link
-                                    onClick={() => {
-                                        resetFilters()
-                                        setFilters({ showPaused: true })
-                                    }}
-                                >
-                                    Show all
-                                </Link>
-                            </div>
-                        )
-                    }
-                />
+                {/* Active Functions Table */}
+                <div>
+                    <h3 className="mb-2">Active {humanizedType}s</h3>
+                    <LemonTable
+                        dataSource={filteredActiveHogFunctions}
+                        size="small"
+                        loading={activeLoading}
+                        columns={activeColumns}
+                        pagination={{
+                            controlled: true,
+                            pageSize: activePagination.limit,
+                            currentPage: Math.floor(activePagination.offset / activePagination.limit) + 1,
+                            entryCount: activeTotalCount,
+                            onForward:
+                                activePagination.offset + activePagination.limit < activeTotalCount
+                                    ? () =>
+                                          setPagination('active', {
+                                              offset: activePagination.offset + activePagination.limit,
+                                          })
+                                    : undefined,
+                            onBackward:
+                                activePagination.offset > 0
+                                    ? () =>
+                                          setPagination('active', {
+                                              offset: Math.max(0, activePagination.offset - activePagination.limit),
+                                          })
+                                    : undefined,
+                        }}
+                        emptyState={
+                            filteredActiveHogFunctions.length === 0 && !activeLoading ? (
+                                <>
+                                    No active {humanizedType}s found.{' '}
+                                    {filters.search && <Link onClick={() => resetFilters()}>Clear filters</Link>}
+                                </>
+                            ) : undefined
+                        }
+                    />
+                </div>
+
+                {/* Paused Functions Table */}
+                <div>
+                    <h3 className="mb-2">Paused {humanizedType}s</h3>
+                    <LemonTable
+                        dataSource={filteredPausedHogFunctions}
+                        size="small"
+                        loading={pausedLoading}
+                        columns={pausedColumns}
+                        pagination={{
+                            controlled: true,
+                            pageSize: pausedPagination.limit,
+                            currentPage: Math.floor(pausedPagination.offset / pausedPagination.limit) + 1,
+                            entryCount: pausedTotalCount,
+                            onForward:
+                                pausedPagination.offset + pausedPagination.limit < pausedTotalCount
+                                    ? () =>
+                                          setPagination('paused', {
+                                              offset: pausedPagination.offset + pausedPagination.limit,
+                                          })
+                                    : undefined,
+                            onBackward:
+                                pausedPagination.offset > 0
+                                    ? () =>
+                                          setPagination('paused', {
+                                              offset: Math.max(0, pausedPagination.offset - pausedPagination.limit),
+                                          })
+                                    : undefined,
+                        }}
+                        emptyState={
+                            filteredPausedHogFunctions.length === 0 && !pausedLoading ? (
+                                <>
+                                    No paused {humanizedType}s found.{' '}
+                                    {filters.search && <Link onClick={() => resetFilters()}>Clear filters</Link>}
+                                </>
+                            ) : undefined
+                        }
+                    />
+                </div>
+
                 <HogFunctionOrderModal />
             </BindLogic>
         </div>
