@@ -1628,12 +1628,22 @@ class _Printer(Visitor[str]):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
+            # Check for traditional mat_* columns first (they have priority)
             materialized_column = self._get_materialized_column(table_name, property_name, field_name)
             if materialized_column is not None:
                 yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
+                )
+
+            # Check for dmat (dynamic materialized) columns after mat_* columns
+            dmat_column = self._get_dmat_column(table_name, field_name, property_name)
+            if dmat_column is not None:
+                yield PrintableMaterializedColumn(
+                    self.visit(field_type.table_type),
+                    self._print_identifier(dmat_column),
+                    is_nullable=True,
                 )
 
             if self.context.modifiers.propertyGroupsMode in (
@@ -1922,6 +1932,26 @@ class _Printer(Visitor[str]):
         return get_materialized_column_for_property(
             cast(TablesWithMaterializedColumns, table_name), field_name, property_name
         )
+
+    def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
+        """
+        Get the dmat column name for a property if available.
+
+        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
+        otherwise None.
+        """
+        if self.context.property_swapper is None:
+            return None
+
+        # Only event properties have dmat columns
+        if table_name != "events" or field_name != "properties":
+            return None
+
+        prop_info = self.context.property_swapper.event_properties.get(property_name)
+        if prop_info:
+            return prop_info.get("dmat")
+
+        return None
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
