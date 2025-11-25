@@ -24,6 +24,7 @@ from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from posthog.temporal.npm_release_monitor.workflow import NpmReleaseMonitorInputs
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
@@ -225,12 +226,51 @@ async def create_weekly_digest_schedule(client: Client):
         )
 
 
+async def create_npm_release_monitor_schedule(client: Client):
+    """Create or update the schedule for the npm release monitor workflow.
+
+    This schedule runs every 30 minutes to check for unauthorized npm releases.
+    It monitors PostHog npm packages and alerts if releases don't correlate with CI/CD.
+    """
+    npm_release_monitor_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "npm-release-monitor",
+            asdict(
+                NpmReleaseMonitorInputs(
+                    lookback_hours=1,
+                    github_token=getattr(settings, "GITHUB_TOKEN", None),
+                    slack_webhook_url=getattr(settings, "NPM_RELEASE_MONITOR_SLACK_WEBHOOK", None),
+                    alert_email=getattr(settings, "NPM_RELEASE_MONITOR_ALERT_EMAIL", None),
+                )
+            ),
+            id="npm-release-monitor-schedule",
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=1),
+            ),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
+    )
+
+    if await a_schedule_exists(client, "npm-release-monitor-schedule"):
+        await a_update_schedule(client, "npm-release-monitor-schedule", npm_release_monitor_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "npm-release-monitor-schedule",
+            npm_release_monitor_schedule,
+            trigger_immediately=False,
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
     create_enforce_max_replay_retention_schedule,
     create_weekly_digest_schedule,
+    create_npm_release_monitor_schedule,
 ]
 
 if settings.EE_AVAILABLE:
