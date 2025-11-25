@@ -177,21 +177,23 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => handleStaticNavbarItemClick(urls.projectRoot(), true),
             collapsedTooltip: 'Home',
         },
-        featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
-            ? {
-                  identifier: 'ProjectFeed',
-                  label: 'Feed',
-                  icon: <IconNewspaper />,
-                  to: urls.feed(),
-                  onClick: () => handleStaticNavbarItemClick(urls.feed(), true),
-                  collapsedTooltip: 'Feed',
-              }
-            : null,
+        ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
+            ? [
+                  {
+                      identifier: 'ProjectFeed',
+                      label: 'Feed',
+                      icon: <IconNewspaper />,
+                      to: urls.feed(),
+                      onClick: () => handleStaticNavbarItemClick(urls.feed(), true),
+                      collapsedTooltip: 'Feed',
+                  },
+              ]
+            : []),
         {
             identifier: 'Products',
             label: 'All apps',
             icon: <IconApps />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Products')
                 }
@@ -203,7 +205,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Project',
             label: 'Project',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Project')
                 }
@@ -215,7 +217,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Database',
             label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Database')
                 }
@@ -228,7 +230,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'DataManagement',
             label: 'Data management',
             icon: <IconDatabase />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('DataManagement')
                 }
@@ -241,7 +243,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'People',
             label: 'People',
             icon: <IconPeople />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('People')
                 }
@@ -254,7 +256,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Shortcuts',
             label: 'Shortcuts',
             icon: <IconShortcut />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Shortcuts')
                 }

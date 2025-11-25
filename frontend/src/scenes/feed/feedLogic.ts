@@ -82,11 +82,13 @@ export const feedLogic = kea<feedLogicType>([
         groupedFeedItems: [
             (s) => [s.feedItems, s.searchQuery, s.selectedTypes, s.fuse],
             (items, searchQuery, selectedTypes, fuse): Record<string, Record<string, FeedItem[]>> => {
-                let filteredItems = searchQuery ? fuse.search(searchQuery).map((result) => result.item) : items
+                let filteredItems = searchQuery
+                    ? fuse.search(searchQuery).map((result: Fuse.FuseResult<FeedItem>) => result.item)
+                    : items
 
                 // Filter by selected types (if not "all")
                 if (selectedTypes.length > 0 && !selectedTypes.includes('all')) {
-                    filteredItems = filteredItems.filter((item) => selectedTypes.includes(item.type))
+                    filteredItems = filteredItems.filter((item: FeedItem) => selectedTypes.includes(item.type))
                 }
 
                 // Group items by date - enumerate last 7 days, then "OLDER"
@@ -94,7 +96,7 @@ export const feedLogic = kea<feedLogicType>([
 
                 const today = dayjs().startOf('day')
 
-                filteredItems.forEach((item) => {
+                filteredItems.forEach((item: FeedItem) => {
                     const itemDay = dayjs(item.created_at).startOf('day')
                     const dayDiff = today.diff(itemDay, 'days')
 
