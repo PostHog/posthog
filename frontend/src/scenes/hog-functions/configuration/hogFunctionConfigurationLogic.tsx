@@ -1104,25 +1104,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         mappingTemplates: [
-            (s) => [s.hogFunction, s.template, s.type],
-            (hogFunction, template, type): HogFunctionMappingTemplateType[] => {
-                const templates = template?.mapping_templates ?? hogFunction?.template?.mapping_templates ?? []
-
-                // For destination types without templates, provide a default to enable adding mappings
-                if (templates.length === 0 && (type === 'destination' || type === 'site_destination')) {
-                    // Use the function's input schema for the mapping template
-                    const inputSchema = hogFunction?.inputs_schema ?? template?.inputs_schema ?? []
-                    return [
-                        {
-                            name: 'New mapping',
-                            include_by_default: false,
-                            inputs_schema: inputSchema,
-                        },
-                    ]
-                }
-
-                return templates
-            },
+            (s) => [s.hogFunction, s.template],
+            (hogFunction, template) => template?.mapping_templates ?? hogFunction?.template?.mapping_templates ?? [],
         ],
 
         usesGroups: [
