@@ -448,7 +448,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
 
-        expected_columns = 10
+        expected_columns = 11
         actual_columns = len(response.columns) if response.columns else 0
         assert (
             actual_columns == expected_columns
@@ -502,7 +502,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
-        assert len(response.columns) == 12, "Should have 12 columns including multiple conversion goal columns"
+        assert len(response.columns) == 13, "Should have 13 columns including multiple conversion goal columns"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_comprehensive_marketing_analytics_basic(self):
