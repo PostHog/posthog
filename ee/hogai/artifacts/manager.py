@@ -206,7 +206,7 @@ class ArtifactManager(AssistantContextMixin):
     def _to_visualization_artifact_message(
         self, message: ArtifactRefMessage, content: VisualizationArtifactContent
     ) -> ArtifactMessage:
-        """Convert an ArtifactMessage to a VisualizationArtifactMessage."""
+        """Convert an ArtifactRefMessage to an ArtifactMessage."""
         return ArtifactMessage(
             id=message.id,
             artifact_id=message.artifact_id,
