@@ -66,6 +66,8 @@ clickhouse_settings = {
     "max_execution_time": MAX_PARTITIONS_PER_RUN * 4 * ONE_HOUR_IN_SECONDS,
     "max_memory_usage": 100 * ONE_GB_IN_BYTES,
     "distributed_aggregation_memory_efficient": "1",
+    # use insert_distributed_sync=0 to avoid OOM (even 100GB wasn't enough with sync=1)
+    # instead, we use preflight checks on unmerged parts count to prevent TOO_MANY_PARTS errors
     "insert_distributed_sync": "0",
 }
 
@@ -81,7 +83,7 @@ def get_partition_where_clause(context: AssetExecutionContext, timestamp_field: 
 
 unmerged_parts_query = f"""
     SELECT count()
-    FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system, parts)
+    FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
     WHERE database = '{settings.CLICKHOUSE_DATABASE}'
       AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
       AND active = 1
