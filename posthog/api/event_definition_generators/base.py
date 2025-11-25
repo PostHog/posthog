@@ -6,7 +6,7 @@ from django.db.models import Q, QuerySet
 import orjson
 
 from posthog.event_usage import report_user_action
-from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroupProperty, User
+from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroupProperty
 
 
 class EventDefinitionGenerator(ABC):
@@ -79,7 +79,7 @@ class EventDefinitionGenerator(ABC):
 
     @staticmethod
     def record_report_generation(
-        language_name: str, generator_version: str, user: User, team_id: int, project_id: int, event_count: int
+        language_name: str, generator_version: str, user, team_id: int, project_id: int, event_count: int
     ) -> None:
         """
         Note: This is a `staticmethod` temporarily only until the typescript generator has been migrated to this

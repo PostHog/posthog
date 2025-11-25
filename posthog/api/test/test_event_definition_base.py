@@ -101,10 +101,10 @@ class TestEventDefinitionGeneratorBase(BaseTest):
         version2 = version2 or version1
 
         events1, schema_map1 = self._build_schema(schema1_spec)
-        hash1 = EventDefinitionGenerator.calculate_schema_hash(version1, events1, schema_map1)
+        hash1 = EventDefinitionGenerator.calculate_schema_hash(version1, events1, schema_map1)  # type: ignore[arg-type]
 
         events2, schema_map2 = self._build_schema(schema2_spec)
-        hash2 = EventDefinitionGenerator.calculate_schema_hash(version2, events2, schema_map2)
+        hash2 = EventDefinitionGenerator.calculate_schema_hash(version2, events2, schema_map2)  # type: ignore[arg-type]
 
         self.assertEqual(
             hash1 == hash2,
