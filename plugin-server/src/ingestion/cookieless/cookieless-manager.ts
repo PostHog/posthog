@@ -29,7 +29,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
-import { PipelineResult, drop, ok } from '../pipelines/results'
+import { PipelineResult, dlq, drop, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
 
 /* ---------------------------------------------------------------------
@@ -302,10 +302,9 @@ export class CookielessManager {
                 })
             }
 
-            // Drop all cookieless events if there are any errors.
-            // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
-            // errors to interfere with the processing of other events.
-            return this.dropAllCookielessEvents(events, 'cookieless_fail_close')
+            // DLQ all errors - both Redis and unexpected errors need investigation
+            // We fail close here as Cookieless is a new feature, not available for general use yet
+            return this.dlqAllCookielessEvents(events, 'cookieless_fail_close', error)
         }
     }
 
@@ -662,6 +661,20 @@ export class CookielessManager {
         return events.map((incomingEvent) => {
             if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 return drop(dropCause)
+            } else {
+                return ok(incomingEvent)
+            }
+        })
+    }
+
+    dlqAllCookielessEvents(
+        events: IncomingEventWithTeam[],
+        reason: string,
+        error?: unknown
+    ): PipelineResult<IncomingEventWithTeam>[] {
+        return events.map((incomingEvent) => {
+            if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
+                return dlq(reason, error)
             } else {
                 return ok(incomingEvent)
             }

@@ -626,6 +626,63 @@ describe('CookielessManager', () => {
                 expect(result).toEqual(undefined)
                 expect(spy.mock.calls[0]).toEqual([{ operation }])
             })
+
+            it('should DLQ cookieless events when Redis error occurs', async () => {
+                const operation = 'scard'
+                const redisError = new RedisOperationError('redis error', new Error(), operation, { key: 'key' })
+                jest.spyOn(hub.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
+                    throw redisError
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    { event, team, message, headers: { force_disable_person_processing: false } },
+                    { event: nonCookielessEvent, team, message, headers: { force_disable_person_processing: false } },
+                ])
+                expect(response.length).toBe(2)
+
+                // Cookieless event should be DLQ'd
+                const cookielessResult = response[0]
+                expect(cookielessResult.type).toBe(PipelineResultType.DLQ)
+                if (cookielessResult.type === PipelineResultType.DLQ) {
+                    expect(cookielessResult.reason).toBe('cookieless_fail_close')
+                    expect(cookielessResult.error).toBe(redisError)
+                }
+
+                // Non-cookieless event should pass through
+                const nonCookielessResult = response[1]
+                expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
+                if (nonCookielessResult.type === PipelineResultType.OK) {
+                    expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
+
+            it('should DLQ cookieless events when unexpected error occurs', async () => {
+                const unexpectedError = new Error('Something went wrong')
+                jest.spyOn(hub.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
+                    throw unexpectedError
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    { event, team, message, headers: { force_disable_person_processing: false } },
+                    { event: nonCookielessEvent, team, message, headers: { force_disable_person_processing: false } },
+                ])
+                expect(response.length).toBe(2)
+
+                // Cookieless event should be DLQ'd
+                const cookielessResult = response[0]
+                expect(cookielessResult.type).toBe(PipelineResultType.DLQ)
+                if (cookielessResult.type === PipelineResultType.DLQ) {
+                    expect(cookielessResult.reason).toBe('cookieless_fail_close')
+                    expect(cookielessResult.error).toBe(unexpectedError)
+                }
+
+                // Non-cookieless event should pass through
+                const nonCookielessResult = response[1]
+                expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
+                if (nonCookielessResult.type === PipelineResultType.OK) {
+                    expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
         })
         describe('disabled', () => {
             beforeEach(async () => {
