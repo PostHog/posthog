@@ -752,28 +752,32 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql_queries.actor_strategies.connections")
     @patch("posthog.hogql_queries.actor_strategies.connection")
     def test_get_actors_batches_distinct_id_queries(self, mock_connection, mock_connections):
-        from posthog.hogql_queries.actor_strategies import PersonStrategy
+        from posthog.hogql_queries.actor_strategies import PERSON_ACTORS_QUERY_BATCH_SIZE, PersonStrategy
         from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
-        # Create 25,000 person UUIDs to trigger batching (BATCH_SIZE = 10,000)
-        person_uuids = [str(UUIDT()) for _ in range(25000)]
+        # Create 2.5x batch size person UUIDs to trigger batching into 3 batches
+        total_persons = int(PERSON_ACTORS_QUERY_BATCH_SIZE * 2.5)
+        person_uuids = [str(UUIDT()) for _ in range(total_persons)]
 
         strategy = PersonStrategy(
-            team=self.team, query=ActorsQuery(), paginator=HogQLHasMorePaginator(limit=30000, offset=0)
+            team=self.team, query=ActorsQuery(), paginator=HogQLHasMorePaginator(limit=total_persons + 1000, offset=0)
         )
 
         mock_cursor = MagicMock()
 
-        people_data = [(i, person_uuids[i], "{}", True, datetime.now(UTC)) for i in range(25000)]
-        # 25,000 people will be split into 3 batches for distinct IDs: 10k + 10k + 5k
-        batch1_distinct_ids = [(i, f"distinct_id_{i}") for i in range(10000)]
-        batch2_distinct_ids = [(i, f"distinct_id_{i}") for i in range(10000, 20000)]
-        batch3_distinct_ids = [(i, f"distinct_id_{i}") for i in range(20000, 25000)]
+        people_data = [(i, person_uuids[i], "{}", True, datetime.now(UTC)) for i in range(total_persons)]
+        batch1_distinct_ids = [(i, f"distinct_id_{i}") for i in range(PERSON_ACTORS_QUERY_BATCH_SIZE)]
+        batch2_distinct_ids = [
+            (i, f"distinct_id_{i}") for i in range(PERSON_ACTORS_QUERY_BATCH_SIZE, 2 * PERSON_ACTORS_QUERY_BATCH_SIZE)
+        ]
+        batch3_distinct_ids = [
+            (i, f"distinct_id_{i}") for i in range(2 * PERSON_ACTORS_QUERY_BATCH_SIZE, total_persons)
+        ]
 
         mock_cursor.fetchall.side_effect = [
-            people_data[:10000],  # First persons batch
-            people_data[10000:20000],  # Second persons batch
-            people_data[20000:25000],  # Third persons batch
+            people_data[:PERSON_ACTORS_QUERY_BATCH_SIZE],  # First persons batch
+            people_data[PERSON_ACTORS_QUERY_BATCH_SIZE : 2 * PERSON_ACTORS_QUERY_BATCH_SIZE],  # Second persons batch
+            people_data[2 * PERSON_ACTORS_QUERY_BATCH_SIZE :],  # Third persons batch
             batch1_distinct_ids,  # First distinct IDs batch
             batch2_distinct_ids,  # Second distinct IDs batch
             batch3_distinct_ids,  # Third distinct IDs batch

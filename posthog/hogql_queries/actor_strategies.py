@@ -18,6 +18,10 @@ from posthog.models.person import Person, PersonDistinctId
 
 logger = structlog.get_logger(__name__)
 
+# Batch size for PostgreSQL queries when fetching person data
+# This prevents timeouts when exporting large numbers of actors
+PERSON_ACTORS_QUERY_BATCH_SIZE = 1000
+
 
 class ActorStrategy:
     field: str
@@ -55,8 +59,6 @@ class PersonStrategy(ActorStrategy):
         person_table = Person._meta.db_table
         pdi_table = PersonDistinctId._meta.db_table
 
-        BATCH_SIZE = 10000
-
         actor_ids_list = list(actor_ids)
 
         logger.info(
@@ -69,8 +71,8 @@ class PersonStrategy(ActorStrategy):
 
         people = []
         with conn.cursor() as cursor:
-            for i in range(0, len(actor_ids_list), BATCH_SIZE):
-                batch = actor_ids_list[i : i + BATCH_SIZE]
+            for i in range(0, len(actor_ids_list), PERSON_ACTORS_QUERY_BATCH_SIZE):
+                batch = actor_ids_list[i : i + PERSON_ACTORS_QUERY_BATCH_SIZE]
                 persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
                     FROM {person_table}
                     WHERE {person_table}.team_id = %(team_id)s
@@ -93,8 +95,8 @@ class PersonStrategy(ActorStrategy):
             people_ids = [x[0] for x in people]
             distinct_ids = []
 
-            for i in range(0, len(people_ids), BATCH_SIZE):
-                batch = people_ids[i : i + BATCH_SIZE]
+            for i in range(0, len(people_ids), PERSON_ACTORS_QUERY_BATCH_SIZE):
+                batch = people_ids[i : i + PERSON_ACTORS_QUERY_BATCH_SIZE]
                 cursor.execute(
                     f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
                 FROM {pdi_table}
