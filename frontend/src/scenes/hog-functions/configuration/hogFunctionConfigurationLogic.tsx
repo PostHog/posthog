@@ -722,21 +722,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         useMapping: [
-            (s) => [s.hogFunction, s.template, s.mappingTemplates, s.type],
-            // Show mappings UI if:
-            // 1. The function already has mappings, OR
-            // 2. The template has mapping templates, OR
-            // 3. Mapping templates are available (even if not yet used) for types that support mappings
-            (hogFunction, template, mappingTemplates, type) => {
-                // Only destinations and site_destinations use mappings
+            (s) => [s.hogFunction, s.mappingTemplates, s.type],
+            (
+                hogFunction: HogFunctionType | null,
+                mappingTemplates: HogFunctionMappingType[],
+                type: HogFunctionTypeType
+            ) => {
                 const supportsMapping = ['destination', 'site_destination'].includes(type)
 
-                return (
-                    supportsMapping &&
-                    (Array.isArray(hogFunction?.mappings) ||
-                        template?.mapping_templates?.length ||
-                        mappingTemplates?.length > 0)
-                )
+                return supportsMapping && (Array.isArray(hogFunction?.mappings) || mappingTemplates?.length > 0)
             },
         ],
         defaultFormState: [
