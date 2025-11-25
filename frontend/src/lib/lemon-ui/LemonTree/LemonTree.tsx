@@ -1,4 +1,13 @@
-import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
+import {
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    MouseSensor,
+    TouchSensor,
+    useDndMonitor,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import React, {
     CSSProperties,
@@ -116,6 +125,10 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
+    /** Whether to rely on an external DnD context instead of creating one internally. */
+    useExternalDndContext?: boolean
+    /** Optional drag data to attach to items when dragging. */
+    getItemDragData?: (item: TreeDataItem) => any
     /** The select mode of the tree. */
     selectMode?: LemonTreeSelectMode
     /** Whether the item is active, useful for highlighting the current item against a URL path,
@@ -125,6 +138,10 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemDraggable?: (item: TreeDataItem) => boolean
     /** Whether the item can accept drops */
     isItemDroppable?: (item: TreeDataItem) => boolean
+    /** Optional override for the draggable id used with dnd-kit */
+    getItemDraggableId?: (item: TreeDataItem) => string
+    /** Optional override for the droppable id used with dnd-kit */
+    getItemDroppableId?: (item: TreeDataItem) => string
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
     /** The button to render for the item's side action. */
@@ -201,6 +218,8 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     contentRef?: React.RefObject<HTMLElement>
     /** Handler for when a drag operation completes */
     onDragEnd?: (dragEvent: DragEndEvent) => void
+    /** Custom droppable id for the root */
+    rootDroppableId?: string
     /** Whether the item is checked. */
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
     /** Whether to disable the scrollable shadows. */
@@ -251,12 +270,15 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             isItemActive,
             isItemDraggable,
             isItemDroppable,
+            getItemDraggableId,
+            getItemDroppableId,
             depth = 0,
             itemSideAction,
             itemSideActionButton,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
+            getItemDragData,
             disableKeyboardInput,
             itemContextMenu,
             selectMode = 'default',
@@ -507,12 +529,15 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         </ContextMenu>
                     )
 
-                    if (enableDragAndDrop && isItemDraggable?.(item) && item.id) {
+                    const draggableId = getItemDraggableId?.(item) ?? item.id
+
+                    if (enableDragAndDrop && isItemDraggable?.(item) && draggableId) {
                         button = (
                             <TreeNodeDraggable
-                                id={item.id}
+                                id={draggableId}
                                 enableDragging
                                 className="h-[var(--lemon-tree-button-height)]"
+                                data={getItemDragData?.(item)}
                             >
                                 {button}
                             </TreeNodeDraggable>
@@ -663,9 +688,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                     // Wrap content in Draggable/Droppable if needed
                     let wrappedContent = content
 
-                    if (isItemDroppable?.(item)) {
+                    const droppableId = getItemDroppableId?.(item) ?? item.id
+
+                    if (isItemDroppable?.(item) && droppableId) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
+                            <TreeNodeDroppable id={droppableId} isDroppable={item.record?.type === 'folder'}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )
@@ -697,10 +724,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             onSetExpandedItemIds,
             isItemDraggable,
             isItemDroppable,
+            getItemDraggableId,
+            getItemDroppableId,
             itemSideAction,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
+            useExternalDndContext = false,
+            getItemDragData,
             itemContextMenu,
             isFinishedBuildingTreeData,
             selectMode = 'default',
@@ -714,6 +745,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             size = 'default',
             onFolderRowClick,
             disableScroll = false,
+            rootDroppableId,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1316,7 +1348,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
             for (const item of items) {
-                if (item.id === itemId) {
+                const dragId = getItemDraggableId?.(item) ?? item.id
+
+                if (dragId === itemId) {
                     return item
                 } else if (item.children) {
                     const found = findItem(item.children, itemId)
@@ -1328,17 +1362,23 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             return undefined
         }
 
-        return (
-            <DndContext
-                sensors={sensors}
-                onDragStart={(event) => {
+        const LemonTreeDndMonitor = (): null => {
+            // eslint-disable-next-line rules-of-hooks
+            useDndMonitor({
+                onDragStart: (event) => {
+                    if (!enableDragAndDrop || !useExternalDndContext) {
+                        return
+                    }
                     setIsDragging(true)
                     const item = findItem(data, String(event.active?.id))
                     if (item) {
                         setActiveDragItem(item)
                     }
-                }}
-                onDragEnd={(dragEvent) => {
+                },
+                onDragEnd: (dragEvent) => {
+                    if (!enableDragAndDrop || !useExternalDndContext) {
+                        return
+                    }
                     const active = dragEvent.active?.id
                     const over = dragEvent.over?.id
                     if (active && active === over) {
@@ -1347,8 +1387,21 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         onDragEnd?.(dragEvent)
                     }
                     setIsDragging(false)
-                }}
-            >
+                },
+                onDragCancel: () => {
+                    if (!enableDragAndDrop || !useExternalDndContext) {
+                        return
+                    }
+                    setIsDragging(false)
+                },
+            })
+
+            return null
+        }
+
+        const treeContent = (
+            <>
+                <LemonTreeDndMonitor />
                 <ScrollableShadows
                     ref={containerRef}
                     direction="vertical"
@@ -1384,7 +1437,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     )}
 
                     <TreeNodeDroppable
-                        id=""
+                        id={rootDroppableId ?? ''}
                         isDroppable={enableDragAndDrop}
                         isRoot
                         isDragging={isDragging}
@@ -1418,6 +1471,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             isItemDraggable={isItemDraggable}
                             isItemDroppable={isItemDroppable}
                             enableDragAndDrop={enableDragAndDrop}
+                            getItemDragData={getItemDragData}
                             disableKeyboardInput={(disable) => {
                                 setDisableKeyboardInput(disable)
                             }}
@@ -1471,6 +1525,35 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         </ButtonPrimitive>
                     )}
                 </DragOverlay>
+            </>
+        )
+
+        if (useExternalDndContext) {
+            return treeContent
+        }
+
+        return (
+            <DndContext
+                sensors={sensors}
+                onDragStart={(event) => {
+                    setIsDragging(true)
+                    const item = findItem(data, String(event.active?.id))
+                    if (item) {
+                        setActiveDragItem(item)
+                    }
+                }}
+                onDragEnd={(dragEvent) => {
+                    const active = dragEvent.active?.id
+                    const over = dragEvent.over?.id
+                    if (active && active === over) {
+                        dragEvent.activatorEvent.stopPropagation()
+                    } else {
+                        onDragEnd?.(dragEvent)
+                    }
+                    setIsDragging(false)
+                }}
+            >
+                {treeContent}
             </DndContext>
         )
     }

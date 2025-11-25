@@ -1,15 +1,4 @@
-import {
-    DndContext,
-    DragEndEvent,
-    DragOverlay,
-    DragStartEvent,
-    MouseSensor,
-    TouchSensor,
-    useDraggable,
-    useDroppable,
-    useSensor,
-    useSensors,
-} from '@dnd-kit/core'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -42,16 +31,16 @@ import {
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import {
+    ProjectDragData,
+    projectDragDataFromEntry,
+    projectDroppableId,
+    useProjectDragState,
+} from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import {
-    calculateMovePath,
-    getItemId,
-    joinPath,
-    sortFilesAndFolders,
-    splitPath,
-} from '~/layout/panel-layout/ProjectTree/utils'
+import { getItemId, joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
@@ -93,9 +82,7 @@ export function ProjectExplorer({
     const { checkedItems, folders, folderStates, users, editingItemId } = useValues(
         projectTreeLogic(projectTreeLogicProps)
     )
-    const { loadFolder, moveCheckedItems, moveItem, rename, setEditingItemId } = useActions(
-        projectTreeLogic(projectTreeLogicProps)
-    )
+    const { loadFolder, rename, setEditingItemId } = useActions(projectTreeLogic(projectTreeLogicProps))
     const {
         activeExplorerFolderPath,
         explorerExpandedFolders,
@@ -109,22 +96,11 @@ export function ProjectExplorer({
     )
     const hasActiveFolder = activeExplorerFolderPath !== null
     const explorerFolderPath = activeExplorerFolderPath ?? ''
-    const mouseSensor = useSensor(MouseSensor, {
-        activationConstraint: {
-            distance: 10,
-        },
-    })
-    const touchSensor = useSensor(TouchSensor, {
-        activationConstraint: {
-            delay: 250,
-            tolerance: 5,
-        },
-    })
-    const sensors = useSensors(mouseSensor, touchSensor)
-    const rootDroppableId = `project://${explorerFolderPath}`
+    const { activeItem } = useProjectDragState()
+    const droppableScope = useMemo(() => `project-explorer-${tabId}`, [tabId])
+    const rootDroppableId = projectDroppableId(explorerFolderPath, 'project://', `${droppableScope}-root`)
     const { setNodeRef: setRootDropZoneRef, isOver: isOverRoot } = useDroppable({ id: rootDroppableId })
-    const [activeDragItem, setActiveDragItem] = useState<TreeDataItem | null>(null)
-    const isDragging = !!activeDragItem
+    const isDragging = !!activeItem
     const [pendingFocusKey, setPendingFocusKey] = useState<string | null>(null)
     const preserveCurrentFocus = useCallback(() => {
         const focusHistory = listboxRef.current?.getFocusHistory()
@@ -199,32 +175,11 @@ export function ProjectExplorer({
         }
     }, [breadcrumbSegments.length, explorerFolderPath, hasActiveFolder, parentFolderPath])
     const contentRows: ExplorerRow[] = shouldUseSearchRows ? searchRows : rows
-    const allEntries = useMemo(() => {
-        const uniqueEntries = new Map<string, FileSystemEntry>()
-        for (const { entry } of contentRows) {
-            if (entry.path) {
-                uniqueEntries.set(entry.path, entry)
-            }
-        }
-        return Array.from(uniqueEntries.values())
-    }, [contentRows])
     const displayRows = useMemo<ExplorerRow[]>(
         () => (parentRow && !shouldUseSearchRows ? [parentRow, ...contentRows] : contentRows),
         [parentRow, contentRows, shouldUseSearchRows]
     )
-    const draggableItemsById = useMemo(() => {
-        const map = new Map<string, TreeDataItem>()
-        for (const { entry, isParentNavigation } of displayRows) {
-            if (isParentNavigation) {
-                continue
-            }
-            const treeItem = convertEntryToTreeDataItem(entry as EntryWithProtocol)
-            map.set(treeItem.id, treeItem)
-        }
-        return map
-    }, [displayRows])
     const isLoadingRows = isSearchActive ? explorerSearchResultsLoading : isLoadingCurrentFolder
-    const checkedItemCount = useMemo(() => Object.keys(checkedItems).length, [checkedItems])
     const handleToggleFolder = (path: string): void => {
         toggleExplorerFolderExpansion(path)
         if (!explorerExpandedFolders[path]) {
@@ -330,58 +285,6 @@ export function ProjectExplorer({
         return <SearchHighlightMultiple string={text} substring={trimmedSearch} />
     }
 
-    const handleDragStart = useCallback(
-        (dragEvent: DragStartEvent): void => {
-            const activeId = String(dragEvent.active.id)
-            const draggedItem = draggableItemsById.get(activeId)
-            setActiveDragItem(draggedItem ?? null)
-        },
-        [draggableItemsById]
-    )
-
-    const handleDragEnd = useCallback(
-        (dragEvent: DragEndEvent): void => {
-            const itemToId = (item: FileSystemEntry): string =>
-                item.type === 'folder' ? `project://${item.path}` : `project/${item.id}`
-
-            const oldId = String(dragEvent.active.id)
-            const newId = dragEvent.over?.id ? String(dragEvent.over.id) : null
-
-            if (!newId || oldId === newId) {
-                dragEvent.activatorEvent?.stopPropagation?.()
-                dragEvent.activatorEvent?.preventDefault?.()
-                setActiveDragItem(null)
-                return
-            }
-
-            const oldItem = allEntries.find((item) => itemToId(item) === oldId)
-            const newItem = allEntries.find((item) => itemToId(item) === newId)
-
-            if (!oldItem) {
-                setActiveDragItem(null)
-                return
-            }
-
-            const folder = newItem
-                ? newItem.path || ''
-                : newId && String(newId).startsWith('project://')
-                  ? String(newId).substring('project://'.length)
-                  : ''
-
-            if (checkedItems[oldId]) {
-                moveCheckedItems(folder)
-            } else {
-                const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
-                if (isValidMove) {
-                    moveItem(oldItem, newPath, false, projectTreeLogicProps.key)
-                }
-            }
-
-            setActiveDragItem(null)
-        },
-        [allEntries, checkedItems, moveCheckedItems, moveItem, projectTreeLogicProps.key]
-    )
-
     if (!hasActiveFolder) {
         return null
     }
@@ -391,206 +294,181 @@ export function ProjectExplorer({
         : 'grid grid-cols-[minmax(0,1fr)_200px_160px_48px]'
 
     return (
-        <DndContext
-            sensors={sensors}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDragCancel={() => setActiveDragItem(null)}
-        >
-            <div className="flex flex-col gap-3">
-                <div className="rounded bg-bg-300">
-                    <div
-                        className={clsx(rowGridClass, 'border-b border-border px-3 py-2 text-xs uppercase text-muted')}
-                    >
-                        <div className="flex items-center gap-2 pr-3 pl-6">
-                            <span>Name</span>
-                            {isLoadingRows && <Spinner size="small" />}
-                        </div>
-                        {shouldUseSearchRows && <div className="px-3 pl-3">Folder</div>}
-                        <div className="px-3 pl-6">Created by</div>
-                        <div className="px-3 pl-6">Created at</div>
-                        <div className="flex items-center justify-end px-2">
-                            <span aria-hidden="true" className="inline-block size-5" />
-                            <span className="sr-only">Actions</span>
-                        </div>
+        <div className="flex flex-col gap-3">
+            <div className="rounded bg-bg-300">
+                <div className={clsx(rowGridClass, 'border-b border-border px-3 py-2 text-xs uppercase text-muted')}>
+                    <div className="flex items-center gap-2 pr-3 pl-6">
+                        <span>Name</span>
+                        {isLoadingRows && <Spinner size="small" />}
                     </div>
-                    <ListBox.Group groupId="project-explorer">
-                        {displayRows.map(
-                            ({ entry, depth, isParentNavigation, navigatesToSearch, isSearchResult }, rowIndex) => {
-                                const isParentNavigationRow = !!isParentNavigation
-                                const isExitNavigationRow = !!navigatesToSearch
-                                const isFolder = entry.type === 'folder'
-                                const isExpandableFolder = isFolder && !isParentNavigationRow && !isSearchResult
-                                const isExpanded = isExpandableFolder && !!explorerExpandedFolders[entry.path]
-                                const iconType: FileSystemIconType = isParentNavigationRow
-                                    ? 'folder_open'
-                                    : isExpandableFolder && isExpanded
-                                      ? 'folder_open'
-                                      : (entry.type as FileSystemIconType) || 'default_icon_type'
-                                const icon = iconForType(iconType)
-                                const focusBase = String(entry.id ?? entry.path ?? rowIndex)
-                                const focusKey = `${focusBase}-row`
-                                const rawNameLabel = isParentNavigationRow
-                                    ? '..'
-                                    : splitPath(entry.path).pop() || entry.path
-                                const nameLabel = highlightSearchText(rawNameLabel)
-                                const folderLabel = highlightSearchText(getEntryFolderLabel(entry))
-                                const isHighlighted = highlightedExplorerEntryPath === entry.path
-
-                                const handleRowKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
-                                    if (event.key === 'Enter') {
-                                        event.preventDefault()
-                                        handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
-                                    }
-                                }
-
-                                const handleRowDoubleClick = (event: MouseEvent<HTMLElement>): void => {
-                                    if (isEditing) {
-                                        event.preventDefault()
-                                        return
-                                    }
-
-                                    event.preventDefault()
-                                    handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
-                                }
-                                const handleRowFocus = (): void => {
-                                    if (highlightedExplorerEntryPath && highlightedExplorerEntryPath !== entry.path) {
-                                        setHighlightedExplorerEntryPath(null)
-                                    }
-                                }
-                                const rowIndent = depth > 0 ? depth * CHILD_INDENT_PX : 0
-                                const nameColumnIndentStyle: CSSProperties | undefined = rowIndent
-                                    ? { marginLeft: rowIndent }
-                                    : undefined
-                                const treeItem = isParentNavigationRow ? null : convertEntryToTreeDataItem(entry)
-                                const isEditing = editingItemId === treeItem?.id
-                                const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
-                                    if (isEditing) {
-                                        event.preventDefault()
-                                        return
-                                    }
-
-                                    const isKeyboardInitiated = event.detail === 0
-                                    const isClickOnActiveArea = (event.target as HTMLElement | null)?.closest(
-                                        '[data-explorer-row-clickable]'
-                                    )
-
-                                    if (!isKeyboardInitiated && !isClickOnActiveArea) {
-                                        event.preventDefault()
-                                        return
-                                    }
-
-                                    event.preventDefault()
-                                    listboxRef.current?.focusItemByKey(focusKey)
-                                    if (isFolder && !isExitNavigationRow && !isParentNavigationRow) {
-                                        setPendingFocusKey(getParentRowFocusKey(entry.path || ''))
-                                    }
-                                    handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
-                                }
-                                const rowKey = `${entry.id ?? entry.path}-${rowIndex}`
-                                const listBoxItem = (
-                                    <ExplorerRowListItem
-                                        key={rowKey}
-                                        rowIndex={rowIndex}
-                                        rowKey={rowKey}
-                                        focusBase={focusBase}
-                                        focusKey={focusKey}
-                                        rowGridClass={rowGridClass}
-                                        isHighlighted={isHighlighted}
-                                        handleRowClick={handleRowClick}
-                                        handleRowDoubleClick={handleRowDoubleClick}
-                                        handleRowKeyDown={handleRowKeyDown}
-                                        handleRowFocus={handleRowFocus}
-                                        nameColumnIndentStyle={nameColumnIndentStyle}
-                                        isExpandableFolder={isExpandableFolder}
-                                        isExpanded={isExpanded}
-                                        handleToggleFolder={handleToggleFolder}
-                                        icon={icon}
-                                        nameLabel={nameLabel}
-                                        folderStates={folderStates}
-                                        entry={entry}
-                                        shouldUseSearchRows={shouldUseSearchRows}
-                                        folderLabel={folderLabel}
-                                        renderCreatedBy={renderCreatedBy}
-                                        renderCreatedAt={renderCreatedAt}
-                                        isParentNavigationRow={isParentNavigationRow}
-                                        treeItem={treeItem}
-                                        projectTreeLogicProps={projectTreeLogicProps}
-                                        isEditing={isEditing}
-                                        rawNameLabel={rawNameLabel}
-                                        rename={rename}
-                                        setEditingItemId={setEditingItemId}
-                                        preserveCurrentFocus={preserveCurrentFocus}
-                                    />
-                                )
-
-                                if (isParentNavigationRow || !treeItem) {
-                                    return listBoxItem
-                                }
-
-                                return (
-                                    <ContextMenu key={rowKey}>
-                                        <ContextMenuTrigger asChild>{listBoxItem}</ContextMenuTrigger>
-                                        <ContextMenuContent loop className="max-w-[250px]">
-                                            <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
-                                                <MenuItems
-                                                    item={treeItem}
-                                                    type="context"
-                                                    root={projectTreeLogicProps.root}
-                                                    logicKey={projectTreeLogicProps.key}
-                                                    onlyTree={false}
-                                                    showSelectMenuOption={false}
-                                                />
-                                            </ContextMenuGroup>
-                                        </ContextMenuContent>
-                                    </ContextMenu>
-                                )
-                            }
-                        )}
-                        {isLoadingRows && contentRows.length === 0 ? (
-                            <div className="flex items-center gap-2 px-3 py-1.5 ml-6 text-muted border-t border-border">
-                                <Spinner /> {isSearchActive ? 'Searching within folder…' : 'Loading folder...'}
-                            </div>
-                        ) : null}
-                        {!isLoadingRows && contentRows.length === 0 ? (
-                            <div className="px-3 py-1.5 ml-12 text-sm text-muted border-t border-border">
-                                {isSearchActive
-                                    ? 'No matching files or folders in this location.'
-                                    : 'No files in this folder.'}
-                            </div>
-                        ) : null}
-                    </ListBox.Group>
-                    <div
-                        ref={setRootDropZoneRef}
-                        className={clsx(
-                            'mt-2 flex h-12 items-center justify-center rounded border border-dashed text-sm transition-colors',
-                            isDragging ? 'border-border text-muted' : 'border-transparent text-transparent',
-                            isOverRoot && 'border-accent bg-accent-highlight-secondary text-primary'
-                        )}
-                    >
-                        Drop here to move into this folder
+                    {shouldUseSearchRows && <div className="px-3 pl-3">Folder</div>}
+                    <div className="px-3 pl-6">Created by</div>
+                    <div className="px-3 pl-6">Created at</div>
+                    <div className="flex items-center justify-end px-2">
+                        <span aria-hidden="true" className="inline-block size-5" />
+                        <span className="sr-only">Actions</span>
                     </div>
                 </div>
-            </div>
+                <ListBox.Group groupId="project-explorer">
+                    {displayRows.map(
+                        ({ entry, depth, isParentNavigation, navigatesToSearch, isSearchResult }, rowIndex) => {
+                            const isParentNavigationRow = !!isParentNavigation
+                            const isExitNavigationRow = !!navigatesToSearch
+                            const isFolder = entry.type === 'folder'
+                            const isExpandableFolder = isFolder && !isParentNavigationRow && !isSearchResult
+                            const isExpanded = isExpandableFolder && !!explorerExpandedFolders[entry.path]
+                            const iconType: FileSystemIconType = isParentNavigationRow
+                                ? 'folder_open'
+                                : isExpandableFolder && isExpanded
+                                  ? 'folder_open'
+                                  : (entry.type as FileSystemIconType) || 'default_icon_type'
+                            const icon = iconForType(iconType)
+                            const focusBase = String(entry.id ?? entry.path ?? rowIndex)
+                            const focusKey = `${focusBase}-row`
+                            const rawNameLabel = isParentNavigationRow
+                                ? '..'
+                                : splitPath(entry.path).pop() || entry.path
+                            const nameLabel = highlightSearchText(rawNameLabel)
+                            const folderLabel = highlightSearchText(getEntryFolderLabel(entry))
+                            const isHighlighted = highlightedExplorerEntryPath === entry.path
 
-            <DragOverlay dropAnimation={null}>
-                {activeDragItem ? (
-                    <ButtonPrimitive className="flex items-center gap-2 rounded border border-border bg-surface px-3 py-2 shadow-lg">
-                        <span className="shrink-0 text-primary">
-                            {iconForType((activeDragItem.record?.type as FileSystemIconType) || 'default_icon_type')}
-                        </span>
-                        <span className="truncate font-medium text-primary">
-                            {activeDragItem.displayName || activeDragItem.name}
-                        </span>
-                        {checkedItems[activeDragItem.id] && checkedItemCount > 1 ? (
-                            <span className="ml-1 text-xs rounded-full bg-primary-highlight px-2 py-0.5 whitespace-nowrap">
-                                +{checkedItemCount - 1} other{checkedItemCount - 1 === 1 ? '' : 's'}
-                            </span>
-                        ) : null}
-                    </ButtonPrimitive>
-                ) : null}
-            </DragOverlay>
-        </DndContext>
+                            const handleRowKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+                                if (event.key === 'Enter') {
+                                    event.preventDefault()
+                                    handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
+                                }
+                            }
+
+                            const handleRowDoubleClick = (event: MouseEvent<HTMLElement>): void => {
+                                if (isEditing) {
+                                    event.preventDefault()
+                                    return
+                                }
+
+                                event.preventDefault()
+                                handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
+                            }
+                            const handleRowFocus = (): void => {
+                                if (highlightedExplorerEntryPath && highlightedExplorerEntryPath !== entry.path) {
+                                    setHighlightedExplorerEntryPath(null)
+                                }
+                            }
+                            const rowIndent = depth > 0 ? depth * CHILD_INDENT_PX : 0
+                            const nameColumnIndentStyle: CSSProperties | undefined = rowIndent
+                                ? { marginLeft: rowIndent }
+                                : undefined
+                            const treeItem = isParentNavigationRow ? null : convertEntryToTreeDataItem(entry)
+                            const isEditing = editingItemId === treeItem?.id
+                            const handleRowClick = (event: MouseEvent<HTMLElement>): void => {
+                                if (isEditing) {
+                                    event.preventDefault()
+                                    return
+                                }
+
+                                const isKeyboardInitiated = event.detail === 0
+                                const isClickOnActiveArea = (event.target as HTMLElement | null)?.closest(
+                                    '[data-explorer-row-clickable]'
+                                )
+
+                                if (!isKeyboardInitiated && !isClickOnActiveArea) {
+                                    event.preventDefault()
+                                    return
+                                }
+
+                                event.preventDefault()
+                                listboxRef.current?.focusItemByKey(focusKey)
+                                if (isFolder && !isExitNavigationRow && !isParentNavigationRow) {
+                                    setPendingFocusKey(getParentRowFocusKey(entry.path || ''))
+                                }
+                                handleEntryActivate(entry, isParentNavigationRow, isExitNavigationRow)
+                            }
+                            const rowKey = `${entry.id ?? entry.path}-${rowIndex}`
+                            const listBoxItem = (
+                                <ExplorerRowListItem
+                                    key={rowKey}
+                                    rowIndex={rowIndex}
+                                    rowKey={rowKey}
+                                    focusBase={focusBase}
+                                    focusKey={focusKey}
+                                    rowGridClass={rowGridClass}
+                                    isHighlighted={isHighlighted}
+                                    handleRowClick={handleRowClick}
+                                    handleRowDoubleClick={handleRowDoubleClick}
+                                    handleRowKeyDown={handleRowKeyDown}
+                                    handleRowFocus={handleRowFocus}
+                                    nameColumnIndentStyle={nameColumnIndentStyle}
+                                    isExpandableFolder={isExpandableFolder}
+                                    isExpanded={isExpanded}
+                                    handleToggleFolder={handleToggleFolder}
+                                    icon={icon}
+                                    nameLabel={nameLabel}
+                                    folderStates={folderStates}
+                                    entry={entry}
+                                    shouldUseSearchRows={shouldUseSearchRows}
+                                    folderLabel={folderLabel}
+                                    renderCreatedBy={renderCreatedBy}
+                                    renderCreatedAt={renderCreatedAt}
+                                    isParentNavigationRow={isParentNavigationRow}
+                                    treeItem={treeItem}
+                                    projectTreeLogicProps={projectTreeLogicProps}
+                                    isEditing={isEditing}
+                                    rawNameLabel={rawNameLabel}
+                                    rename={rename}
+                                    setEditingItemId={setEditingItemId}
+                                    preserveCurrentFocus={preserveCurrentFocus}
+                                    checkedItems={checkedItems}
+                                    droppableScope={droppableScope}
+                                />
+                            )
+
+                            if (isParentNavigationRow || !treeItem) {
+                                return listBoxItem
+                            }
+
+                            return (
+                                <ContextMenu key={rowKey}>
+                                    <ContextMenuTrigger asChild>{listBoxItem}</ContextMenuTrigger>
+                                    <ContextMenuContent loop className="max-w-[250px]">
+                                        <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
+                                            <MenuItems
+                                                item={treeItem}
+                                                type="context"
+                                                root={projectTreeLogicProps.root}
+                                                logicKey={projectTreeLogicProps.key}
+                                                onlyTree={false}
+                                                showSelectMenuOption={false}
+                                            />
+                                        </ContextMenuGroup>
+                                    </ContextMenuContent>
+                                </ContextMenu>
+                            )
+                        }
+                    )}
+                    {isLoadingRows && contentRows.length === 0 ? (
+                        <div className="flex items-center gap-2 px-3 py-1.5 ml-6 text-muted border-t border-border">
+                            <Spinner /> {isSearchActive ? 'Searching within folder…' : 'Loading folder...'}
+                        </div>
+                    ) : null}
+                    {!isLoadingRows && contentRows.length === 0 ? (
+                        <div className="px-3 py-1.5 ml-12 text-sm text-muted border-t border-border">
+                            {isSearchActive
+                                ? 'No matching files or folders in this location.'
+                                : 'No files in this folder.'}
+                        </div>
+                    ) : null}
+                </ListBox.Group>
+                <div
+                    ref={setRootDropZoneRef}
+                    className={clsx(
+                        'mt-2 flex h-12 items-center justify-center rounded border border-dashed text-sm transition-colors',
+                        isDragging ? 'border-border text-muted' : 'border-transparent text-transparent',
+                        isOverRoot && 'border-accent bg-accent-highlight-secondary text-primary'
+                    )}
+                >
+                    Drop here to move into this folder
+                </div>
+            </div>
+        </div>
     )
 }
 
@@ -625,6 +503,8 @@ interface ExplorerRowListItemProps extends HTMLAttributes<HTMLLIElement> {
     rename: (value: string, item: FileSystemEntry) => void
     setEditingItemId: (id: string) => void
     preserveCurrentFocus: () => void
+    checkedItems: Record<string, boolean>
+    droppableScope: string
 }
 
 function ExplorerRowListItem({
@@ -658,13 +538,29 @@ function ExplorerRowListItem({
     rename,
     setEditingItemId,
     preserveCurrentFocus,
+    checkedItems,
+    droppableScope,
     ...contextMenuProps
 }: ExplorerRowListItemProps): JSX.Element {
-    const droppableId = isParentNavigationRow ? `project://${entry.path}` : (treeItem?.id ?? rowKey)
+    const protocol = (entry as EntryWithProtocol).protocol ?? 'project://'
+    const baseTreeItemId = treeItem?.id ?? rowKey
+    const droppableId = isParentNavigationRow
+        ? projectDroppableId(entry.path || '', protocol, droppableScope)
+        : projectDroppableId(treeItem?.record?.path || baseTreeItemId, protocol, droppableScope)
     const isDraggable = !!treeItem?.record?.path
     const isDroppable =
         isParentNavigationRow ||
         (!!treeItem?.record?.path && isExpandableFolder && !isParentNavigationRow && !treeItem?.record?.href)
+    const dragData: ProjectDragData | undefined =
+        isDraggable && treeItem?.record
+            ? projectDragDataFromEntry(
+                  treeItem.record as FileSystemEntry,
+                  projectTreeLogicProps.key,
+                  checkedItems[baseTreeItemId]
+                      ? Object.keys(checkedItems).filter((checkedId) => checkedItems[checkedId])
+                      : undefined
+              )
+            : undefined
 
     const {
         attributes,
@@ -672,6 +568,7 @@ function ExplorerRowListItem({
         setNodeRef: setDraggableNodeRef,
     } = useDraggable({
         id: droppableId,
+        data: dragData,
         disabled: !isDraggable,
     })
     const { setNodeRef: setDroppableNodeRef, isOver } = useDroppable({

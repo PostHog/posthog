@@ -150,6 +150,7 @@ type DragAndDropProps = {
 type DraggableProps = DragAndDropProps & {
     enableDragging: boolean
     className?: string
+    data?: any
 }
 
 export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
@@ -159,6 +160,7 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         setNodeRef,
     } = useDraggable({
         id: props.id,
+        data: props.data,
     })
 
     // Filter out the Enter key from drag listeners
