@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Sequence
+from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import uuid4
 
@@ -75,15 +76,16 @@ class AssistantContextManager(AssistantContextMixin):
         self._team = team
         self._user = user
         self._config = config or {}
+        self._artifact_manager = ArtifactManager(self._team, self._user, self._config)
 
-    @property
+    @cached_property
     def artifacts(self) -> ArtifactManager:
         """
         Returns the artifact manager for the team.
 
         Exposed through .artifacts for easy access to artifact manager from nodes.
         """
-        return ArtifactManager(self._team, self._user, self._config)
+        return self._artifact_manager
 
     async def get_state_messages_with_context(
         self, state: BaseStateWithMessages
