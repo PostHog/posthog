@@ -38,6 +38,8 @@ export interface ToolDefinition<N extends string = string> {
     product?: Scene
     /** If the tool is only available if a feature flag is enabled, you can specify it here. */
     flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+    /** If the tool is in beta, set this to true to display a beta badge */
+    beta?: boolean
 }
 
 /** Active instance of a tool. */
@@ -88,6 +90,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         description: 'Summarize sessions to analyze real user behavior',
         flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
+        beta: true,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized sessions'
@@ -458,6 +461,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         description: 'Summarize sessions to analyze real user behavior',
         flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
+        beta: true,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized sessions'
@@ -479,12 +483,12 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
     },
 }
 
-export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
+export const AI_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
     { icon: <IconAtSign />, description: 'Analyze and use attached context' },
     { icon: <IconMemory />, description: 'Remember project-level information' },
 ]
 
-export const MAX_GENERALLY_CANNOT: string[] = [
+export const AI_GENERALLY_CANNOT: string[] = [
     'Access your source code or third‑party tools',
     'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',
