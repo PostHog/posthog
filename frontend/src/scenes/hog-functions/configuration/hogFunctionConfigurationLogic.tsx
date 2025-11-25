@@ -722,16 +722,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         useMapping: [
-            (s) => [s.hogFunction, s.mappingTemplates, s.type],
-            (
-                hogFunction: HogFunctionType | null,
-                mappingTemplates: HogFunctionMappingType[],
-                type: HogFunctionTypeType
-            ) => {
-                const supportsMapping = ['destination', 'site_destination'].includes(type)
-
-                return supportsMapping && (Array.isArray(hogFunction?.mappings) || mappingTemplates?.length > 0)
-            },
+            (s) => [s.hogFunction, s.mappingTemplates],
+            (hogFunction: HogFunctionType | null, mappingTemplates: HogFunctionMappingType[]) =>
+                Array.isArray(hogFunction?.mappings) || mappingTemplates.length > 0,
         ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
