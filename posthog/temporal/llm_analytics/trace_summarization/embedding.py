@@ -45,6 +45,7 @@ async def embed_summaries_activity(
             timestamp_filter = "AND timestamp >= %(time_from)s AND timestamp <= %(time_to)s"
 
         # Fetch summaries from ClickHouse events
+        # Always filter for 'detailed' mode to get richest embeddings
         query = f"""
             SELECT
                 JSONExtractString(properties, '$ai_trace_id') as trace_id,
@@ -56,6 +57,7 @@ async def embed_summaries_activity(
             WHERE team_id = %(team_id)s
                 AND event = %(event_name)s
                 AND JSONExtractString(properties, '$ai_trace_id') IN %(trace_ids)s
+                AND JSONExtractString(properties, '$ai_summary_mode') = %(summary_mode)s
                 {timestamp_filter}
             ORDER BY timestamp DESC
         """
@@ -64,14 +66,16 @@ async def embed_summaries_activity(
             "team_id": team_id,
             "event_name": constants.EVENT_NAME_TRACE_SUMMARY,
             "trace_ids": trace_ids,
+            "summary_mode": constants.DEFAULT_MODE,  # Always use 'detailed' for richest embeddings
         }
 
         # Add timestamp params if filter is active
         # Use strftime to produce ClickHouse-compatible format (no timezone offset)
+        # Window covers workflow start minus buffer, to workflow start plus max execution time plus buffer
         if workflow_start_time:
             start_dt = datetime.fromisoformat(workflow_start_time.replace("Z", "+00:00"))
             time_from = start_dt - timedelta(minutes=5)
-            time_to = start_dt + timedelta(minutes=10)
+            time_to = start_dt + timedelta(minutes=constants.WORKFLOW_EXECUTION_TIMEOUT_MINUTES + 10)
             params["time_from"] = time_from.strftime("%Y-%m-%d %H:%M:%S.%f")
             params["time_to"] = time_to.strftime("%Y-%m-%d %H:%M:%S.%f")
 
@@ -117,6 +121,10 @@ async def embed_summaries_activity(
                 error=str(e),
             )
             return SingleEmbeddingResult(success=False, trace_id=trace_id, error=str(e))
+
+    # Early return if no traces to embed (avoids ClickHouse IN [] error)
+    if not trace_ids:
+        return EmbeddingActivityResult(embeddings_requested=0, embeddings_failed=0)
 
     # Fetch data and setup embedder (sync operations wrapped)
     results, embedder, rendering = await database_sync_to_async(_fetch_summaries_and_setup, thread_sensitive=False)(

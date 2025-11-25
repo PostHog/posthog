@@ -44,7 +44,7 @@ async def generate_and_save_summary_activity(
 
     def _fetch_trace_and_format(
         trace_id: str, team_id: int, window_start: str, window_end: str
-    ) -> tuple[dict, list, str, Team]:
+    ) -> tuple[dict, list, str, Team] | None:
         """Fetch trace data and format text representation."""
         team = Team.objects.get(id=team_id)
 
@@ -55,6 +55,9 @@ async def generate_and_save_summary_activity(
 
         runner = TraceQueryRunner(team=team, query=query)
         response = runner.calculate()
+
+        if not response.results:
+            return None  # Trace not found in window
 
         llm_trace = response.results[0]
         trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
@@ -87,7 +90,6 @@ async def generate_and_save_summary_activity(
             "$ai_batch_run_id": batch_run_id,
             "$ai_summary_mode": mode,
             "$ai_summary_title": summary_result.title,
-            "$ai_summary_text_repr": text_repr,
             "$ai_summary_flow_diagram": summary_result.flow_diagram,
             "$ai_summary_bullets": summary_bullets_json,
             "$ai_summary_interesting_notes": summary_notes_json,
@@ -104,9 +106,26 @@ async def generate_and_save_summary_activity(
         )
 
     # Fetch trace data and format text representation
-    trace, hierarchy, text_repr, team = await database_sync_to_async(_fetch_trace_and_format, thread_sensitive=False)(
+    result = await database_sync_to_async(_fetch_trace_and_format, thread_sensitive=False)(
         trace_id, team_id, window_start, window_end
     )
+
+    # Handle trace not found in window
+    if result is None:
+        logger.warning(
+            "Skipping trace - not found in time window",
+            trace_id=trace_id,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        return SummarizationActivityResult(
+            trace_id=trace_id,
+            success=False,
+            skipped=True,
+            skip_reason="trace_not_found",
+        )
+
+    trace, hierarchy, text_repr, team = result
 
     # Check if trace is too large for LLM processing
     if len(text_repr) > constants.MAX_TEXT_REPR_LENGTH:
