@@ -125,6 +125,7 @@ class Field[T](typing.Protocol):
     """
 
     name: str
+    alias: str
     data_type: pa.DataType
 
     @classmethod
@@ -335,7 +336,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         if isinstance(key, int):
             return self.fields[key]
         elif isinstance(key, str):
-            return self._get_field_by_name(key)
+            return self._get_field_by_name_or_alias(key)
 
         raise TypeError(f"unsupported key type: '{type(key)}'")
 
@@ -354,7 +355,7 @@ class Table(TableBase, typing.Generic[FieldType]):
                 raise ValueError(f"Cannot update '{key}' with field of name '{value.name}'")
 
             try:
-                existing = self._get_field_by_name(key)
+                existing = self._get_field_by_name_or_alias(key)
                 index = self.fields.index(existing)
             except KeyError:
                 # New field.
@@ -365,7 +366,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         else:
             raise TypeError(f"unsupported key type: '{type(key)}'")
 
-        self._get_field_by_name.cache_clear()
+        self._get_field_by_name_or_alias.cache_clear()
 
     def __delitem__(self, key: int | str) -> None:
         """Delete a field from this `Table`.
@@ -379,12 +380,12 @@ class Table(TableBase, typing.Generic[FieldType]):
             del self.fields[key]
 
         elif isinstance(key, str):
-            existing = self._get_field_by_name(key)
+            existing = self._get_field_by_name_or_alias(key)
             index = self.fields.index(existing)
 
             del self.fields[index]
 
-        self._get_field_by_name.cache_clear()
+        self._get_field_by_name_or_alias.cache_clear()
 
     def __contains__(self, field: FieldType | str) -> bool:
         """Check if this `Table` contains a field.
@@ -397,7 +398,7 @@ class Table(TableBase, typing.Generic[FieldType]):
 
         if isinstance(field, str):
             try:
-                _ = self._get_field_by_name(field)
+                _ = self._get_field_by_name_or_alias(field)
             except KeyError:
                 return False
             else:
@@ -406,17 +407,17 @@ class Table(TableBase, typing.Generic[FieldType]):
             return field in self.fields
 
     @functools.lru_cache
-    def _get_field_by_name(self, key: str) -> FieldType:
-        """Get a field from this `Table` by its name.
+    def _get_field_by_name_or_alias(self, key: str) -> FieldType:
+        """Get a field from this `Table` by its name or alias.
 
         This method uses a LRU cache to avoid iterating more than once per `key`, in case
-        it is in a loop and frequently getting fields by name.
+        it is in a loop and frequently getting fields by name or alias.
 
         Raises:
             KeyError: If a field with the name doesn't exist.
         """
         try:
-            return next(field for field in self.fields if field.name == key)
+            return next(field for field in self.fields if field.name == key or field.alias == key)
         except StopIteration:
             raise KeyError(key)
 

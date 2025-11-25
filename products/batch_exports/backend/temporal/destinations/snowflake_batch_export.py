@@ -328,6 +328,7 @@ class SnowflakeField(Field):
 
     def __init__(self, name: str, type: SnowflakeType, data_type: pa.DataType, nullable: bool):
         self.name = name
+        self.alias = name.lower()
         self.snowflake_type = type
         self.data_type = data_type
         self.nullable = nullable
