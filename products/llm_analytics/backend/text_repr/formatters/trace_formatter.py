@@ -137,8 +137,7 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
         lines.append(str(state))
         return lines
     except Exception:
-        # Safe fallback if JSON.stringify fails (circular refs, etc.)
-        return ["", f"{label}:", "", f"[UNABLE_TO_PARSE: {type(state).__name__}]"]
+        return ["", f"{label}:", "", str(state)]
 
 
 def _get_node_prefix(event_type: str) -> str:

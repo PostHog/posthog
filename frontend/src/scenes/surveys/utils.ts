@@ -8,8 +8,12 @@ import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
+    BasicSurveyQuestion,
     EventPropertyFilter,
+    LinkSurveyQuestion,
+    MultipleSurveyQuestion,
     QuestionProcessedResponses,
+    RatingSurveyQuestion,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
@@ -95,6 +99,15 @@ export const getResponseFieldWithId = (
         indexBasedKey: getSurveyResponseKey(questionIndex),
         idBasedKey: questionId ? getSurveyIdBasedResponseKey(questionId) : undefined,
     }
+}
+
+export function getSurveyResponseValue(
+    eventProperties: Record<string, any>,
+    questionIndex: number,
+    questionId?: string
+): any {
+    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(questionIndex, questionId)
+    return (idBasedKey && eventProperties[idBasedKey]) ?? eventProperties[indexBasedKey]
 }
 
 export function sanitizeSurveyDisplayConditions(
@@ -618,4 +631,14 @@ export function buildSurveyTimestampFilter(
 
     return `AND timestamp >= '${fromDate}'
     AND timestamp <= '${toDate}'`
+}
+
+export function getExpressionCommentForQuestion(
+    q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion,
+    questionIndex: number
+): string {
+    if (q.question.trim().length > 0) {
+        return q.question
+    }
+    return `Question ${questionIndex + 1}`
 }

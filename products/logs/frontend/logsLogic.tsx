@@ -23,6 +23,7 @@ import { ParsedLogMessage } from './types'
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
+const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 
 export const logsLogic = kea<logsLogicType>([
@@ -44,6 +45,9 @@ export const logsLogic = kea<logsLogicType>([
             }
             if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
                 actions.setServiceNames(params.serviceNames)
+            }
+            if (params.highlightedLogId !== undefined && params.highlightedLogId !== values.highlightedLogId) {
+                actions.setHighlightedLogId(params.highlightedLogId)
             }
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
@@ -69,8 +73,23 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
+                updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                 actions.runQuery()
+                return params
+            })
+        }
+
+        const updateHighlightURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
                 return params
             })
         }
@@ -81,6 +100,7 @@ export const logsLogic = kea<logsLogicType>([
             setSearchTerm: () => buildURL(),
             setSeverityLevels: () => buildURL(),
             setServiceNames: () => buildURL(),
+            setHighlightedLogId: () => updateHighlightURL(),
             setOrderBy: () => buildURL(),
         }
     }),
@@ -114,6 +134,10 @@ export const logsLogic = kea<logsLogicType>([
             value,
             operator,
         }),
+        togglePinLog: (logId: string) => ({ logId }),
+        pinLog: (log: LogMessage) => ({ log }),
+        unpinLog: (logId: string) => ({ logId }),
+        setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
     }),
 
     reducers({
@@ -226,6 +250,21 @@ export const logsLogic = kea<logsLogicType>([
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
             },
         ],
+        pinnedLogs: [
+            [] as LogMessage[],
+            { persist: true },
+            {
+                pinLog: (state, { log }) => [...state, log],
+                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
+            },
+        ],
+        highlightedLogId: [
+            DEFAULT_HIGHLIGHTED_LOG_ID,
+            { persist: false },
+            {
+                setHighlightedLogId: (_, { highlightedLogId }) => highlightedLogId,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -313,6 +352,51 @@ export const logsLogic = kea<logsLogicType>([
                     }
                     return { ...log, cleanBody, parsedBody }
                 })
+            },
+        ],
+        pinnedParsedLogs: [
+            (s) => [s.pinnedLogs],
+            (pinnedLogs: LogMessage[]): ParsedLogMessage[] => {
+                return pinnedLogs.map((log: LogMessage) => {
+                    const cleanBody = colors.unstyle(log.body)
+                    let parsedBody: JsonType | null = null
+                    try {
+                        parsedBody = JSON.parse(cleanBody)
+                    } catch {
+                        // Not JSON, that's fine
+                    }
+                    return { ...log, cleanBody, parsedBody }
+                })
+            },
+        ],
+        isPinned: [
+            (s) => [s.pinnedLogs],
+            (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
+        ],
+        visibleLogsTimeRange: [
+            (s) => [s.parsedLogs, s.orderBy],
+            (
+                parsedLogs: ParsedLogMessage[],
+                orderBy: LogsQuery['orderBy']
+            ): { date_from: string; date_to: string } | null => {
+                if (parsedLogs.length === 0) {
+                    return null
+                }
+                const firstTimestamp = parsedLogs[0].timestamp
+                const lastTimestamp = parsedLogs[parsedLogs.length - 1].timestamp
+
+                // When orderBy is 'latest', first log is newest, last log is oldest
+                // When orderBy is 'earliest', first log is oldest, last log is newest
+                if (orderBy === 'latest') {
+                    return {
+                        date_from: dayjs(lastTimestamp).toISOString(),
+                        date_to: dayjs(firstTimestamp).toISOString(),
+                    }
+                }
+                return {
+                    date_from: dayjs(firstTimestamp).toISOString(),
+                    date_to: dayjs(lastTimestamp).toISOString(),
+                }
             },
         ],
         sparklineData: [
@@ -420,6 +504,17 @@ export const logsLogic = kea<logsLogicType>([
             }
 
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
+        },
+        togglePinLog: ({ logId }) => {
+            const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
+            if (isPinned) {
+                actions.unpinLog(logId)
+            } else {
+                const logToPin = values.logs.find((log) => log.uuid === logId)
+                if (logToPin) {
+                    actions.pinLog(logToPin)
+                }
+            }
         },
     })),
 ])

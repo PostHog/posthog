@@ -1,4 +1,4 @@
-# ruff: noqa: F401
+# ruff: noqa: F401, I001
 
 from .feature_flag import (
     FeatureFlag,

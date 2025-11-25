@@ -29,6 +29,12 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHARGEBEE
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "403 Client Error: Forbidden for url": "Chargebee authentication failed. Please check your API key and site name.",
+            "Unauthorized for url": "Chargebee authentication failed. Please check your API key and site name.",
+        }
+
     def get_schemas(self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(

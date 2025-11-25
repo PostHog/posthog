@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+import datetime
 from enum import Enum
 from typing import Literal, Optional
 from urllib.parse import quote
@@ -142,7 +142,7 @@ def send_invite(invite_id: str) -> None:
         template_name="invite",
         template_context={
             "invite": invite,
-            "expiry_date": (timezone.now() + timezone.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
+            "expiry_date": (timezone.now() + datetime.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
                 "%B %d, %Y at %H:%M %Z"
             ),
             "inviter_first_name": invite.created_by.first_name if invite.created_by else "someone",
@@ -496,7 +496,7 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def login_from_new_device_notification(
-    user_id: int, login_time: datetime, short_user_agent: str, ip_address: str, backend_name: str
+    user_id: int, login_time: datetime.datetime, short_user_agent: str, ip_address: str, backend_name: str
 ) -> None:
     """Send login notification email if login is from a new device"""
     if not is_email_available(with_absolute_urls=True):
@@ -563,7 +563,9 @@ def login_from_new_device_notification(
     ph_client.shutdown()
 
 
-def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
+def get_users_for_orgs_with_no_ingested_events(
+    org_created_from: datetime.datetime, org_created_to: datetime.datetime
+) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []
     recently_created_organizations = Organization.objects.filter(
