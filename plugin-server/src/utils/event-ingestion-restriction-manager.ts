@@ -157,12 +157,13 @@ export class EventIngestionRestrictionManager {
 
         const tokenDistinctIdKey = distinctId ? `${token}:distinct_id:${distinctId}` : undefined
         const tokenSessionIdKey = sessionId ? `${token}:session_id:${sessionId}` : undefined
+        const tokenDistinctIdKeyLegacy = distinctId ? `${token}:${distinctId}` : undefined
 
-        // Check static config
+        // Check static config (only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id)
         if (
             this.staticDropEventList.has(token) ||
             (tokenDistinctIdKey && this.staticDropEventList.has(tokenDistinctIdKey)) ||
-            (tokenSessionIdKey && this.staticDropEventList.has(tokenSessionIdKey))
+            (tokenDistinctIdKeyLegacy && this.staticDropEventList.has(tokenDistinctIdKeyLegacy))
         ) {
             return true
         }
@@ -195,12 +196,13 @@ export class EventIngestionRestrictionManager {
 
         const tokenDistinctIdKey = distinctId ? `${token}:distinct_id:${distinctId}` : undefined
         const tokenSessionIdKey = sessionId ? `${token}:session_id:${sessionId}` : undefined
+        const tokenDistinctIdKeyLegacy = distinctId ? `${token}:${distinctId}` : undefined
 
-        // Check static config
+        // Check static config (only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id)
         if (
             this.staticSkipPersonList.has(token) ||
             (tokenDistinctIdKey && this.staticSkipPersonList.has(tokenDistinctIdKey)) ||
-            (tokenSessionIdKey && this.staticSkipPersonList.has(tokenSessionIdKey))
+            (tokenDistinctIdKeyLegacy && this.staticSkipPersonList.has(tokenDistinctIdKeyLegacy))
         ) {
             return true
         }
@@ -233,12 +235,13 @@ export class EventIngestionRestrictionManager {
 
         const tokenDistinctIdKey = distinctId ? `${token}:distinct_id:${distinctId}` : undefined
         const tokenSessionIdKey = sessionId ? `${token}:session_id:${sessionId}` : undefined
+        const tokenDistinctIdKeyLegacy = distinctId ? `${token}:${distinctId}` : undefined
 
-        // Check static config
+        // Check static config (only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id)
         if (
             this.staticForceOverflowList.has(token) ||
             (tokenDistinctIdKey && this.staticForceOverflowList.has(tokenDistinctIdKey)) ||
-            (tokenSessionIdKey && this.staticForceOverflowList.has(tokenSessionIdKey))
+            (tokenDistinctIdKeyLegacy && this.staticForceOverflowList.has(tokenDistinctIdKeyLegacy))
         ) {
             return true
         }

@@ -84,8 +84,8 @@ describe('SessionRecordingRestrictionHandler', () => {
             const result = handler.applyRestrictions(messages)
 
             expect(result).toEqual(messages)
-            expect(restrictionManager.shouldDropEvent).toHaveBeenCalledWith('token-1', 'user-1')
-            expect(restrictionManager.shouldForceOverflow).toHaveBeenCalledWith('token-1', 'user-1')
+            expect(restrictionManager.shouldDropEvent).toHaveBeenCalledWith('token-1', 'user-1', undefined)
+            expect(restrictionManager.shouldForceOverflow).toHaveBeenCalledWith('token-1', 'user-1', undefined)
             expect(SessionRecordingIngesterMetrics.observeDroppedByRestrictions).not.toHaveBeenCalled()
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).not.toHaveBeenCalled()
         })

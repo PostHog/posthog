@@ -558,13 +558,6 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         describe('shouldDropEvent with session_id', () => {
-            it('returns true if session_id is in the static config list', () => {
-                const manager = new EventIngestionRestrictionManager(hub as Hub, {
-                    staticDropEventTokens: ['token:session_id:session123'],
-                })
-                expect(manager.shouldDropEvent('token', undefined, 'session123')).toBe(true)
-            })
-
             it('returns true if session_id is in the dynamic config list', () => {
                 // @ts-expect-error - Setting private property for testing
                 eventIngestionRestrictionManager.latestDynamicConfig = {
@@ -600,13 +593,6 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         describe('shouldSkipPerson with session_id', () => {
-            it('returns true if session_id is in the static config list', () => {
-                const manager = new EventIngestionRestrictionManager(hub as Hub, {
-                    staticSkipPersonTokens: ['token:session_id:session123'],
-                })
-                expect(manager.shouldSkipPerson('token', undefined, 'session123')).toBe(true)
-            })
-
             it('returns true if session_id is in the dynamic config list', () => {
                 // @ts-expect-error - Setting private property for testing
                 eventIngestionRestrictionManager.latestDynamicConfig = {
@@ -634,13 +620,6 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         describe('shouldForceOverflow with session_id', () => {
-            it('returns true if session_id is in the static config list', () => {
-                const manager = new EventIngestionRestrictionManager(hub as Hub, {
-                    staticForceOverflowTokens: ['token:session_id:session123'],
-                })
-                expect(manager.shouldForceOverflow('token', undefined, 'session123')).toBe(true)
-            })
-
             it('returns true if session_id is in the dynamic config list', () => {
                 // @ts-expect-error - Setting private property for testing
                 eventIngestionRestrictionManager.latestDynamicConfig = {
