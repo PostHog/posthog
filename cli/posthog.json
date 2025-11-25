@@ -1,0 +1,16 @@
+{
+    "languages": {
+        "golang": {
+            "output_path": "posthog-typed.go",
+            "schema_hash": "6e7dd855e161e5e804c25923cbc0e49b",
+            "updated_at": "2025-11-25T14:55:04.882118+00:00",
+            "event_count": 66
+        },
+        "typescript": {
+            "output_path": "posthog-typed.ts",
+            "schema_hash": "fed73449788161ee0bb7c05cf31b5106",
+            "updated_at": "2025-11-25T14:55:01.397014+00:00",
+            "event_count": 66
+        }
+    }
+}
