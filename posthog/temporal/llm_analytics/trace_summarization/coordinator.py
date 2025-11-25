@@ -180,8 +180,8 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                 )
 
-                total_traces += workflow_result.traces_queried
-                total_summaries += workflow_result.summaries_generated
+                total_traces += workflow_result.metrics.traces_queried
+                total_summaries += workflow_result.metrics.summaries_generated
 
             except Exception as e:
                 logger.exception("Failed to process team", team_id=team_id, error=str(e))

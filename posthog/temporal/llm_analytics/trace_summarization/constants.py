@@ -4,10 +4,14 @@ from temporalio.common import RetryPolicy
 
 # Window processing configuration
 DEFAULT_MAX_TRACES_PER_WINDOW = 100  # Max traces to process per window (conservative for worst-case 30s/trace)
-DEFAULT_BATCH_SIZE = 10  # Number of traces to process in parallel per batch
+DEFAULT_BATCH_SIZE = 5  # Number of traces to process in parallel per batch
 DEFAULT_MODE = "detailed"  # Summary detail level: 'minimal' or 'detailed' (detailed provides more context for embeddings/clustering)
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
-DEFAULT_WORKFLOW_MODEL = "gpt-5-mini"  # Default LLM model for workflow (slower but better than UI default)
+DEFAULT_WORKFLOW_MODEL = "gpt-4.1-mini"  # Default LLM model for workflow (1M token context window)
+
+# Text representation size limits
+# GPT-4.1-mini has 1M token context (~4M chars), using 2M chars to leave room for prompt/output
+MAX_TEXT_REPR_LENGTH = 2_000_000
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
@@ -39,18 +43,6 @@ MAX_ERROR_RATE_THRESHOLD = 0.5  # Fail workflow if >50% of summaries fail
 
 # Event schema
 EVENT_NAME_TRACE_SUMMARY = "$ai_trace_summary"  # Event name for summary storage
-
-# Property keys for $ai_trace_summary events
-PROP_TRACE_ID = "$ai_trace_id"
-PROP_BATCH_RUN_ID = "$ai_batch_run_id"
-PROP_SUMMARY_MODE = "$ai_summary_mode"
-PROP_SUMMARY_TITLE = "$ai_summary_title"
-PROP_SUMMARY_TEXT_REPR = "$ai_summary_text_repr"
-PROP_SUMMARY_FLOW_DIAGRAM = "$ai_summary_flow_diagram"
-PROP_SUMMARY_BULLETS = "$ai_summary_bullets"
-PROP_SUMMARY_INTERESTING_NOTES = "$ai_summary_interesting_notes"
-PROP_TEXT_REPR_LENGTH = "$ai_text_repr_length"
-PROP_EVENT_COUNT = "$ai_event_count"
 
 # Team allowlist - only these teams will be processed by the coordinator
 # Empty list means all teams are allowed
