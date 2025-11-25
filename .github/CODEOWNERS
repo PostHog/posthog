@@ -13,9 +13,11 @@
 # to manage the risk you're thinking about, do not add an entry.
 
 # ClickHouse team owns Clickhouse migrations
-
 posthog/clickhouse/migrations/** @PostHog/clickhouse
 
 # HogQL team owns HogQL changes
-
 posthog/hogql/** @PostHog/hogql
+
+# Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
+# so we have to be extra careful with changes here. Let's have the security team own this.
+.github/** @PostHog/team-security
