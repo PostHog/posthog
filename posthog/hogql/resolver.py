@@ -606,6 +606,11 @@ class Resolver(CloningVisitor):
         if len(node.chain) == 0:
             raise ResolutionError("Invalid field access with empty chain")
 
+        # Apply virtual property mapping before field resolution
+        from posthog.hogql.property import map_virtual_properties
+
+        node = map_virtual_properties(node)
+
         node = super().visit_field(node)
 
         # Only look for fields in the last SELECT scope, instead of all previous select queries.
