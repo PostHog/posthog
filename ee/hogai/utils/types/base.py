@@ -24,6 +24,7 @@ from posthog.schema import (
     AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionQuery,
+    AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     AssistantUpdateEvent,
@@ -42,6 +43,7 @@ from posthog.schema import (
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsTopCustomersQuery,
+    SubagentUpdateEvent,
     TaskExecutionItem,
     TaskExecutionMessage,
     TaskExecutionStatus,
@@ -73,13 +75,15 @@ AIMessageUnion = Union[
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
 AssistantStreamedMessageUnion = Union[AssistantMessageUnion, ArtifactMessage]
-AssistantResultUnion = Union[AssistantStreamedMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
+AssistantResultUnion = Union[
+    AssistantStreamedMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent, SubagentUpdateEvent
+]
 
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]
     | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusEvent]
-    | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent]
+    | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent | SubagentUpdateEvent]
 )
 
 AnyAssistantGeneratedQuery = (
@@ -556,7 +560,7 @@ class NodeEndAction(BaseModel, Generic[PartialStateType]):
 
 class UpdateAction(BaseModel):
     type: Literal["UPDATE"] = "UPDATE"
-    content: str
+    content: str | AssistantToolCall
 
 
 AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction

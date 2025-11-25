@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.schema import (
     AgentMode,
     AssistantMessage,
+    AssistantTool,
     AssistantToolCall,
     AssistantToolCallMessage,
     ContextMessage,
@@ -893,7 +894,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
     def test_no_mode_message_injection_when_mode_evident_in_window(self):
         """Test that mode reminder is not injected when mode is already evident from switch_mode tool call"""
-        from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
 
         start_id = str(uuid4())
         summary_id = str(uuid4())
@@ -905,7 +905,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="switch-1",
-                        name=SWITCH_MODE_TOOL_NAME,
+                        name=AssistantTool.SWITCH_MODE,
                         args={"mode": "product_analytics"},
                     )
                 ],
@@ -936,7 +936,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             for msg in result.messages
             if isinstance(msg, AssistantMessage)
             and msg.tool_calls
-            and any(tc.name == SWITCH_MODE_TOOL_NAME for tc in msg.tool_calls)
+            and any(tc.name == AssistantTool.SWITCH_MODE for tc in msg.tool_calls)
         ]
         self.assertEqual(len(switch_mode_msgs), 1, "Switch mode tool call should be preserved")
 

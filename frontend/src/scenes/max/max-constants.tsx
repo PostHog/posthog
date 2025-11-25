@@ -2,6 +2,7 @@ import {
     IconAtSign,
     IconBook,
     IconBrain,
+    IconCheckbox,
     IconCreditCard,
     IconDocument,
     IconMemory,
@@ -10,7 +11,7 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconQuestionAnswer } from 'lib/lemon-ui/icons'
+import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -114,7 +115,30 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'switch_mode',
 ]
 
-export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, ToolDefinition> = {
+export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
+    todo_write: {
+        name: 'Write a todo',
+        description: 'Write a todo to remember a task',
+        icon: <IconCheckbox />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return `Update the to-do list`
+            }
+            return `Updating the to-do list...`
+        },
+    },
+    task: {
+        name: 'Run an agent to perform a task',
+        description: 'Run an agent to perform a task',
+        icon: <IconRobot />,
+        displayFormatter: (toolCall) => {
+            const title = toolCall.args.title
+            if (toolCall.status === 'completed') {
+                return `Task (${title})`
+            }
+            return `Running a task (${title})...`
+        },
+    },
     create_form: {
         name: 'Create a form',
         description: 'Create a form to collect information from the user',

@@ -13,11 +13,13 @@ import {
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
+    AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     RootAssistantMessage,
+    SubagentUpdateEvent,
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -63,6 +65,12 @@ export function isAssistantToolCallMessage(
     message: RootAssistantMessage | undefined | null
 ): message is AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>> {
     return message?.type === AssistantMessageType.ToolCall && message.ui_payload !== undefined
+}
+
+export function isSubagentUpdateEvent(
+    message: AssistantUpdateEvent | SubagentUpdateEvent | undefined | null
+): message is SubagentUpdateEvent {
+    return message?.content instanceof Object && 'type' in message.content && message.content.type === 'tool_call'
 }
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
