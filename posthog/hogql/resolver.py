@@ -30,6 +30,7 @@ from posthog.hogql.resolver_utils import (
     lookup_field_by_name,
     lookup_table_by_name,
 )
+from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.models.utils import UUIDT
@@ -607,8 +608,6 @@ class Resolver(CloningVisitor):
             raise ResolutionError("Invalid field access with empty chain")
 
         # Apply virtual property mapping before field resolution
-        from posthog.hogql.property import map_virtual_properties
-
         node = map_virtual_properties(node)
 
         node = super().visit_field(node)
