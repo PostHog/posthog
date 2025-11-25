@@ -219,6 +219,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
         choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
     )
     campaign_name_mappings = serializers.JSONField(required=False)
+    custom_source_mappings = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
@@ -228,6 +229,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
             "attribution_window_days",
             "attribution_mode",
             "campaign_name_mappings",
+            "custom_source_mappings",
         ]
 
     def update(self, instance, validated_data):
@@ -256,6 +258,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
 
         if "campaign_name_mappings" in validated_data:
             instance.campaign_name_mappings = validated_data["campaign_name_mappings"]
+
+        if "custom_source_mappings" in validated_data:
+            instance.custom_source_mappings = validated_data["custom_source_mappings"]
 
         instance.save()
         return instance

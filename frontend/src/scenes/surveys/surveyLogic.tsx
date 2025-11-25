@@ -29,8 +29,14 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    CompareFilter,
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
@@ -1291,7 +1297,6 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         dateRange: [
             null as SurveyDateRange | null,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
@@ -1539,25 +1544,26 @@ export const surveyLogic = kea<surveyLogicType>([
                     where.push(archivedResponsesFilter.substring(4))
                 }
 
+                const defaultColumns = [
+                    '*',
+                    ...survey.questions.map((q, i) => {
+                        if (q.type === SurveyQuestionType.MultipleChoice) {
+                            return `arrayStringConcat(${getSurveyResponse(q, i)}, ', ') -- ${getExpressionCommentForQuestion(q, i)}`
+                        }
+                        return `${getSurveyResponse(q, i)} -- ${getExpressionCommentForQuestion(q, i)}`
+                    }),
+                    'timestamp',
+                    'person',
+                    `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
+                    `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
+                    `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
+                ]
+
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        select: [
-                            '*',
-                            ...survey.questions.map((q, i) => {
-                                if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    return `arrayStringConcat(${getSurveyResponse(q, i)}, ', ') -- ${getExpressionCommentForQuestion(q, i)}`
-                                }
-                                // Use the new condition that checks both formats
-                                return `${getSurveyResponse(q, i)} -- ${getExpressionCommentForQuestion(q, i)}`
-                            }),
-                            'timestamp',
-                            'person',
-                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
-                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
-                            `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
-                        ],
+                        select: defaultColumns,
                         orderBy: ['timestamp DESC'],
                         where,
                         after: dateRange?.date_from || startDate,
@@ -1572,6 +1578,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             ...propertyFilters,
                         ],
                     },
+                    defaultColumns,
                     propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
@@ -1579,6 +1586,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     showEventFilter: false,
                     showPropertyFilter: false,
                     showTimings: false,
+                    showPersistentColumnConfigurator: true,
+                    contextKey: `survey:${survey.id}`,
                 }
             },
         ],

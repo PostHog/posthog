@@ -179,7 +179,6 @@ export const FEATURE_FLAGS = {
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
-    AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-billing
@@ -248,7 +247,6 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
-    ERROR_TRACKING_ISSUE_LAYOUT_V2: 'error-tracking-issue-layout-v2', // owner: @david #team-error-tracking
     AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai
     ERROR_TRACKING_REVENUE_SORTING: 'error-tracking-revenue-sorting', // owner: @david #team-error-tracking
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
@@ -311,6 +309,7 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
     POSTHOG_AI_BILLING_USAGE_COMMAND: 'posthog-ai-billing-usage-command', // owner: #team-posthog-ai
     POSTHOG_AI_BILLING_USAGE_REPORT: 'posthog-ai-billing-usage-report', // owner: #team-posthog-ai
+    POSTHOG_AI_GENERAL_AVAILABILITY: 'posthog-ai-general-availability', // owner: #team-posthog-ai
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-posthog-ai
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
@@ -340,7 +339,10 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_USE_NEW_CREATE_FORM: 'experiments-use-new-create-form', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     AGENT_MODES: 'phai-agent-modes', // owner: @skoob13 #team-posthog-ai
+    INCIDENT_IO_STATUS_PAGE: 'incident-io-status-page', // owner: @benjackwhite
     SURVEYS_FUNNELS_CROSS_SELL: 'survey-funnels-cross-sell', // owner: @adboio #team-surveys
+    DATE_PICKER_EXPLICIT_DATE_TOGGLE: 'date-picker-explicit-date-toggle', // owner: @gesh #team-product-analytics
+    LEFT_ALIGN_DATE_FILTER: 'left-align-date-filter', // owner: @jordan-m #team-web-analytics
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

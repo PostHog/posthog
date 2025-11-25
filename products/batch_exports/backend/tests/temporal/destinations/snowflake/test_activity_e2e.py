@@ -625,6 +625,9 @@ async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incomp
     assert result.error.type == "SnowflakeIncompatibleSchemaError"
 
 
+@pytest.mark.parametrize(
+    "model", [BatchExportModel(name="events", schema=None), BatchExportModel(name="persons", schema=None)]
+)
 async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     clickhouse_client,
     activity_environment,
@@ -634,6 +637,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     data_interval_start,
     data_interval_end,
     ateam,
+    model,
 ):
     """Test that the `insert_into_snowflake_activity_from_stage` can handle target
     table columns being in UPPERCASE.
@@ -644,9 +648,9 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     This test first runs the batch export normally to create a target table, then
     updates some columns to be UPPERCASE, and finally re-runs the batch export.
     """
-    model = BatchExportModel(name="events", schema=None)
-    table_name = f"test_insert_activity_events_table_handle_uppercased_{ateam.pk}"
+    table_name = f"test_insert_activity_{model.name}_table_handle_uppercased_{ateam.pk}"
 
+    sort_key = "uuid" if model.name == "events" else "person_id"
     await _run_activity(
         activity_environment=activity_environment,
         snowflake_cursor=snowflake_cursor,
@@ -657,12 +661,20 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=model,
-        sort_key="uuid",
+        sort_key=sort_key,
     )
 
+    uppercase_columns = ["team_id"]
+    if model.name == "events":
+        uppercase_columns.append("event")
+    elif model.name == "persons":
+        uppercase_columns.append("person_version")
+        uppercase_columns.append("person_id")
     snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
-    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" RENAME COLUMN "event" TO "EVENT"')
-    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" RENAME COLUMN "timestamp" TO "TIMESTAMP"')
+    for column in uppercase_columns:
+        snowflake_cursor.execute(f'ALTER TABLE "{table_name}" RENAME COLUMN "{column}" TO "{column.upper()}"')
+    # person_id is now in uppercase
+    sort_key = "uuid" if model.name == "events" else "PERSON_ID"
 
     await _run_activity(
         activity_environment=activity_environment,
@@ -674,6 +686,6 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=model,
-        sort_key="uuid",
-        uppercase_columns=["event", "timestamp"],
+        sort_key=sort_key,
+        uppercase_columns=uppercase_columns,
     )

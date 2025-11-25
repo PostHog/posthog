@@ -534,13 +534,14 @@ class BaseTestFunnelUnorderedStepsBreakdown(
         self.assertCountEqual([res[0]["breakdown"] for res in results], [[""], ["Mac"], ["Safari"]])
 
 
-class TestUnorderedFunnelGroupBreakdown(
+class BaseTestFunnelUnorderedGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
         PseudoFunnelActors,
     ),
 ):
+    __test__ = False
     pass
 
 
@@ -2059,15 +2060,3 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(trend_results[4]["timestamp"].strftime("%Y-%m-%d"), "2024-12-29")
         self.assertEqual(trend_results[4]["reached_from_step_count"], 5)
         self.assertEqual(trend_results[4]["reached_to_step_count"], 5)
-
-
-class TestFunnelUnorderedStepsBreakdown(BaseTestFunnelUnorderedStepsBreakdown):
-    __test__ = True
-
-
-class TestFunnelUnorderedStepsConversionTime(BaseTestFunnelUnorderedStepsConversionTime):
-    __test__ = True
-
-
-class TestFunnelUnorderedSteps(BaseTestFunnelUnorderedSteps):
-    __test__ = True

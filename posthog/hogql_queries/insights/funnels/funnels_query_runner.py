@@ -133,6 +133,10 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
     def funnel_actor_class(self):
         return get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
 
+    @property
+    def exact_timerange(self):
+        return self.query.dateRange and self.query.dateRange.explicitDate
+
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
@@ -140,4 +144,5 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),
+            exact_timerange=self.exact_timerange,
         )

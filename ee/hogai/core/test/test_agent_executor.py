@@ -1,3 +1,4 @@
+import time
 from typing import cast
 from uuid import uuid4
 
@@ -131,7 +132,11 @@ class TestAgentExecutor(BaseTest):
         ):
             # Setup mocks
             async def mock_read_stream():
-                for chunk in [Mock(), Mock()]:
+                chunk1 = Mock()
+                chunk1.timestamp = time.time()
+                chunk2 = Mock()
+                chunk2.timestamp = time.time()
+                for chunk in [chunk1, chunk2]:
                     yield chunk
 
             mock_wait.return_value = True

@@ -177,7 +177,7 @@ interface MessageProps {
 function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
-    const { threadLoading } = useValues(maxThreadLogic)
+    const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -332,7 +332,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                interactable={isLastInGroup}
+                                interactable={!isSharedThread && isLastInGroup}
                                 isFinalGroup={isFinal}
                             />
                         )

@@ -40,8 +40,8 @@ from posthog.schema import (
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.funnels.funnel import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF
 from posthog.models import DataWarehouseTable
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
@@ -824,7 +824,7 @@ async def test_funnels_lazy_joins_ordering(team, stripe_customer, mock_stripe_cl
             breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY, breakdown="stripe_customer.email"
         ),
     )
-    funnel_class = Funnel(context=FunnelQueryContext(query=query, team=team))
+    funnel_class = FunnelUDF(context=FunnelQueryContext(query=query, team=team))
 
     query_ast = funnel_class.get_query()
     await sync_to_async(execute_hogql_query)(

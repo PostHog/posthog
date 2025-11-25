@@ -113,7 +113,7 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                 if (signupEventSelection) {
                     return signupEventSelection
                 }
-                if (isEmptyObject(signupEvent as object)) {
+                if (isEmptyObject(signupEvent)) {
                     return null
                 }
                 return {
