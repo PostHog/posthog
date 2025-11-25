@@ -4293,6 +4293,7 @@ export interface MarketingAnalyticsConfig {
     attribution_window_days?: number
     attribution_mode?: AttributionMode
     campaign_name_mappings?: Record<string, Record<string, string[]>>
+    custom_source_mappings?: Record<string, string[]>
 }
 
 export enum MarketingAnalyticsBaseColumns {
