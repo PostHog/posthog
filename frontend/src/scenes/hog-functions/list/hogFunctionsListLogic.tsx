@@ -19,7 +19,8 @@ import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 
 export type HogFunctionListFilters = {
-    search?: string
+    activeSearch?: string
+    pausedSearch?: string
 }
 
 export type HogFunctionListPagination = {
@@ -138,7 +139,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         types: [props.type, ...(props.additionalTypes || [])],
                         limit: values.activePagination.limit,
                         offset: values.activePagination.offset,
-                        search: values.filters.search,
+                        search: values.filters.activeSearch,
                         enabled: true,
                     })
                     return Object.assign(response.results, { count: response.count })
@@ -189,7 +190,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         types: [props.type, ...(props.additionalTypes || [])],
                         limit: values.pausedPagination.limit,
                         offset: values.pausedPagination.offset,
-                        search: values.filters.search,
+                        search: values.filters.pausedSearch,
                         enabled: false,
                     })
                     return Object.assign(response.results, { count: response.count })
@@ -256,9 +257,14 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         saveHogFunctionOrderFailure: () => {
             lemonToast.error('Failed to update order')
         },
-        setFilters: () => {
-            actions.loadActiveHogFunctions()
-            actions.loadPausedHogFunctions()
+        setFilters: ({ filters }) => {
+            // Only reload the table whose search changed
+            if (filters.activeSearch !== undefined) {
+                actions.loadActiveHogFunctions()
+            }
+            if (filters.pausedSearch !== undefined) {
+                actions.loadPausedHogFunctions()
+            }
         },
         setPagination: ({ tableType }) => {
             if (tableType === 'active') {
