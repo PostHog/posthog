@@ -135,5 +135,6 @@ class ChatAgentRunner(BaseAgentRunner):
                 "output": output,
                 "response": visualization_response,
                 "is_new_conversation": self._is_new_conversation,
+                "$session_id": self._session_id,
             },
         )
