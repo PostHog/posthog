@@ -541,7 +541,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_1_report["total_cache_creation_tokens"] == 1500  # 3 * 500
         assert org_1_report["model_breakdown"] == {"gpt-4o-mini": 3}
         assert org_1_report["provider_breakdown"] == {"openai": 3}
-        assert org_1_report["framework_breakdown"] == {"langchain": 3}
+        assert org_1_report["framework_breakdown"] == {"langchain": 3, "none": 15}
         assert org_1_report["library_breakdown"] == {"posthog-python": 3}
         assert org_1_report["cost_model_used_breakdown"] == {"openai/gpt-4o-mini": 3}
         assert org_1_report["cost_model_source_breakdown"] == {"openrouter": 3}
