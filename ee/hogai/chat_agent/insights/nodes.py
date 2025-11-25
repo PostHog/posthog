@@ -15,7 +15,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from posthog.schema import ArtifactContentType, ArtifactMessage, ArtifactSource, AssistantToolCallMessage
+from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
@@ -27,6 +27,7 @@ from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import ArtifactMessage
 
 from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,

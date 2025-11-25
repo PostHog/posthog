@@ -62,7 +62,7 @@ class ArtifactManager(AssistantContextMixin):
         artifact = AgentArtifact(
             name=name[:400],
             type=AgentArtifact.Type.VISUALIZATION,
-            data=content.model_dump(),
+            data=content.model_dump(exclude_none=True),
             conversation=conversation,
             team=self._team,
         )
