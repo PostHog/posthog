@@ -110,18 +110,6 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 resetFilters: () => ({ offset: 0, limit: 10 }),
             },
         ],
-        activeTotalCount: [
-            0 as number,
-            {
-                loadActiveHogFunctionsSuccess: (_, { activeHogFunctions }) => (activeHogFunctions as any).count ?? 0,
-            },
-        ],
-        pausedTotalCount: [
-            0 as number,
-            {
-                loadPausedHogFunctionsSuccess: (_, { pausedHogFunctions }) => (pausedHogFunctions as any).count ?? 0,
-            },
-        ],
         reorderModalOpen: [
             false as boolean,
             {
@@ -130,8 +118,8 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         ],
     })),
     loaders(({ values, actions, props }) => ({
-        activeHogFunctions: [
-            [] as HogFunctionType[],
+        activeHogFunctionsData: [
+            { results: [] as HogFunctionType[], count: 0 },
             {
                 loadActiveHogFunctions: async () => {
                     const response = await api.hogFunctions.list({
@@ -142,7 +130,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         search: values.filters.activeSearch,
                         enabled: true,
                     })
-                    return Object.assign(response.results, { count: response.count })
+                    return { results: response.results, count: response.count }
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({
@@ -162,7 +150,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         },
                     })
 
-                    return values.activeHogFunctions.filter((x) => x.id !== hogFunction.id)
+                    const updatedResults = values.activeHogFunctionsData.results.filter((x) => x.id !== hogFunction.id)
+                    return {
+                        ...values.activeHogFunctionsData,
+                        results: updatedResults,
+                        count: values.activeHogFunctionsData.count - 1,
+                    }
                 },
                 toggleEnabled: async ({ hogFunction, enabled }) => {
                     await api.hogFunctions.update(hogFunction.id, {
@@ -171,18 +164,21 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     // Reload both tables since toggling moves items between them
                     actions.loadActiveHogFunctions()
                     actions.loadPausedHogFunctions()
-                    return values.activeHogFunctions
+                    return values.activeHogFunctionsData
                 },
                 addHogFunction: ({ hogFunction }) => {
                     if (hogFunction.enabled) {
-                        return [hogFunction, ...values.activeHogFunctions]
+                        return {
+                            results: [hogFunction, ...values.activeHogFunctionsData.results],
+                            count: values.activeHogFunctionsData.count + 1,
+                        }
                     }
-                    return values.activeHogFunctions
+                    return values.activeHogFunctionsData
                 },
             },
         ],
-        pausedHogFunctions: [
-            [] as HogFunctionType[],
+        pausedHogFunctionsData: [
+            { results: [] as HogFunctionType[], count: 0 },
             {
                 loadPausedHogFunctions: async () => {
                     const response = await api.hogFunctions.list({
@@ -193,7 +189,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         search: values.filters.pausedSearch,
                         enabled: false,
                     })
-                    return Object.assign(response.results, { count: response.count })
+                    return { results: response.results, count: response.count }
                 },
             },
         ],
@@ -207,12 +203,16 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         ],
     })),
     selectors({
+        activeHogFunctions: [(s) => [s.activeHogFunctionsData], (data) => data.results],
+        pausedHogFunctions: [(s) => [s.pausedHogFunctionsData], (data) => data.results],
+        activeTotalCount: [(s) => [s.activeHogFunctionsData], (data) => data.count],
+        pausedTotalCount: [(s) => [s.pausedHogFunctionsData], (data) => data.count],
         loading: [
-            (s) => [s.activeHogFunctionsLoading, s.pausedHogFunctionsLoading],
+            (s) => [s.activeHogFunctionsDataLoading, s.pausedHogFunctionsDataLoading],
             (activeLoading, pausedLoading) => activeLoading || pausedLoading,
         ],
-        activeLoading: [(s) => [s.activeHogFunctionsLoading], (loading) => loading],
-        pausedLoading: [(s) => [s.pausedHogFunctionsLoading], (loading) => loading],
+        activeLoading: [(s) => [s.activeHogFunctionsDataLoading], (loading) => loading],
+        pausedLoading: [(s) => [s.pausedHogFunctionsDataLoading], (loading) => loading],
         // Combined list for backwards compatibility
         hogFunctions: [
             (s) => [s.activeHogFunctions, s.pausedHogFunctions],
