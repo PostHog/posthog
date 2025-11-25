@@ -603,6 +603,9 @@ export function taxonomicEventFilterToHogQL(
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
         return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
+    if (groupType === TaxonomicFilterGroupType.SessionProperties) {
+        return `session.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
