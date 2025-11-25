@@ -116,6 +116,11 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     ]
     copy_calls = [statement for statement, params in fake_conn_calls if statement.startswith("COPY (SELECT * FROM")]
     drop_calls = [statement for statement, _ in fake_conn_calls if statement.startswith("DROP TABLE")]
+    schema_calls = [
+        statement for statement, _ in fake_conn_calls if statement.startswith("CREATE SCHEMA IF NOT EXISTS")
+    ]
+    view_calls = [statement for statement, _ in fake_conn_calls if statement.startswith("CREATE OR REPLACE VIEW")]
+    comment_calls = [statement for statement, _ in fake_conn_calls if statement.startswith("COMMENT ON VIEW")]
 
     assert configure_args["install_extension"] is True
     assert configure_args["bucket"] == ducklake_module.get_config()["DUCKLAKE_DATA_BUCKET"]
@@ -123,4 +128,9 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     assert create_calls, "Expected temp table creation with delta_scan/read_delta"
     assert copy_calls and inputs.model.destination_uri in copy_calls[0]
     assert drop_calls, "Expected temporary table cleanup"
+    assert schema_calls and "ducklake_dev.data_modeling_team_1" in schema_calls[0]
+    assert view_calls and "ducklake_dev.data_modeling_team_1.model_a" in view_calls[0]
+    assert view_calls and inputs.model.destination_uri in view_calls[0]
+    assert comment_calls and "ducklake_dev.data_modeling_team_1.model_a" in comment_calls[0]
+    assert any("ATTACH" in statement for statement in fake_conn.sql_statements), "Expected DuckLake catalog attach"
     assert fake_conn.closed is True

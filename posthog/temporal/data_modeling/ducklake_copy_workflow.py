@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 import datetime as dt
@@ -11,6 +12,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.ducklake.common import (
+    attach_catalog,
     configure_connection,
     escape as ducklake_escape,
     get_config,
@@ -85,7 +87,6 @@ async def prepare_data_modeling_ducklake_metadata_activity(
             )
         )
 
-    await logger.ainfo("Prepared DuckLake copy metadata", models=len(metadata))
     return metadata
 
 
@@ -108,12 +109,19 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
 
         configure_connection(conn, config, install_extension=True)
         _ensure_ducklake_bucket_exists(config)
-        logger.info("Copying model into DuckLake", destination=inputs.model.destination_uri)
         conn.execute(
             f"COPY (SELECT * FROM {table_name}) TO '{ducklake_escape(inputs.model.destination_uri)}' "
             " (FORMAT PARQUET, OVERWRITE TRUE)"
         )
         logger.info("Successfully copied model into DuckLake")
+        _register_dataset_in_ducklake_catalog(
+            conn,
+            config,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            model=inputs.model,
+            logger=logger,
+        )
     finally:
         try:
             conn.execute(f"DROP TABLE IF EXISTS {table_name}")
@@ -234,3 +242,60 @@ def _ensure_ducklake_bucket_exists(config: dict[str, str]) -> None:
         config["DUCKLAKE_S3_SECRET_KEY"],
         settings.OBJECT_STORAGE_ENDPOINT,
     )
+
+
+def _register_dataset_in_ducklake_catalog(
+    conn: duckdb.DuckDBPyConnection,
+    config: dict[str, str],
+    *,
+    team_id: int,
+    job_id: str,
+    model: DuckLakeCopyModelMetadata,
+    logger,
+    alias: str = "ducklake_dev",
+) -> None:
+    """Expose the copied Parquet file through the DuckLake catalog."""
+    _attach_ducklake_catalog(conn, config, alias=alias)
+    schema_name = _sanitize_ducklake_identifier(f"data_modeling_team_{team_id}", default_prefix="data_modeling")
+    table_name = _sanitize_ducklake_identifier(model.model_label or model.normalized_name, default_prefix="model")
+
+    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.{schema_name}")
+    escaped_destination = ducklake_escape(model.destination_uri)
+    conn.execute(
+        f"CREATE OR REPLACE VIEW {alias}.{schema_name}.{table_name} AS "
+        f"SELECT * FROM read_parquet('{escaped_destination}')"
+    )
+    comment = (
+        "DuckLake data modeling copy "
+        f"(team_id={team_id}, job_id={job_id}, model_label='{model.model_label}', saved_query_id='{model.saved_query_id}')"
+    )
+    conn.execute(f"COMMENT ON VIEW {alias}.{schema_name}.{table_name} IS '{ducklake_escape(comment)}'")
+    logger.info(
+        "Registered DuckLake dataset",
+        ducklake_alias=alias,
+        schema=schema_name,
+        table=table_name,
+        destination=model.destination_uri,
+    )
+
+
+def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, str], alias: str) -> None:
+    """Attach the DuckLake catalog, swallowing the error if already attached."""
+    try:
+        attach_catalog(conn, config, alias=alias)
+    except duckdb.CatalogException as exc:
+        if alias not in str(exc):
+            raise
+
+
+_IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
+
+
+def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
+    """Normalize identifiers so they are safe for DuckDB (lowercase alnum + underscores)."""
+    cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
+    if not cleaned:
+        cleaned = default_prefix
+    if cleaned[0].isdigit():
+        cleaned = f"{default_prefix}_{cleaned}"
+    return cleaned[:63]
