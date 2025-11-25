@@ -54,27 +54,16 @@ def determine_optimal_k(
     best_k = min_k
     best_score = -1.0
 
-    logger.info(f"Testing k values from {min_k} to {max_k} on {n_samples} samples")
-
     for k in range(min_k, max_k + 1):
-        logger.info(f"Testing k={k}")
-
-        # Run k-means
         kmeans = KMeans(n_clusters=k, random_state=random_state, n_init=10)
         labels = kmeans.fit_predict(embeddings)
 
-        # Calculate silhouette score
         score = silhouette_score(embeddings, labels)
         scores[k] = score
 
-        logger.info(f"k={k}: silhouette_score={score:.4f}")
-
-        # Track best k
         if score > best_score:
             best_score = score
             best_k = k
-
-    logger.info(f"Optimal k determined: {best_k} (score={best_score:.4f})")
 
     return best_k, scores
 
@@ -98,14 +87,11 @@ def perform_kmeans_clustering(
         - centroids: Cluster centroids, shape (k, n_features)
         - inertia: Sum of squared distances to nearest centroid
     """
-    logger.info(f"Performing k-means clustering with k={k} on {len(embeddings)} samples")
 
     kmeans = KMeans(n_clusters=k, random_state=random_state, n_init=10)
     labels = kmeans.fit_predict(embeddings)
     centroids = kmeans.cluster_centers_
     inertia = kmeans.inertia_
-
-    logger.info(f"Clustering complete: inertia={inertia:.2f}")
 
     return labels, centroids, inertia
 
@@ -129,71 +115,42 @@ def calculate_trace_distances(
     return np.sqrt(((embeddings[:, np.newaxis, :] - centroids[np.newaxis, :, :]) ** 2).sum(axis=2))
 
 
-def select_cluster_representatives(
-    embeddings: np.ndarray,
+def select_representatives_from_distances(
     labels: np.ndarray,
-    centroids: np.ndarray,
+    distances_matrix: np.ndarray,
     trace_ids: list[str],
     n_closest: int = 5,
-    n_random: int = 2,
-    random_state: int = 42,
 ) -> dict[int, list[str]]:
     """
-    Select representative traces for each cluster.
+    Select representative traces using pre-computed distances.
 
-    For each cluster, selects:
-    - n_closest traces closest to the cluster centroid (most representative)
-    - n_random random traces (for diversity)
+    For each cluster, selects n_closest traces closest to the cluster centroid
+    using distances that have already been calculated.
 
     Args:
-        embeddings: Array of embedding vectors, shape (n_samples, n_features)
         labels: Cluster assignments, shape (n_samples,)
-        centroids: Cluster centroids, shape (k, n_features)
-        trace_ids: List of trace IDs corresponding to embeddings
+        distances_matrix: Pre-computed distances, shape (n_samples, k)
+        trace_ids: List of trace IDs corresponding to rows
         n_closest: Number of closest traces to select per cluster
-        n_random: Number of random traces to select per cluster
-        random_state: Random seed for reproducibility
 
     Returns:
         Dictionary mapping cluster_id to list of representative trace_ids
     """
-    np.random.seed(random_state)
     representatives = {}
-
     unique_labels = np.unique(labels)
 
     for cluster_id in unique_labels:
-        # Get indices of traces in this cluster
         cluster_mask = labels == cluster_id
         cluster_indices = np.where(cluster_mask)[0]
-        cluster_embeddings = embeddings[cluster_mask]
         cluster_trace_ids = [trace_ids[i] for i in cluster_indices]
 
-        # Calculate distances to centroid
-        # Use the shared helper but only for this cluster's centroid
-        # We need to reshape centroid to (1, n_features) for the helper
-        distances_matrix = calculate_trace_distances(cluster_embeddings, centroids[cluster_id : cluster_id + 1])
-        distances = distances_matrix[:, 0]  # Get the single column of distances
+        # Get distances to this cluster's centroid (column cluster_id)
+        distances = distances_matrix[cluster_mask, cluster_id]
 
-        # Get n_closest closest traces
-        closest_indices = np.argsort(distances)[:n_closest]
-        closest_trace_ids = [cluster_trace_ids[i] for i in closest_indices]
+        # Select closest traces
+        closest_local_indices = np.argsort(distances)[:n_closest]
+        closest_trace_ids = [cluster_trace_ids[i] for i in closest_local_indices]
 
-        # Get n_random random traces (excluding the closest ones)
-        remaining_indices = [i for i in range(len(cluster_trace_ids)) if i not in closest_indices]
-        if len(remaining_indices) >= n_random:
-            random_indices = np.random.choice(remaining_indices, size=n_random, replace=False)
-            random_trace_ids = [cluster_trace_ids[i] for i in random_indices]
-        else:
-            # If not enough remaining, just take what we have
-            random_trace_ids = [cluster_trace_ids[i] for i in remaining_indices]
-
-        # Combine closest and random
-        representatives[int(cluster_id)] = closest_trace_ids + random_trace_ids
-
-        logger.info(
-            f"Cluster {cluster_id}: selected {len(closest_trace_ids)} closest + {len(random_trace_ids)} random "
-            f"= {len(representatives[int(cluster_id)])} representatives"
-        )
+        representatives[int(cluster_id)] = closest_trace_ids
 
     return representatives
