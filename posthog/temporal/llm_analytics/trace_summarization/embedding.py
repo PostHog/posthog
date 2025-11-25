@@ -119,6 +119,10 @@ async def embed_summaries_activity(
             )
             return SingleEmbeddingResult(success=False, trace_id=trace_id, error=str(e))
 
+    # Early return if no traces to embed (avoids ClickHouse IN [] error)
+    if not trace_ids:
+        return EmbeddingActivityResult(embeddings_requested=0, embeddings_failed=0)
+
     # Fetch data and setup embedder (sync operations wrapped)
     results, embedder, rendering = await database_sync_to_async(_fetch_summaries_and_setup, thread_sensitive=False)(
         trace_ids=trace_ids,
