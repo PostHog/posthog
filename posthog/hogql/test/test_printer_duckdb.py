@@ -165,8 +165,8 @@ class TestPrinterDuckDB(BaseTest):
     @parameterized.expand(
         [
             ("toString(123)", "CAST(123 AS VARCHAR)"),
-            ("toInt32('123')", "CAST('123' AS INTEGER)"),
-            ("toFloat64('3.14')", "CAST('3.14' AS DOUBLE)"),
+            ("toInt('123')", "TRY_CAST('123' AS BIGINT)"),
+            ("toFloat('3.14')", "TRY_CAST('3.14' AS DOUBLE)"),
         ]
     )
     def test_type_conversion_functions(self, hogql: str, expected: str):

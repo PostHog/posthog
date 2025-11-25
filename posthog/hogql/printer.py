@@ -1624,8 +1624,8 @@ class _Printer(Visitor[str]):
 
         args = [self.visit(arg) for arg in node.args]
 
-        # Check for DuckDB-specific function mapping using canonical name
-        duckdb_func = DUCKDB_FUNCTION_MAPPING.get(canonical_name) or DUCKDB_FUNCTION_MAPPING.get(node.name)
+        # Check for DuckDB-specific function mapping - prefer original HogQL name first
+        duckdb_func = DUCKDB_FUNCTION_MAPPING.get(node.name) or DUCKDB_FUNCTION_MAPPING.get(canonical_name)
 
         if duckdb_func:
             # Check if it's a template function (contains placeholders like {0}, {1})

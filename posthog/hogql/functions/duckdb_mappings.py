@@ -59,6 +59,9 @@ DUCKDB_FUNCTION_MAPPING: dict[str, str] = {
     "base64Decode": "FROM_BASE64",
     # Type conversion functions
     "toString": "CAST({0} AS VARCHAR)",
+    # HogQL toInt/toFloat use TRY_CAST for null-safe conversion (like accurateCastOrNull)
+    "toInt": "TRY_CAST({0} AS BIGINT)",
+    "toFloat": "TRY_CAST({0} AS DOUBLE)",
     "toInt8": "CAST({0} AS TINYINT)",
     "toInt16": "CAST({0} AS SMALLINT)",
     "toInt32": "CAST({0} AS INTEGER)",
