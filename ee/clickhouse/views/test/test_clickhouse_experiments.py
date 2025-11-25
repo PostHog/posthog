@@ -2654,8 +2654,14 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Verify the duplicate has the same settings
         assert duplicate_data["description"] == original_experiment["description"]
-        assert duplicate_data["parameters"] == original_experiment["parameters"]
         assert duplicate_data["filters"] == original_experiment["filters"]
+
+        # feature_flag_variants should come from the new flag; other parameters should match the original
+        assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag.filters["multivariate"]["variants"]
+        assert {**duplicate_data["parameters"], "feature_flag_variants": None} == {
+            **original_experiment["parameters"],
+            "feature_flag_variants": None,
+        }
 
         # Compare metrics ignoring fingerprints (they differ due to different start_dates)
         def remove_fingerprints(metrics):
