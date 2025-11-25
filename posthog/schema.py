@@ -10059,6 +10059,7 @@ class MarketingAnalyticsConfig(BaseModel):
     attribution_window_days: Optional[float] = None
     campaign_name_mappings: Optional[dict[str, dict[str, list[str]]]] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
+    custom_source_mappings: Optional[dict[str, list[str]]] = None
     sources_map: Optional[dict[str, SourceMap]] = None
 
 
@@ -12135,6 +12136,7 @@ class TileFilters(BaseModel):
     breakdown_filter: Optional[BreakdownFilter] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = None
     properties: Optional[
         list[
             Union[
