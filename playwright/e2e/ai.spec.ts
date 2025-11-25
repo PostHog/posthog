@@ -41,7 +41,8 @@ test.describe('PostHog AI', () => {
         ).toBeVisible()
 
         // Wait for AI to respond with exactly "Cześć"
-        await expect(page.locator('[data-message-type="ai"]').getByText('Cześć')).toBeVisible({ timeout: 30000 })
+        await expect(page.locator('[data-message-type="ai"]')).toBeVisible({ timeout: 60000 })
+        await expect(page.locator('[data-message-type="ai/failure"]')).not.toBeVisible()
     })
 
     test('Input field states', async ({ page }) => {

@@ -432,8 +432,8 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
     return (
         <MessageTemplate
-            type="ai"
-            boxClassName={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
+            type={isFailureMessage(message) ? 'ai/failure' : 'ai'}
+            boxClassName={message.status === 'error' || isFailureMessage(message) ? 'border-danger' : undefined}
             ref={ref}
             action={action}
         >

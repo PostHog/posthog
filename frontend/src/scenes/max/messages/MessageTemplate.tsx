@@ -2,7 +2,7 @@ import React from 'react'
 import { twMerge } from 'tailwind-merge'
 
 interface MessageTemplateProps {
-    type: 'human' | 'ai'
+    type: 'human' | 'ai' | 'ai/failure'
     action?: React.ReactNode
     className?: string
     boxClassName?: string
