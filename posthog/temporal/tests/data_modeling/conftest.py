@@ -1,12 +1,11 @@
 import uuid
 import functools
-
 import pytest
+import aioboto3
+import pytest_asyncio
 
 from django.conf import settings
 
-import aioboto3
-import pytest_asyncio
 
 TEST_ROOT_BUCKET = "test-data-modeling"
 SESSION = aioboto3.Session()
