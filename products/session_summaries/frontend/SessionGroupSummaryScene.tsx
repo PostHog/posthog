@@ -113,6 +113,7 @@ function FilterBar({
     onIssueTypeFilterChange,
     filteredCount,
     totalCount,
+    issueTypeCounts,
 }: {
     searchValue: string
     onSearchChange: (value: string) => void
@@ -120,6 +121,7 @@ function FilterBar({
     onIssueTypeFilterChange: (filter: IssueTypeFilter) => void
     filteredCount: number
     totalCount: number
+    issueTypeCounts: Record<IssueTypeFilter, number>
 }): JSX.Element {
     return (
         <div className="flex flex-wrap gap-6 mb-4 items-center">
@@ -129,19 +131,24 @@ function FilterBar({
             <div className="flex items-center gap-2">
                 {(
                     [
-                        ['blocking_error', 'Blocking error'],
-                        ['non_blocking_error', 'Non-blocking error'],
+                        ['blocking_error', 'Blocking'],
                         ['abandonment', 'Abandonment'],
                         ['confusion', 'Confusion'],
+                        ['non_blocking_error', 'Non-blocking'],
                     ] as const
                 ).map(([key, label]) => {
                     const isActive = issueTypeFilters.has(key)
+                    const count = issueTypeCounts[key]
                     return (
                         <LemonCheckbox
                             key={key}
                             checked={isActive}
                             onChange={() => onIssueTypeFilterChange(key)}
-                            label={label}
+                            label={
+                                <>
+                                    {label} <span className="text-muted-alt">({count})</span>
+                                </>
+                            }
                             size="small"
                             bordered
                         />
@@ -151,7 +158,7 @@ function FilterBar({
             <div className="flex-1 min-w-60">
                 <LemonInput
                     type="search"
-                    placeholder="Filter session issues by keyword..."
+                    placeholder="Filter issues by keyword..."
                     value={searchValue}
                     onChange={onSearchChange}
                     prefix={<IconSearch />}
@@ -364,6 +371,36 @@ export function SessionGroupSummary(): JSX.Element {
         }
         return summary.patterns.reduce((sum, pattern) => sum + pattern.events.length, 0)
     }, [summary.patterns])
+
+    const issueTypeCounts = useMemo(() => {
+        const counts: Record<IssueTypeFilter, number> = {
+            blocking_error: 0,
+            non_blocking_error: 0,
+            abandonment: 0,
+            confusion: 0,
+        }
+        if (!summary.patterns) {
+            return counts
+        }
+        for (const pattern of summary.patterns) {
+            for (const event of pattern.events) {
+                const { target_event } = event
+                if (target_event.exception === 'blocking') {
+                    counts.blocking_error++
+                }
+                if (target_event.exception === 'non-blocking') {
+                    counts.non_blocking_error++
+                }
+                if (target_event.abandonment) {
+                    counts.abandonment++
+                }
+                if (target_event.confusion) {
+                    counts.confusion++
+                }
+            }
+        }
+        return counts
+    }, [summary.patterns])
     const handleViewDetails = (
         pattern: EnrichedSessionGroupSummaryPattern,
         event: PatternAssignedEventSegmentContext
@@ -459,6 +496,7 @@ export function SessionGroupSummary(): JSX.Element {
                     onIssueTypeFilterChange={handleIssueTypeFilterChange}
                     filteredCount={filteredIssuesCount}
                     totalCount={totalIssuesCount}
+                    issueTypeCounts={issueTypeCounts}
                 />
                 <div className="flex flex-col gap-2">
                     {sortedPatterns.length === 0 && summary.patterns && summary.patterns.length > 0 ? (
