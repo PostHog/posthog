@@ -122,7 +122,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         return BatchTraceSummarizationCoordinatorInputs(
             max_traces=int(inputs[0]) if len(inputs) > 0 else 500,
             batch_size=int(inputs[1]) if len(inputs) > 1 else 10,
-            mode=inputs[2] if len(inputs) > 2 else "minimal",
+            mode=inputs[2] if len(inputs) > 2 else DEFAULT_MODE,
             window_minutes=int(inputs[3]) if len(inputs) > 3 else 60,
             model=inputs[4] if len(inputs) > 4 else None,
             lookback_hours=int(inputs[5]) if len(inputs) > 5 else 24,
