@@ -52,21 +52,25 @@ impl Language {
    posthog.capture('event_name', {{ property: 'value' }})
 3. Use captureRaw() when you need to bypass type checking:
    posthog.captureRaw('dynamic_event_name', {{ whatever: 'data' }})
-  "#
+"#
             ),
             Language::Golang => format!(
                 r#"
 1. Install the PostHog Go SDK if you haven't already:
    go get github.com/posthog/posthog-go
-2. Import the generated types in your code:
-   import typed "./{0}"
-3. Create typed event captures:
+2. Store the generated Go code in a folder named `typed` (e.g. `/src/lib/typed`):
+   mkdir -p <your-directory>/src/lib/typed
+   mv {0} <your-diretory>/src/lib/typed
+   > If you prefer a different folder, you will need to update the `package` at the top of
+   > the generated file.
+3. Migrate your code to the typed event captures:
    cap := typed.EventNameCapture("user_id", requiredProp1, requiredProp2)
-   client.Enqueue(cap)
-4. Add optional properties with option functions:
-   cap := typed.EventNameCapture("user_id", required,
+   err := client.Enqueue(cap)
+
+You can add optional properties through the option functions:
+    cap := typed.EventNameCapture("user_id", required,
        typed.EventNameWithOptionalProp("value"))
-  "#,
+"#,
                 output_path.trim_end_matches(".go")
             ),
         }
