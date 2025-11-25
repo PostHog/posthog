@@ -8,13 +8,13 @@ SELECT_FROM_PERSONS = """
 SELECT
     persons.team_id AS team_id,
     persons.distinct_id AS distinct_id,
-    persons.person_id AS person_id,
+    toString(persons.person_id) AS person_id,
     persons.properties AS properties,
     persons.person_distinct_id_version AS person_distinct_id_version,
     persons.person_version AS person_version,
     persons.created_at AS created_at,
     persons._inserted_at AS _inserted_at,
-    persons.is_deleted AS is_deleted
+    toBool(persons.is_deleted) AS is_deleted
 FROM (
     WITH new_persons AS (
         SELECT
@@ -52,10 +52,10 @@ FROM (
             _timestamp2 >= {interval_start}::DateTime64
             AND _timestamp2 < {interval_end}::DateTime64
     ),
-    all_new_person_distinct_id_pairs AS (
+    combined_new_person_distinct_id_pairs AS (
         SELECT
             distinct_id,
-            person_id,
+            argMax(person_id, person_distinct_id2.version) AS person_id2,
             max(version) AS version
         FROM
             person_distinct_id2
@@ -76,15 +76,14 @@ FROM (
                 )
             )
         GROUP BY
-            distinct_id,
-            person_id
+            distinct_id
     )
     SELECT
         pd.team_id AS team_id,
         pd.distinct_id AS distinct_id,
-        toString(pd.person_id) AS person_id,
+        argMax(pd.person_id, pd.version) AS person_id,
         max(p.version) AS person_version,
-        argMax(pd.version, p.version) AS person_distinct_id_version,
+        argMax(pd.version, pd.version) AS person_distinct_id_version,
         argMax(p.properties, p.version) AS properties,
         argMax(p.created_at, p.version) AS created_at,
         argMax(p.is_deleted, p.version) AS is_deleted,
@@ -119,15 +118,14 @@ FROM (
         AND (pd.distinct_id, pd.person_id, pd.version) IN (
             SELECT
                 distinct_id,
-                person_id,
+                person_id2,
                 version
             FROM
-                all_new_person_distinct_id_pairs
+                combined_new_person_distinct_id_pairs
         )
     GROUP BY
         pd.team_id,
-        pd.distinct_id,
-        pd.person_id
+        pd.distinct_id
     ORDER BY
         _inserted_at
 ) AS persons
@@ -787,13 +785,13 @@ INSERT INTO FUNCTION
 SELECT
     persons.team_id AS team_id,
     persons.distinct_id AS distinct_id,
-    persons.person_id AS person_id,
+    toString(persons.person_id) AS person_id,
     persons.properties AS properties,
     persons.person_distinct_id_version AS person_distinct_id_version,
     persons.person_version AS person_version,
     persons.created_at AS created_at,
     persons._inserted_at AS _inserted_at,
-    persons.is_deleted AS is_deleted
+    toBool(persons.is_deleted) AS is_deleted
 FROM (
     WITH new_persons AS (
         SELECT
@@ -831,10 +829,10 @@ FROM (
             _timestamp2 >= {interval_start}::DateTime64
             AND _timestamp2 < {interval_end}::DateTime64
     ),
-    all_new_person_distinct_id_pairs AS (
+    combined_new_person_distinct_id_pairs AS (
         SELECT
             distinct_id,
-            person_id,
+            argMax(person_id, person_distinct_id2.version) AS person_id2,
             max(version) AS version
         FROM
             person_distinct_id2
@@ -855,13 +853,12 @@ FROM (
                 )
             )
         GROUP BY
-            distinct_id,
-            person_id
+            distinct_id
     )
     SELECT
         pd.team_id AS team_id,
         pd.distinct_id AS distinct_id,
-        toString(pd.person_id) AS person_id,
+        argMax(pd.person_id, pd.version) AS person_id,
         max(p.version) AS person_version,
         argMax(pd.version, p.version) AS person_distinct_id_version,
         argMax(p.properties, p.version) AS properties,
@@ -900,15 +897,14 @@ FROM (
         AND (pd.distinct_id, pd.person_id, pd.version) IN (
             SELECT
                 distinct_id,
-                person_id,
+                person_id2,
                 version
             FROM
-                all_new_person_distinct_id_pairs
+                combined_new_person_distinct_id_pairs
         )
     GROUP BY
         pd.team_id,
-        pd.distinct_id,
-        pd.person_id
+        pd.distinct_id
 ) AS persons
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
