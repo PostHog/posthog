@@ -68,10 +68,11 @@ async def embed_summaries_activity(
 
         # Add timestamp params if filter is active
         # Use strftime to produce ClickHouse-compatible format (no timezone offset)
+        # Window covers workflow start minus buffer, to workflow start plus max execution time plus buffer
         if workflow_start_time:
             start_dt = datetime.fromisoformat(workflow_start_time.replace("Z", "+00:00"))
             time_from = start_dt - timedelta(minutes=5)
-            time_to = start_dt + timedelta(minutes=10)
+            time_to = start_dt + timedelta(minutes=constants.WORKFLOW_EXECUTION_TIMEOUT_MINUTES + 10)
             params["time_from"] = time_from.strftime("%Y-%m-%d %H:%M:%S.%f")
             params["time_to"] = time_to.strftime("%Y-%m-%d %H:%M:%S.%f")
 
