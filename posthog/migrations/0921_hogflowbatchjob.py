@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0904_alter_dashboard_creation_mode"),
+        ("posthog", "0920_alter_integration_kind"),
     ]
 
     operations = [
