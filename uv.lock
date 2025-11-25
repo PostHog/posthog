@@ -449,6 +449,16 @@ wheels = [
 ]
 
 [[package]]
+name = "bingads"
+version = "13.0.25.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "suds-community" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f3/66/b3752bab9a139edb4dd90f6a2987e71494c02c2b280e2b62f67c748db226/bingads-13.0.25.3.tar.gz", hash = "sha256:13a404eef6b1b13dcce1ac70ade56595582cfe8a162056fdd612f80f62549857", size = 399262, upload-time = "2025-09-12T14:06:03.77Z" }
+
+[[package]]
 name = "black"
 version = "23.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4367,6 +4377,7 @@ dependencies = [
     { name = "azure-ai-inference" },
     { name = "azure-ai-projects" },
     { name = "beautifulsoup4" },
+    { name = "bingads" },
     { name = "boto3" },
     { name = "brotli" },
     { name = "cachetools" },
@@ -4615,6 +4626,7 @@ requires-dist = [
     { name = "azure-ai-inference", specifier = ">=1.0.0b9" },
     { name = "azure-ai-projects", specifier = ">=1.0.0b11" },
     { name = "beautifulsoup4", specifier = "==4.12.3" },
+    { name = "bingads", specifier = ">=13.0.25.3" },
     { name = "boto3", specifier = "==1.40.49" },
     { name = "brotli", specifier = "==1.1.0" },
     { name = "cachetools", specifier = ">=5.5.2" },
@@ -6404,6 +6416,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/79/b9/6e672db4fec07349e7a8a8172c1a6ae235c58679ca29c3f86a61b5e59ff3/structlog-25.4.0.tar.gz", hash = "sha256:186cd1b0a8ae762e29417095664adf1d6a31702160a46dacb7796ea82f7409e4", size = 1369138, upload-time = "2025-06-02T08:21:12.971Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/4a/97ee6973e3a73c74c8120d59829c3861ea52210667ec3e7a16045c62b64d/structlog-25.4.0-py3-none-any.whl", hash = "sha256:fe809ff5c27e557d14e613f45ca441aabda051d119ee5a0102aaba6ce40eed2c", size = 68720, upload-time = "2025-06-02T08:21:11.43Z" },
+]
+
+[[package]]
+name = "suds-community"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/5d/da767935b4cb869417307fbd6dec93d2bf3723228214302b6e6b277f474b/suds_community-1.2.0.tar.gz", hash = "sha256:ab3b24dc9ba06b5e6598e2a5d34d2a7d06c79e613d81cedc028475bfbd3bb90c", size = 271408, upload-time = "2024-08-24T20:07:23.122Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/0e/513c353018247dc846074d9460f3c9adeeea360ac85abd5a7750eb53fc03/suds_community-1.2.0-py3-none-any.whl", hash = "sha256:505b191865bca125f12e8ff9598b24d9c0108b98826671bdd700ed51def44e36", size = 145270, upload-time = "2024-08-24T20:07:21.588Z" },
 ]
 
 [[package]]
