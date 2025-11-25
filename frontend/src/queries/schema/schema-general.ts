@@ -1069,6 +1069,8 @@ interface DataTableNodeViewProps {
     showColumnConfigurator?: boolean
     /** Show a button to configure and persist the table's default columns if possible */
     showPersistentColumnConfigurator?: boolean
+    /** Context key for universal column configuration (e.g., "survey:123") */
+    contextKey?: string
     /** Shows a list of saved queries */
     showSavedQueries?: boolean
     /** Show saved filters feature for this table (requires uniqueKey) */
@@ -4291,6 +4293,7 @@ export interface MarketingAnalyticsConfig {
     attribution_window_days?: number
     attribution_mode?: AttributionMode
     campaign_name_mappings?: Record<string, Record<string, string[]>>
+    custom_source_mappings?: Record<string, string[]>
 }
 
 export enum MarketingAnalyticsBaseColumns {
