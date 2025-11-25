@@ -91,7 +91,7 @@ unmerged_parts_query = f"""
 def wait_for_parts_to_merge(
     context: AssetExecutionContext,
     config: SessionsBackfillConfig,
-    client: Optional[Client] = None,
+    sync_client: Optional[Client] = None,
 ) -> None:
     """Check for unmerged parts and wait if there are too many.
 
@@ -106,7 +106,7 @@ def wait_for_parts_to_merge(
 
     while True:
         # run the query
-        result = sync_execute(unmerged_parts_query, sync_client=client)
+        result = sync_execute(unmerged_parts_query, sync_client=sync_client)
         unmerged_parts_count = result[0][0] if result else 0
 
         if unmerged_parts_count < config.max_unmerged_parts:
@@ -201,7 +201,7 @@ def _do_backfill(
         with tags_context(kind="dagster", dagster=tags):
             for chunk_i in range(team_id_chunks):
                 # Check for too many unmerged parts before processing each chunk
-                wait_for_parts_to_merge(context, config, client)
+                wait_for_parts_to_merge(context, config, sync_client=client)
 
                 # Add team_id chunking to the where clause if needed
                 if team_id_chunks > 1:
