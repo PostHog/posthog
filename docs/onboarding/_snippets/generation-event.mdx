@@ -1,0 +1,103 @@
+A generation is a single call to an LLM.
+
+**Event name**: `$ai_generation`  
+
+### Core properties
+
+| Property | Description |
+|----------|-------------|
+| `$ai_trace_id` | The trace ID (a UUID to group AI events) like `conversation_id`<br/>Must contain only letters, numbers, and special characters: `-`, `_`, `~`, `.`, `@`, `(`, `)`, `!`, `'`, `:`, <code>\|</code> <br/>Example: `d9222e05-8708-41b8-98ea-d4a21849e761` |
+| `$ai_session_id` | *(Optional)* Groups related traces together. Use this to organize traces by whatever grouping makes sense for your application (user sessions, workflows, conversations, or other logical boundaries).<br/>Example: `session-abc-123`, `conv-user-456` |
+| `$ai_span_id` | *(Optional)* Unique identifier for this generation |
+| `$ai_span_name` | *(Optional)* Name given to this generation <br/>Example: `summarize_text` |
+| `$ai_parent_id` | *(Optional)* Parent span ID for tree view grouping |
+| `$ai_model` | The model used <br/>Example: `gpt-5-mini` |
+| `$ai_provider` | The LLM provider <br/>Example: `openai`, `anthropic`, `gemini` |
+| `$ai_input` | List of messages sent to the LLM. Each message should have a `role` property with one of: `"user"`, `"system"`, or `"assistant"` <br/>Example: `[{"role": "user", "content": [{"type": "text", "text": "What's in this image?"}, {"type": "image", "image": "https://example.com/image.jpg"}, {"type": "function", "function": {"name": "get_weather", "arguments": {"location": "San Francisco"}}}]}]` |
+| `$ai_input_tokens` | The number of tokens in the input (often found in response.usage) |
+| `$ai_output_choices` | List of response choices from the LLM. Each choice should have a `role` property with one of: `"user"`, `"system"`, or `"assistant"` <br/>Example: `[{"role": "assistant", "content": [{"type": "text", "text": "I can see a hedgehog in the image."}, {"type": "function", "function": {"name": "get_weather", "arguments": {"location": "San Francisco"}}}]}]` |
+| `$ai_output_tokens` | The number of tokens in the output (often found in response.usage) |
+| `$ai_latency` | *(Optional)* The latency of the LLM call in seconds |
+| `$ai_http_status` | *(Optional)* The HTTP status code of the response |
+| `$ai_base_url` | *(Optional)* The base URL of the LLM provider <br/>Example: `https://api.openai.com/v1` |
+| `$ai_request_url` | *(Optional)* The full URL of the request made to the LLM API <br/>Example: `https://api.openai.com/v1/chat/completions` |
+| `$ai_is_error` | *(Optional)* Boolean to indicate if the request was an error |
+| `$ai_error` | *(Optional)* The error message or object |
+
+### Cost properties
+
+Cost properties are optional as we can automatically calculate them from model and token counts. If you want, you can provide your own cost properties or custom pricing instead.
+
+#### Pre-calculated costs
+
+| Property | Description |
+|----------|-------------|
+| `$ai_input_cost_usd` | *(Optional)* The cost in USD of the input tokens |
+| `$ai_output_cost_usd` | *(Optional)* The cost in USD of the output tokens |
+| `$ai_request_cost_usd` | *(Optional)* The cost in USD for the requests |
+| `$ai_web_search_cost_usd` | *(Optional)* The cost in USD for the web searches |
+| `$ai_total_cost_usd` | *(Optional)* The total cost in USD (sum of all cost components) |
+
+#### Custom pricing
+
+| Property | Description |
+|----------|-------------|
+| `$ai_input_token_price` | *(Optional)* Price per input token (used to calculate `$ai_input_cost_usd`) |
+| `$ai_output_token_price` | *(Optional)* Price per output token (used to calculate `$ai_output_cost_usd`) |
+| `$ai_cache_read_token_price` | *(Optional)* Price per cached token read |
+| `$ai_cache_write_token_price` | *(Optional)* Price per cached token write |
+| `$ai_request_price` | *(Optional)* Price per request |
+| `$ai_request_count` | *(Optional)* Number of requests (defaults to 1 if `$ai_request_price` is set) |
+| `$ai_web_search_price` | *(Optional)* Price per web search |
+| `$ai_web_search_count` | *(Optional)* Number of web searches performed |
+
+### Cache properties
+
+| Property | Description |
+|----------|-------------|
+| `$ai_cache_read_input_tokens` | *(Optional)* Number of tokens read from cache |
+| `$ai_cache_creation_input_tokens` | *(Optional)* Number of tokens written to cache (Anthropic-specific) |
+
+### Model parameters
+
+| Property | Description |
+|----------|-------------|
+| `$ai_temperature` | *(Optional)* Temperature parameter used in the LLM request |
+| `$ai_stream` | *(Optional)* Whether the response was streamed |
+| `$ai_max_tokens` | *(Optional)* Maximum tokens setting for the LLM response |
+| `$ai_tools` | *(Optional)* Tools/functions available to the LLM <br/>Example: `[{"type": "function", "function": {"name": "get_weather", "parameters": {...}}}]` |
+
+### Example API call
+
+```bash
+curl -X POST "<ph_client_api_host>/i/v0/e/" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "api_key": "<ph_project_api_key>",
+         "event": "$ai_generation",
+         "properties": {
+             "distinct_id": "user_123",
+             "$ai_trace_id": "d9222e05-8708-41b8-98ea-d4a21849e761",
+             "$ai_session_id": "session-abc-123",
+             "$ai_model": "gpt-4o",
+             "$ai_provider": "openai",
+             "$ai_input": [{"role": "user", "content": [{"type": "text", "text": "Analyze this data and suggest improvements"}]}],
+             "$ai_input_tokens": 150,
+             "$ai_output_choices": [{"role": "assistant", "content": [{"type": "text", "text": "Based on the data, here are my suggestions..."}]}],
+             "$ai_output_tokens": 280,
+             "$ai_latency": 2.45,
+             "$ai_http_status": 200,
+             "$ai_base_url": "https://api.openai.com/v1",
+             "$ai_request_url": "https://api.openai.com/v1/chat/completions",
+             "$ai_is_error": false,
+             "$ai_temperature": 0.7,
+             "$ai_stream": false,
+             "$ai_max_tokens": 500,
+             "$ai_tools": [{"type": "function", "function": {"name": "analyze_data", "description": "Analyzes data and provides insights", "parameters": {"type": "object", "properties": {"data_type": {"type": "string"}}}}}],
+             "$ai_cache_read_input_tokens": 50,
+             "$ai_span_name": "data_analysis_chat"
+         },
+         "timestamp": "2025-01-30T12:00:00Z"
+     }'
+
+```

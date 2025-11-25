@@ -28,6 +28,12 @@ declare module '*.lottie?url' {
     export default content
 }
 
+declare module '*.mdx' {
+    import { ComponentType } from 'react'
+    const Component: ComponentType<any>
+    export default Component
+}
+
 // This fixes TS errors when importing an .json file
 declare module '*.json' {
     const content: any

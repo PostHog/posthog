@@ -1,6 +1,9 @@
+import mdx from '@mdx-js/rollup'
 import react from '@vitejs/plugin-react'
 import { URL, fileURLToPath } from 'node:url'
 import { resolve } from 'path'
+import rehypeMdxCodeProps from 'rehype-mdx-code-props'
+import remarkFrontmatter from 'remark-frontmatter'
 import { defineConfig } from 'vite'
 
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
@@ -14,10 +17,60 @@ export default defineConfig(({ mode }) => {
     return {
         plugins: [
             react(),
+            mdx({
+                jsxImportSource: 'react',
+                providerImportSource: '@mdx-js/react',
+                remarkPlugins: [remarkFrontmatter],
+                rehypePlugins: [[rehypeMdxCodeProps, { tagName: 'pre' }]],
+            }),
             // We delete and copy the HTML files for development
             htmlGenerationPlugin(),
             // Copy public assets to src/assets for development
             publicAssetsPlugin(),
+            // Plugin to handle components/Tab imports in MDX files
+            {
+                name: 'mdx-components-alias',
+                enforce: 'pre',
+                resolveId(id, importer) {
+                    if (importer?.endsWith('.mdx') && id === 'components/Tab') {
+                        return '\0mdx-components-tab'
+                    }
+                    return null
+                },
+                load(id) {
+                    if (id === '\0mdx-components-tab') {
+                        const mdxPath = resolve(__dirname, 'src/scenes/onboarding/MDX.tsx')
+                        return `export { Tab as default, Tab } from '${mdxPath}'`
+                    }
+                    return null
+                },
+            },
+            // Plugin to handle missing imports in MDX files gracefully
+            {
+                name: 'mdx-ignore-missing-imports',
+                enforce: 'pre',
+                async resolveId(id, importer) {
+                    // If importing from an MDX file, ignore any missing imports
+                    // But don't interfere with .mdx imports - let the MDX plugin handle those
+                    if (importer?.endsWith('.mdx') && !id.endsWith('.mdx')) {
+                        try {
+                            const resolved = await this.resolve(id, importer, { skipSelf: true })
+                            return resolved
+                        } catch {
+                            // Any missing import in MDX files - return virtual module
+                            return `\0virtual:${id.replace(/[^a-zA-Z0-9]/g, '_')}`
+                        }
+                    }
+
+                    return null
+                },
+                load(id) {
+                    if (id.startsWith('\0virtual:')) {
+                        return 'export default null'
+                    }
+                    return null
+                },
+            },
             {
                 name: 'startup-message',
                 configureServer(server) {
@@ -61,6 +114,8 @@ export default defineConfig(({ mode }) => {
                 // Just for Vite: we copy public assets to src/assets, we need to alias it to the correct path
                 public: resolve(__dirname, 'src/assets'),
                 products: resolve(__dirname, '../products'),
+                // Docs folder alias for MDX imports
+                docs: resolve(__dirname, '../docs'),
                 // Node.js polyfills for browser compatibility
                 buffer: 'buffer',
             },

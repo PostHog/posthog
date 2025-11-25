@@ -1,0 +1,42 @@
+A span is a single action within your application, such as a function call or vector database search.
+
+**Event name**: `$ai_span`
+
+### Core properties
+
+| Property | Description |
+|----------|-------------|
+| `$ai_trace_id` | The trace ID (a UUID to group related AI events together)<br/>Must contain only letters, numbers, and the following characters: `-`, `_`, `~`, `.`, `@`, `(`, `)`, `!`, `'`, `:`, <code>\|</code><br/>Example: `d9222e05-8708-41b8-98ea-d4a21849e761` |
+| `$ai_session_id` | *(Optional)* Groups related traces together. Use this to organize traces by whatever grouping makes sense for your application (user sessions, workflows, conversations, or other logical boundaries).<br/>Example: `session-abc-123`, `conv-user-456` |
+| `$ai_span_id` | *(Optional)* Unique identifier for this span<br/>Example: `bdf42359-9364-4db7-8958-c001f28c9255` |
+| `$ai_span_name` | *(Optional)* The name of the span<br/>Example: `vector_search`, `data_retrieval`, `tool_call` |
+| `$ai_parent_id` | *(Optional)* Parent ID for tree view grouping (`trace_id` or another `span_id`)<br/>Example: `537b7988-0186-494f-a313-77a5a8f7db26` |
+| `$ai_input_state` | The input state of the span<br/>Example: `{"query": "search for documents about hedgehogs"}` or any JSON-serializable state |
+| `$ai_output_state` | The output state of the span<br/>Example: `{"results": ["doc1", "doc2"], "count": 2}` or any JSON-serializable state |
+| `$ai_latency` | *(Optional)* The latency of the span in seconds<br/>Example: `0.361` |
+| `$ai_is_error` | *(Optional)* Boolean to indicate if the span encountered an error |
+| `$ai_error` | *(Optional)* The error message or object if the span failed<br/>Example: `{"message": "Connection timeout", "code": "TIMEOUT"}` |
+
+### Example API call
+
+```bash
+curl -X POST "<ph_client_api_host>/i/v0/e/" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "api_key": "<ph_project_api_key>",
+         "event": "$ai_span",
+         "properties": {
+             "distinct_id": "user_123",
+             "$ai_trace_id": "d9222e05-8708-41b8-98ea-d4a21849e761",
+             "$ai_session_id": "session-abc-123",
+             "$ai_input_state": {"query": "search for documents about hedgehogs", "filters": {"category": "animals"}},
+             "$ai_output_state": {"results": [{"id": "doc_1", "content": "Hedgehogs are small mammals..."}, {"id": "doc_2", "content": "These nocturnal creatures..."}], "count": 2},
+             "$ai_latency": 0.145,
+             "$ai_span_name": "vector_search",
+             "$ai_span_id": "bdf42359-9364-4db7-8958-c001f28c9255",
+             "$ai_parent_id": "537b7988-0186-494f-a313-77a5a8f7db26",
+             "$ai_is_error": false
+         },
+         "timestamp": "2025-01-30T12:00:00Z"
+     }'
+```

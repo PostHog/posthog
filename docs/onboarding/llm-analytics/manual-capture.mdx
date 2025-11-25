@@ -1,0 +1,42 @@
+---
+title: Manual capture
+---
+
+import Tab from "components/Tab"
+import GenerationEvent from "../_snippets/generation-event.mdx"
+import TraceEvent from "../_snippets/trace-event.mdx"
+import SpanEvent from "../_snippets/span-event.mdx"
+import EmbeddingEvent from "../_snippets/embedding-event.mdx"
+
+If you're using a different SDK or the API, you can manually capture the data by calling the `capture` method or using the [capture API](/docs/api/capture).
+
+<Tab.Group tabs={['Generation', 'Trace', 'Span', 'Embedding']}>
+<Tab.List>
+<Tab>Generation</Tab>
+<Tab>Trace</Tab>
+<Tab>Span</Tab>
+<Tab>Embedding</Tab>
+</Tab.List>
+<Tab.Panels>
+<Tab.Panel>
+
+<GenerationEvent />
+
+</Tab.Panel>
+<Tab.Panel>
+
+<TraceEvent />
+
+</Tab.Panel>
+<Tab.Panel>
+
+<SpanEvent />
+
+</Tab.Panel>
+<Tab.Panel>
+
+<EmbeddingEvent />
+
+</Tab.Panel>
+</Tab.Panels>
+</Tab.Group>

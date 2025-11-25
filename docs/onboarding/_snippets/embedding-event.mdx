@@ -1,0 +1,62 @@
+An embedding is a single call to an embedding model to convert text into a vector representation.
+
+**Event name**: `$ai_embedding`
+
+### Core properties
+
+| **Property** | **Description** |
+|--------------|-----------------|
+| `$ai_trace_id` | The trace ID (a UUID to group related AI events together). Must contain only letters, numbers, and special characters: `-`, `_`, `~`, `.`, `@`, `(`, `)`, `!`, `'`, `:`, <code>\|</code> <br/>Example: `d9222e05-8708-41b8-98ea-d4a21849e761` |
+| `$ai_session_id` | *(Optional)* Groups related traces together. Use this to organize traces by whatever grouping makes sense for your application (user sessions, workflows, conversations, or other logical boundaries).<br/>Example: `session-abc-123`, `conv-user-456` |
+| `$ai_span_id` | *(Optional)* Unique identifier for this embedding operation |
+| `$ai_span_name` | *(Optional)* Name given to this embedding operation <br/>Example: `embed_user_query`, `index_document` |
+| `$ai_parent_id` | *(Optional)* Parent span ID for tree-view grouping |
+| `$ai_model` | The embedding model used<br/>Example: `text-embedding-3-small`, `text-embedding-ada-002` |
+| `$ai_provider` | The LLM provider<br/>Example: `openai`, `cohere`, `voyage` |
+| `$ai_input` | The text to embed<br/>Example: `"Tell me a fun fact about hedgehogs"` or array of strings for batch embeddings |
+| `$ai_input_tokens` | The number of tokens in the input |
+| `$ai_latency` | *(Optional)* The latency of the embedding call in seconds |
+| `$ai_http_status` | *(Optional)* The HTTP status code of the response |
+| `$ai_base_url` | *(Optional)* The base URL of the LLM provider<br/>Example: `https://api.openai.com/v1` |
+| `$ai_request_url` | *(Optional)* The full URL of the request made to the embedding API<br/>Example: `https://api.openai.com/v1/embeddings` |
+| `$ai_is_error` | *(Optional)* Boolean to indicate if the request was an error |
+| `$ai_error` | *(Optional)* The error message or object if the embedding failed |
+
+### Cost properties  
+
+Cost properties are optional as we can automatically calculate them from model and token counts. If you want, you can provide your own cost property instead.
+
+| **Property** | **Description** |
+|--------------|-----------------|
+| `$ai_input_cost_usd` | *(Optional)* Cost in USD for input tokens |
+| `$ai_output_cost_usd` | *(Optional)*  Cost in USD for output tokens (usually 0 for embeddings) |
+| `$ai_total_cost_usd` | *(Optional)* Total cost in USD |
+
+### Example API call
+
+```bash
+curl -X POST "<ph_client_api_host>/i/v0/e/" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "api_key": "<ph_project_api_key>",
+         "event": "$ai_embedding",
+         "properties": {
+             "distinct_id": "user_123",
+             "$ai_trace_id": "d9222e05-8708-41b8-98ea-d4a21849e761",
+             "$ai_session_id": "session-abc-123",
+             "$ai_model": "text-embedding-3-small",
+             "$ai_provider": "openai",
+             "$ai_input": "What are the key features of product analytics at PostHog?",
+             "$ai_input_tokens": 12,
+             "$ai_latency": 0.234,
+             "$ai_http_status": 200,
+             "$ai_base_url": "https://api.openai.com/v1",
+             "$ai_request_url": "https://api.openai.com/v1/embeddings",
+             "$ai_is_error": false,
+             "$ai_span_name": "embed_search_query",
+             "$ai_span_id": "bdf42359-9364-4db7-8958-c001f28c9255",
+             "$ai_parent_id": "537b7988-0186-494f-a313-77a5a8f7db26"
+         },
+         "timestamp": "2025-01-30T12:00:00Z"
+     }'
+```

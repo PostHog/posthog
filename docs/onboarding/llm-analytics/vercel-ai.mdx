@@ -1,0 +1,94 @@
+---
+title: Vercel AI LLM analytics installation
+showStepsToc: true
+---
+
+import LLMsSDKsCallout from './_snippets/llms-sdks-callout.mdx'
+import VerifyLLMEventsStep from './_snippets/verify-llm-events-step.mdx'
+import NotableGenerationProperties from '../_snippets/notable-generation-properties.mdx'
+
+<Steps>
+
+<Step title="Install the PostHog SDK" badge="required">
+
+Setting up analytics starts with installing the PostHog SDK.
+
+```bash
+npm install @posthog/ai posthog-node
+```
+
+</Step>
+
+<Step title="Install the Vercel AI SDK" badge="required">
+
+Install the Vercel AI SDK:
+
+```bash
+npm install ai @ai-sdk/openai
+```
+
+<LLMsSDKsCallout />
+
+</Step>
+
+<Step title="Initialize PostHog and Vercel AI" badge="required">
+
+Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass the Vercel AI OpenAI client and the PostHog client to the `withTracing` wrapper.
+
+```ts
+import { PostHog } from "posthog-node";
+import { withTracing } from "@posthog/ai"
+import { generateText } from "ai"
+import { createOpenAI } from "@ai-sdk/openai"
+
+const phClient = new PostHog(
+  '<ph_project_api_key>',
+  { host: '<ph_client_api_host>' }
+);
+
+const openaiClient = createOpenAI({
+  apiKey: 'your_openai_api_key',
+  compatibility: 'strict'
+});
+
+const model = withTracing(openaiClient("gpt-4-turbo"), phClient, {
+  posthogDistinctId: "user_123", // optional
+  posthogTraceId: "trace_123", // optional
+  posthogProperties: { conversationId: "abc123", paid: true }, // optional
+  posthogPrivacyMode: false, // optional
+  posthogGroups: { company: "companyIdInYourDb" }, // optional
+});
+
+phClient.shutdown()
+```
+
+You can enrich LLM events with additional data by passing parameters such as the trace ID, distinct ID, custom properties, groups, and privacy mode options.
+
+</Step>
+
+<Step title="Call Vercel AI" badge="required">
+
+Now, when you use the Vercel AI SDK to call LLMs, PostHog automatically captures an `$ai_generation` event.
+
+This works for both `text` and `image` message types.
+
+```ts
+const { text } = await generateText({
+  model: model,
+  prompt: message
+});
+
+console.log(text)
+```
+
+> **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request. See our docs on [anonymous vs identified events](/docs/data/anonymous-vs-identified-events) to learn more.
+
+You can expect captured `$ai_generation` events to have the following properties:
+
+<NotableGenerationProperties />
+
+</Step>
+
+<VerifyLLMEventsStep />
+
+</Steps>

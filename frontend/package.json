@@ -53,6 +53,7 @@
         "@floating-ui/dom": "^1.7.3",
         "@floating-ui/react": "^0.26.9",
         "@lottiefiles/react-lottie-player": "^3.4.7",
+        "@mdx-js/mdx": "^3.1.1",
         "@medv/finder": "^4.0.2",
         "@microlink/react-json-view": "^1.26.2",
         "@microsoft/fetch-event-source": "^2.0.1",
@@ -231,6 +232,8 @@
     "devDependencies": {
         "@babel/parser": "^7.24.0",
         "@babel/traverse": "^7.24.0",
+        "@mdx-js/react": "^3.1.1",
+        "@mdx-js/rollup": "^3.1.1",
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
         "@storybook/addon-actions": "^7.6.4",
@@ -297,6 +300,10 @@
         "pngjs": "^6.0.0",
         "process": "^0.11.10",
         "redis": "^4.6.13",
+        "rehype-mdx-code-props": "^3.0.1",
+        "rehype-raw": "^7.0.0",
+        "remark-frontmatter": "^5.0.0",
+        "remark-parse": "^11.0.0",
         "safe-stable-stringify": "^2.4.3",
         "stream-browserify": "^3.0.0",
         "sucrase": "^3.29.0",
@@ -304,6 +311,7 @@
         "ts-clone-node": "^4.0.0",
         "ts-json-schema-generator": "^v2.4.0-next.6",
         "ts-node": "^10.9.1",
+        "unist-util-visit": "^5.0.0",
         "whatwg-fetch": "^3.6.2"
     },
     "optionalDependencies": {

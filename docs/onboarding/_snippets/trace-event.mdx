@@ -1,0 +1,52 @@
+A trace is a group that contains multiple spans, generations, and embeddings. Traces can be manually sent as events or appear as pseudo-events automatically created from child events.
+
+**Event name**: `$ai_trace`  
+
+### Core properties
+
+| Property | Description |
+|----------|-------------|
+| `$ai_trace_id` | The trace ID (a UUID to group related AI events together)<br/>Must contain only letters, numbers, and special characters: `-`, `_`, `~`, `.`, `@`, `(`, `)`, `!`, `'`, `:`, <code>\|</code><br/>Example: `d9222e05-8708-41b8-98ea-d4a21849e761` |
+| `$ai_session_id` | *(Optional)* Groups related traces together. Use this to organize traces by whatever grouping makes sense for your application (user sessions, workflows, conversations, or other logical boundaries).<br/>Example: `session-abc-123`, `conv-user-456` |
+| `$ai_input_state` | The input of the whole trace<br/>Example: `[{"role": "user", "content": "What's the weather in SF?"}]` or any JSON-serializable state |
+| `$ai_output_state` | The output of the whole trace<br/>Example: `[{"role": "assistant", "content": "The weather in San Francisco is..."}]` or any JSON-serializable state |
+| `$ai_latency` | *(Optional)* The latency of the trace in seconds |
+| `$ai_span_name` | *(Optional)* The name of the trace<br/>Example: `chat_completion`, `rag_pipeline` |
+| `$ai_is_error` | *(Optional)* Boolean to indicate if the trace encountered an error |
+| `$ai_error` | *(Optional)* The error message or object if the trace failed |
+
+### Pseudo-trace Events
+
+When you send generation (`$ai_generation`), span (`$ai_span`), or embedding (`$ai_embedding`) events with a `$ai_trace_id`, PostHog automatically creates a pseudo-trace event that appears in the dashboard as a parent grouping. These pseudo-traces:
+
+- Are not actual events in your data
+- Automatically aggregate metrics from child events (latency, tokens, costs)
+- Provide a hierarchical view of your AI operations
+- Do not require sending an explicit `$ai_trace` event
+
+This means you can either:
+
+1. Send explicit `$ai_trace` events to control the trace metadata
+2. Let PostHog automatically create pseudo-traces from your generation/span events
+
+### Example API call
+
+```bash
+curl -X POST "<ph_client_api_host>/i/v0/e/" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "api_key": "<ph_project_api_key>",
+         "event": "$ai_trace",
+         "properties": {
+             "distinct_id": "user_123",
+             "$ai_trace_id": "d9222e05-8708-41b8-98ea-d4a21849e761",
+             "$ai_session_id": "session-abc-123",
+             "$ai_input_state": [{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
+             "$ai_output_state": [{"role": "assistant", "content": "Hedgehogs are small mammals with spines on their back."}],
+             "$ai_latency": 1.23,
+             "$ai_span_name": "hedgehog_facts_chat",
+             "$ai_is_error": false
+         },
+         "timestamp": "2025-01-30T12:00:00Z"
+     }'
+```

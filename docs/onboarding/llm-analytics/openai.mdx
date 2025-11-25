@@ -51,7 +51,7 @@ Initialize PostHog with your project API key and host from [your project setting
 
 <MultiLanguage>
 
-```python file="Python"
+```python
 from posthog.ai.openai import OpenAI
 from posthog import Posthog
 
@@ -66,7 +66,7 @@ client = OpenAI(
 )
 ```
 
-```js file="Node"
+```ts
 import { OpenAI } from '@posthog/ai'
 import { PostHog } from 'posthog-node'
 
@@ -102,7 +102,7 @@ You can enrich the event with additional data such as the trace ID, distinct ID,
 
 <MultiLanguage>
 
-```python file="Python"
+```python
 response = client.responses.create(
     model="gpt-4o-mini",
     input=[
@@ -118,7 +118,7 @@ response = client.responses.create(
 print(response.choices[0].message.content)
 ```
 
-```js file="Node"
+```ts
 const completion = await openai.responses.create({
     model: "gpt-4o-mini",
     input: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
@@ -146,13 +146,13 @@ You can expect captured `$ai_generation` events to have the following properties
 
 </Step>
 
-<VerifyLLMEventsStep docsOnly />
+<VerifyLLMEventsStep />
 
-<Step title="Capture embeddings" badge="optional">
+<Step title= "Capture embeddings" badge="optional">
 
 PostHog can also capture embedding generations as `$ai_embedding` events. Just make sure to use the same `posthog.ai.openai` client to do so:
 
-```python file="Python"
+```python
 response = client.embeddings.create(
     input="The quick brown fox",
     model="text-embedding-3-small",

@@ -1,0 +1,208 @@
+---
+title: Google LLM analytics installation
+showStepsToc: true
+---
+
+import LLMsSDKsCallout from './_snippets/llms-sdks-callout.mdx'
+import VerifyLLMEventsStep from './_snippets/verify-llm-events-step.mdx'
+import NotableGenerationProperties from '../_snippets/notable-generation-properties.mdx'
+
+<Steps>
+
+<Step title="Install the PostHog SDK" badge="required">
+
+Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works best with our Python and Node SDKs.
+
+<MultiLanguage>
+
+```bash file="Python"
+pip install posthog
+```
+
+```bash file="Node"
+npm install @posthog/ai posthog-node
+```
+
+</MultiLanguage>
+
+</Step>
+
+<Step title="Install the Google Gen AI SDK" badge="required">
+
+Install the Google Gen AI SDK:
+
+<MultiLanguage>
+
+```bash file="Python"
+pip install google-genai
+```
+
+```bash file="Node"
+npm install @google/genai
+```
+
+</MultiLanguage>
+
+<LLMsSDKsCallout />
+
+</Step>
+
+<Step title="Initialize PostHog and Google Gen AI client" badge="required">
+
+Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass it to our Google Gen AI wrapper.
+
+<MultiLanguage>
+
+```python
+from posthog.ai.gemini import Client
+from posthog import Posthog
+
+posthog = Posthog(
+    "<ph_project_api_key>",
+    host="<ph_client_api_host>"
+)
+
+client = Client(
+    api_key="...", # Replace with your Gemini API key
+    posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
+)
+```
+
+```typescript
+import { GoogleGenAI } from '@posthog/ai'
+import { PostHog } from 'posthog-node'
+
+const phClient = new PostHog(
+    '<ph_project_api_key>',
+    { host: '<ph_client_api_host>' }
+)
+
+const client = new GoogleGenAI({
+    apiKey: '...', // Replace with your Gemini API key
+    posthog: phClient
+})
+```
+
+</MultiLanguage>
+
+> **Note:** This integration also works with Vertex AI via Google Cloud Platform. You can use the Google Gen AI SDK's Vertex AI client with PostHog analytics.
+>
+> <details>
+> <summary>Click to see Vertex AI code example</summary>
+>
+> <MultiLanguage>
+>
+> ```python
+> from posthog import Posthog
+> from posthog.ai.gemini import Client
+>
+> # Initialize PostHog
+> posthog = Posthog(
+>     project_api_key="<ph_project_api_key>",
+>     host="<ph_client_api_host>"
+> )
+>
+> # Initialize Gemini client with Vertex AI
+> client = Client(
+>     vertexai=True,
+>     project="your-gcp-project-id",
+>     location="us-central1",
+>     posthog_client=posthog,
+>     posthog_distinct_id="user-123"
+> )
+>
+> # Use it
+> response = client.models.generate_content(
+>     model="gemini-2.0-flash",
+>     contents=["Hello, world!"]
+> )
+>
+> print(response.text)
+> ```
+>
+> ```typescript
+> import { PostHog } from 'posthog-node'
+> import { PostHogGoogleGenAI } from '@posthog/ai'
+>
+> // Initialize PostHog
+> const posthog = new PostHog(
+>   '<ph_project_api_key>',
+>   { host: '<ph_client_api_host>' }
+> )
+>
+> // Initialize Gemini client with Vertex AI
+> const client = new PostHogGoogleGenAI({
+>   vertexai: true,
+>   project: 'your-gcp-project-id',
+>   location: 'us-central1',
+>   posthog: posthog
+> })
+>
+> // Use it
+> const response = await client.models.generateContent({
+>   model: 'gemini-2.0-flash',
+>   contents: 'Hello, world!',
+>   posthogDistinctId: 'user-123'
+> })
+>
+> console.log(response.text)
+> ```
+>
+> </MultiLanguage>
+>
+> </details>
+>
+> <br />
+
+</Step>
+
+<Step title="Call Google Gen AI LLMs" badge="required">
+
+Now, when you use the Google Gen AI SDK to call LLMs, PostHog automatically captures an `$ai_generation` event.
+
+You can enrich the event with additional data such as the trace ID, distinct ID, custom properties, groups, and privacy mode options.
+
+<MultiLanguage>
+
+```python
+response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents=["Tell me a fun fact about hedgehogs"],
+    posthog_distinct_id="user_123", # optional
+    posthog_trace_id="trace_123", # optional
+    posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
+    posthog_groups={"company": "company_id_in_your_db"},  # optional 
+    posthog_privacy_mode=False # optional
+)
+
+print(response.text)
+```
+
+```typescript
+const response = await client.models.generateContent({
+  model: "gemini-2.5-flash",
+  contents: ["Tell me a fun fact about hedgehogs"],
+  posthogDistinctId: "user_123", // optional
+  posthogTraceId: "trace_123", // optional
+  posthogProperties: { conversationId: "abc123", paid: true }, // optional
+  posthogGroups: { company: "company_id_in_your_db" }, // optional
+  posthogPrivacyMode: false // optional
+})
+
+console.log(response.text)
+phClient.shutdown() 
+```
+
+</MultiLanguage>
+
+> **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request. See our docs on [anonymous vs identified events](/docs/data/anonymous-vs-identified-events) to learn more.
+
+You can expect captured `$ai_generation` events to have the following properties:
+
+<NotableGenerationProperties />
+
+</Step>
+
+<VerifyLLMEventsStep />
+
+</Steps>
