@@ -126,7 +126,7 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
                 BatchTraceSummarizationCoordinatorInputs(
                     max_traces=500,
                     batch_size=10,
-                    mode="minimal",
+                    mode="detailed",
                     window_minutes=60,
                     model=None,
                     lookback_hours=24,
@@ -138,7 +138,7 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
                 BatchTraceSummarizationCoordinatorInputs(
                     max_traces=200,
                     batch_size=10,
-                    mode="minimal",
+                    mode="detailed",
                     window_minutes=60,
                     model=None,
                     lookback_hours=24,

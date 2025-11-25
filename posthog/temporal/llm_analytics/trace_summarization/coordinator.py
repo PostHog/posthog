@@ -14,7 +14,10 @@ import temporalio
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_summarization import constants
-from posthog.temporal.llm_analytics.trace_summarization.constants import WORKFLOW_EXECUTION_TIMEOUT_MINUTES
+from posthog.temporal.llm_analytics.trace_summarization.constants import (
+    DEFAULT_MODE,
+    WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
+)
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, CoordinatorResult
 from posthog.temporal.llm_analytics.trace_summarization.workflow import BatchTraceSummarizationWorkflow
 
