@@ -143,42 +143,36 @@ export const logsLogic = kea<logsLogicType>([
     reducers({
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
         orderBy: [
             DEFAULT_ORDER_BY,
-            { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
         searchTerm: [
             '' as LogsQuery['searchTerm'],
-            { persist: true },
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
         severityLevels: [
             DEFAULT_SEVERITY_LEVELS,
-            { persist: true },
             {
                 setSeverityLevels: (_, { severityLevels }) => severityLevels,
             },
         ],
         serviceNames: [
             DEFAULT_SERVICE_NAMES,
-            { persist: true },
             {
                 setServiceNames: (_, { serviceNames }) => serviceNames,
             },
         ],
         filterGroup: [
             DEFAULT_UNIVERSAL_GROUP_FILTER,
-            { persist: false },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
@@ -191,14 +185,12 @@ export const logsLogic = kea<logsLogicType>([
         ],
         prettifyJson: [
             true as boolean,
-            { persist: true },
             {
                 setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
         timestampFormat: [
             'absolute' as 'absolute' | 'relative',
-            { persist: true },
             {
                 setTimestampFormat: (_, { timestampFormat }) => timestampFormat,
             },
@@ -260,7 +252,6 @@ export const logsLogic = kea<logsLogicType>([
         ],
         highlightedLogId: [
             DEFAULT_HIGHLIGHTED_LOG_ID,
-            { persist: false },
             {
                 setHighlightedLogId: (_, { highlightedLogId }) => highlightedLogId,
             },
