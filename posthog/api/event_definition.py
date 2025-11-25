@@ -424,7 +424,7 @@ class EventDefinitionViewSet(
 
         # Report telemetry for this generation request
         EventDefinitionGenerator.record_report_generation(
-            language, generator_version, self.request.user, self.team_id, self.project_id, len(event_definitions)
+            language, generator_version, self.request.user, self.team_id, self.project_id
         )
 
         return response.Response(
@@ -651,7 +651,6 @@ export * from 'posthog-js'
             self.request.user,
             self.team_id,
             self.project_id,
-            len(event_definitions),
         )
 
         return response.Response(

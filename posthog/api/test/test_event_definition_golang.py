@@ -475,7 +475,7 @@ class TestGolangGeneratorAPI(APIBaseTest):
         self.assertIn("FileDownloadedCaptureFromBase", code)
 
         # Verify telemetry was called
-        self._test_telemetry_called(mock_report, 2)
+        self._test_telemetry_called(mock_report)
 
     def test_golang_endpoint_excludes_non_whitelisted_system_events(self):
         # $autocapture should be excluded
@@ -502,7 +502,7 @@ class TestGolangGeneratorAPI(APIBaseTest):
         self.assertIn("package typed", data["content"])
 
         # Verify telemetry was called herre
-        self._test_telemetry_called(mock_report, 0)
+        self._test_telemetry_called(mock_report)
 
     def test_golang_schema_hash_differs_from_typescript(self):
         """Test that schema_hash changes when properties are modified"""
@@ -643,7 +643,7 @@ func main() {
                 f"Generated Go file:\n{go_content}",
             )
 
-    def _test_telemetry_called(self, mock_report, event_count: int) -> None:
+    def _test_telemetry_called(self, mock_report) -> None:
         # Verify telemetry was called
         self.assertEqual(mock_report.call_count, 1)
         call_args = mock_report.call_args
@@ -653,4 +653,3 @@ func main() {
         self.assertEqual(telemetry_props["language"], "Go")
         self.assertEqual(telemetry_props["team_id"], self.team.id)
         self.assertEqual(telemetry_props["project_id"], self.project.id)
-        self.assertEqual(telemetry_props["event_count"], event_count)

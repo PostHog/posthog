@@ -79,7 +79,7 @@ class EventDefinitionGenerator(ABC):
 
     @staticmethod
     def record_report_generation(
-        language_name: str, generator_version: str, user, team_id: int, project_id: int, event_count: int
+        language_name: str, generator_version: str, user, team_id: int, project_id: int
     ) -> None:
         """
         Note: This is a `staticmethod` temporarily only until the typescript generator has been migrated to this
@@ -95,7 +95,6 @@ class EventDefinitionGenerator(ABC):
                 "generator_version": generator_version,
                 "team_id": team_id,
                 "project_id": project_id,
-                "event_count": event_count,
             },
         )
 
