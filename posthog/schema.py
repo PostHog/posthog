@@ -13211,6 +13211,7 @@ class ExperimentRetentionMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = None
     completion_event: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None

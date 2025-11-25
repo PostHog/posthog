@@ -13658,6 +13658,9 @@
         "ExperimentRetentionMetric": {
             "additionalProperties": false,
             "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
                 "completion_event": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
