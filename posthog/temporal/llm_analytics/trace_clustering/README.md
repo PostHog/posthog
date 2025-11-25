@@ -145,21 +145,11 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
 
 ```python
 {
-    "$ai_clustering_version": "v1",
     "$ai_clustering_run_id": "team_123_2025-01-23T00:00:00Z",
-    "$ai_team_id": 123,
-    "$ai_timestamp": "2025-01-23T00:00:00Z",
-
-    # Window & parameters
     "$ai_window_start": "2025-01-16T00:00:00Z",
     "$ai_window_end": "2025-01-23T00:00:00Z",
     "$ai_total_traces_analyzed": 1847,
     "$ai_sampled_traces_count": 1847,
-    "$ai_optimal_k": 4,
-
-    # Quality metrics
-    "$ai_silhouette_score": 0.42,
-    "$ai_inertia": 1234.56,
 
     # Clusters array (native JSON, not string)
     "$ai_clusters": [
@@ -168,20 +158,11 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
             "size": 523,
             "title": "Weather Data Retrieval",
             "description": "Traces focusing on weather information queries...",
-            "trace_ids": ["trace_1", "trace_2", ...],
-            "traces": [
-                {
-                    "trace_id": "trace_1",
-                    "distance_to_centroid": 0.38,
-                    "rank": 0  # Closest to centroid
-                },
-                {
-                    "trace_id": "trace_2",
-                    "distance_to_centroid": 0.42,
-                    "rank": 1
-                },
-                # ... all traces in cluster, sorted by distance
-            ],
+            "traces": {
+                "trace_1": {"distance_to_centroid": 0.38, "rank": 0},
+                "trace_2": {"distance_to_centroid": 0.42, "rank": 1},
+                # ... all traces in cluster, keyed by trace_id
+            },
             "centroid": [0.123, -0.456, ...]  # 3072-dimensional vector
         },
         # ... more clusters
@@ -192,8 +173,8 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
 **Notes**:
 
 - `$ai_clusters` is stored as **native JSON** (not a JSON string)
-- Each trace includes `rank` (0-indexed position by distance to centroid)
-- Traces are sorted by `distance_to_centroid` within each cluster
+- `traces` is a dict keyed by trace_id for easy lookup
+- Each trace includes `rank` (0-indexed, 0 = closest to centroid) and `distance_to_centroid`
 - Centroids enable assigning new traces to existing clusters
 
 ## Usage
@@ -226,8 +207,7 @@ from posthog.clickhouse.client.execute import sync_execute
 results = sync_execute('''
     SELECT
         timestamp,
-        JSONExtractInt(properties, '$ai_optimal_k') as optimal_k,
-        JSONExtractFloat(properties, '$ai_silhouette_score') as silhouette_score,
+        JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
         JSONExtractRaw(properties, '$ai_clusters') as clusters
     FROM events
     WHERE event = '$ai_trace_clusters'
@@ -236,7 +216,7 @@ results = sync_execute('''
 ''')
 
 if results:
-    clusters = json.loads(results[0][3])
+    clusters = json.loads(results[0][2])
     for c in clusters:
         print(f"Cluster {c['cluster_id']}: {c['title']} ({c['size']} traces)")
 ```
@@ -272,7 +252,6 @@ Key constants in `constants.py`:
 | `MIN_TRACES_FOR_CLUSTERING` | 20 | Minimum traces required |
 | `CLUSTERING_ACTIVITY_TIMEOUT` | 30 min | Activity timeout |
 | `DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING` | 7 | Representatives for LLM |
-| `CLUSTERING_VERSION` | "v1" | Algorithm version |
 
 ## Processing Flow
 

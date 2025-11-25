@@ -78,17 +78,11 @@ def emit_cluster_events(
     event_uuid = uuid.uuid4()
 
     properties = {
-        "$ai_clustering_version": constants.CLUSTERING_VERSION,
         "$ai_clustering_run_id": clustering_run_id,
-        "$ai_team_id": team_id,
-        "$ai_timestamp": event_timestamp.isoformat(),
         "$ai_window_start": window_start,
         "$ai_window_end": window_end,
         "$ai_total_traces_analyzed": total_traces,
         "$ai_sampled_traces_count": sampled_traces,
-        "$ai_optimal_k": optimal_k,
-        "$ai_silhouette_score": silhouette_score,
-        "$ai_inertia": inertia,
         "$ai_clusters": [dataclasses.asdict(c) for c in clusters],
     }
 
@@ -130,10 +124,10 @@ def _build_cluster_data(
 
     for cluster_id in range(optimal_k):
         # Get all trace IDs in this cluster with their distances
-        cluster_traces = []
+        cluster_trace_data = []
         for i, label in enumerate(labels):
             if label == cluster_id:
-                cluster_traces.append(
+                cluster_trace_data.append(
                     {
                         "trace_id": trace_ids[i],
                         "distance_to_centroid": float(distances_matrix[i][cluster_id]),
@@ -141,11 +135,16 @@ def _build_cluster_data(
                 )
 
         # Sort traces by distance to centroid to determine rank
-        cluster_traces.sort(key=lambda x: x["distance_to_centroid"])
+        cluster_trace_data.sort(key=lambda x: x["distance_to_centroid"])
 
-        # Add rank (0-indexed)
-        for rank, trace in enumerate(cluster_traces):
-            trace["rank"] = rank
+        # Build traces dict keyed by trace_id
+        traces_dict = {
+            t["trace_id"]: {
+                "distance_to_centroid": t["distance_to_centroid"],
+                "rank": rank,
+            }
+            for rank, t in enumerate(cluster_trace_data)
+        }
 
         # Get labels for this cluster (with fallback)
         if cluster_id in cluster_labels:
@@ -158,11 +157,10 @@ def _build_cluster_data(
         clusters.append(
             ClusterData(
                 cluster_id=cluster_id,
-                size=len(cluster_traces),
+                size=len(traces_dict),
                 title=title,
                 description=description,
-                trace_ids=[t["trace_id"] for t in cluster_traces],
-                traces=cluster_traces,
+                traces=traces_dict,
                 centroid=centroids[cluster_id],
             )
         )

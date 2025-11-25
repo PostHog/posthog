@@ -161,9 +161,9 @@ class TestWorkflowInputs:
 
         assert inputs.team_id == 1
         assert inputs.lookback_days == 7
-        assert inputs.max_samples == 2000
-        assert inputs.min_k == 3
-        assert inputs.max_k == 6
+        assert inputs.max_samples == 5000
+        assert inputs.min_k == 2
+        assert inputs.max_k == 10
 
     def test_clustering_inputs_custom(self):
         """Test ClusteringInputs with custom values."""
