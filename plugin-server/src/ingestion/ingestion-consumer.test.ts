@@ -642,6 +642,74 @@ describe('IngestionConsumer', () => {
         })
     })
 
+    describe('IP filtering', () => {
+        beforeEach(async () => {
+            ingester = await createIngestionConsumer(hub)
+        })
+
+        it('should remove $ip property when anonymize_ips is enabled', async () => {
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET anonymize_ips = $1 WHERE id = $2`,
+                [true, team.id],
+                'set anonymize_ips to true'
+            )
+
+            const messages = createKafkaMessages([
+                createEvent({
+                    event: '$pageview',
+                    properties: {
+                        $ip: '192.168.1.1',
+                        $browser: 'Chrome',
+                        custom_prop: 'value',
+                    },
+                }),
+            ])
+
+            await ingester.handleKafkaBatch(messages)
+
+            const producedMessages =
+                mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            expect(producedMessages).toHaveLength(1)
+
+            const event = producedMessages[0].value as any
+            const properties = typeof event.properties === 'string' ? JSON.parse(event.properties) : event.properties
+            expect(properties).not.toHaveProperty('$ip')
+            expect(properties.$browser).toBe('Chrome')
+            expect(properties.custom_prop).toBe('value')
+        })
+
+        it('should keep $ip property when anonymize_ips is disabled', async () => {
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET anonymize_ips = $1 WHERE id = $2`,
+                [false, team.id],
+                'set anonymize_ips to false'
+            )
+
+            const messages = createKafkaMessages([
+                createEvent({
+                    event: '$pageview',
+                    properties: {
+                        $ip: '192.168.1.1',
+                        $browser: 'Chrome',
+                    },
+                }),
+            ])
+
+            await ingester.handleKafkaBatch(messages)
+
+            const producedMessages =
+                mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            expect(producedMessages).toHaveLength(1)
+
+            const event = producedMessages[0].value as any
+            const properties = typeof event.properties === 'string' ? JSON.parse(event.properties) : event.properties
+            expect(properties.$ip).toBe('192.168.1.1')
+            expect(properties.$browser).toBe('Chrome')
+        })
+    })
+
     describe('event batching', () => {
         beforeEach(async () => {
             ingester = await createIngestionConsumer(hub)

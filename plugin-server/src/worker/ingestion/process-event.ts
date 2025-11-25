@@ -150,10 +150,6 @@ export class EventsProcessor {
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
 
-        if (properties['$ip'] && team.anonymize_ips) {
-            delete properties['$ip']
-        }
-
         if (this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
             try {
                 await this.updateGroupsAndFirstEvent(team, event, properties)
