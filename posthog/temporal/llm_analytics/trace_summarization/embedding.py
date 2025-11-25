@@ -45,6 +45,7 @@ async def embed_summaries_activity(
             timestamp_filter = "AND timestamp >= %(time_from)s AND timestamp <= %(time_to)s"
 
         # Fetch summaries from ClickHouse events
+        # Always filter for 'detailed' mode to get richest embeddings
         query = f"""
             SELECT
                 JSONExtractString(properties, '$ai_trace_id') as trace_id,
@@ -56,6 +57,7 @@ async def embed_summaries_activity(
             WHERE team_id = %(team_id)s
                 AND event = %(event_name)s
                 AND JSONExtractString(properties, '$ai_trace_id') IN %(trace_ids)s
+                AND JSONExtractString(properties, '$ai_summary_mode') = %(summary_mode)s
                 {timestamp_filter}
             ORDER BY timestamp DESC
         """
@@ -64,6 +66,7 @@ async def embed_summaries_activity(
             "team_id": team_id,
             "event_name": constants.EVENT_NAME_TRACE_SUMMARY,
             "trace_ids": trace_ids,
+            "summary_mode": constants.DEFAULT_MODE,  # Always use 'detailed' for richest embeddings
         }
 
         # Add timestamp params if filter is active
