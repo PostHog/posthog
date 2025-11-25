@@ -41,8 +41,7 @@ class ClusterData:
     size: int
     title: str
     description: str
-    trace_ids: list[str]
-    traces: list[dict]
+    traces: dict[str, dict]  # trace_id -> {distance_to_centroid, rank}
     centroid: list[float]
 
 
@@ -73,6 +72,5 @@ class TraceSummary(TypedDict):
 
 # Type aliases for data access
 TraceId = str
-Embedding = list[float]
-TraceEmbeddings = dict[TraceId, Embedding]
+TraceEmbeddings = dict[TraceId, list[float]]
 TraceSummaries = dict[TraceId, TraceSummary]
