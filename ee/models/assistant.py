@@ -227,3 +227,43 @@ class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMeta
                     self.short_id = generate_short_id()
                 else:
                     raise
+
+
+class ConversationFeedback(UUIDModel):
+    class Rating(models.TextChoices):
+        BAD = "bad", "Bad"
+        OKAY = "okay", "Okay"
+        GOOD = "good", "Good"
+        DISMISSED = "dismissed", "Dismissed"
+        IMPLICIT_DISMISS = "implicit_dismiss", "Implicit dismiss"
+
+    class TriggerType(models.TextChoices):
+        MESSAGE_INTERVAL = "message_interval", "Message interval"
+        RANDOM_SAMPLE = "random_sample", "Random sample"
+        MANUAL = "manual", "Manual"
+        RETRY = "retry", "Retry"
+        CANCEL = "cancel", "Cancel"
+
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="feedback",
+    )
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+
+    rating = models.CharField(max_length=20, choices=Rating.choices)
+    feedback_text = models.TextField(blank=True, default="")
+
+    trace_id = models.CharField(max_length=255, blank=True, default="")
+
+    trigger_type = models.CharField(max_length=50, choices=TriggerType.choices)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "created_at"]),
+            models.Index(fields=["conversation"]),
+            models.Index(fields=["rating"]),
+        ]

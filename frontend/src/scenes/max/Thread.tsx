@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useLayoutEffect, useMemo, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import {
@@ -70,7 +70,9 @@ import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
+import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
+import { feedbackPromptLogic } from './feedbackPromptLogic'
 import { ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
@@ -93,7 +95,74 @@ import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, traceId, retryCount, cancelCount } = useValues(maxThreadLogic)
+    const { resetRetryCount, resetCancelCount } = useActions(maxThreadLogic)
+
+    // Only use feedback logic when we have a valid conversationId
+    const feedbackLogicProps = useMemo(() => (conversationId ? { conversationId } : null), [conversationId])
+    const { isPromptVisible, currentTriggerType, messageInterval } = useValues(
+        feedbackLogicProps ? feedbackPromptLogic(feedbackLogicProps) : feedbackPromptLogic.build({ conversationId: '' })
+    )
+    const {
+        hidePrompt,
+        recordFeedbackShown,
+        checkShouldShowPrompt,
+        submitImplicitDismiss,
+        setLastTriggeredIntervalIndex,
+    } = useActions(
+        feedbackLogicProps ? feedbackPromptLogic(feedbackLogicProps) : feedbackPromptLogic.build({ conversationId: '' })
+    )
+
+    const prevMessageCountRef = useRef(threadGrouped.length)
+    const prevStreamingActiveRef = useRef(streamingActive)
+
+    useEffect(() => {
+        if (!conversationId) {
+            return
+        }
+
+        const humanMessageCount = threadGrouped.filter((m) => m.type === 'human').length
+        const wasStreaming = prevStreamingActiveRef.current
+        const prevCount = prevMessageCountRef.current
+
+        // Trigger feedback check when streaming completes
+        if (wasStreaming && !streamingActive && humanMessageCount > 0) {
+            checkShouldShowPrompt(humanMessageCount, retryCount, cancelCount)
+        }
+
+        // If prompt is visible and user sends a new message (count increased), trigger implicit dismiss
+        if (isPromptVisible && humanMessageCount > prevCount && streamingActive) {
+            submitImplicitDismiss(conversationId, currentTriggerType, traceId)
+        }
+
+        prevMessageCountRef.current = humanMessageCount
+        prevStreamingActiveRef.current = streamingActive
+    }, [
+        threadGrouped,
+        streamingActive,
+        checkShouldShowPrompt,
+        isPromptVisible,
+        submitImplicitDismiss,
+        conversationId,
+        currentTriggerType,
+        traceId,
+        retryCount,
+        cancelCount,
+    ])
+
+    const handleFeedbackComplete = (): void => {
+        hidePrompt()
+    }
+
+    const handleRecordCooldown = (): void => {
+        recordFeedbackShown()
+        resetRetryCount()
+        resetCancelCount()
+        // Set the interval index to current level so we don't re-trigger at the same message count
+        const humanMessageCount = threadGrouped.filter((m) => m.type === 'human').length
+        const currentIntervalIndex = Math.floor(humanMessageCount / messageInterval)
+        setLastTriggeredIntervalIndex(currentIntervalIndex)
+    }
 
     return (
         <div
@@ -113,20 +182,32 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
             ) : threadGrouped.length > 0 ? (
-                threadGrouped.map((message, index) => {
-                    const nextMessage = threadGrouped[index + 1]
-                    const isLastInGroup = !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
+                <>
+                    {threadGrouped.map((message, index) => {
+                        const nextMessage = threadGrouped[index + 1]
+                        const isLastInGroup =
+                            !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
-                    return (
-                        <Message
-                            key={`${conversationId}-${index}`}
-                            message={message}
-                            isLastInGroup={isLastInGroup}
-                            isFinal={index === threadGrouped.length - 1}
-                            streamingActive={streamingActive}
+                        return (
+                            <Message
+                                key={`${conversationId}-${index}`}
+                                message={message}
+                                isLastInGroup={isLastInGroup}
+                                isFinal={index === threadGrouped.length - 1}
+                                streamingActive={streamingActive}
+                            />
+                        )
+                    })}
+                    {conversationId && isPromptVisible && !streamingActive && (
+                        <FeedbackPrompt
+                            conversationId={conversationId}
+                            traceId={traceId}
+                            triggerType={currentTriggerType}
+                            onComplete={handleFeedbackComplete}
+                            onRecordCooldown={handleRecordCooldown}
                         />
-                    )
-                })
+                    )}
+                </>
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">

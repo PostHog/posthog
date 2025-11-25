@@ -33,12 +33,12 @@ from posthog.temporal.ai.chat_agent import (
 from posthog.utils import get_instance_region
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.hogai.api.serializers import ConversationSerializer
+from ee.hogai.api.serializers import ConversationFeedbackSerializer, ConversationSerializer
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types.base import AssistantMode
-from ee.models.assistant import Conversation
+from ee.models.assistant import Conversation, ConversationFeedback
 
 logger = structlog.get_logger(__name__)
 
@@ -265,3 +265,21 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["POST"])
+    def feedback(self, request: Request, *args, **kwargs):
+        conversation = self.get_object()
+        serializer = ConversationFeedbackSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        feedback = ConversationFeedback.objects.create(
+            conversation=conversation,
+            user=request.user,
+            team=conversation.team,
+            **serializer.validated_data,
+        )
+
+        return Response(
+            ConversationFeedbackSerializer(feedback).data,
+            status=status.HTTP_201_CREATED,
+        )
