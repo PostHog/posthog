@@ -1546,6 +1546,40 @@ describe('BatchWritingPersonStore', () => {
             expect(mockPersonPropertyKeyUpdateCounter.labels({ key: '$browser' }).inc).toHaveBeenCalledTimes(1)
         })
 
+        it('should write to database when force_update is set even with only filtered properties', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            // Update person with only filtered properties but with force_update=true (simulating $identify/$set events)
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                { ...person, properties: { $browser: 'Firefox', utm_source: 'twitter' } },
+                { $browser: 'Chrome', utm_source: 'google' },
+                [],
+                {},
+                'test',
+                true // force_update=true for $identify/$set events
+            )
+
+            // Flush SHOULD write to database because force_update bypasses filtering
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+
+            // Verify metrics - should be 'changed' because force_update bypasses filtering
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            // With force_update, properties should not be marked as ignored
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            // personPropertyKeyUpdateCounter should be called for the updated properties
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(2)
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'utm_source' })
+        })
+
         it('integration: multiple events with only filtered properties should not trigger database write', async () => {
             const mockRepo = createMockRepository()
             const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
@@ -1748,6 +1782,134 @@ describe('BatchWritingPersonStore', () => {
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(1)
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'other' })
             expect(mockPersonPropertyKeyUpdateCounter.labels({ key: 'other' }).inc).toHaveBeenCalledTimes(1)
+        })
+
+        it('integration: chain of events - normal event (ignored), $identify event (forces update), then normal event (also written)', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const personWithFiltered = {
+                ...person,
+                properties: {
+                    $browser: 'Firefox',
+                    utm_source: 'twitter',
+                    $geoip_city_name: 'New York',
+                },
+            }
+
+            // Event 1: Normal pageview event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Chrome', utm_source: 'google' },
+                [],
+                {},
+                'test'
+            )
+
+            // Event 2: $identify event with ONLY filtered properties - should force update
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $geoip_city_name: 'San Francisco', $browser: 'Safari' },
+                [],
+                {},
+                'test',
+                true // forceUpdate=true ($identify event)
+            )
+
+            // Event 3: Another normal event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { utm_source: 'facebook' },
+                [],
+                {},
+                'test'
+            )
+
+            // Flush SHOULD write to database because $identify event set force_update=true
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+
+            // Verify that ALL property changes from all three events are written
+            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    properties: expect.objectContaining({
+                        $browser: 'Safari',
+                        utm_source: 'facebook',
+                        $geoip_city_name: 'San Francisco',
+                    }),
+                }),
+                expect.anything(),
+                'updatePersonNoAssert'
+            )
+        })
+
+        it('integration: chain without $identify/$set should not trigger update', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const personWithFiltered = {
+                ...person,
+                properties: {
+                    $browser: 'Firefox',
+                    utm_source: 'twitter',
+                },
+            }
+
+            // Event 1: Normal event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Chrome' },
+                [],
+                {},
+                'test'
+                // forceUpdate not set
+            )
+
+            // Event 2: Another normal event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { utm_source: 'google' },
+                [],
+                {},
+                'test'
+                // forceUpdate not set
+            )
+
+            // Event 3: Yet another normal event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Safari' },
+                [],
+                {},
+                'test'
+                // forceUpdate not set
+            )
+
+            // Flush should NOT write to database - all events are normal with only filtered properties
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+
+            // Verify metrics - should be 'ignored' since all properties are filtered and no force_update
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            // Properties should be marked as ignored
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(2)
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: '$browser',
+            })
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: 'utm_source',
+            })
+            // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
+            expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
         })
     })
 })

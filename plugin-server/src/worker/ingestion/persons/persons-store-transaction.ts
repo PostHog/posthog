@@ -56,7 +56,8 @@ export class PersonsStoreTransaction {
         propertiesToSet: Properties,
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
-        distinctId: string
+        distinctId: string,
+        forceUpdate?: boolean
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         return await this.store.updatePersonWithPropertiesDiffForUpdate(
             person,
@@ -64,6 +65,7 @@ export class PersonsStoreTransaction {
             propertiesToUnset,
             otherUpdates,
             distinctId,
+            forceUpdate,
             this.tx
         )
     }

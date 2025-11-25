@@ -11,6 +11,7 @@ export interface PropertyUpdates {
     toSet: Properties
     toUnset: string[]
     hasChanges: boolean
+    shouldForceUpdate: boolean // True for PERSON_EVENTS ($identify, $set, etc.) to bypass batch-level filtering
 }
 
 // These events are processed in a separate pipeline, so we don't allow person property updates
@@ -42,8 +43,11 @@ export function getMetricKey(key: string): string {
 export function computeEventPropertyUpdates(event: PluginEvent, personProperties: Properties): PropertyUpdates {
     if (NO_PERSON_UPDATE_EVENTS.has(event.event)) {
         personProfileUpdateOutcomeCounter.labels({ outcome: 'unsupported' }).inc()
-        return { hasChanges: false, toSet: {}, toUnset: [] }
+        return { hasChanges: false, toSet: {}, toUnset: [], shouldForceUpdate: false }
     }
+
+    // Check if this is a PERSON_EVENT that should bypass batch-level filtering
+    const shouldForceUpdate = PERSON_EVENTS.has(event.event)
 
     const properties: Properties = event.properties!['$set'] || {}
     const propertiesOnce: Properties = event.properties!['$set_once'] || {}
@@ -107,7 +111,7 @@ export function computeEventPropertyUpdates(event: PluginEvent, personProperties
         personProfileUpdateOutcomeCounter.labels({ outcome: 'no_change' }).inc()
     }
 
-    return { hasChanges, toSet, toUnset }
+    return { hasChanges, toSet, toUnset, shouldForceUpdate }
 }
 
 /**

@@ -182,6 +182,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             return 'no_change'
         }
 
+        // If force_update is set (from $identify, $set events), bypass filtering and always write
+        if (update.force_update) {
+            return 'changed'
+        }
+
         // If there are properties to unset, always write
         if (update.properties_to_unset.length > 0) {
             return 'changed'
@@ -544,6 +549,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
+        forceUpdate?: boolean,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const [updatedPerson, kafkaMessages] = this.addPersonPropertiesUpdateToBatch(
@@ -551,7 +557,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             propertiesToSet,
             propertiesToUnset,
             otherUpdates,
-            distinctId
+            distinctId,
+            forceUpdate
         )
         return Promise.resolve([updatedPerson, kafkaMessages, false])
     }
@@ -787,14 +794,16 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (result !== undefined) {
             this.cacheMetrics.updateCacheHits++
             // Return a deep copy to prevent modifications from affecting the cached object
-            return result === null
-                ? null
-                : {
-                      ...result,
-                      properties: { ...result.properties },
-                      properties_to_set: { ...result.properties_to_set },
-                      properties_to_unset: [...result.properties_to_unset],
-                  }
+            if (result === null) {
+                return null
+            }
+
+            return {
+                ...result,
+                properties: { ...result.properties },
+                properties_to_set: { ...result.properties_to_set },
+                properties_to_unset: [...result.properties_to_unset],
+            }
         } else {
             this.cacheMetrics.updateCacheMisses++
             return undefined
@@ -849,6 +858,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
             mergedPersonUpdate.created_at = DateTime.min(existingPersonUpdate.created_at, person.created_at)
             mergedPersonUpdate.needs_write = existingPersonUpdate.needs_write || person.needs_write
+
+            // Handle force_update with || operator - once true, stays true
+            mergedPersonUpdate.force_update = existingPersonUpdate.force_update || person.force_update
 
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
@@ -992,12 +1004,47 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return personUpdate
     }
 
+    private mergePersonUpdateForCache(existing: PersonUpdate, incoming: PersonUpdate): PersonUpdate {
+        // Merge properties_to_set and properties_to_unset
+        const merged = { ...existing }
+
+        // Merge properties_to_set
+        Object.entries(incoming.properties_to_set).forEach(([key, value]) => {
+            merged.properties_to_set[key] = value
+            // Remove from unset list if it was there
+            const unsetIndex = merged.properties_to_unset.indexOf(key)
+            if (unsetIndex !== -1) {
+                merged.properties_to_unset.splice(unsetIndex, 1)
+            }
+        })
+
+        // Merge properties_to_unset
+        incoming.properties_to_unset.forEach((key) => {
+            if (!merged.properties_to_unset.includes(key)) {
+                merged.properties_to_unset.push(key)
+            }
+            // Remove from set list if it was there
+            delete merged.properties_to_set[key]
+        })
+
+        // Handle is_identified with || operator
+        merged.is_identified = merged.is_identified || incoming.is_identified
+
+        // Handle force_update with || operator - once true, stays true
+        merged.force_update = merged.force_update || incoming.force_update
+
+        merged.needs_write = true
+
+        return merged
+    }
+
     private addPersonPropertiesUpdateToBatch(
         person: InternalPerson,
         propertiesToSet: Properties,
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
-        distinctId: string
+        distinctId: string,
+        forceUpdate?: boolean
     ): [InternalPerson, TopicMessage[]] {
         const existingUpdate = this.getCachedPersonForUpdateByDistinctId(person.team_id, distinctId)
 
@@ -1035,6 +1082,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
 
         personUpdate.needs_write = true
+
+        // Set force_update flag with || operator - once set to true by a $identify/$set event, it stays true
+        // This ensures that if any event in the batch requires forcing an update, the whole batch is written
+        if (forceUpdate !== undefined) {
+            personUpdate.force_update = personUpdate.force_update || forceUpdate
+        }
 
         this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         return [toInternalPerson(personUpdate), []]

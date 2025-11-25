@@ -311,6 +311,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $browser: 'Chrome' })
+                expect(result.shouldForceUpdate).toBe(true)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
@@ -327,7 +328,24 @@ describe('person-update', () => {
                 const result = computeEventPropertyUpdates(event, personProperties)
 
                 expect(result.hasChanges).toBe(true)
+                expect(result.shouldForceUpdate).toBe(true)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            })
+
+            it('should set shouldForceUpdate to false for non-person events', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $browser: 'Chrome' },
+                    },
+                } as any
+
+                const personProperties = { $browser: 'Firefox' }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.shouldForceUpdate).toBe(false)
             })
         })
 
@@ -392,6 +410,7 @@ describe('person-update', () => {
                 hasChanges: true,
                 toSet: { name: 'John', email: 'john@example.com' },
                 toUnset: ['old_prop'],
+                shouldForceUpdate: false,
             }
 
             const person = {
@@ -416,6 +435,7 @@ describe('person-update', () => {
                 hasChanges: true,
                 toSet: { name: 'John' },
                 toUnset: [],
+                shouldForceUpdate: false,
             }
 
             const person = {
@@ -440,6 +460,7 @@ describe('person-update', () => {
                 hasChanges: false,
                 toSet: { name: 'John' },
                 toUnset: [],
+                shouldForceUpdate: false,
             }
 
             const person = {
