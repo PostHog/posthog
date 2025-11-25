@@ -149,7 +149,7 @@ async def fetch_github_workflow_runs(input: FetchGitHubWorkflowRunsInput) -> Fet
         async with semaphore:
             try:
                 url = f"https://api.github.com/repos/{repo}/actions/runs"
-                params = {"created": f">={input.since_timestamp}", "per_page": 100}
+                params: dict[str, str] = {"created": f">={input.since_timestamp}", "per_page": "100"}
 
                 async with session.get(url, headers=headers, params=params) as response:
                     if response.status == 404:
@@ -392,7 +392,7 @@ async def send_alerts(input: SendAlertsInput) -> SendAlertsOutput:
             if len(packages_affected) > 3:
                 packages_summary += f" (+{len(packages_affected) - 3} more)"
 
-            incident_payload = {
+            incident_payload: dict[str, str | list | None] = {
                 "idempotency_key": f"npm-unauthorized-release-{input.unauthorized_releases[0]['published_at']}",
                 "visibility": "public",
                 "incident_type_id": None,
