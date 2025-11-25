@@ -826,7 +826,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'ask-ai',
                     name: searchTerm ? `Ask: ${searchTerm}` : 'Ask Posthog AI anything...',
                     category: 'askAI',
-                    href: urls.max(undefined, searchTerm),
+                    href: urls.ai(undefined, searchTerm),
                     icon: <IconSparkles />,
                     record: {
                         type: 'ai',
@@ -840,7 +840,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'open-ai',
                     name: 'Open',
                     category: 'askAI',
-                    href: urls.max(undefined, undefined),
+                    href: urls.ai(undefined, undefined),
                     icon: <IconArrowRight />,
                     record: {
                         type: 'ai',

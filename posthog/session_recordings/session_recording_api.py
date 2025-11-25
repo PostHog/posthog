@@ -42,6 +42,8 @@ from posthog.schema import (
     MatchedRecordingEvent,
     MatchingEventsResponse,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     QueryTiming,
@@ -73,7 +75,11 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import list_blocks
-from posthog.session_recordings.utils import clean_prompt_whitespace
+from posthog.session_recordings.utils import (
+    clean_prompt_whitespace,
+    filter_from_params_to_query,
+    query_as_params_to_dict,
+)
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
@@ -172,19 +178,6 @@ def _get_session_ids_from_comment_search(
         raise ValidationError("Unsupported operator for comment search: " + str(operator))
 
     return list(base_query.values_list("item_id", flat=True).distinct())
-
-
-def filter_from_params_to_query(params: dict) -> RecordingsQuery:
-    data_dict = query_as_params_to_dict(params)
-    # we used to send `version` and it's not part of query, so we pop to make sure
-    data_dict.pop("version", None)
-    # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
-    data_dict.pop("hogql_filtering", None)
-
-    try:
-        return RecordingsQuery.model_validate(data_dict)
-    except ValidationError as pydantic_validation_error:
-        raise exceptions.ValidationError(json.dumps(pydantic_validation_error.errors()))
 
 
 class ChatMessage(BaseModel):
@@ -477,28 +470,6 @@ class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
 class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
-
-
-def query_as_params_to_dict(params_dict: dict) -> dict:
-    """
-    before (if ever) we convert this to a query runner that takes a post
-    we need to convert to a valid dict from the data that arrived in query params
-    """
-    converted = {}
-    for key in params_dict:
-        try:
-            converted[key] = json.loads(params_dict[key]) if isinstance(params_dict[key], str) else params_dict[key]
-        except JSONDecodeError:
-            converted[key] = params_dict[key]
-
-    # we used to accept this value,
-    # but very unlikely to receive it now
-    # it's safe to pop
-    # to make sure any old URLs or filters don't error
-    # if they still include it
-    converted.pop("as_query", None)
-
-    return converted
 
 
 def clean_referer_url(current_url: str | None) -> str:
@@ -1115,8 +1086,8 @@ class SessionRecordingViewSet(
 
             ProductIntent.register(
                 team=team,
-                product_type="session_replay",
-                context="session_replay_set_filters",
+                product_type=ProductKey.SESSION_REPLAY,
+                context=ProductIntentContext.SESSION_REPLAY_SET_FILTERS,
                 user=cast(User, request.user),
                 metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )
@@ -1716,10 +1687,20 @@ def list_recordings_from_query(
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
+        # Use prefetch_related with explicit Person filter to include team_id in Person query
+        from django.db.models import Prefetch
+
+        from posthog.models.person.person import Person
+
         person_distinct_ids = (
             PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(distinct_id__in=distinct_ids, team=team)
-            .select_related("person")
+            .prefetch_related(
+                Prefetch(
+                    "person",
+                    queryset=Person.objects.filter(team_id=team.id),
+                )
+            )
         )
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):

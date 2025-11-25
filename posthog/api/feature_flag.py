@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, deletion
 
+import requests
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -41,6 +42,7 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads,
 )
+from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -83,6 +85,9 @@ LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
     "Local evaluation API requests",
     labelnames=["send_cohorts"],
 )
+
+# Reusable session for proxying to the flags service with connection pooling
+_FLAGS_SERVICE_SESSION = requests.Session()
 
 
 class LocalEvaluationThrottle(BurstRateThrottle):
@@ -1057,6 +1062,93 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             return []
 
 
+def _proxy_to_flags_service(
+    token: str,
+    distinct_id: str,
+    groups: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Proxy a request to the Rust feature flags service /flags endpoint.
+
+    Args:
+        token: The project API token (the public token) for the user
+        distinct_id: The distinct ID for the user
+        groups: Optional groups for group-based flags
+
+    Returns:
+        The response from the flags service
+
+    Raises:
+        Exception: If the request fails
+    """
+    logger = logging.getLogger(__name__)
+
+    flags_service_url = getattr(settings, "FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+    proxy_timeout = getattr(settings, "FEATURE_FLAGS_SERVICE_PROXY_TIMEOUT", 3)
+
+    payload: dict[str, Any] = {
+        "token": token,
+        "distinct_id": distinct_id,
+    }
+
+    if groups:
+        payload["groups"] = groups
+
+    params: dict[str, str] = {"v": "2"}
+
+    try:
+        response = _FLAGS_SERVICE_SESSION.post(
+            f"{flags_service_url}/flags",
+            params=params,
+            json=payload,
+            timeout=proxy_timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.exception("Failed to proxy to flags service: %s", e)
+        raise
+
+
+def _evaluate_flags_with_fallback(
+    team: Any,
+    distinct_id: str,
+    groups: dict[str, Any] | None,
+) -> dict | tuple:
+    """
+    Proxy to the Rust flags service instead of using get_all_feature_flags, falling back to Python if the request fails.
+
+    I know, I know – proxying feels a bit unclean, but it's the easiest way for us to remove all
+    of the Python evaluation logic and use a centralized Rust service for feature flag evaluation.
+    Plus, this is kinda like a layer 7 proxy – Django handles authentication and then proxies to the Rust service,
+    which handles all of the evaluation logic without us needing to worry about passing in database connections, etc.
+    See https://posthog.slack.com/archives/C07Q2U4BH4L/p1763419358264529 for more context on this decision.
+
+    Returns:
+        dict[str, Any]: Rust service response with structure {"flags": {...}, ...}
+        OR
+        tuple[dict, dict, dict, bool]: Python evaluation result (flags, reasons, payloads, errors)
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        return _proxy_to_flags_service(
+            token=team.api_token,
+            distinct_id=distinct_id,
+            groups=groups,
+        )
+    except Exception as e:
+        # The metric we're capturing here is a "tombstone" metric; i.e. we shouldn't ever expect this to happen in production.
+        # My plan is to roll this out, let it bake for a bit, monitor if this tombstone metric is hit, and then remove this fallback.
+        # TODO remove this fallback once we're confident that the proxying works great.
+        TOMBSTONE_COUNTER.labels(
+            namespace="feature_flag", operation="proxy_to_flags_service", component="python_fallback"
+        ).inc()
+        logger.warning(f"Failed to proxy to flags service, falling back to Python: {e}")
+
+        return get_all_feature_flags(team, distinct_id, groups)
+
+
 class FeatureFlagViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -1449,8 +1541,35 @@ class FeatureFlagViewSet(
         if not feature_flags:
             return Response([])
 
-        groups = json.loads(request.GET.get("groups", "{}"))
-        matches, *_ = get_all_feature_flags(self.team, request.user.distinct_id, groups)
+        try:
+            groups = json.loads(request.GET.get("groups", "{}"))
+        except (json.JSONDecodeError, ValueError):
+            raise exceptions.ValidationError("Invalid JSON in groups parameter")
+
+        distinct_id = request.user.distinct_id
+        if not distinct_id:
+            raise exceptions.ValidationError("User distinct_id is required")
+
+        result = _evaluate_flags_with_fallback(
+            team=self.team,
+            distinct_id=distinct_id,
+            groups=groups,
+        )
+
+        if isinstance(result, dict):
+            # A result of a Rust evaluation is a dictionary. Parse it to get the flags data.
+            flags_data = result.get("flags", {})
+            matches = {
+                flag_key: (
+                    flag_data.get("variant")
+                    if flag_data.get("variant") is not None
+                    else flag_data.get("enabled", False)
+                )
+                for flag_key, flag_data in flags_data.items()
+            }
+        else:
+            # A result of a Python evaluation is a tuple. The first element is the matches dictionary.
+            matches = result[0]
 
         all_serialized_flags = MinimalFeatureFlagSerializer(
             feature_flags, many=True, context=self.get_serializer_context()
@@ -1641,19 +1760,49 @@ class FeatureFlagViewSet(
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
         distinct_id = request.query_params.get("distinct_id", None)
-        groups = json.loads(request.query_params.get("groups", "{}"))
+        try:
+            groups = json.loads(request.query_params.get("groups", "{}"))
+        except (json.JSONDecodeError, ValueError):
+            raise exceptions.ValidationError("Invalid JSON in groups parameter")
 
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
 
-        flags, reasons, _, _ = get_all_feature_flags(self.team, distinct_id, groups)
+        result = _evaluate_flags_with_fallback(
+            team=self.team,
+            distinct_id=distinct_id,
+            groups=groups,
+        )
 
-        flags_with_evaluation_reasons = {}
+        if isinstance(result, dict):
+            # A result of a Rust evaluation is a dictionary with a "flags" key. Parse it to get the flags data.
+            flags_data = result.get("flags", {})
+            flags_with_evaluation_reasons = {}
 
-        for flag_key in reasons:
-            flags_with_evaluation_reasons[flag_key] = {
-                "value": flags.get(flag_key, False),
-                "evaluation": reasons[flag_key],
+            for flag_key, flag_data in flags_data.items():
+                value = (
+                    flag_data.get("variant")
+                    if flag_data.get("variant") is not None
+                    else flag_data.get("enabled", False)
+                )
+
+                reason_data = flag_data.get("reason", {})
+                flags_with_evaluation_reasons[flag_key] = {
+                    "value": value,
+                    "evaluation": {
+                        "reason": reason_data.get("code", "unknown"),
+                        "condition_index": reason_data.get("condition_index"),
+                    },
+                }
+        else:
+            # Python fallback result is (flags, reasons, payloads, errors)
+            flags, reasons = result[0], result[1]
+            flags_with_evaluation_reasons = {
+                flag_key: {
+                    "value": flags.get(flag_key, False),
+                    "evaluation": reasons[flag_key],
+                }
+                for flag_key in reasons
             }
 
         disabled_flags = FeatureFlag.objects.filter(
@@ -1809,6 +1958,15 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
             payload={"scheduled_change_id": scheduled_change_id},
         )
 
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    resolved_activity = activity
+    deleted_change = next((change for change in changes if change.field == "deleted"), None)
+    if deleted_change:
+        if bool(deleted_change.after):
+            resolved_activity = "deleted"
+        elif bool(deleted_change.before):
+            resolved_activity = "restored"
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -1816,9 +1974,9 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,
-        activity=activity,
+        activity=resolved_activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes,
             name=after_update.key,
             trigger=trigger,
         ),

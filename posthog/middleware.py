@@ -81,7 +81,7 @@ class AllowIPMiddleware:
         self.get_response = get_response
 
     def get_forwarded_for(self, request: HttpRequest):
-        forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        forwarded_for = request.headers.get("x-forwarded-for")
         if forwarded_for is not None:
             return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
         else:
@@ -318,8 +318,8 @@ class CHQueries:
             route_id=route.route,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
-            http_referer=request.META.get("HTTP_REFERER"),
-            http_user_agent=request.META.get("HTTP_USER_AGENT"),
+            http_referer=request.headers.get("referer"),
+            http_user_agent=request.headers.get("user-agent"),
         )
 
         try:
@@ -405,8 +405,8 @@ class ShortCircuitMiddleware:
                     kind="request",
                     id=request.path,
                     route_id=resolve(request.path).route,
-                    http_referer=request.META.get("HTTP_REFERER"),
-                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
+                    http_referer=request.headers.get("referer"),
+                    http_user_agent=request.headers.get("user-agent"),
                 )
                 if self.decide_throttler.allow_request(request, None):
                     return get_decide(request)
@@ -448,9 +448,9 @@ def per_request_logging_context_middleware(
         # header from NGINX, but we really want to have a way to get to the
         # team_id given a host header, and we can't do that with NGINX.
         structlog.contextvars.bind_contextvars(
-            host=request.META.get("HTTP_HOST", ""),
+            host=request.headers.get("host", ""),
             container_hostname=settings.CONTAINER_HOSTNAME,
-            x_forwarded_for=request.META.get("HTTP_X_FORWARDED_FOR", ""),
+            x_forwarded_for=request.headers.get("x-forwarded-for", ""),
         )
 
         return get_response(request)
