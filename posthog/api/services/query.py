@@ -5,7 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DashboardFilter,
-    Database as DatabaseTarget,
+    Database as WarehouseTarget,
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
     DataWarehouseViewLink,
@@ -52,7 +52,7 @@ def process_query_dict(
     insight_id: int | None = None,
     dashboard_id: int | None = None,
     is_query_service: bool = False,
-    warehouse_target: DatabaseTarget | None = None,
+    warehouse_target: WarehouseTarget | None = None,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
     try:
@@ -119,7 +119,7 @@ def process_query_model(
     dashboard_id: int | None = None,
     is_query_service: bool = False,
     cache_age_seconds: int | None = None,
-    warehouse_target: DatabaseTarget | None = None,
+    warehouse_target: WarehouseTarget | None = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 

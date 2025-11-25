@@ -16,7 +16,7 @@ from posthog.schema import (
     CalendarHeatmapQuery,
     ChartDisplayType,
     DashboardFilter,
-    Database as DatabaseTarget,
+    Database as WarehouseTarget,
     DateRange,
     EventsQuery,
     EventTaxonomyQuery,
@@ -190,7 +190,7 @@ def get_query_runner(
     timings: HogQLTimings | None = None,
     limit_context: LimitContext | None = None,
     modifiers: HogQLQueryModifiers | None = None,
-    warehouse_target: DatabaseTarget | None = None,
+    warehouse_target: WarehouseTarget | None = None,
 ) -> "QueryRunner":
     try:
         kind = get_from_dict_or_attr(query, "kind")
@@ -785,7 +785,7 @@ def get_query_runner_or_none(
     timings: HogQLTimings | None = None,
     limit_context: LimitContext | None = None,
     modifiers: HogQLQueryModifiers | None = None,
-    warehouse_target: DatabaseTarget | None = None,
+    warehouse_target: WarehouseTarget | None = None,
 ) -> Optional["QueryRunner"]:
     try:
         return get_query_runner(

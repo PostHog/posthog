@@ -7,7 +7,7 @@ import structlog
 from posthog.schema import (
     CachedHogQLQueryResponse,
     DashboardFilter,
-    Database as DatabaseTarget,
+    Database as WarehouseTarget,
     DateRange,
     HogQLASTQuery,
     HogQLFilters,
@@ -36,13 +36,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery | HogQLASTQuery
     cached_response: CachedHogQLQueryResponse
     settings: HogQLGlobalSettings | None
-    warehouse_target: DatabaseTarget | None
+    warehouse_target: WarehouseTarget | None
 
     def __init__(
         self,
         *args,
         settings: HogQLGlobalSettings | None = None,
-        warehouse_target: DatabaseTarget | None = None,
+        warehouse_target: WarehouseTarget | None = None,
         **kwargs,
     ):
         self.settings = settings or HogQLGlobalSettings()
@@ -93,7 +93,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def _calculate(self) -> HogQLQueryResponse:
         # Fork execution based on warehouse target
-        if self.warehouse_target == DatabaseTarget.WAREHOUSE:
+        if self.warehouse_target == WarehouseTarget.WAREHOUSE:
             return self._calculate_warehouse()
         else:
             # Default to PostHog database (ClickHouse)
