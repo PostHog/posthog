@@ -623,6 +623,16 @@ class EnterpriseExperimentsViewSet(
         # Allow overriding the feature flag key from the request
         feature_flag_key = request.data.get("feature_flag_key", source_experiment.feature_flag.key)
 
+        # Check if the feature flag key refers to an existing flag with different variants
+        # If so, we need to update parameters.feature_flag_variants to match the new flag
+        parameters = deepcopy(source_experiment.parameters) or {}
+        if feature_flag_key != source_experiment.feature_flag.key:
+            existing_flag = FeatureFlag.objects.filter(
+                key=feature_flag_key, team_id=self.team_id, deleted=False
+            ).first()
+            if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
+                parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
+
         # Generate a unique name for the duplicate
         base_name = f"{source_experiment.name} (Copy)"
         duplicate_name = base_name
@@ -646,7 +656,7 @@ class EnterpriseExperimentsViewSet(
             "name": duplicate_name,
             "description": source_experiment.description,
             "type": source_experiment.type,
-            "parameters": source_experiment.parameters,
+            "parameters": parameters,
             "filters": source_experiment.filters,
             "metrics": source_experiment.metrics,
             "metrics_secondary": source_experiment.metrics_secondary,
