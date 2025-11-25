@@ -176,7 +176,7 @@ async fn test_evaluate_feature_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
         persons_reader: reader.clone(),
@@ -189,7 +189,6 @@ async fn test_evaluate_feature_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
-        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -266,7 +265,7 @@ async fn test_evaluate_feature_flags_with_errors() {
     // Set up evaluation context
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
         persons_reader: context.persons_reader.clone(),
@@ -279,7 +278,6 @@ async fn test_evaluate_feature_flags_with_errors() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
-        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -668,7 +666,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: distinct_id.clone(),
         feature_flags: feature_flag_list,
         persons_reader: reader.clone(),
@@ -681,7 +679,6 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
-        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -770,7 +767,7 @@ async fn test_evaluate_feature_flags_details() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: distinct_id.clone(),
         feature_flags: feature_flag_list,
         persons_reader: reader.clone(),
@@ -783,7 +780,6 @@ async fn test_evaluate_feature_flags_details() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
-        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -923,7 +919,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
         persons_reader: context.persons_reader.clone(),
@@ -936,7 +932,6 @@ async fn test_evaluate_feature_flags_with_overrides() {
         groups: Some(groups),
         hash_key_override: None,
         flag_keys: None,
-        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -1013,7 +1008,7 @@ async fn test_long_distinct_id() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: long_id,
         feature_flags: feature_flag_list,
         persons_reader: context.persons_reader.clone(),
@@ -1026,7 +1021,6 @@ async fn test_long_distinct_id() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
-        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -1151,13 +1145,15 @@ fn test_decode_request_content_types() {
 
 #[tokio::test]
 async fn test_fetch_and_filter_flags() {
-    let redis_reader_client = setup_redis_client(None).await;
-    let redis_writer_client = setup_redis_client(None).await;
+    let redis_client = setup_redis_client(None).await;
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let flag_service = FlagService::new(
-        redis_reader_client.clone(),
-        redis_writer_client.clone(),
+        redis_client.clone(),
+        None, // No dedicated flags Redis in tests
         reader.clone(),
+        432000, // team_cache_ttl_seconds
+        432000, // flags_cache_ttl_seconds
+        crate::config::DEFAULT_TEST_CONFIG.clone(),
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
@@ -1221,9 +1217,9 @@ async fn test_fetch_and_filter_flags() {
     // Insert flags into redis
     let flags_json = serde_json::to_string(&flags).unwrap();
     insert_flags_for_team_in_redis(
-        redis_reader_client.clone(),
+        redis_client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json),
     )
     .await
@@ -1234,9 +1230,9 @@ async fn test_fetch_and_filter_flags() {
         only_evaluate_survey_feature_flags: Some(true),
         ..Default::default()
     };
-    let (result, had_errors) = fetch_and_filter(
+    let result = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
         None,
@@ -1249,16 +1245,15 @@ async fn test_fetch_and_filter_flags() {
         .flags
         .iter()
         .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
-    assert!(!had_errors);
 
     // Test 2: only_evaluate_survey_feature_flags = false
     let query_params = FlagsQueryParams {
         only_evaluate_survey_feature_flags: Some(false),
         ..Default::default()
     };
-    let (result, had_errors) = fetch_and_filter(
+    let result = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
         None,
@@ -1267,13 +1262,12 @@ async fn test_fetch_and_filter_flags() {
     .await
     .unwrap();
     assert_eq!(result.flags.len(), 4);
-    assert!(!had_errors);
 
     // Test 3: only_evaluate_survey_feature_flags not set
     let query_params = FlagsQueryParams::default();
-    let (result, had_errors) = fetch_and_filter(
+    let result = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
         None,
@@ -1282,7 +1276,6 @@ async fn test_fetch_and_filter_flags() {
     .await
     .unwrap();
     assert_eq!(result.flags.len(), 4);
-    assert!(!had_errors);
     assert!(result
         .flags
         .iter()
@@ -1294,9 +1287,9 @@ async fn test_fetch_and_filter_flags() {
         ..Default::default()
     };
 
-    let (result, had_errors) = fetch_and_filter(
+    let result = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
         None,
@@ -1307,7 +1300,6 @@ async fn test_fetch_and_filter_flags() {
 
     // Should return all survey flags since flag_keys filtering now happens in evaluation logic
     // Survey filter keeps only survey flags, but flag_keys filtering is deferred to evaluation
-    assert!(!had_errors);
     assert_eq!(result.flags.len(), 2);
     assert!(result
         .flags

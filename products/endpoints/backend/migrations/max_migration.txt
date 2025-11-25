@@ -1,1 +1,1 @@
-0001_initial_migration
+0006_endpoint_derived_from_insight

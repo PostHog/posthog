@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconGlobe } from '@posthog/icons'
+import { IconFilter, IconGear, IconGlobe, IconPhone } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
+import { IconBranch, IconMonitor } from 'lib/lemon-ui/icons/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -27,6 +30,9 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
         preAggregatedEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const dateFilter = <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
     return (
         <FilterBar
@@ -34,6 +40,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
             left={
                 <>
                     <ReloadAll iconOnly />
+                    {featureFlags[FEATURE_FLAGS.LEFT_ALIGN_DATE_FILTER] && dateFilter}
 
                     <WebAnalyticsDomainSelector />
                     <WebAnalyticsDeviceToggle />
@@ -46,19 +53,79 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
             }
             right={
                 <>
-                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                    {!featureFlags[FEATURE_FLAGS.LEFT_ALIGN_DATE_FILTER] && dateFilter}
+
                     <WebAnalyticsCompareFilter />
 
-                    {!preAggregatedEnabled && <WebConversionGoal />}
+                    {(!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]) && (
+                        <WebConversionGoal />
+                    )}
                     <TableSortingIndicator />
 
                     <WebVitalsPercentileToggle />
                     <PathCleaningToggle />
 
-                    <WebPropertyFilters />
+                    <WebAnalyticsAIFilters />
                 </>
             }
         />
+    )
+}
+
+const WebAnalyticsAIFilters = (): JSX.Element => {
+    const {
+        dateFilter: { dateTo, dateFrom },
+        rawWebAnalyticsFilters,
+        isPathCleaningEnabled,
+        compareFilter,
+    } = useValues(webAnalyticsLogic)
+    const { setDates, setWebAnalyticsFilters, setIsPathCleaningEnabled, setCompareFilter } =
+        useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_POSTHOG_AI]) {
+        return <WebPropertyFilters />
+    }
+
+    return (
+        <MaxTool
+            identifier="filter_web_analytics"
+            context={{
+                current_filters: {
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    properties: rawWebAnalyticsFilters,
+                    doPathCleaning: isPathCleaningEnabled,
+                    compareFilter: compareFilter,
+                },
+            }}
+            contextDescription={{
+                text: 'Current filters',
+                icon: <IconFilter />,
+            }}
+            callback={(toolOutput: Record<string, any>) => {
+                if (toolOutput.properties !== undefined) {
+                    setWebAnalyticsFilters(toolOutput.properties)
+                }
+                if (toolOutput.date_from !== undefined && toolOutput.date_to !== undefined) {
+                    setDates(toolOutput.date_from, toolOutput.date_to)
+                }
+                if (toolOutput.doPathCleaning !== undefined) {
+                    setIsPathCleaningEnabled(toolOutput.doPathCleaning)
+                }
+                if (toolOutput.compareFilter !== undefined) {
+                    setCompareFilter(toolOutput.compareFilter)
+                }
+            }}
+            initialMaxPrompt="Filter web analytics data for "
+            suggestions={[
+                'Show mobile traffic from last 30 days for the US',
+                'Filter only sessions greater than 2 minutes coming from organic search',
+                "Don't include direct traffic and show data for the last 7 days",
+            ]}
+        >
+            <WebPropertyFilters />
+        </MaxTool>
     )
 }
 

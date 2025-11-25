@@ -2,7 +2,6 @@ import enum
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -27,6 +26,20 @@ class OAuthApplicationAccessLevel(enum.Enum):
     TEAM = "team"
 
 
+def is_loopback_host(hostname: str | None) -> bool:
+    """Check if hostname is a loopback address (localhost or 127.0.0.0/8)."""
+    if not hostname:
+        return False
+    if hostname == "localhost":
+        return True
+    # Check for IPv4 loopback range 127.0.0.0/8
+    if hostname.startswith("127.") and hostname.count(".") == 3:
+        parts = hostname.split(".")
+        if len(parts) == 4 and all(part.isdigit() and 0 <= int(part) <= 255 for part in parts):
+            return True
+    return False
+
+
 class OAuthApplication(AbstractApplication):
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"
@@ -48,13 +61,18 @@ class OAuthApplication(AbstractApplication):
     def clean(self):
         super().clean()
 
-        allowed_schemes = ["http", "https"] if settings.DEBUG else ["https"]
-
         for uri in self.redirect_uris.split(" "):
             if not uri:
                 continue
 
             parsed_uri = urlparse(uri)
+
+            if not parsed_uri.netloc:
+                raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
+
+            is_loopback = is_loopback_host(parsed_uri.hostname)
+
+            allowed_schemes = ["http", "https"] if is_loopback else ["https"]
 
             if parsed_uri.scheme not in allowed_schemes:
                 raise ValidationError(
@@ -63,10 +81,6 @@ class OAuthApplication(AbstractApplication):
                     }
                 )
 
-            if not parsed_uri.netloc:
-                raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
-
-            # Note: URI fragments are not allowed in redirect URIs in the OAuth 2.0 specification
             if parsed_uri.fragment:
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
 

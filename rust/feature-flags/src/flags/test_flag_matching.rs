@@ -61,6 +61,7 @@ mod tests {
                 "team_id": team.id,
                 "name": "flag1",
                 "key": "flag1",
+                "active": true,
                 "filters": {
                     "groups": [
                         {
@@ -81,11 +82,14 @@ mod tests {
 
         // Matcher for a matching distinct_id
         let router = context.create_postgres_router();
-        let mut matcher = FeatureFlagMatcher::test_new(
+        let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
+            None,
+            None,
         );
 
         matcher
@@ -102,12 +106,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             not_matching_distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router2,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -124,12 +127,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "other_distinct_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router3,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -188,12 +190,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -248,7 +249,12 @@ mod tests {
             None,
         );
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
+        group_type_mapping_cache
+            .init(context.persons_reader.clone())
+            .await
+            .unwrap();
+
         let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
         let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
         group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
@@ -266,12 +272,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             context.create_postgres_router(),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
-            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -350,12 +355,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -509,12 +513,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -666,12 +669,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user_distinct_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             context.create_postgres_router(),
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -791,12 +793,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -945,12 +946,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -1043,7 +1043,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
-            Arc::new(context.config.clone()),
         );
         let variant = matcher.get_matching_variant(&flag, None).unwrap();
         assert!(variant.is_some(), "No variant was selected");
@@ -1065,7 +1064,7 @@ mod tests {
 
         let flag = create_test_flag_with_variants(team.id);
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -1075,12 +1074,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
-            Arc::new(context.config.clone()),
         );
 
         let variant = matcher.get_matching_variant(&flag, None).unwrap();
@@ -1132,7 +1130,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, None, None)
@@ -1192,7 +1189,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
         matcher
             .flag_evaluation_state
@@ -1295,12 +1291,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         reset_fetch_calls_count();
@@ -1343,6 +1338,8 @@ mod tests {
             None,
         ));
         let team = context.insert_new_team(None).await.unwrap();
+        let team_id = team.id;
+        let project_id = team.project_id();
         let flag = Arc::new(create_test_flag(
             None,
             Some(team.id),
@@ -1370,17 +1367,15 @@ mod tests {
             let flag_clone = flag.clone();
             let router = context.create_postgres_router();
             let cohort_cache_clone = cohort_cache.clone();
-            let config_clone = Arc::new(context.config.clone());
             handles.push(tokio::spawn(async move {
                 let matcher = FeatureFlagMatcher::new(
                     format!("test_user_{i}"),
-                    team.id,
-                    team.project_id,
+                    team_id,
+                    project_id,
                     router,
                     cohort_cache_clone,
                     None,
                     None,
-                    config_clone,
                 );
                 matcher.get_match(&flag_clone, None, None).unwrap()
             }));
@@ -1458,12 +1453,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -1514,7 +1508,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1562,7 +1555,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1617,7 +1609,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let mut control_count = 0;
@@ -1691,12 +1682,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             context.create_postgres_router(),
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1756,12 +1746,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             context.create_postgres_router(),
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1808,7 +1797,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let (is_match, reason) = matcher
@@ -1884,12 +1872,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             context.create_postgres_router(),
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -2118,12 +2105,11 @@ mod tests {
             let mut matcher = FeatureFlagMatcher::new(
                 user_id.to_string(),
                 team.id,
-                team.project_id,
+                team.project_id(),
                 router,
                 cohort_cache.clone(),
                 None,
                 None,
-                Arc::new(context.config.clone()),
             );
 
             matcher
@@ -2234,34 +2220,31 @@ mod tests {
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher_test_id
@@ -2373,12 +2356,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -2485,34 +2467,31 @@ mod tests {
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
             "lil_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
             "another_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher_test_id
@@ -2635,12 +2614,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -2732,12 +2710,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -2829,12 +2806,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -2947,12 +2923,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -3044,12 +3019,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -3141,12 +3115,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -3230,12 +3203,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -3314,12 +3286,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -3413,12 +3384,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -3450,7 +3420,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -3492,9 +3462,8 @@ mod tests {
             &router,
             team.id,
             vec![distinct_id.clone()],
-            team.project_id,
+            team.project_id(),
             "hash_key_continuity".to_string(),
-            &context.config,
         )
         .await
         .unwrap();
@@ -3507,12 +3476,11 @@ mod tests {
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
-            Arc::new(context.config.clone()),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -3556,7 +3524,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -3600,12 +3568,11 @@ mod tests {
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
-            Arc::new(context.config.clone()),
         )
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None)
         .await;
@@ -3644,7 +3611,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -3716,9 +3683,8 @@ mod tests {
             &router2,
             team.id,
             vec![distinct_id.clone()],
-            team.project_id,
+            team.project_id(),
             "hash_key_mixed".to_string(),
-            &context.config,
         )
         .await
         .unwrap();
@@ -3731,12 +3697,11 @@ mod tests {
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
-            Arc::new(context.config.clone()),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -3838,12 +3803,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4070,12 +4034,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "example_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4093,12 +4056,11 @@ mod tests {
         let mut matcher2 = FeatureFlagMatcher::new(
             "example_id2".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router2,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher2
@@ -4207,12 +4169,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "11".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4231,12 +4192,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "example_id".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4255,12 +4215,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "3".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4351,12 +4310,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4418,12 +4376,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "nonexistent_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result = matcher
@@ -4478,7 +4435,7 @@ mod tests {
         );
 
         // Set up group type mapping cache
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -4490,12 +4447,11 @@ mod tests {
         let mut matcher_numeric = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_numeric),
-            Arc::new(context.config.clone()),
         );
 
         matcher_numeric
@@ -4511,12 +4467,11 @@ mod tests {
         let mut matcher_string = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router2,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_string),
-            Arc::new(context.config.clone()),
         );
 
         matcher_string
@@ -4544,12 +4499,11 @@ mod tests {
         let mut matcher_float = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router3,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_float),
-            Arc::new(context.config.clone()),
         );
 
         matcher_float
@@ -4566,12 +4520,11 @@ mod tests {
         let mut matcher_bool = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router4,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_bool),
-            Arc::new(context.config.clone()),
         );
 
         matcher_bool
@@ -4711,12 +4664,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "super_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4737,12 +4689,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "posthog_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router2,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4763,12 +4714,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "regular_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router3,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4810,6 +4760,7 @@ mod tests {
                 "team_id": team.id,
                 "name": "flag1",
                 "key": "flag1",
+                "active": true,
                 "filters": {
                     "groups": [
                         {
@@ -4833,11 +4784,14 @@ mod tests {
 
         // Matcher for a matching distinct_id
         let router = context.create_postgres_router();
-        let mut matcher = FeatureFlagMatcher::test_new(
+        let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
+            None,
+            None,
         );
 
         matcher
@@ -4953,12 +4907,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -4999,12 +4952,11 @@ mod tests {
         let mut matcher2 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router2,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result2 = matcher2
@@ -5034,12 +4986,11 @@ mod tests {
         let mut matcher3 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router3,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result3 = matcher3
@@ -5071,12 +5022,11 @@ mod tests {
         let mut matcher4 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router4,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let result4 = matcher4
@@ -5194,7 +5144,7 @@ mod tests {
         );
 
         // Set up group type mappings
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
+        let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id());
         group_type_mapping_cache
             .init(context.persons_reader.clone())
             .await
@@ -5225,12 +5175,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
-            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -5270,12 +5219,11 @@ mod tests {
         let mut matcher2 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router2,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
-            Arc::new(context.config.clone()),
         );
 
         let result2 = matcher2
@@ -5311,12 +5259,11 @@ mod tests {
         let mut matcher3 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router3,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
-            Arc::new(context.config.clone()),
         );
 
         let result3 = matcher3
@@ -5348,12 +5295,11 @@ mod tests {
         let mut matcher4 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router4,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
-            Arc::new(context.config.clone()),
         );
 
         let result4 = matcher4
@@ -5389,12 +5335,11 @@ mod tests {
         let mut matcher5 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router5,
             cohort_cache.clone(),
             None,
             Some(groups),
-            Arc::new(context.config.clone()),
         );
 
         let result5 = matcher5
@@ -5493,12 +5438,11 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "specific_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router.clone(),
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         // Pass email as a property override to avoid database lookup
@@ -5524,12 +5468,11 @@ mod tests {
         let matcher2 = FeatureFlagMatcher::new(
             "other_user".to_string(),
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         let mut other_properties = HashMap::new();
@@ -5570,12 +5513,11 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id,
             team.id,
-            team.project_id,
+            team.project_id(),
             router,
             cohort_cache,
             None,
             None,
-            Arc::new(context.config.clone()),
         );
 
         // Create flags: one with experience continuity enabled, one without
@@ -5652,5 +5594,153 @@ mod tests {
                 "Normal flag should not have hash override error"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_disabled_flag_evaluates_to_false() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "disabled_flag",
+                "key": "disabled_flag",
+                "active": false,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        let router = context.create_postgres_router();
+        let matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            team.project_id(),
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        let match_result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!match_result.matches, "Disabled flag should not match");
+        assert_eq!(
+            match_result.reason,
+            FeatureFlagMatchReason::FlagDisabled,
+            "Reason should be FlagDisabled"
+        );
+        assert_eq!(
+            match_result.variant, None,
+            "Disabled flag should have no variant"
+        );
+        assert_eq!(
+            match_result.condition_index, None,
+            "Disabled flag should have no condition index"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_flag_depending_on_disabled_flag_evaluates_to_false() {
+        use crate::utils::test_utils::create_test_flag_that_depends_on_flag;
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Create a disabled base flag
+        let base_flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "base_flag",
+                "key": "base_flag",
+                "active": false,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Create a flag that depends on the disabled flag
+        let dependent_flag = create_test_flag_that_depends_on_flag(
+            2,
+            team.id,
+            "dependent_flag",
+            1, // depends on flag id 1
+            FlagValue::Boolean(true),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![base_flag, dependent_flag],
+        };
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            team.id,
+            team.project_id(),
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        let result = matcher
+            .evaluate_flags_with_overrides(flags, Default::default(), Uuid::new_v4(), None)
+            .await;
+
+        // Base flag should be disabled
+        let base_result = result.flags.get("base_flag").unwrap();
+        assert!(
+            !base_result.enabled,
+            "Disabled base flag should not be enabled"
+        );
+        assert_eq!(
+            base_result.reason.code, "flag_disabled",
+            "Base flag reason should be flag_disabled"
+        );
+
+        // Dependent flag should evaluate to false because the base flag is disabled
+        let dependent_result = result.flags.get("dependent_flag").unwrap();
+        assert!(
+            !dependent_result.enabled,
+            "Flag depending on disabled flag should not be enabled"
+        );
+        assert_ne!(
+            dependent_result.reason.code, "flag_disabled",
+            "Dependent flag should not have flag_disabled reason"
+        );
     }
 }

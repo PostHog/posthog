@@ -40,6 +40,7 @@ from posthog.models.hog_functions.hog_function import (
     HogFunctionState,
     HogFunctionType,
 )
+from posthog.models.hog_functions.utils import humanize_hog_function_type
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 
@@ -290,7 +291,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         encrypted_inputs = data.encrypted_inputs or {} if isinstance(data, HogFunction) else {}
         data = super().to_representation(data)
 
-        inputs_schema = data.get("inputs_schema", [])
+        inputs_schema = data.get("inputs_schema", []) or []
         inputs = data.get("inputs") or {}
 
         for schema in inputs_schema:
@@ -387,7 +388,11 @@ class HogFunctionFilterSet(FilterSet):
 
 
 class HogFunctionViewSet(
-    TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
+    TeamAndOrgViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
     queryset = HogFunction.objects.all()
@@ -545,7 +550,10 @@ class HogFunctionViewSet(
             item_id=serializer.instance.id,
             scope="HogFunction",
             activity="created",
-            detail=Detail(name=serializer.instance.name, type=serializer.instance.type or "destination"),
+            detail=Detail(
+                name=serializer.instance.name,
+                type=humanize_hog_function_type(serializer.instance.type),
+            ),
         )
 
     def perform_update(self, serializer):
@@ -569,7 +577,9 @@ class HogFunctionViewSet(
             scope="HogFunction",
             activity="updated",
             detail=Detail(
-                changes=changes, name=serializer.instance.name, type=serializer.instance.type or "destination"
+                changes=changes,
+                name=serializer.instance.name,
+                type=humanize_hog_function_type(serializer.instance.type),
             ),
         )
 
@@ -622,7 +632,7 @@ class HogFunctionViewSet(
                         activity="updated",
                         detail=Detail(
                             name=function.name,
-                            type="transformation",
+                            type=humanize_hog_function_type(function.type),
                             changes=[
                                 Change(
                                     type="HogFunction",

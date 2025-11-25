@@ -5,6 +5,7 @@ on:
         branches:
             - master
     pull_request:
+    merge_group:
 
 jobs:
     # Job to decide if we should run python ci
@@ -36,8 +37,15 @@ jobs:
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
+                        - .flox/env/manifest.toml
+                        - bin/check_uv_python_compatibility.py
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
+                        # Products changes need to trigger Python CI to validate the json usage is still valid
+                        - 'frontend/src/products.json'
+                        # hogli CLI changes need validation
+                        - 'common/hogli/**'
+                        - 'bin/**'
 
     code-quality:
         needs: changes
@@ -70,6 +78,11 @@ jobs:
               with:
                   enable-cache: true
                   version: 0.8.19
+
+            - name: Check uv and Python version compatibility
+              shell: bash
+              run: |
+                  python3 bin/check_uv_python_compatibility.py
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -125,10 +138,15 @@ jobs:
               run: |
                   mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
 
-            - name: Check if "schema.py" is up to date
+            - name: Check hogli manifest completeness
               shell: bash
               run: |
-                  npm run schema:build:python && git diff --exit-code
+                  ./bin/hogli meta:check
+
+            - name: Run hogli tests
+              shell: bash
+              run: |
+                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term
 
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'

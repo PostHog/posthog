@@ -1,11 +1,11 @@
-import { ItemCategory, ItemLoaderFactory, ItemRenderer, TimelineItem } from '..'
+import { ItemCategory, ItemRenderer, TimelineItem } from '..'
 
 import { IconWarning } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
@@ -44,6 +44,7 @@ export const exceptionRenderer: ItemRenderer<ExceptionItem> = {
                         {description}
                     </Link>
                 }
+                descriptionTitle={description}
             />
         )
     },
@@ -72,16 +73,6 @@ export class ExceptionItemLoader extends EventLoader<ExceptionItem> {
                 issue_id: properties['$exception_issue_id'],
             },
         } as ExceptionItem
-    }
-}
-
-export const exceptionLoader: ItemLoaderFactory<ExceptionItem> = (sessionId: string, timestamp: Dayjs) => {
-    const excLoader = new ExceptionItemLoader(sessionId, timestamp)
-    return {
-        hasPrevious: excLoader.hasPrevious.bind(excLoader),
-        previous: excLoader.previous.bind(excLoader),
-        hasNext: excLoader.hasNext.bind(excLoader),
-        next: excLoader.next.bind(excLoader),
     }
 }
 

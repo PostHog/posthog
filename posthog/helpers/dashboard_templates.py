@@ -466,12 +466,14 @@ DASHBOARD_TEMPLATES: dict[str, Callable] = {
 # end of area to be removed
 
 
-def create_from_template(dashboard: Dashboard, template: DashboardTemplate, user=None) -> None:
+def create_from_template(
+    dashboard: Dashboard, template: DashboardTemplate, user=None, force_system_tags: bool = False
+) -> None:
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description
-    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
+    if force_system_tags or dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
         for template_tag in template.tags or []:
             tag, _ = Tag.objects.get_or_create(
                 name=template_tag,
@@ -703,7 +705,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
     dashboard = Dashboard.objects.create(
         name=f"Template dashboard for {singular} overview",
         description=f"This dashboard template powers the Overview page for all {plural}. Any insights will automatically filter to the selected {singular}.",
-        team=group_type_mapping.team,
+        team_id=group_type_mapping.team_id,
         created_by=user,
         creation_mode="template",
     )

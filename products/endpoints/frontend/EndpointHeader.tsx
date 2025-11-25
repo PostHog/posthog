@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { EndpointRequest } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 
 import { endpointLogic } from './endpointLogic'
@@ -14,8 +15,11 @@ export interface EndpointSceneHeaderProps {
 
 export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
     const { endpoint, endpointLoading, localQuery } = useValues(endpointSceneLogic({ tabId }))
-    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
-    const { setEndpointDescription, updateEndpoint, createEndpoint } = useActions(endpointLogic({ tabId }))
+    const { endpointName, endpointDescription, cacheAge, syncFrequency, isMaterialized } = useValues(
+        endpointLogic({ tabId })
+    )
+    const { setEndpointDescription, updateEndpoint, createEndpoint, setCacheAge, setSyncFrequency, setIsMaterialized } =
+        useActions(endpointLogic({ tabId }))
     const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
 
     const isNewEndpoint = !endpoint?.name || endpoint.name === 'new-endpoint'
@@ -23,7 +27,16 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
     const hasNameChange = endpointName && endpointName !== endpoint?.name
     const hasDescriptionChange = endpointDescription !== null && endpointDescription !== endpoint?.description
     const hasQueryChange = localQuery !== null
-    const hasChanges = hasNameChange || hasDescriptionChange || hasQueryChange
+    const hasCacheAgeChange = cacheAge !== (endpoint?.cache_age_seconds ?? null)
+    const hasSyncFrequencyChange = syncFrequency !== (endpoint?.materialization?.sync_frequency ?? null)
+    const hasIsMaterializedChange = isMaterialized !== null && isMaterialized !== endpoint?.is_materialized
+    const hasChanges =
+        hasNameChange ||
+        hasDescriptionChange ||
+        hasQueryChange ||
+        hasCacheAgeChange ||
+        hasSyncFrequencyChange ||
+        hasIsMaterializedChange
 
     const handleSave = (): void => {
         let queryToSave = (localQuery || endpoint?.query) as any
@@ -34,22 +47,29 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
 
         if (isNewEndpoint) {
             createEndpoint({
-                name: endpointName || endpoint?.name || '',
-                description: endpointDescription || endpoint?.description,
+                name: endpointName || '',
+                description: endpointDescription || undefined,
                 query: queryToSave,
             })
         } else {
-            updateEndpoint(endpoint.name, {
-                name: endpointName || endpoint?.name,
-                description: endpointDescription || endpoint?.description,
-                query: queryToSave,
-            })
+            const updatePayload: Partial<EndpointRequest> = {
+                description: hasDescriptionChange ? endpointDescription : undefined,
+                cache_age_seconds: hasCacheAgeChange ? (cacheAge ?? undefined) : undefined,
+                query: hasQueryChange ? queryToSave : undefined,
+                is_materialized: hasIsMaterializedChange ? isMaterialized : undefined,
+                sync_frequency: hasSyncFrequencyChange ? (syncFrequency ?? undefined) : undefined,
+            }
+
+            updateEndpoint(endpoint.name, updatePayload)
         }
     }
 
     const handleDiscardChanges = (): void => {
         if (endpoint) {
             setEndpointDescription(endpoint.description || '')
+            setCacheAge(endpoint.cache_age_seconds ?? null)
+            setSyncFrequency(endpoint.materialization?.sync_frequency ?? null)
+            setIsMaterialized(null)
         }
         setLocalQuery(null)
     }
@@ -61,7 +81,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                 description={endpointDescription || endpoint?.description}
                 resourceType={{ type: 'endpoints' }}
                 canEdit
-                // onNameChange={(name) => setEndpointName(name)}
+                // onNameChange={} - we explicitly disallow this
                 onDescriptionChange={(description) => setEndpointDescription(description)}
                 isLoading={endpointLoading}
                 renameDebounceMs={200}

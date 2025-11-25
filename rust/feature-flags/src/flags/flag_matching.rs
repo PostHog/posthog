@@ -1,11 +1,8 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{
-    ConfigResponse, FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch,
-};
+use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
-use crate::config::Config;
 use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
@@ -185,13 +182,9 @@ pub struct FeatureFlagMatcher {
     ///     "customer" → "101"
     ///     "team" → "112"
     groups: HashMap<String, Value>,
-    /// We pass the config here because we want to be able to configure the timeouts and thresholds for the flag evaluation
-    /// without having to make code changes.
-    pub config: Arc<Config>,
 }
 
 impl FeatureFlagMatcher {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
@@ -200,7 +193,6 @@ impl FeatureFlagMatcher {
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
-        config: Arc<Config>,
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
@@ -212,53 +204,7 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(project_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
-            config,
         }
-    }
-
-    /// Test-only constructor with minimal parameters
-    #[cfg(test)]
-    pub fn test_new(
-        distinct_id: String,
-        team_id: TeamId,
-        router: PostgresRouter,
-        cohort_cache: Arc<crate::cohorts::cohort_cache_manager::CohortCacheManager>,
-    ) -> Self {
-        use crate::config::test_config;
-
-        Self::new(
-            distinct_id,
-            team_id,
-            1, // default project_id for tests
-            router,
-            cohort_cache,
-            None,
-            None,
-            test_config(),
-        )
-    }
-
-    /// Test-only constructor with groups support
-    #[cfg(test)]
-    pub fn test_new_with_groups(
-        distinct_id: String,
-        team_id: TeamId,
-        router: PostgresRouter,
-        cohort_cache: Arc<crate::cohorts::cohort_cache_manager::CohortCacheManager>,
-        groups: HashMap<String, Value>,
-    ) -> Self {
-        use crate::config::test_config;
-
-        Self::new(
-            distinct_id,
-            team_id,
-            1, // default project_id for tests
-            router,
-            cohort_cache,
-            Some(GroupTypeMappingCache::new(1)),
-            Some(groups),
-            test_config(),
-        )
     }
 
     /// Evaluates all feature flags for the current matcher context.
@@ -319,14 +265,12 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        FlagsResponse {
-            errors_while_computing_flags: flag_hash_key_override_error
-                || flags_response.errors_while_computing_flags,
-            flags: flags_response.flags,
-            quota_limited: None,
+        FlagsResponse::new(
+            flag_hash_key_override_error || flags_response.errors_while_computing_flags,
+            flags_response.flags,
+            None,
             request_id,
-            config: ConfigResponse::default(),
-        }
+        )
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -385,7 +329,6 @@ impl FeatureFlagMatcher {
                 target_distinct_ids.clone(),
                 self.project_id,
                 hash_key.clone(),
-                &self.config,
             )
             .await
             {
@@ -423,7 +366,6 @@ impl FeatureFlagMatcher {
             database_for_reading,
             self.team_id,
             target_distinct_ids,
-            &self.config,
         )
         .await
         {
@@ -525,30 +467,14 @@ impl FeatureFlagMatcher {
         let (global_dependency_graph, graph_errors) =
             match build_dependency_graph(&feature_flags, self.team_id) {
                 Some((graph, errors)) => (graph, errors),
-                None => {
-                    return FlagsResponse {
-                        errors_while_computing_flags: true,
-                        flags: evaluated_flags_map,
-                        quota_limited: None,
-                        request_id,
-                        config: ConfigResponse::default(),
-                    }
-                }
+                None => return FlagsResponse::new(true, evaluated_flags_map, None, request_id),
             };
 
         // Step 4: Filter graph by flag keys if specified
         let dependency_graph = if let Some(keys) = flag_keys {
             match filter_graph_by_keys(&global_dependency_graph, &keys) {
                 Some(filtered_graph) => filtered_graph,
-                None => {
-                    return FlagsResponse {
-                        errors_while_computing_flags: true,
-                        flags: evaluated_flags_map,
-                        quota_limited: None,
-                        request_id,
-                        config: ConfigResponse::default(),
-                    }
-                }
+                None => return FlagsResponse::new(true, evaluated_flags_map, None, request_id),
             }
         } else {
             global_dependency_graph
@@ -571,13 +497,12 @@ impl FeatureFlagMatcher {
             .await;
         errors_while_computing_flags |= graph_evaluation_errors;
 
-        FlagsResponse {
+        FlagsResponse::new(
             errors_while_computing_flags,
-            flags: evaluated_flags_map,
-            quota_limited: None,
+            evaluated_flags_map,
+            None,
             request_id,
-            config: ConfigResponse::default(),
-        }
+        )
     }
 
     /// Evaluates flags using the provided dependency graph.
@@ -702,9 +627,7 @@ impl FeatureFlagMatcher {
 
         let flags_to_evaluate = flags
             .iter()
-            .filter(|flag| {
-                !flag.deleted && !evaluated_flags_map.contains_key(&flag.key) && flag.active
-            })
+            .filter(|flag| !flag.deleted && !evaluated_flags_map.contains_key(&flag.key))
             .copied()
             .collect::<Vec<&FeatureFlag>>();
 
@@ -861,6 +784,15 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        if !flag.active {
+            return Ok(FeatureFlagMatch {
+                matches: false,
+                variant: None,
+                reason: FeatureFlagMatchReason::FlagDisabled,
+                condition_index: None,
+                payload: None,
+            });
+        }
         // Check if this is a group-based flag with missing group
         let hashed_id = self.hashed_identifier(flag, hash_key_overrides.clone())?;
         if flag.get_group_type_index().is_some() && hashed_id.is_empty() {
@@ -1399,7 +1331,6 @@ impl FeatureFlagMatcher {
             &group_data.type_indexes,
             &group_data.keys,
             static_cohort_ids,
-            &self.config,
         )
         .await
         {
@@ -1550,7 +1481,6 @@ impl FeatureFlagMatcher {
                             self.router.get_persons_reader().clone(),
                             self.team_id,
                             vec![self.distinct_id.clone()],
-                            &self.config,
                         )
                         .await
                         {

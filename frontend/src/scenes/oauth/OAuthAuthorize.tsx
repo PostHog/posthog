@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheck, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconWarning } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -29,7 +29,9 @@ export const OAuthAuthorize = (): JSX.Element => {
         allTeams,
         oauthAuthorization,
         isOauthAuthorizationSubmitting,
+        isCanceling,
         redirectDomain,
+        requiredAccessLevel,
     } = useValues(oauthAuthorizeLogic)
     const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
 
@@ -66,6 +68,8 @@ export const OAuthAuthorize = (): JSX.Element => {
                             accessType={oauthAuthorization.access_type}
                             organizations={allOrganizations}
                             teams={allTeams ?? undefined}
+                            requiredAccessLevel={requiredAccessLevel}
+                            autoSelectFirst={true}
                         />
                         <div>
                             <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
@@ -76,10 +80,6 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         <span className="font-medium">{scopeDescription}</span>
                                     </li>
                                 ))}
-                                <li className="flex items-center space-x-2 text-large">
-                                    <IconX color="var(--danger)" />
-                                    <span className="font-medium">Replace your dashboards with hedgehog memes</span>
-                                </li>
                             </ul>
                         </div>
 
@@ -100,8 +100,14 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 type="tertiary"
                                 status="alt"
                                 htmlType="button"
-                                loading={isOauthAuthorizationSubmitting}
-                                disabledReason={isOauthAuthorizationSubmitting ? 'Processing...' : undefined}
+                                loading={isCanceling}
+                                disabledReason={
+                                    isCanceling
+                                        ? 'Canceling...'
+                                        : isOauthAuthorizationSubmitting
+                                          ? 'Processing...'
+                                          : undefined
+                                }
                                 onClick={(e) => {
                                     e.preventDefault()
                                     cancel()
@@ -113,7 +119,13 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 type="primary"
                                 htmlType="submit"
                                 loading={isOauthAuthorizationSubmitting}
-                                disabledReason={isOauthAuthorizationSubmitting ? 'Authorizing...' : undefined}
+                                disabledReason={
+                                    isOauthAuthorizationSubmitting
+                                        ? 'Authorizing...'
+                                        : isCanceling
+                                          ? 'Processing...'
+                                          : undefined
+                                }
                                 onClick={() => submitOauthAuthorization()}
                             >
                                 Authorize {oauthApplication?.name}

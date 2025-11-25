@@ -8,8 +8,8 @@ from posthog.schema import AssistantHogQLQuery, NodeKind
 
 from posthog.models import Team
 
+from ee.hogai.chat_agent.sql.toolkit import SQL_SCHEMA
 from ee.hogai.eval.scorers.sql import evaluate_sql_query
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 
 from ..base import MaxPublicEval
 from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
@@ -654,6 +654,51 @@ SELECT
 FROM user_metrics
 
 ORDER BY ABS(corr(toFloat(uploads_30d), toFloat(churned))) DESC
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Show weekly pageview counts with Monday as the start of week for the last 4 weeks. Use SQL.",
+            expected=PlanAndQueryOutput(
+                plan="Logic:\n- Query pageview events\n- Group by week starting on Monday using toStartOfWeek with mode 1\n- Filter to last 4 weeks\n- Count pageviews per week\n\nSources:\n- events table\n  - event = '$pageview'\n  - timestamp for date grouping and filtering",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT toStartOfWeek(timestamp, 1) as week_start, count(*) as pageview_count
+FROM events
+WHERE event = '$pageview'
+  AND timestamp >= now() - INTERVAL 4 WEEK
+GROUP BY week_start
+ORDER BY week_start
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Get the earliest session date for each user in the last month. Use SQL.",
+            expected=PlanAndQueryOutput(
+                plan="Logic:\n- Query events from last month\n- Find minimum timestamp per user\n- Convert DateTime to Date using toDate\n- Group by person_id\n\nSources:\n- events table\n  - person_id for grouping\n  - timestamp for finding minimum and date conversion",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT person_id, toDate(min(timestamp)) as first_session_date
+FROM events
+WHERE timestamp >= now() - INTERVAL 30 DAY
+GROUP BY person_id
+ORDER BY first_session_date
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="I want to split a comma-separated interests property and count unique users. Use SQL.",
+            expected=PlanAndQueryOutput(
+                plan="Logic:\n- Query events table for users with interests property\n- Split comma-separated values using splitByChar\n- Handle nullable fields with coalesce\n- Count distinct person_id\n\nSources:\n- events table\n  - properties.interests (comma-separated string)\n  - person_id for counting unique users",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT count(distinct person_id) as users_with_interests
+FROM events
+WHERE properties.interests IS NOT NULL
+  AND length(splitByChar(',', coalesce(properties.interests, ''))) > 0
 """
                 ),
             ),

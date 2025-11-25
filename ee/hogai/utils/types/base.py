@@ -5,11 +5,15 @@ from enum import StrEnum
 from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import BaseMessage as LangchainBaseMessage
+from langchain_core.messages import (
+    AIMessageChunk,
+    BaseMessage as LangchainBaseMessage,
+)
 from langgraph.graph import END, START
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
+    AgentMode,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -18,6 +22,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    AssistantUpdateEvent,
     ContextMessage,
     FailureMessage,
     FunnelsQuery,
@@ -45,18 +50,20 @@ AIMessageUnion = Union[
     AssistantMessage,
     VisualizationMessage,
     FailureMessage,
-    ReasoningMessage,
     AssistantToolCallMessage,
+    MultiVisualizationMessage,
+    ReasoningMessage,
     PlanningMessage,
     TaskExecutionMessage,
-    MultiVisualizationMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
-AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
+AssistantResultUnion = Union[AssistantMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
-    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
+    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
+    | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusEvent]
+    | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent]
 )
 
 AnyAssistantGeneratedQuery = (
@@ -79,12 +86,12 @@ ASSISTANT_MESSAGE_TYPES = (
     AssistantMessage,
     VisualizationMessage,
     FailureMessage,
-    ReasoningMessage,
     AssistantToolCallMessage,
-    PlanningMessage,
-    TaskExecutionMessage,
     MultiVisualizationMessage,
     ContextMessage,
+    ReasoningMessage,
+    PlanningMessage,
+    TaskExecutionMessage,
 )
 
 
@@ -193,8 +200,9 @@ class TaskResult(BaseModel):
     The result of an individual task.
     """
 
+    model_config = ConfigDict(extra="ignore")
+
     id: str
-    description: str
     result: str
     artifacts: Sequence[TaskArtifact] = Field(default=[])
     status: TaskExecutionStatus
@@ -240,12 +248,20 @@ class BaseStateWithMessages(BaseState):
     """
     Messages exposed to the user.
     """
+    agent_mode: AgentMode | None = Field(default=None)
+    """
+    The mode of the agent.
+    """
+
+    @property
+    def agent_mode_or_default(self) -> AgentMode:
+        return self.agent_mode or AgentMode.PRODUCT_ANALYTICS
 
 
 class BaseStateWithTasks(BaseState):
     tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
     """
-    The current tasks.
+    Deprecated.
     """
     task_results: Annotated[list[TaskResult], append] = Field(default=[])  # pyright: ignore[reportUndefinedVariable]
     """
@@ -292,7 +308,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The ID of the message to start from to keep the message window short enough.
     """
-    root_tool_call_id: Optional[str] = Field(default=None)
+    root_tool_call_id: Annotated[Optional[str], replace] = Field(default=None)
     """
     The ID of the tool call from the root node.
     """
@@ -304,7 +320,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The type of insight to generate.
     """
-    root_tool_calls_count: Optional[int] = Field(default=None)
+    root_tool_calls_count: Annotated[Optional[int], replace] = Field(default=None)
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
@@ -324,6 +340,13 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
     """
+    specific_session_ids_to_summarize: Optional[list[str]] = Field(default=None)
+    """
+    List of specific session IDs (UUIDs) to summarize. Can be populated from:
+    - Session IDs extracted from user's natural language query
+    - Current session ID from context when user refers to "this session"
+    - Multiple session IDs when user specifies several sessions
+    """
     should_use_current_filters: Optional[bool] = Field(default=None)
     """
     Whether to use current filters from user's UI to find relevant sessions.
@@ -331,6 +354,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     summary_title: Optional[str] = Field(default=None)
     """
     The name of the summary to generate, based on the user's query and/or current filters.
+    """
+    session_summarization_limit: Optional[int] = Field(default=None)
+    """
+    The maximum number of sessions to summarize.
     """
     notebook_short_id: Optional[str] = Field(default=None)
     """
@@ -377,6 +404,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
+    USAGE_COMMAND_HANDLER = "usage_command_handler"
     TRENDS_GENERATOR = "trends_generator"
     TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
     FUNNEL_GENERATOR = "funnel_generator"
@@ -392,7 +420,6 @@ class AssistantNodeName(StrEnum):
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
-    INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
@@ -404,6 +431,16 @@ class AssistantNodeName(StrEnum):
     SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
     REVENUE_ANALYTICS_FILTER = "revenue_analytics_filter"
     REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
+    WEB_ANALYTICS_FILTER = "web_analytics_filter"
+    WEB_ANALYTICS_FILTER_OPTIONS_TOOLS = "web_analytics_filter_options_tools"
+
+
+class AssistantGraphName(StrEnum):
+    ASSISTANT = "assistant_graph"
+    AGENT_EXECUTOR = "agent_executor_graph"
+    INSIGHTS = "insights_graph"
+    TAXONOMY = "taxonomy_graph"
+    DEEP_RESEARCH = "deep_research_graph"
 
 
 class AssistantMode(StrEnum):
@@ -420,3 +457,49 @@ class WithCommentary(BaseModel):
     commentary: str = Field(
         description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
     )
+
+
+class MessageAction(BaseModel):
+    type: Literal["MESSAGE"] = "MESSAGE"
+    message: AssistantMessageUnion
+
+
+class MessageChunkAction(BaseModel):
+    type: Literal["MESSAGE_CHUNK"] = "MESSAGE_CHUNK"
+    message: AIMessageChunk
+
+
+class NodeStartAction(BaseModel):
+    type: Literal["NODE_START"] = "NODE_START"
+
+
+class NodeEndAction(BaseModel, Generic[PartialStateType]):
+    type: Literal["NODE_END"] = "NODE_END"
+    state: PartialStateType | None = None
+
+
+class UpdateAction(BaseModel):
+    type: Literal["UPDATE"] = "UPDATE"
+    content: str
+
+
+AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
+
+
+class NodePath(BaseModel):
+    """Defines a vertice of the assistant graph path."""
+
+    name: str
+    message_id: str | None = None
+    tool_call_id: str | None = None
+
+
+class AssistantDispatcherEvent(BaseModel):
+    action: AssistantActionUnion = Field(discriminator="type")
+    node_path: tuple[NodePath, ...] | None = None
+    node_name: str
+    node_run_id: str
+
+
+class LangGraphUpdateEvent(BaseModel):
+    update: Any

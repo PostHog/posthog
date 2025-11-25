@@ -56,6 +56,7 @@ import {
     RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
+    SessionsQuery,
     StickinessQuery,
     TracesQuery,
     TrendsFormulaNode,
@@ -63,6 +64,7 @@ import {
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
+    WebTrendsQuery,
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
@@ -97,6 +99,10 @@ export function isEventsNode(node?: Record<string, any> | null): node is EventsN
 
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
     return node?.kind === NodeKind.EventsQuery
+}
+
+export function isSessionsQuery(node?: Record<string, any> | null): node is SessionsQuery {
+    return node?.kind === NodeKind.SessionsQuery
 }
 
 export function isActionsNode(node?: Record<string, any> | null): node is ActionsNode {
@@ -201,6 +207,10 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isWebTrendsQuery(node?: Record<string, any> | null): node is WebTrendsQuery {
+    return node?.kind === NodeKind.WebTrendsQuery
 }
 
 export function isMarketingAnalyticsTableQuery(
@@ -592,6 +602,9 @@ export function taxonomicEventFilterToHogQL(
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
         return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.SessionProperties) {
+        return `session.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)

@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { logger } from '../../utils/logger'
 import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { createContext, createNewBatchPipeline } from './helpers'
+import { DefaultContext, createContext, createNewBatchPipeline } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 
 // Mock the logger
@@ -33,10 +33,10 @@ describe('BatchPipelineUnwrapper', () => {
 
     describe('basic functionality', () => {
         it('should unwrap successful results and return values array', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test1' }), { message }),
                 createContext(ok({ message, processed: 'test2' }), { message }),
             ]
@@ -52,7 +52,7 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should return null when batch pipeline returns null', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
             const results = await unwrapper.next()
@@ -62,10 +62,10 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should return empty array when no successful results', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(drop('dropped'), { message }),
                 createContext(dlq('failed', new Error('test')), { message }),
             ]
@@ -80,7 +80,7 @@ describe('BatchPipelineUnwrapper', () => {
 
     describe('filtering behavior', () => {
         it('should filter out non-OK results and return only successful values', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
             const message2 = { ...message, offset: 2 } as Message
@@ -88,7 +88,7 @@ describe('BatchPipelineUnwrapper', () => {
             const message4 = { ...message, offset: 4 } as Message
             const message5 = { ...message, offset: 5 } as Message
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'success1' }), { message }),
                 createContext(drop('dropped item'), { message: message2 }),
                 createContext(ok({ message, processed: 'success2' }), { message: message3 }),
@@ -107,10 +107,10 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should handle mixed result types correctly', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, value: 'string-value' }), { message }),
                 createContext(ok({ message, value: 42 }), { message }),
                 createContext(drop('dropped'), { message }),
@@ -131,13 +131,13 @@ describe('BatchPipelineUnwrapper', () => {
 
     describe('side effects warning', () => {
         it('should log warning when there are remaining side effects', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test1' }), { message, sideEffects: [sideEffect1] }),
                 createContext(ok({ message, processed: 'test2' }), { message, sideEffects: [sideEffect2] }),
             ]
@@ -155,14 +155,14 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should count side effects from all results including non-OK ones', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
             const sideEffect3 = Promise.resolve('effect3')
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'success' }), { message, sideEffects: [sideEffect1] }),
                 createContext(drop('dropped'), { message, sideEffects: [sideEffect2] }),
                 createContext(dlq('failed', new Error('test')), { message, sideEffects: [sideEffect3] }),
@@ -178,14 +178,14 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should handle multiple side effects on single result', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
             const sideEffect1 = Promise.resolve('effect1')
             const sideEffect2 = Promise.resolve('effect2')
             const sideEffect3 = Promise.resolve('effect3')
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test' }), {
                     message,
                     sideEffects: [sideEffect1, sideEffect2, sideEffect3],
@@ -202,10 +202,10 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should not log warning when no side effects remain', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test1' }), { message }),
                 createContext(ok({ message, processed: 'test2' }), { message }),
                 createContext(drop('dropped'), { message }),
@@ -222,10 +222,10 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should handle empty side effects arrays correctly', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test' }), { message, sideEffects: [] }),
             ]
 
@@ -239,11 +239,11 @@ describe('BatchPipelineUnwrapper', () => {
 
     describe('feed delegation', () => {
         it('should delegate feed calls to the batch pipeline', () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const feedSpy = jest.spyOn(batchPipeline, 'feed')
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, processed: 'test' }), { message }),
             ]
 
@@ -255,7 +255,7 @@ describe('BatchPipelineUnwrapper', () => {
 
     describe('edge cases', () => {
         it('should handle empty batches', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
             unwrapper.feed([])
@@ -266,7 +266,7 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should handle complex nested object values', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
             const complexValue = {
@@ -282,7 +282,7 @@ describe('BatchPipelineUnwrapper', () => {
                 },
             }
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok(complexValue), { message }),
             ]
 
@@ -294,10 +294,10 @@ describe('BatchPipelineUnwrapper', () => {
         })
 
         it('should preserve result ordering', async () => {
-            const batchPipeline = createNewBatchPipeline<{ message: Message }>()
+            const batchPipeline = createNewBatchPipeline<{ message: Message }>().build()
             const unwrapper = new BatchPipelineUnwrapper(batchPipeline)
 
-            const batchResults: BatchPipelineResultWithContext<{ message: Message }> = [
+            const batchResults: BatchPipelineResultWithContext<DefaultContext, DefaultContext> = [
                 createContext(ok({ message, value: 'first' }), { message }),
                 createContext(drop('dropped'), { message }),
                 createContext(ok({ message, value: 'second' }), { message }),

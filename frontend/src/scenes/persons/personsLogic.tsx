@@ -19,7 +19,6 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { hogqlQuery } from '~/queries/query'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -32,7 +31,7 @@ import {
     PersonsTabType,
 } from '~/types'
 
-import { asDisplay } from './person-utils'
+import { asDisplay, getHogqlQueryStringForPersonId } from './person-utils'
 import type { personsLogicType } from './personsLogicType'
 
 export interface PersonsLogicProps {
@@ -69,6 +68,22 @@ function createInitialExceptionsPayload(personId: string): DataTableNode {
             personId: personId,
             event: '$exception',
             after: '-24h',
+        },
+    }
+}
+
+function createInitialSurveyResponsesPayload(personId: string): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        showEventFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'properties.$survey_name', 'properties.$lib', 'timestamp'],
+            personId: personId,
+            event: 'survey sent',
+            after: '-90d',
         },
     }
 }
@@ -112,6 +127,7 @@ export const personsLogic = kea<personsLogicType>([
         setDistinctId: (distinctId: string) => ({ distinctId }),
         setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
+        setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
     }),
     loaders(({ values, actions, props }) => ({
         persons: [
@@ -159,39 +175,15 @@ export const personsLogic = kea<personsLogicType>([
                             actions.setEventsQuery(eventsQuery)
                             const exceptionsQuery = createInitialExceptionsPayload(person.id)
                             actions.setExceptionsQuery(exceptionsQuery)
+                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
+                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
                         }
                     }
 
                     return person
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
-                    const response = await hogqlQuery(
-                        hogql`SELECT
-                            id,
-                            groupArray(101)(pdi2.distinct_id) as distinct_ids,
-                            properties,
-                            is_identified,
-                            created_at
-                        FROM persons
-                        LEFT JOIN (
-                            SELECT
-                                pdi2.distinct_id,
-                                argMax(pdi2.person_id, pdi2.version) AS person_id
-                            FROM raw_person_distinct_ids pdi2
-                            WHERE pdi2.distinct_id IN (
-                                    SELECT distinct_id
-                                    FROM raw_person_distinct_ids
-                                    WHERE person_id = {id}
-                                )
-                            GROUP BY pdi2.distinct_id
-                            HAVING argMax(pdi2.is_deleted, pdi2.version) = 0
-                                AND argMax(pdi2.person_id, pdi2.version) = {id}
-                        ) AS pdi2 ON pdi2.person_id = persons.id
-                        WHERE persons.id = {id}
-                        GROUP BY id, properties, is_identified, created_at`,
-                        { id: uuid },
-                        'blocking'
-                    )
+                    const response = await hogqlQuery(getHogqlQueryStringForPersonId(), { id: uuid }, 'blocking')
                     const row = response?.results?.[0]
                     if (row) {
                         const person: PersonType = {
@@ -208,6 +200,8 @@ export const personsLogic = kea<personsLogicType>([
                             actions.setEventsQuery(eventsQuery)
                             const exceptionsQuery = createInitialExceptionsPayload(person.id)
                             actions.setExceptionsQuery(exceptionsQuery)
+                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
+                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
                         }
                         return person
                     }
@@ -316,6 +310,12 @@ export const personsLogic = kea<personsLogicType>([
                 setExceptionsQuery: (_, { exceptionsQuery }) => exceptionsQuery,
             },
         ],
+        surveyResponsesQuery: [
+            null as DataTableNode | null,
+            {
+                setSurveyResponsesQuery: (_, { surveyResponsesQuery }) => surveyResponsesQuery,
+            },
+        ],
     })),
     selectors(() => ({
         apiDocsURL: [
@@ -379,7 +379,7 @@ export const personsLogic = kea<personsLogicType>([
             ],
         ],
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
-        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]],
+        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]],
         primaryDistinctId: [
             (s) => [s.person],
             (person): string | null => {

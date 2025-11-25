@@ -30,7 +30,6 @@ pub async fn evaluate_feature_flags(
         context.cohort_cache,
         Some(group_type_mapping_cache),
         context.groups,
-        context.config,
     );
 
     matcher

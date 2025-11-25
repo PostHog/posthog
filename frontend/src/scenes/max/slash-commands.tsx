@@ -1,10 +1,13 @@
-import { IconMemory, IconRocket } from '@posthog/icons'
+import { IconActivity, IconMemory, IconRocket } from '@posthog/icons'
+
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 
 export interface SlashCommand {
     name: `/${string}`
     arg?: `[${string}]`
     description: string
     icon: JSX.Element
+    flag?: FeatureFlagKey
 }
 
 export const MAX_SLASH_COMMANDS: SlashCommand[] = [
@@ -16,7 +19,13 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
     {
         name: '/remember',
         arg: '[information]',
-        description: "Add [information] to Max's project-level memory",
+        description: "Add [information] to PostHog AI's project-level memory",
         icon: <IconMemory />,
+    },
+    {
+        name: '/usage',
+        description: 'View AI credit usage for this conversation',
+        icon: <IconActivity />,
+        flag: FEATURE_FLAGS.POSTHOG_AI_BILLING_USAGE_COMMAND,
     },
 ]

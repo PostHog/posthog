@@ -10,12 +10,12 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
-from ee.hogai.utils.types import AssistantMode, AssistantState
+from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 
 
@@ -44,7 +44,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     permission_classes = [IsAuthenticated]
     renderer_classes = [SafeJSONRenderer]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
-    authentication_classes = [PersonalAPIKeyAuthentication]
+    authentication_classes = [PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
 
     @action(
         detail=False,
@@ -53,17 +53,16 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["insight:read", "query:read"],
     )
     def create_and_query_insight(self, request: Request, *args, **kwargs):
-        from ee.hogai.assistant import Assistant
+        from ee.hogai.insights_assistant import InsightsAssistant
 
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
-        assistant = Assistant.create(
+        assistant = InsightsAssistant(
             self.team,
             conversation,
             user=cast(User, request.user),
             is_new_conversation=False,  # we don't care about the conversation id being sent back to the client
-            mode=AssistantMode.INSIGHTS_TOOL,
             initial_state=serializer.validated_data["state"],
         )
 

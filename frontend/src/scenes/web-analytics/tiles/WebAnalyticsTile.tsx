@@ -21,7 +21,6 @@ import {
     countryCodeToFlag,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -30,19 +29,21 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
-import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 import {
     DataTableNode,
     DataVisualizationNode,
     InsightVizNode,
+    MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     QuerySchema,
     WebAnalyticsOrderByFields,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
@@ -474,18 +475,31 @@ export const WebStatsTrendTile = ({
     )
 
     const context = useMemo((): QueryContext => {
-        return {
+        const baseContext: QueryContext = {
             ...webAnalyticsDataTableQueryContext,
-            onDataPointClick({ breakdown }, data) {
-                if (breakdown === 'string' && data && (data.count > 0 || data.aggregated_value > 0)) {
-                    onWorldMapClick(breakdown)
-                }
-            },
             insightProps: {
                 ...insightProps,
                 query,
             },
         }
+
+        // World maps need custom click handler for country filtering, trend lines use default persons modal
+        const isWorldMap =
+            query.source?.kind === NodeKind.TrendsQuery &&
+            query.source.trendsFilter?.display === ChartDisplayType.WorldMap
+
+        if (isWorldMap) {
+            return {
+                ...baseContext,
+                onDataPointClick({ breakdown }, data) {
+                    if (typeof breakdown === 'string' && data && (data.count > 0 || data.aggregated_value > 0)) {
+                        onWorldMapClick(breakdown)
+                    }
+                },
+            }
+        }
+
+        return baseContext
     }, [onWorldMapClick, insightProps, query])
 
     return (

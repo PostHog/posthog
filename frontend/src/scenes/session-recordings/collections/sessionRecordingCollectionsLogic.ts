@@ -29,6 +29,7 @@ export const DEFAULT_PLAYLIST_FILTERS = {
     page: 1,
     dateFrom: 'all',
     order: '-last_modified_at',
+    collectionType: null,
 }
 
 export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsLogicType>([
@@ -102,6 +103,7 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
                     date_to: filters.dateTo ?? undefined,
                     pinned: filters.pinned ? true : undefined,
                     type: 'collection',
+                    collection_type: filters.collectionType ?? undefined,
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))

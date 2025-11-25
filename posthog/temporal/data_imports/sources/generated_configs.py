@@ -4,8 +4,9 @@
 from typing import Literal
 
 from posthog.temporal.data_imports.sources.common import config
-from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @config.config
@@ -30,6 +31,12 @@ class BigQueryTemporaryDatasetConfig(config.Config):
 
 
 @config.config
+class BigQueryUseCustomRegionConfig(config.Config):
+    region: str
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class GoogleAdsIsMccAccountConfig(config.Config):
     mcc_client_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -38,9 +45,9 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 @config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
-    password: str
-    private_key: str
     selection: Literal["password", "keypair"] = "password"
+    password: str | None = None
+    private_key: str | None = None
     passphrase: str | None = None
 
 
@@ -57,7 +64,14 @@ class BigQuerySourceConfig(config.Config):
     temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(
         alias="temporary-dataset", default_factory=lambda: None
     )
+    use_custom_region: BigQueryUseCustomRegionConfig | None = None
     dataset_project: BigQueryDatasetProjectConfig | None = None
+
+
+@config.config
+class BingAdsSourceConfig(config.Config):
+    account_id: str
+    bing_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -72,8 +86,18 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
+class CustomerIOSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DoItSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class GithubSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -241,9 +265,12 @@ class ZendeskSourceConfig(config.Config):
 def get_config_for_source(source: ExternalDataSourceType):
     return {
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
+        ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
+        ExternalDataSourceType.GITHUB: GithubSourceConfig,
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,

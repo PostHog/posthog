@@ -1,3 +1,5 @@
+import json
+
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -9,6 +11,7 @@ from rest_framework.test import APIClient
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.storage import object_storage
 
 from products.tasks.backend.models import Task, TaskRun
 
@@ -252,8 +255,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            log="Test log output",
         )
+
+        # Add some logs to S3
+        run.append_log([{"type": "info", "message": "Test log output"}])
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -261,7 +266,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(data["id"], str(run.id))
         self.assertEqual(data["status"], "in_progress")
-        self.assertEqual(data["log"], "Test log output")
+        # Verify log_url is returned (S3 presigned URL)
+        self.assertIn("log_url", data)
+        self.assertIsNotNone(data["log_url"])
+        self.assertTrue(data["log_url"].startswith("http"))
 
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")
@@ -303,11 +311,21 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 2)
-        self.assertEqual(run.log[0]["type"], "info")
-        self.assertEqual(run.log[0]["message"], "Starting task")
-        self.assertEqual(run.log[1]["type"], "progress")
-        self.assertEqual(run.log[1]["message"], "Step 1 complete")
+
+        # Verify logs are stored in S3
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+
+        log_content = object_storage.read(run.log_storage_path)
+        assert log_content is not None
+
+        # Parse newline-delimited JSON
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 2)
+        self.assertEqual(log_entries[0]["type"], "info")
+        self.assertEqual(log_entries[0]["message"], "Starting task")
+        self.assertEqual(log_entries[1]["type"], "progress")
+        self.assertEqual(log_entries[1]["message"], "Step 1 complete")
 
     def test_append_log_to_existing_entries(self):
         task = self.create_task()
@@ -315,9 +333,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            log=[{"type": "info", "message": "Initial entry"}],
         )
 
+        # Add first batch
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": [{"type": "info", "message": "Initial entry"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Add second batch
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
             {"entries": [{"type": "success", "message": "Task completed"}]},
@@ -326,9 +352,19 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         run.refresh_from_db()
-        self.assertEqual(len(run.log), 2)
-        self.assertEqual(run.log[0]["message"], "Initial entry")
-        self.assertEqual(run.log[1]["message"], "Task completed")
+
+        # All logs should be stored in S3
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+
+        log_content = object_storage.read(run.log_storage_path)
+        assert log_content is not None
+
+        # Parse newline-delimited JSON
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 2)
+        self.assertEqual(log_entries[0]["message"], "Initial entry")
+        self.assertEqual(log_entries[1]["message"], "Task completed")
 
     def test_append_log_empty_entries_fails(self):
         task = self.create_task()
@@ -340,6 +376,91 @@ class TestTaskRunAPI(BaseTaskAPITest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
+    def test_upload_artifacts(self, mock_tag, mock_write):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        payload = {
+            "artifacts": [
+                {
+                    "name": "plan.md",
+                    "type": "plan",
+                    "content": "# Plan",
+                    "content_type": "text/markdown",
+                }
+            ]
+        }
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_write.assert_called_once()
+        mock_tag.assert_called_once()
+
+        run.refresh_from_db()
+        self.assertEqual(len(run.artifacts), 1)
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["name"], "plan.md")
+        self.assertEqual(artifact["type"], "plan")
+        self.assertIn("storage_path", artifact)
+
+    def test_upload_artifacts_requires_items(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+            {"artifacts": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    def test_presign_artifact_url(self, mock_presign):
+        mock_presign.return_value = "https://example.com/artifact?sig=123"
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[
+                {
+                    "name": "plan.md",
+                    "type": "plan",
+                    "storage_path": "tasks/artifacts/team_1/task_2/run_3/plan.md",
+                }
+            ],
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/presign/",
+            {"storage_path": "tasks/artifacts/team_1/task_2/run_3/plan.md"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["url"], "https://example.com/artifact?sig=123")
+        self.assertIn("expires_in", response.json())
+
+    def test_presign_artifact_not_found(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, artifacts=[])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/presign/",
+            {"storage_path": "unknown"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestTasksAPIPermissions(BaseTaskAPITest):
@@ -437,7 +558,6 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
-            ("no_scope", "GET", "/api/projects/@current/agents/", False),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
             ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
@@ -486,13 +606,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             data = {"title": "Updated Task"}
 
         if method == "GET":
-            response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.get(url, headers={"authorization": f"Bearer {api_key_value}"})
         elif method == "POST":
-            response = self.client.post(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.post(url, data, format="json", headers={"authorization": f"Bearer {api_key_value}"})
         elif method == "PATCH":
-            response = self.client.patch(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.patch(url, data, format="json", headers={"authorization": f"Bearer {api_key_value}"})
         elif method == "DELETE":
-            response = self.client.delete(url, HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+            response = self.client.delete(url, headers={"authorization": f"Bearer {api_key_value}"})
         else:
             self.fail(f"Unsupported method: {method}")
 

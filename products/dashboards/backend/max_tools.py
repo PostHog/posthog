@@ -13,7 +13,7 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissions
 
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
+from ee.hogai.chat_agent.dashboards.nodes import DashboardCreationNode
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantState, InsightQuery
 
@@ -39,8 +39,7 @@ class EditCurrentDashboardArgs(BaseModel):
 class EditCurrentDashboardTool(MaxTool):
     name: str = "edit_current_dashboard"
     description: str = "Update the dashboard the user is currently working on, such as renaming it or adding insights."
-    thinking_message: str = "Editing your dashboard"
-    root_system_prompt_template: str = """The user is currently editing a dashboard. Here is that dashboard's current definition:
+    context_prompt_template: str = """The user is currently editing a dashboard. Here is that dashboard's current definition:
 
 ```json
 {current_dashboard}
@@ -51,7 +50,6 @@ IMPORTANT: When adding insights, you must provide a complete description of what
 """.strip()
 
     args_schema: type[BaseModel] = EditCurrentDashboardArgs
-    show_tool_call_message: bool = False
 
     @database_sync_to_async
     def _check_user_permissions(self, dashboard: Dashboard) -> bool | None:

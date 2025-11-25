@@ -452,7 +452,7 @@ def on_permitted_recording_domain(permitted_domains: list[str], request: HttpReq
     origin = parse_domain(request.headers.get("Origin"))
     referer = parse_domain(request.headers.get("Referer"))
 
-    user_agent = request.META.get("HTTP_USER_AGENT")
+    user_agent = request.headers.get("user-agent")
 
     is_authorized_web_client: bool = hostname_in_allowed_url_list(
         permitted_domains, origin

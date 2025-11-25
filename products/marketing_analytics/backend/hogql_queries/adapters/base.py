@@ -12,7 +12,8 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
-from posthog.warehouse.models import DataWarehouseTable
+
+from products.data_warehouse.backend.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -71,6 +72,14 @@ class MetaAdsConfig(BaseMarketingConfig):
 @dataclass
 class TikTokAdsConfig(BaseMarketingConfig):
     """Configuration for TikTok Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
+class BingAdsConfig(BaseMarketingConfig):
+    """Configuration for Bing Ads marketing sources"""
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable

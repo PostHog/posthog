@@ -86,6 +86,7 @@ function SuggestionsList(): JSX.Element {
                         focusInput()
                     } else {
                         // Otherwise, just launch the generation
+                        setQuestion(suggestion.content)
                         askMax(suggestion.content)
                     }
 

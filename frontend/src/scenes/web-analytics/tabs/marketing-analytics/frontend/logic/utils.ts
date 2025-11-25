@@ -1,10 +1,8 @@
 import {
     AttributionMode,
     ConversionGoalFilter,
-    CurrencyCode,
     DataWarehouseNode,
     ExternalDataSourceType,
-    MARKETING_ANALYTICS_SCHEMA,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsOrderBy,
@@ -17,7 +15,7 @@ import { NativeSource } from './marketingAnalyticsLogic'
 
 export type NativeMarketingSource = Extract<
     ExternalDataSourceType,
-    'GoogleAds' | 'RedditAds' | 'LinkedinAds' | 'MetaAds' | 'TikTokAds'
+    'GoogleAds' | 'RedditAds' | 'LinkedinAds' | 'MetaAds' | 'TikTokAds' | 'BingAds'
 >
 export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
 
@@ -27,6 +25,7 @@ export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = [
     'LinkedinAds',
     'MetaAds',
     'TikTokAds',
+    'BingAds',
 ]
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
@@ -54,12 +53,16 @@ export const META_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
 export const TIKTOK_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
 export const TIKTOK_ADS_CAMPAIGN_REPORT_TABLE_NAME = 'campaign_report'
 
+export const BING_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
+export const BING_ADS_CAMPAIGN_PERFORMANCE_REPORT_TABLE_NAME = 'campaign_performance_report'
+
 export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = {
     GoogleAds: [GOOGLE_ADS_CAMPAIGN_TABLE_NAME, GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME],
     LinkedinAds: [LINKEDIN_ADS_CAMPAIGN_TABLE_NAME, LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME],
     RedditAds: [REDDIT_ADS_CAMPAIGN_TABLE_NAME, REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME],
     MetaAds: [META_ADS_CAMPAIGN_TABLE_NAME, META_ADS_CAMPAIGN_STATS_TABLE_NAME],
     TikTokAds: [TIKTOK_ADS_CAMPAIGN_TABLE_NAME, TIKTOK_ADS_CAMPAIGN_REPORT_TABLE_NAME],
+    BingAds: [BING_ADS_CAMPAIGN_TABLE_NAME, BING_ADS_CAMPAIGN_PERFORMANCE_REPORT_TABLE_NAME],
 }
 
 export const MAX_ATTRIBUTION_WINDOW_DAYS = 90
@@ -78,9 +81,10 @@ export const ATTRIBUTION_WINDOW_OPTIONS = [
 
 export function MarketingDashboardMapper(
     source: NativeSource,
-    tileColumnSelection: validColumnsForTiles
+    tileColumnSelection: validColumnsForTiles,
+    baseCurrency: string
 ): DataWarehouseNode | null {
-    return createMarketingTile(source, tileColumnSelection)
+    return createMarketingTile(source, tileColumnSelection, baseCurrency)
 }
 
 export const COST_MICROS_MULTIPLIER = 1 / 1000000
@@ -210,6 +214,8 @@ interface SourceColumnMappings {
     clicks: string
     reportedConversion: string
     costNeedsDivision?: boolean
+    currencyColumn?: string
+    fallbackCurrency?: string
 }
 
 interface SourceTileConfig {
@@ -236,6 +242,8 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             clicks: 'metrics_clicks',
             reportedConversion: 'metrics_conversions',
             costNeedsDivision: true,
+            currencyColumn: 'customer_currency_code',
+            fallbackCurrency: 'USD',
         },
     },
     RedditAds: {
@@ -249,6 +257,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             clicks: 'clicks',
             reportedConversion: 'conversion_purchase_total_items',
             costNeedsDivision: true,
+            currencyColumn: 'currency',
         },
         specialConversionLogic: (_table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
@@ -271,6 +280,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             impressions: 'impressions',
             clicks: 'clicks',
             reportedConversion: 'external_website_conversions',
+            fallbackCurrency: 'USD',
         },
     },
     MetaAds: {
@@ -283,6 +293,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             impressions: 'impressions',
             clicks: 'clicks',
             reportedConversion: 'conversions',
+            currencyColumn: 'account_currency',
         },
         specialConversionLogic: (table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
@@ -312,6 +323,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             impressions: 'impressions',
             clicks: 'clicks',
             reportedConversion: 'conversion',
+            currencyColumn: 'currency',
         },
         specialConversionLogic: (table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
@@ -321,6 +333,36 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                     return {
                         math: 'hogql' as any,
                         math_hogql: 'SUM(toFloat(conversion))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            return null
+        },
+    },
+    BingAds: {
+        statsTableName: 'campaign_performance_report',
+        displayName: 'bing',
+        idField: 'campaign_id',
+        timestampField: 'time_period',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'conversions',
+            currencyColumn: 'currency_code',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                // If Bing Ads does not return conversions it won't be in the table.fields.
+                const hasConversionsColumn = table.fields && 'conversions' in table.fields
+                if (hasConversionsColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(toFloat(conversions))',
                     }
                 }
                 return {
@@ -372,7 +414,8 @@ export const columnTileConfig: {
 
 export function createMarketingTile(
     source: NativeSource,
-    tileColumnSelection: validColumnsForTiles
+    tileColumnSelection: validColumnsForTiles,
+    baseCurrency: string
 ): DataWarehouseNode | null {
     const sourceType = source.source.source_type as NativeMarketingSource
     const config = sourceTileConfigs[sourceType]
@@ -409,7 +452,42 @@ export function createMarketingTile(
         }
     }
 
-    // Default tile configuration
+    if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost) {
+        const mappings = config.columnMappings
+        const costColumn = mappings.cost
+        const currencyColumn = mappings.currencyColumn
+        const fallbackCurrency = mappings.fallbackCurrency
+        const needsDivision = mappings.costNeedsDivision
+
+        let costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
+
+        let mathHogql: string
+
+        const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+
+        if (hasCurrencyColumn) {
+            mathHogql = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${costExpr})))`
+        } else if (fallbackCurrency) {
+            mathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${costExpr})))`
+        } else {
+            mathHogql = `SUM(${costExpr})`
+        }
+
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: table.id,
+            name: config.displayName,
+            custom_name: `${table.name} ${tileColumnSelection}`,
+            id_field: config.idField,
+            distinct_id_field: config.idField,
+            timestamp_field: config.timestampField,
+            table_name: table.name,
+            math: 'hogql' as any,
+            math_hogql: mathHogql,
+        }
+    }
+
+    // Default tile configuration for non-cost columns
     return {
         kind: NodeKind.DataWarehouseNode,
         id: table.id,
@@ -421,9 +499,5 @@ export function createMarketingTile(
         table_name: table.name,
         math: PropertyMathType.Sum,
         math_property: column.name,
-        ...(MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
-            ? { math_property_revenue_currency: { static: CurrencyCode.USD } }
-            : {}),
-        ...(column.needsDivision ? { math_multiplier: COST_MICROS_MULTIPLIER } : {}),
     }
 }

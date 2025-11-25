@@ -261,6 +261,28 @@ describe('SourceWebhooksConsumer', () => {
                 await insertHogFlow(hub.postgres, hogFlow)
             })
 
+            it('should schedule workflow run for $scheduled_at', async () => {
+                const scheduledAt = '2025-01-02T12:00:00.000Z'
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                        $scheduled_at: scheduledAt,
+                    },
+                })
+                expect(res.status).toEqual(201)
+                expect(res.body).toEqual({ status: 'queued' })
+                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
+                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                expect(call.queueScheduledAt.toISO()).toEqual(scheduledAt)
+                await waitForBackgroundTasks()
+                expect(getLogs()).toEqual([
+                    expect.stringContaining('[Action:trigger] Function completed in'),
+                    expect.stringContaining(`[Action:trigger] Workflow run scheduled for ${scheduledAt}`),
+                ])
+            })
+
             it('should 404 if the hog flow does not exist', async () => {
                 const res = await doPostRequest({
                     webhookId: 'non-existent-hog-flow-id',
@@ -390,7 +412,7 @@ describe('SourceWebhooksConsumer', () => {
                 expect(mockExecuteSpy).not.toHaveBeenCalled()
                 expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
                 const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
-                expect(call.queue).toEqual('hog_overflow')
+                expect(call.queue).toEqual('hogoverflow')
             })
 
             it('should return a disabled response if the function is disabled', async () => {

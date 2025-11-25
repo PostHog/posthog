@@ -4,6 +4,8 @@ use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::invocation_context::context;
+
 pub mod command;
 
 // TODO - we could formalise a lot of this and move it into posthog-rs, tbh
@@ -157,9 +159,8 @@ where
     }
 }
 
-pub fn run_query(endpoint: &str, token: &str, to_run: &str) -> Result<HogQLQueryResult, Error> {
-    let client = reqwest::blocking::Client::new();
-
+pub fn run_query(to_run: &str) -> Result<HogQLQueryResult, Error> {
+    let client = &context().client;
     let request = QueryRequest {
         query: Query::HogQLQuery {
             query: to_run.to_string(),
@@ -168,9 +169,8 @@ pub fn run_query(endpoint: &str, token: &str, to_run: &str) -> Result<HogQLQuery
     };
 
     let response = client
-        .post(endpoint)
+        .post(client.env_url("query")?)
         .json(&request)
-        .bearer_auth(token)
         .send()?;
 
     let code = response.status();
@@ -188,8 +188,8 @@ pub fn run_query(endpoint: &str, token: &str, to_run: &str) -> Result<HogQLQuery
     Ok(Ok(response))
 }
 
-pub fn check_query(endpoint: &str, token: &str, to_run: &str) -> Result<MetadataResponse, Error> {
-    let client = reqwest::blocking::Client::new();
+pub fn check_query(to_run: &str) -> Result<MetadataResponse, Error> {
+    let client = &context().client;
 
     let query = MetadataQuery {
         language: MetadataLanguage::HogQL,
@@ -205,9 +205,8 @@ pub fn check_query(endpoint: &str, token: &str, to_run: &str) -> Result<Metadata
     };
 
     let response = client
-        .post(endpoint)
+        .post(client.env_url("query")?)
         .json(&request)
-        .bearer_auth(token)
         .send()?;
 
     let code = response.status();

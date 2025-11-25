@@ -2,15 +2,26 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonTable,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -28,10 +39,18 @@ function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
     return {
         title: 'Name',
         dataIndex: 'name',
-        render: function Render(name, { short_id, derived_name, description }) {
+        render: function Render(name, { short_id, derived_name, description, is_synthetic }) {
             return (
                 <>
-                    <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
+                    <Link
+                        className={clsx('font-semibold', !name && 'italic')}
+                        to={urls.replayPlaylist(short_id)}
+                        data-attr={
+                            is_synthetic
+                                ? 'collections-scene-table-clicked-synthetic-collection'
+                                : 'collections-scene-table-clicked-user-collection'
+                        }
+                    >
                         {name || derived_name || 'Unnamed'}
                     </Link>
                     {description ? <div className="truncate">{description}</div> : null}
@@ -84,7 +103,7 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                 <div className="flex items-center justify-start w-full h-full">
                     <Tooltip title={tooltip}>
                         {hasResults ? (
-                            <span className="flex items-center deprecated-space-x-1">
+                            <span className="flex items-center gap-x-1 cursor-help">
                                 <LemonBadge.Number
                                     status={unwatchedPinnedCount ? 'primary' : 'muted'}
                                     className="text-xs cursor-pointer"
@@ -114,12 +133,17 @@ export function SessionRecordingCollections(): JSX.Element {
     const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(
         sessionRecordingCollectionsLogic
     )
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
             width: 0,
             dataIndex: 'pinned',
-            render: function Render(pinned, { short_id }) {
+            render: function Render(pinned, { is_synthetic, short_id }) {
+                // Don't show pin button for synthetic playlists
+                if (is_synthetic) {
+                    return null
+                }
                 return (
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
@@ -162,6 +186,10 @@ export function SessionRecordingCollections(): JSX.Element {
         {
             width: 0,
             render: function Render(_, playlist) {
+                // Don't show actions menu for synthetic playlists
+                if (playlist.is_synthetic) {
+                    return null
+                }
                 return (
                     <More
                         overlay={
@@ -226,6 +254,39 @@ export function SessionRecordingCollections(): JSX.Element {
                         >
                             Pinned
                         </LemonButton>
+
+                        <div className="flex items-center gap-2">
+                            <span>Collection type:</span>
+                            <LemonSelect
+                                data-attr="session-recording-collections-type-select"
+                                value={filters.collectionType}
+                                onSelect={(value) => {
+                                    setSavedPlaylistsFilters({ collectionType: value })
+                                }}
+                                options={[
+                                    {
+                                        label: 'All',
+                                        value: null,
+                                    },
+                                    {
+                                        label: 'Custom',
+                                        value: 'custom',
+                                    },
+                                    {
+                                        label: 'Automatic',
+                                        value: 'synthetic',
+                                    },
+                                    ...(featureFlags[FEATURE_FLAGS.REPLAY_NEW_DETECTED_URL_COLLECTIONS] === 'test'
+                                        ? [
+                                              {
+                                                  label: 'New URLs',
+                                                  value: 'new-urls',
+                                              },
+                                          ]
+                                        : []),
+                                ]}
+                            />
+                        </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Last modified:</span>

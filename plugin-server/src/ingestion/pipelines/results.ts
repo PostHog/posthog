@@ -1,3 +1,5 @@
+import { PipelineWarning } from './pipeline.interface'
+
 export enum PipelineResultType {
     OK,
     DLQ,
@@ -8,14 +10,25 @@ export enum PipelineResultType {
 /**
  * Generic result type for pipeline steps that can succeed, be dropped, or sent to DLQ
  */
-export type PipelineResultOk<T> = { type: PipelineResultType.OK; value: T; sideEffects: Promise<unknown>[] }
+export type PipelineResultOk<T> = {
+    type: PipelineResultType.OK
+    value: T
+    sideEffects: Promise<unknown>[]
+    warnings: PipelineWarning[]
+}
 export type PipelineResultDlq = {
     type: PipelineResultType.DLQ
     reason: string
     error: unknown
     sideEffects: Promise<unknown>[]
+    warnings: PipelineWarning[]
 }
-export type PipelineResultDrop = { type: PipelineResultType.DROP; reason: string; sideEffects: Promise<unknown>[] }
+export type PipelineResultDrop = {
+    type: PipelineResultType.DROP
+    reason: string
+    sideEffects: Promise<unknown>[]
+    warnings: PipelineWarning[]
+}
 export type PipelineResultRedirect = {
     type: PipelineResultType.REDIRECT
     reason: string
@@ -23,22 +36,36 @@ export type PipelineResultRedirect = {
     preserveKey?: boolean
     awaitAck?: boolean
     sideEffects: Promise<unknown>[]
+    warnings: PipelineWarning[]
 }
 export type PipelineResult<T> = PipelineResultOk<T> | PipelineResultDlq | PipelineResultDrop | PipelineResultRedirect
 
 /**
  * Helper functions for creating pipeline step results
  */
-export function ok<T>(value: T, sideEffects: Promise<unknown>[] = []): PipelineResult<T> {
-    return { type: PipelineResultType.OK, value, sideEffects }
+export function ok<T>(
+    value: T,
+    sideEffects: Promise<unknown>[] = [],
+    warnings: PipelineWarning[] = []
+): PipelineResult<T> {
+    return { type: PipelineResultType.OK, value, sideEffects, warnings }
 }
 
-export function dlq<T>(reason: string, error?: any, sideEffects: Promise<unknown>[] = []): PipelineResult<T> {
-    return { type: PipelineResultType.DLQ, reason, error, sideEffects }
+export function dlq<T>(
+    reason: string,
+    error?: any,
+    sideEffects: Promise<unknown>[] = [],
+    warnings: PipelineWarning[] = []
+): PipelineResult<T> {
+    return { type: PipelineResultType.DLQ, reason, error, sideEffects, warnings }
 }
 
-export function drop<T>(reason: string, sideEffects: Promise<unknown>[] = []): PipelineResult<T> {
-    return { type: PipelineResultType.DROP, reason, sideEffects }
+export function drop<T>(
+    reason: string,
+    sideEffects: Promise<unknown>[] = [],
+    warnings: PipelineWarning[] = []
+): PipelineResult<T> {
+    return { type: PipelineResultType.DROP, reason, sideEffects, warnings }
 }
 
 export function redirect<T>(
@@ -46,7 +73,8 @@ export function redirect<T>(
     topic: string,
     preserveKey: boolean = true,
     awaitAck: boolean = true,
-    sideEffects: Promise<unknown>[] = []
+    sideEffects: Promise<unknown>[] = [],
+    warnings: PipelineWarning[] = []
 ): PipelineResult<T> {
     return {
         type: PipelineResultType.REDIRECT,
@@ -55,6 +83,7 @@ export function redirect<T>(
         preserveKey,
         awaitAck,
         sideEffects,
+        warnings,
     }
 }
 

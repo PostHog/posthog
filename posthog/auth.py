@@ -108,10 +108,16 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         extra_data: Optional[dict[str, Any]] = None,
     ) -> Optional[tuple[str, str]]:
         """Try to find personal API key in request and return it along with where it was found."""
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
-                return authorization_match.group(1).strip(), "Authorization header"
+                token = authorization_match.group(1).strip()
+
+                if token.startswith(
+                    "pha_"
+                ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
+                    return None
+                return token, "Authorization header"
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
         if data and "personal_api_key" in data:
@@ -223,8 +229,8 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         request: Union[HttpRequest, Request],
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.headers["authorization"])
             if authorization_match:
                 return authorization_match.group(1).strip()
 
@@ -320,8 +326,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     @classmethod
     def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
                 try:
                     token = authorization_match.group(1).strip()
@@ -389,8 +395,8 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
         # Extract JWT token from Authorization header or cookie
         sharing_jwt_token = None
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
                 sharing_jwt_token = authorization_match.group(1).strip()
         elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
@@ -456,7 +462,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             access_token = self._validate_token(authorization_token)
 
             if not access_token:
-                return None  # We return None here because we want to let the next authentication method have a go
+                raise AuthenticationFailed(detail="Invalid access token.")
 
             self.access_token = access_token
 
@@ -474,10 +480,14 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed(detail="Invalid access token.")
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
-                return authorization_match.group(1).strip()
+                token = authorization_match.group(1).strip()
+
+                if token.startswith("pha_"):
+                    return token
+                return None
         return None
 
     def _validate_token(self, token: str):

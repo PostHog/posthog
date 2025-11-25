@@ -14,15 +14,13 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from products.revenue_analytics.backend.api import find_values_for_revenue_analytics_property
 
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.format import enrich_props_with_descriptions, format_properties_xml
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions, format_properties_xml
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
+from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
-from ee.hogai.utils.types.base import AssistantNodeName
-from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     DATE_FIELDS_PROMPT,
@@ -105,10 +103,6 @@ class RevenueAnalyticsFilterNode(
     def __init__(self, team: Team, user: User, toolkit_class: type[RevenueAnalyticsFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.REVENUE_ANALYTICS_FILTER
-
     def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get default system prompts. Override in subclasses for custom prompts."""
         all_messages = [
@@ -142,10 +136,6 @@ class RevenueAnalyticsFilterOptionsToolsNode(
 
     def __init__(self, team: Team, user: User, toolkit_class: type[RevenueAnalyticsFilterOptionsToolkit]):
         super().__init__(team, user, toolkit_class=toolkit_class)
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS
 
 
 class RevenueAnalyticsFilterOptionsGraph(
@@ -183,10 +173,8 @@ class FilterRevenueAnalyticsTool(MaxTool):
       * When the user asks to search for revenue analytics or revenue
         - "search for" synonyms: "find", "look up", and similar
     """
-    thinking_message: str = "Coming up with filters"
     context_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterRevenueAnalyticsArgs
-    show_tool_call_message: bool = False
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
@@ -200,6 +188,7 @@ class FilterRevenueAnalyticsTool(MaxTool):
             "change": user_prompt,
             "output": None,
             "tool_progress_messages": [],
+            "billable": True,
             **self.context,
         }
         result = await graph.compile_full_graph().ainvoke(graph_context)

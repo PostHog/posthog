@@ -26,6 +26,11 @@ async def get_grpc_client():
     return ProxyProvisionerServiceStub(channel)
 
 
+def use_gateway_api() -> bool:
+    """Returns whether to use Gateway API (Envoy Gateway) or Contour HTTPProxy."""
+    return settings.PROXY_USE_GATEWAY_API
+
+
 class NonRetriableException(Exception):
     pass
 

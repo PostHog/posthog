@@ -62,15 +62,15 @@ from posthog.tasks.usage_report import (
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
-from posthog.warehouse.models import (
+
+from products.data_warehouse.backend.models import (
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
 )
-from posthog.warehouse.types import ExternalDataSourceType
-
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
 from ee.api.test.base import LicensedTestMixin
@@ -1564,13 +1564,214 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_rows_synced_free_period_response(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        with freeze_time("2025-11-01T00:00:00Z"):
+            self._setup_teams()
+
+            source = ExternalDataSource.objects.create(
+                team_id=3,
+                source_id="source_id",
+                connection_id="connection_id",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=3,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=4,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            period = get_previous_day(at=now() + relativedelta(days=1))
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
+
+            assert len(all_reports) == 3
+
+            org_1_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+            )
+
+            org_2_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+            )
+
+            assert org_1_report["organization_name"] == "Org 1"
+            assert org_1_report["rows_synced_in_period"] == 0
+            assert org_1_report["free_historical_rows_synced_in_period"] == 100
+
+            assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 0
+            assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 0
+            assert org_1_report["teams"]["4"]["free_historical_rows_synced_in_period"] == 50
+
+            assert org_2_report["organization_name"] == "Org 2"
+            assert org_2_report["rows_synced_in_period"] == 0
+            assert org_2_report["free_historical_rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_rows_synced_after_free_period_response(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        with freeze_time("2025-10-30T00:00:00Z"):
+            source_4 = ExternalDataSource.objects.create(
+                team_id=4,
+                source_id="source_id_2",
+                connection_id="connection_id_2",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+
+        with freeze_time("2025-11-07T01:00:00Z"):
+            source_3 = ExternalDataSource.objects.create(
+                team_id=3,
+                source_id="source_id",
+                connection_id="connection_id",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=3,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source_3,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=4,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source_4,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            period = get_previous_day(at=now() + relativedelta(days=1))
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
+
+            assert len(all_reports) == 3
+
+            org_1_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+            )
+
+            org_2_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+            )
+
+            assert org_1_report["organization_name"] == "Org 1"
+            assert org_1_report["rows_synced_in_period"] == 50
+            assert org_1_report["free_historical_rows_synced_in_period"] == 50
+
+            # Team 3 has a new pipeline (< 7 days old), gets free historical rows
+            assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 0
+            assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
+
+            # Team 4 is past free period
+            assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["4"]["free_historical_rows_synced_in_period"] == 0
+
+            assert org_2_report["organization_name"] == "Org 2"
+            assert org_2_report["rows_synced_in_period"] == 0
+            assert org_2_report["free_historical_rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_external_data_rows_synced_before_free_period_response(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        with freeze_time("2025-10-28T23:59:00Z"):
+            self._setup_teams()
+
+            source = ExternalDataSource.objects.create(
+                team_id=3,
+                source_id="source_id",
+                connection_id="connection_id",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=3,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            for _ in range(5):
+                ExternalDataJob.objects.create(
+                    team_id=4,
+                    finished_at=now(),
+                    rows_synced=10,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    pipeline=source,
+                    pipeline_version=ExternalDataJob.PipelineVersion.V1,
+                )
+
+            period = get_previous_day(at=now() + relativedelta(days=1))
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
+
+            assert len(all_reports) == 3
+
+            org_1_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+            )
+
+            org_2_report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+            )
+
+            assert org_1_report["organization_name"] == "Org 1"
+            assert org_1_report["rows_synced_in_period"] == 100
+            assert org_1_report["free_historical_rows_synced_in_period"] == 100
+
+            assert org_1_report["teams"]["3"]["rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["3"]["free_historical_rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["4"]["rows_synced_in_period"] == 50
+            assert org_1_report["teams"]["4"]["free_historical_rows_synced_in_period"] == 50
+
+            assert org_2_report["organization_name"] == "Org 2"
+            assert org_2_report["rows_synced_in_period"] == 0
+            assert org_2_report["free_historical_rows_synced_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_external_data_rows_synced_response(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
         self._setup_teams()
 
         source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1629,7 +1830,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         # Free historical rows
         free_source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1648,7 +1849,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         # Non-free-historical rows
         non_free_source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1699,7 +1900,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         source = ExternalDataSource.objects.create(
-            team=self.analytics_team,
+            team_id=3,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -2278,6 +2479,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.org_1 = Organization.objects.create(name="Org 1")
         self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
         materialize("events", "$exception_values")
+        materialize("events", "region")
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -2340,6 +2542,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "$ai_input_cost_usd": 0.01,
                 "$ai_output_cost_usd": 0.01,
                 "$ai_total_cost_usd": 0.02,
+                "region": "US",
             },
             timestamp=now() - relativedelta(days=2),
             team=self.org_1_team_1,
@@ -2366,6 +2569,585 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["ai_event_count_in_period"] == 7
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_billable_tools(self, mock_region: MagicMock) -> None:
+        """Test that generations with non-search tools are billed correctly."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with non-search tools
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_billable",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            "tool_calls": [
+                                {"name": "search"},
+                                {"name": "query_executor"},
+                            ]
+                        }
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        # Create billable generation for this trace
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: 1.0 USD * 100 * 1.2 = 120 credits
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 120)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_only_search_tools(self, mock_region: MagicMock) -> None:
+        """Test that generations with only search tools with kind='docs' are NOT billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with only search tools with kind='docs'
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_free",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            "tool_calls": [
+                                {"name": "search", "args": {"kind": "docs"}},
+                                {"name": "search", "args": {"kind": "docs"}},
+                            ]
+                        }
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        # Create generation for this trace (should NOT be billed)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_free",
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: No charges for search-only traces with kind='docs'
+        self.assertEqual(len(result), 0)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_search_non_docs_kind(self, mock_region: MagicMock) -> None:
+        """Test that generations with only search tools but kind != 'docs' ARE billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with only search tools but kind='web' (not 'docs')
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_billable_search",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            "tool_calls": [
+                                {"name": "search", "args": {"kind": "web"}},
+                                {"name": "search", "args": {"kind": "web"}},
+                            ]
+                        }
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        # Create billable generation for this trace (should be billed)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable_search",
+                "$ai_total_cost_usd": 0.5,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: 0.5 USD * 100 * 1.2 = 60 credits
+        # Search with kind='web' should be billable
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 60)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_multi_turn_only_current_turn_matters(self, mock_region: MagicMock) -> None:
+        """Test that only the current turn's tool calls are analyzed for billing.
+
+        A conversation with multiple turns where previous turns had billable tools
+        but the current turn only has docs-search should NOT be billed.
+        """
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with multiple turns - previous turns have billable tools,
+        # but current turn only has docs-search
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_multi_turn",
+                "$ai_output_state": {
+                    "messages": [
+                        # First turn - user asks a question
+                        {"type": "human", "content": "Generate a query for me"},
+                        # First turn - AI response with billable tool
+                        {
+                            "type": "ai",
+                            "tool_calls": [
+                                {"name": "generate_hogql_query", "args": {}},
+                            ],
+                        },
+                        # Second turn - user asks another question (CURRENT TURN STARTS HERE)
+                        {"type": "human", "content": "How do I setup session replay?"},
+                        # Second turn - AI response with only docs-search (NOT billable)
+                        {
+                            "type": "ai",
+                            "tool_calls": [
+                                {"name": "search", "args": {"kind": "docs"}},
+                            ],
+                        },
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        # Create generation for this trace
+        # Even though previous turns had billable tools, current turn only has docs-search
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_multi_turn",
+                "$ai_total_cost_usd": 1.5,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: No charges because current turn only has docs-search
+        # Previous turn's billable tools should be ignored
+        self.assertEqual(len(result), 0)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_filters_non_billable(self, mock_region: MagicMock) -> None:
+        """Test that non-billable generations and invalid costs are filtered out."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with billable tools
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_billable",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "US",
+            },
+        )
+
+        # Billable generation (should count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 0.5,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        # Non-billable generation (should NOT count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": False,
+                "region": "US",
+            },
+        )
+
+        # Zero cost (should NOT count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_3",
+            timestamp=period_start + relativedelta(hours=3),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 0.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        # Negative cost (should NOT count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_4",
+            timestamp=period_start + relativedelta(hours=4),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": -1.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: Only the first generation: 0.5 USD * 100 * 1.2 = 60 credits
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 60)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_no_tool_calls(self, mock_region: MagicMock) -> None:
+        """Test that generations with no tool calls ARE billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        # Create analytics team (team_id=2 for billing)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with no tool calls (empty messages or no tool_calls field)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_no_tools",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            # No tool_calls field at all
+                        }
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        # Create billable generation for this trace (should be billed now)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_no_tools",
+                "$ai_total_cost_usd": 0.5,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: 0.5 USD * 100 * 1.2 = 60 credits
+        # Traces with no tool calls should now be billed
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 60)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_uses_correct_team_for_us_region(self, mock_region: MagicMock) -> None:
+        """Test that US region uses team_id=2 and filters only US events.
+
+        In US deployment, team_id=2 contains BOTH US and EU traces, so region filtering is critical.
+        """
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        # Mock US region
+        mock_region.return_value = "US"
+
+        self._setup_teams()
+        # Create analytics team for US (team_id=2)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team_us = Team.objects.create(pk=2, organization=analytics_org, name="Analytics US")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create US trace with billable tools (should be counted)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team_us,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_us",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "US",
+            },
+        )
+
+        # Create EU trace in same team (should NOT be counted - wrong region)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team_us,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "$ai_trace_id": "trace_eu_in_us",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "EU",
+            },
+        )
+
+        # Create billable generation for US trace (should count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team_us,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_us",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        # Create billable generation for EU trace (should NOT count - wrong region)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team_us,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_eu_in_us",
+                "$ai_total_cost_usd": 5.0,
+                "$ai_billable": True,
+                "region": "EU",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: Only US trace should count: 1.0 USD * 100 * 1.2 = 120 credits
+        # EU trace should be filtered out despite being in team_id=2
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 120)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_uses_correct_team_for_eu_region(self, mock_region: MagicMock) -> None:
+        """Test that EU region uses team_id=1 and filters only EU events.
+
+        In EU deployment, team_id=1 should only contain EU traces.
+        """
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        # Mock EU region
+        mock_region.return_value = "EU"
+
+        self._setup_teams()
+        # Create analytics team for EU (team_id=1)
+        analytics_org = Organization.objects.create(name="PostHog Analytics EU")
+        analytics_team_eu = Team.objects.create(pk=1, organization=analytics_org, name="Analytics EU")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create EU trace with billable tools (should be counted)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team_eu,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_eu",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "EU",
+            },
+        )
+
+        # Create US trace in EU team (should NOT be counted - wrong region, shouldn't happen in prod)
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team_eu,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "$ai_trace_id": "trace_us_in_eu",
+                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
+                "region": "US",
+            },
+        )
+
+        # Create billable generation for EU trace (should count)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team_eu,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_eu",
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": True,
+                "region": "EU",
+            },
+        )
+
+        # Create billable generation for US trace (should NOT count - wrong region)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team_eu,
+            distinct_id="user_2",
+            timestamp=period_start + relativedelta(hours=2, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_us_in_eu",
+                "$ai_total_cost_usd": 3.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: Only EU trace should count: 2.0 USD * 100 * 1.2 = 240 credits
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 240)
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
@@ -2868,6 +3650,11 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         # Create a fresh team for testing
         self.team = Team.objects.create(organization=Organization.objects.create(name="test"))
+
+        # Create analytics team for AI credits tests (team 2 for US region)
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        self.analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
         # Create test events across a time period
         self.begin = datetime(2023, 1, 1, 0, 0)
         self.end = datetime(2023, 1, 2, 0, 0)

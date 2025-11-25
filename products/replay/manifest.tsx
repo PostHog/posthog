@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -32,16 +34,29 @@ export const manifest: ProductManifest = {
             filterKey: 'session_recording_playlist',
         },
     },
-    treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'Session replay',
+            intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
             category: 'Behavior',
             href: urls.replay(ReplayTabs.Home),
             type: 'session_recording_playlist',
             iconType: 'session_replay',
             iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
             sceneKey: 'Replay',
+            sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback'],
+        },
+        // TODO: Move over to the `heatmaps` product folder once it exists
+        {
+            path: 'Heatmaps',
+            intents: [ProductKey.HEATMAPS],
+            category: 'Behavior',
+            iconType: 'heatmap',
+            iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
+            href: urls.heatmaps(),
+            tags: ['beta'],
+            sceneKey: 'Heatmaps',
+            sceneKeys: ['Heatmaps'],
         },
     ],
 }

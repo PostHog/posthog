@@ -16,11 +16,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.pipeline.consts import (
-    DEFAULT_CHUNK_SIZE,
-    DEFAULT_TABLE_SIZE_BYTES,
-    INCREASED_DEFAULT_CHUNK_SIZE,
-)
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -32,7 +28,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
-from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
 def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
@@ -341,17 +338,12 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             return DEFAULT_CHUNK_SIZE
 
         row_size_bytes = row[0] or 1
-
         chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-
-        # If we get a result back from postgres, then increase the max chunk cap to the increased value
-        min_chunk_size = min(chunk_size, INCREASED_DEFAULT_CHUNK_SIZE)
-
         logger.debug(
-            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
+            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
         )
 
-        return min_chunk_size
+        return chunk_size
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
@@ -630,6 +622,7 @@ def postgres_source(
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
+    chunk_size_override: Optional[int] = None,
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
@@ -686,8 +679,14 @@ def postgres_source(
                     logger.debug(f"using_read_replica = {using_read_replica}")
                     logger.debug("Getting primary keys...")
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
+                    if primary_keys:
+                        logger.debug(f"Found primary keys: {primary_keys}")
                     logger.debug("Getting table chunk size...")
-                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                    if chunk_size_override is not None:
+                        chunk_size = chunk_size_override
+                        logger.debug(f"Using chunk_size_override: {chunk_size_override}")
+                    else:
+                        chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
                     rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
                     logger.debug("Getting partition settings...")
@@ -700,6 +699,7 @@ def postgres_source(
 
                     # Fallback on checking for an `id` field on the table
                     if primary_keys is None and "id" in table:
+                        logger.debug("Falling back to ['id'] for primary keys...")
                         primary_keys = ["id"]
                         logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
@@ -790,7 +790,7 @@ def postgres_source(
 
                             successive_errors = 0
                     except psycopg.errors.SerializationFailure as e:
-                        if "terminating connection due to conflict with recovery" not in "".join(e.args):
+                        if "due to conflict with recovery" not in "".join(e.args):
                             raise
 
                         # This error happens when the read replica is out of sync with the primary
@@ -848,7 +848,7 @@ def postgres_source(
                             offset += len(rows)
             except psycopg.errors.SerializationFailure as e:
                 # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
-                if using_read_replica and "terminating connection due to conflict with recovery" in "".join(e.args):
+                if using_read_replica and "conflict with recovery" in "".join(e.args):
                     logger.debug(f"Falling back to offset chunking for table due to SerializationFailure error: {e}.")
                     yield from offset_chunking(offset, chunk_size)
                     return
@@ -859,7 +859,7 @@ def postgres_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(chunk_size),
+        items=lambda: get_rows(chunk_size),
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,

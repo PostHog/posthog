@@ -1,10 +1,15 @@
+from typing import Optional
+
 from django.utils import timezone
 
 from rest_framework import serializers
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
+from posthog.storage import object_storage
 
 from .models import Task, TaskRun
+from .services.title_generator import generate_task_title
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -12,6 +17,9 @@ class TaskSerializer(serializers.ModelSerializer):
     repository_list = serializers.SerializerMethodField()
     primary_repository = serializers.SerializerMethodField()
     latest_run = serializers.SerializerMethodField()
+    created_by = UserBasicSerializer(read_only=True)
+
+    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
     class Meta:
         model = Task
@@ -32,6 +40,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "latest_run",
             "created_at",
             "updated_at",
+            "created_by",
         ]
         read_only_fields = [
             "id",
@@ -39,6 +48,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "slug",
             "created_at",
             "updated_at",
+            "created_by",
             "repository_list",
             "primary_repository",
             "latest_run",
@@ -93,6 +103,11 @@ class TaskSerializer(serializers.ModelSerializer):
             default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
             if default_integration:
                 validated_data["github_integration"] = default_integration
+
+        # Auto-generate title from description if not provided or empty
+        title = validated_data.get("title", "").strip()
+        if not title and validated_data.get("description"):
+            validated_data["title"] = generate_task_title(validated_data["description"])
 
         return super().create(validated_data)
 
@@ -167,6 +182,15 @@ class TaskRunResponseSerializer(serializers.Serializer):
     state = serializers.JSONField(required=False, help_text="State of the run")
 
 
+class TaskRunArtifactResponseSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Artifact file name")
+    type = serializers.CharField(help_text="Artifact classification (plan, context, etc.)")
+    size = serializers.IntegerField(required=False, help_text="Artifact size in bytes")
+    content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
+    storage_path = serializers.CharField(help_text="S3 object key for the artifact")
+    uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+
+
 class TaskRunUpdateSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Run ID")
     status = serializers.ChoiceField(
@@ -194,6 +218,9 @@ class TaskAttachPullRequestRequestSerializer(serializers.Serializer):
 
 
 class TaskRunDetailSerializer(serializers.ModelSerializer):
+    log_url = serializers.SerializerMethodField(help_text="Presigned S3 URL for log access (valid for 1 hour).")
+    artifacts = TaskRunArtifactResponseSerializer(many=True, read_only=True)
+
     class Meta:
         model = TaskRun
         fields = [
@@ -202,10 +229,11 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "stage",
             "branch",
             "status",
-            "log",
+            "log_url",
             "error_message",
             "output",
             "state",
+            "artifacts",
             "created_at",
             "updated_at",
             "completed_at",
@@ -213,10 +241,18 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "task",
+            "log_url",
             "created_at",
             "updated_at",
             "completed_at",
         ]
+
+    def get_log_url(self, obj: TaskRun) -> Optional[str]:
+        """Return presigned S3 URL for log access."""
+
+        if obj.log_storage_path:
+            return object_storage.get_presigned_url(obj.log_storage_path, expiration=3600)
+        return None
 
     def validate_task(self, value):
         team = self.context.get("team")
@@ -257,3 +293,53 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("At least one log entry is required")
         return value
+
+
+class TaskRunArtifactUploadSerializer(serializers.Serializer):
+    ARTIFACT_TYPE_CHOICES = ["plan", "context", "reference", "output", "artifact"]
+
+    name = serializers.CharField(max_length=255, help_text="File name to associate with the artifact")
+    type = serializers.ChoiceField(choices=ARTIFACT_TYPE_CHOICES, help_text="Classification for the artifact")
+    content = serializers.CharField(help_text="Raw file contents (UTF-8 string or base64 data)")
+    content_type = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional MIME type for the artifact",
+    )
+
+
+class TaskRunArtifactsUploadRequestSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactUploadSerializer(many=True, help_text="Array of artifacts to upload")
+
+    def validate_artifacts(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one artifact is required")
+        return value
+
+
+class TaskRunArtifactsUploadResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
+
+
+class TaskRunArtifactPresignRequestSerializer(serializers.Serializer):
+    storage_path = serializers.CharField(
+        max_length=500,
+        help_text="S3 storage path returned in the artifact manifest",
+    )
+
+
+class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="Presigned URL for downloading the artifact")
+    expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
+
+
+class TaskListQuerySerializer(serializers.Serializer):
+    """Query parameters for listing tasks"""
+
+    origin_product = serializers.CharField(required=False, help_text="Filter by origin product")
+    stage = serializers.CharField(required=False, help_text="Filter by task run stage")
+    organization = serializers.CharField(required=False, help_text="Filter by repository organization")
+    repository = serializers.CharField(
+        required=False, help_text="Filter by repository name (can include org/repo format)"
+    )

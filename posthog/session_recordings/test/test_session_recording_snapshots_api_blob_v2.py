@@ -22,7 +22,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         sync_execute("TRUNCATE TABLE sharded_session_replay_events")
         SessionRecordingViewed.objects.all().delete()
         SessionRecording.objects.all().delete()
-        Person.objects.all().delete()
+        Person.objects.filter(team_id__isnull=False).delete()
 
     def produce_replay_summary(
         self,
@@ -59,12 +59,10 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
     def test_snapshots_source_parameter_validation(
         self,
         source,
         expected_status,
-        mock_realtime_snapshots,
         mock_list_objects,
         mock_presigned_url,
         mock_get_session_recording,
@@ -74,7 +72,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         # Basic mocking for successful cases
-        mock_realtime_snapshots.return_value = []
         mock_list_objects.return_value = []
         mock_presigned_url.return_value = None
 
@@ -240,7 +237,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=12&end_blob_key=33"
 
-        response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {personal_api_key}")
+        response = self.client.get(url, headers={"authorization": f"Bearer {personal_api_key}"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "Cannot request more than 20 blob keys at once" in response.json()["detail"]
 

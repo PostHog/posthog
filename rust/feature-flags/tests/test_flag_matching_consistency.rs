@@ -4,7 +4,6 @@ use std::sync::Arc;
 /// This ensures there are no mismatches between implementations.
 use feature_flags::{
     cohorts::cohort_cache_manager::CohortCacheManager,
-    config::Config,
     flags::{
         flag_match_reason::FeatureFlagMatchReason,
         flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
@@ -126,16 +125,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 reader.clone(),
                 writer.clone(),
             );
-            FeatureFlagMatcher::new(
-                distinct_id,
-                1,
-                1,
-                router,
-                cohort_cache,
-                None,
-                None,
-                Arc::new(Config::default_test_config()),
-            )
+            FeatureFlagMatcher::new(distinct_id, 1, 1, router, cohort_cache, None, None)
         }
         .get_match(&flags[0], None, None)
         .unwrap();
@@ -1233,16 +1223,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 reader.clone(),
                 writer.clone(),
             );
-            FeatureFlagMatcher::new(
-                distinct_id,
-                1,
-                1,
-                router,
-                cohort_cache,
-                None,
-                None,
-                Arc::new(Config::default_test_config()),
-            )
+            FeatureFlagMatcher::new(distinct_id, 1, 1, router, cohort_cache, None, None)
         }
         .get_match(&flags[0], None, None)
         .unwrap();

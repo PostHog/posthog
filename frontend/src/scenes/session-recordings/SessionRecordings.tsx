@@ -1,15 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import {
-    AuthorizedUrlListType,
-    authorizedUrlListLogic,
-    defaultAuthorizedUrlProperties,
-} from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
@@ -28,7 +23,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { AccessControlLevel, AccessControlResourceType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
@@ -99,14 +95,8 @@ function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
-    const theAuthorizedUrlsLogic = authorizedUrlListLogic({
-        ...defaultAuthorizedUrlProperties,
-        type: AuthorizedUrlListType.RECORDING_DOMAINS,
-    })
-    const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
@@ -178,22 +168,6 @@ function Warnings(): JSX.Element {
                     customHog={FilmCameraHog}
                 />
             )}
-
-            {!recordingsDisabled && mightBeRefusingRecordings ? (
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        type: 'secondary',
-                        icon: <IconGear />,
-                        to: urls.replaySettings('replay-authorized-domains'),
-                        children: 'Configure',
-                    }}
-                    dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
-                >
-                    You have unauthorized domains trying to send recordings. To accept recordings from these domains,
-                    please check your config.
-                </LemonBanner>
-            ) : null}
         </>
     )
 }
@@ -235,7 +209,7 @@ const ReplayPageTabs: ReplayTab[] = [
         'data-attr': 'session-recordings-collections-tab',
     },
     {
-        label: 'Figure out what to watch',
+        label: 'What to watch',
         key: ReplayTabs.Templates,
         'data-attr': 'session-recordings-templates-tab',
     },
@@ -279,12 +253,22 @@ export function SessionRecordingsPageTabs(): JSX.Element {
         </div>
     )
 }
-export function SessionsRecordings(): JSX.Element {
+
+export interface SessionsRecordingsProps {
+    tabId?: string
+}
+
+export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX.Element {
+    if (!tabId) {
+        throw new Error('<SessionsRecordings /> must receive a tabId prop')
+    }
     return (
-        <SceneContent className="h-full">
-            <SessionRecordingsPageTabs />
-            <MainPanel />
-        </SceneContent>
+        <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
+            <SceneContent className="h-full">
+                <SessionRecordingsPageTabs />
+                <MainPanel />
+            </SceneContent>
+        </BindLogic>
     )
 }
 

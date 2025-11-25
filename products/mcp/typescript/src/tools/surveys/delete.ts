@@ -1,11 +1,12 @@
+import type { z } from 'zod'
+
 import { SurveyDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = SurveyDeleteSchema
 type Params = z.infer<typeof schema>
 
-export const deleteHandler = async (context: Context, params: Params) => {
+export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { surveyId } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -17,9 +18,7 @@ export const deleteHandler = async (context: Context, params: Params) => {
         throw new Error(`Failed to delete survey: ${deleteResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(deleteResult.data) }],
-    }
+    return deleteResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

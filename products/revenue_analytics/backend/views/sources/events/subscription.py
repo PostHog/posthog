@@ -20,7 +20,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         return BuiltQuery(
             key=event.eventName,
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(SUBSCRIPTION_SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns=SUBSCRIPTION_SCHEMA.fields),
             test_comments="no_property",
         )
 

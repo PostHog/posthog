@@ -32,7 +32,6 @@ const deprecatedColors = {
     'glass-border-3000-light': 'var(--glass-border-3000-light)',
     'link-3000-light': 'var(--link-3000-light)',
     'primary-3000-frame-bg-light': 'var(--primary-3000-frame-bg-light)',
-    'primary-3000-button-bg-light': 'var(--primary-3000-button-bg-light)',
     'primary-3000-button-border-light': 'var(--primary-3000-button-border-light)',
     'primary-3000-button-border-hover-light': 'var(--primary-3000-button-border-hover-light)',
     'secondary-3000-frame-bg-light': 'var(--secondary-3000-frame-bg-light)',
@@ -64,7 +63,6 @@ const deprecatedColors = {
     'glass-border-3000-dark': 'var(--glass-border-3000-dark)',
     'link-3000-dark': 'var(--link-3000-dark)',
     'primary-3000-frame-bg-dark': 'var(--primary-3000-frame-bg-dark)',
-    'primary-3000-button-bg-dark': 'var(--primary-3000-button-bg-dark)',
     'primary-3000-button-border-dark': 'var(--primary-3000-button-border-dark)',
     'primary-3000-button-border-hover-dark': 'var(--primary-3000-button-border-hover-dark)',
     'primary-alt-highlight-dark': 'var(--primary-alt-highlight-dark)',
@@ -164,7 +162,7 @@ const deprecatedColors = {
     // Z-indexes
     'z-top': 'var(--z-top)',
     'z-bottom-notice': 'var(--z-bottom-notice)',
-    'z-command-palette': 'var(--z-command-palette)',
+    'z-shortcut-menu': 'var(--z-shortcut-menu)',
     'z-force-modal-above-popovers': 'var(--z-force-modal-above-popovers)',
     'z-tooltip': 'var(--z-tooltip)',
 

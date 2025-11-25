@@ -6,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentBreakdownResult,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
@@ -44,10 +45,11 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_multiple_variant_handling_from_experiment,
 )
 from posthog.hogql_queries.experiments.utils import (
+    aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
     get_experiment_stats_method,
     get_frequentist_experiment_result,
-    get_new_variant_results,
+    get_variant_results,
     split_baseline_and_test_variants,
 )
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -58,6 +60,7 @@ logger = structlog.get_logger(__name__)
 
 
 MAX_EXECUTION_TIME = 600
+MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
 
 
 class ExperimentQueryRunner(QueryRunner):
@@ -68,10 +71,12 @@ class ExperimentQueryRunner(QueryRunner):
         self,
         *args,
         override_end_date: Optional[datetime] = None,
+        user_facing: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
+        self.user_facing = user_facing
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -126,9 +131,6 @@ class ExperimentQueryRunner(QueryRunner):
         """
         Determines whether to use the new CTE-based query builder.
         """
-        if not isinstance(self.metric, ExperimentFunnelMetric):
-            return False
-
         return self.use_new_query_builder is True
 
     def _get_metrics_aggregated_per_entity_query(
@@ -162,6 +164,10 @@ class ExperimentQueryRunner(QueryRunner):
                 expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_session_id"])]),
             ),
             ast.Alias(
+                alias="exposure_timestamp",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "first_exposure_time"])]),
+            ),
+            ast.Alias(
                 expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                 alias="value",
             ),
@@ -172,6 +178,11 @@ class ExperimentQueryRunner(QueryRunner):
             select_fields.append(
                 parse_expr(
                     "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(toString(session_id), ''))) AS uuid_to_session"
+                )
+            )
+            select_fields.append(
+                parse_expr(
+                    "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(timestamp, toDateTime(0)))) AS uuid_to_timestamp"
                 )
             )
 
@@ -418,17 +429,17 @@ class ExperimentQueryRunner(QueryRunner):
             step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
             select_fields.append(parse_expr(step_counts_expr))
 
-            # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+            # For each step in the funnel, get at least 100 pairs of person_id, session_id, event uuid, and timestamp that have
             # that step as their last step in the funnel.
-            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid and timestamp for the exposure event.
             event_uuids_exprs = []
             for i in range(num_steps + 1):
                 event_uuids_expr = f"""
                     groupArraySampleIf(100)(
                         if(
                             metric_events.value.2 != '',
-                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2),
-                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))),
+                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2, toString(uuid_to_timestamp[metric_events.value.2])),
+                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid), toString(metric_events.exposure_timestamp))),
                         metric_events.value.1 = {i} - 1
                     )
                 """
@@ -462,28 +473,46 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=[ast.Field(chain=["metric_events", "variant"])],
         )
 
+    def _get_breakdowns_for_builder(self) -> list | None:
+        """Extract and validate breakdowns from metric configuration."""
+        breakdown_filter = getattr(self.metric, "breakdownFilter", None)
+        if not breakdown_filter:
+            return None
+
+        breakdowns = getattr(breakdown_filter, "breakdowns", None)
+        if not breakdowns or len(breakdowns) == 0:
+            return None
+
+        if len(breakdowns) > 3:
+            raise ValidationError("Maximum of 3 breakdowns are supported for experiment metrics")
+
+        return breakdowns
+
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
         Returns the main experiment query.
         """
         if self._should_use_new_query_builder():
-            assert isinstance(self.metric, ExperimentFunnelMetric)
+            assert isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric)
 
             # Get the "missing" (not directly accessible) parameters required for the builder
-            exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
-                self.experiment
-            )
+            (
+                exposure_config,
+                multiple_variant_handling,
+                filter_test_accounts,
+            ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
             builder = ExperimentQueryBuilder(
                 team=self.team,
                 feature_flag_key=self.feature_flag.key,
-                metric=self.metric,
                 exposure_config=exposure_config,
                 filter_test_accounts=filter_test_accounts,
                 multiple_variant_handling=multiple_variant_handling,
                 variants=self.variants,
                 date_range_query=self.date_range_query,
                 entity_key=self.entity_key,
+                metric=self.metric,
+                breakdowns=self._get_breakdowns_for_builder(),
             )
             return builder.build_query()
 
@@ -560,7 +589,11 @@ class ExperimentQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME, allow_experimental_analyzer=True),
+            settings=HogQLGlobalSettings(
+                max_execution_time=MAX_EXECUTION_TIME,
+                allow_experimental_analyzer=True,
+                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+            ),
         )
 
         # Remove the $multiple variant only when using exclude handling
@@ -573,40 +606,121 @@ class ExperimentQueryRunner(QueryRunner):
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
+        # Prepare variant data
+        variant_results = self._prepare_variant_results()
+
+        # Process breakdowns or extract variants
+        if self._has_breakdown(variant_results):
+            breakdown_results, variants = self._process_breakdown_results(variant_results)
+        else:
+            breakdown_results = None
+            variants = [v for _, v in variant_results]
+
+        # Calculate final statistics
+        result = self._calculate_statistics_for_variants(variants)
+
+        # Attach breakdown data if present
+        if breakdown_results is not None:
+            result.breakdown_results = breakdown_results
+
+        return result
+
+    def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
+        """Fetch and prepare variant results with missing variants added."""
         sorted_results = self._evaluate_experiment_query()
+        variant_results = get_variant_results(sorted_results, self.metric)
+        return self._add_missing_variants(variant_results)
 
-        variant_results = get_new_variant_results(sorted_results)
-        variant_results = self._add_missing_variants(variant_results)
+    def _has_breakdown(self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]) -> bool:
+        """Check if results contain breakdown data."""
+        return any(bv is not None for bv, _ in variant_results)
 
-        control_variant, test_variants = split_baseline_and_test_variants(variant_results)
+    def _calculate_statistics_for_variants(self, variants: list[ExperimentStatsBase]) -> ExperimentQueryResponse:
+        """Calculate statistical analysis results for a set of variants."""
+        control_variant, test_variants = split_baseline_and_test_variants(variants)
 
         if self.stats_method == "frequentist":
             return get_frequentist_experiment_result(
                 metric=self.metric,
                 control_variant=control_variant,
                 test_variants=test_variants,
-            )
-        else:
-            # We default to bayesian
-            return get_bayesian_experiment_result(
-                metric=self.metric,
-                control_variant=control_variant,
-                test_variants=test_variants,
+                stats_config=self.experiment.stats_config,
             )
 
-    def _add_missing_variants(self, variants: list[ExperimentStatsBase]):
+        return get_bayesian_experiment_result(
+            metric=self.metric,
+            control_variant=control_variant,
+            test_variants=test_variants,
+            stats_config=self.experiment.stats_config,
+        )
+
+    def _process_breakdown_results(
+        self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]
+    ) -> tuple[list[ExperimentBreakdownResult], list[ExperimentStatsBase]]:
+        """Compute per-breakdown statistics and aggregate across breakdowns."""
+        breakdown_tuples = sorted({bv for bv, _ in variant_results if bv is not None})
+
+        breakdown_results = [
+            self._compute_breakdown_statistics(breakdown_tuple, variant_results) for breakdown_tuple in breakdown_tuples
+        ]
+
+        aggregated_variants = aggregate_variants_across_breakdowns(variant_results)
+
+        return breakdown_results, aggregated_variants
+
+    def _compute_breakdown_statistics(
+        self,
+        breakdown_tuple: tuple[str, ...],
+        variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]],
+    ) -> ExperimentBreakdownResult:
+        """Compute statistics for a single breakdown combination."""
+        breakdown_variants = [v for bv, v in variant_results if bv == breakdown_tuple]
+        stats = self._calculate_statistics_for_variants(breakdown_variants)
+
+        return ExperimentBreakdownResult(
+            breakdown_value=list(breakdown_tuple),
+            baseline=stats.baseline,
+            variants=stats.variant_results,
+        )
+
+    def _add_missing_variants(
+        self, variants: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]
+    ) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
         """
         Check if the variants configured in the experiment is seen in the collected data.
         If not, add them to the result set with values set to 0.
+        Preserves the tuple structure with breakdown values.
         """
+        variants_seen = [v.key for _, v in variants]
 
-        variants_seen = [v.key for v in variants]
+        has_breakdown = (
+            self.metric.breakdownFilter is not None
+            and self.metric.breakdownFilter.breakdowns
+            and len(self.metric.breakdownFilter.breakdowns) > 0
+        )
 
-        variants_missing = []
+        # Type annotation required for empty list so mypy knows the expected element type:
+        # list of tuples containing (breakdown_values, stats) where breakdown_values can be None
+        variants_missing: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]] = []
         for key in self.variants:
             if key not in variants_seen:
-                empty_variant = ExperimentStatsBase(key=key, number_of_samples=0, sum=0, sum_squares=0)
-                variants_missing.append(empty_variant)
+                if has_breakdown:
+                    # Extract all breakdown value combinations that exist in the results
+                    breakdown_tuples = {bv for bv, _ in variants if bv is not None}
+                    # Use extend to add MULTIPLE tuples - one for each breakdown combination
+                    # Each missing variant needs to appear across ALL breakdown values to maintain consistency
+                    variants_missing.extend(
+                        [
+                            (bv, ExperimentStatsBase(key=key, number_of_samples=0, sum=0, sum_squares=0))
+                            for bv in breakdown_tuples
+                        ]
+                    )
+                else:
+                    # Use append to add a SINGLE tuple with None as the breakdown value
+                    # Without breakdowns, we only need one entry per missing variant
+                    variants_missing.append(
+                        (None, ExperimentStatsBase(key=key, number_of_samples=0, sum=0, sum_squares=0))
+                    )
 
         return variants + variants_missing
 

@@ -1,0 +1,66 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ super }}
+<style>
+    .form-row { margin-bottom: 15px; }
+    .help { font-size: 11px; color: #666; }
+    .submit-row { margin-top: 30px; }
+    .alert { padding: 10px; margin: 20px 0; border-radius: 5px; }
+    .alert-info { background: #e3f2fd; border: 1px solid #90caf9; color: #1565c0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info">
+    <strong>Note:</strong> This tool re-saves cohorts to regenerate compiled bytecode and cohort_type using the
+    current backend logic. It runs in batches to avoid load. Use dry-run to preview a summary first.
+    Check server logs for command output.
+    <br />
+    Scope: target a single team (team id) or all teams if left blank.
+  </div>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
+<form method="post" id="resave-cohorts-form">
+    {% csrf_token %}
+
+    <fieldset class="module aligned">
+        <h2>Configuration</h2>
+
+        <div class="form-row">
+            <label for="{{ form.team_id.id_for_label }}">{{ form.team_id.label }}:</label>
+            {{ form.team_id }}
+            {% if form.team_id.help_text %}<p class="help">{{ form.team_id.help_text }}</p>{% endif %}
+            {{ form.team_id.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.batch_size.id_for_label }}" class="required">{{ form.batch_size.label }}:</label>
+            {{ form.batch_size }}
+            {% if form.batch_size.help_text %}<p class="help">{{ form.batch_size.help_text }}</p>{% endif %}
+            {{ form.batch_size.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.dry_run.id_for_label }}">{{ form.dry_run.label }}:</label>
+            {{ form.dry_run }}
+            {% if form.dry_run.help_text %}<p class="help">{{ form.dry_run.help_text }}</p>{% endif %}
+            {{ form.dry_run.errors }}
+        </div>
+    </fieldset>
+
+    <div class="submit-row">
+        <input type="submit" value="Run Resave" class="default" />
+    </div>
+</form>
+{% endblock %}
+
+

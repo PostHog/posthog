@@ -8,7 +8,8 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Conversation, ConversationStatus, ConversationType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 import { maxLogic } from './maxLogic'
 import { formatConversationDate } from './utils'
@@ -50,8 +51,8 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
                         productName="Max"
                         productKey={ProductKey.MAX}
                         thingName="chat"
-                        titleOverride="Start chatting with Max"
-                        description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                        titleOverride="Start getting things done with PostHog AI"
+                        description="PostHog AI is an agent that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
                         docsURL="https://posthog.com/docs/data/max-ai"
                         actionElementOverride={
                             <LemonButton
@@ -82,7 +83,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
-            to={combineUrl(urls.max(conversation.id), { from: 'history' }).url}
+            to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
             onClick={(e) => {
                 if (sidePanel) {
                     e.preventDefault()

@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    CyclotronJobFiltersType,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
@@ -39,7 +40,7 @@ export type HogFunctionTemplateListLogicProps = {
     /** If provided, only those templates will be shown */
     subTemplateIds?: HogFunctionSubTemplateIdType[] | null
     /** Overrides to be used when creating a new hog function */
-    configurationOverrides?: Pick<HogFunctionTemplateType, 'filters'>
+    getConfigurationOverrides?: (subTemplateId?: HogFunctionSubTemplateIdType) => CyclotronJobFiltersType | undefined
     syncFiltersWithUrl?: boolean
     manualTemplates?: HogFunctionTemplateType[] | null
     manualTemplatesLoading?: boolean
@@ -183,7 +184,15 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 const { search } = filters
 
                 if (search) {
-                    return templatesFuse.search(search).map((x) => x.item)
+                    return templatesFuse
+                        .search(search)
+                        .map((x) => {
+                            if (!customFilterFunction(x.item)) {
+                                return null
+                            }
+                            return x.item
+                        })
+                        .filter(Boolean) as HogFunctionTemplateType[]
                 }
 
                 const [available, comingSoon] = templates.reduce(
@@ -210,7 +219,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
         urlForTemplate: [
             () => [(_, props) => props],
-            ({ configurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
+            ({ getConfigurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     if (template.status === 'coming_soon') {
                         // "Coming soon" sources don't have docs yet
@@ -235,6 +244,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                     const subTemplate = template.sub_template_id
                         ? getSubTemplate(template, template.sub_template_id)
+                        : null
+
+                    const configurationOverrides = getConfigurationOverrides
+                        ? getConfigurationOverrides(subTemplate?.sub_template_id)
                         : null
 
                     const configuration: Record<string, any> = {

@@ -4,7 +4,6 @@ from functools import cached_property
 from typing import Any, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
-from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
 
 import posthoganalytics
@@ -17,7 +16,7 @@ from rest_framework.response import Response
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import groups, report_organization_action, report_organization_deleted
@@ -28,7 +27,7 @@ from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.signals import model_activity_signal, mute_selected_signals
+from posthog.models.signals import model_activity_signal, mutable_receiver, mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
@@ -130,6 +129,7 @@ class OrganizationSerializer(
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
+            "default_anonymize_ips",
             "default_role_id",
         ]
         read_only_fields = [
@@ -171,7 +171,9 @@ class OrganizationSerializer(
             else instance.teams.none()
         )
         # Support old access control system
-        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
+            "project"
+        )
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
@@ -243,6 +245,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
+        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
+            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
+                queryset = queryset.filter(id__in=scoped_organizations)
+
         return queryset
 
     def safely_get_object(self, queryset):
@@ -441,7 +447,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"success": True, "message": "Migration started"}, status=202)
 
 
-@receiver(model_activity_signal, sender=Organization)
+@mutable_receiver(model_activity_signal, sender=Organization)
 def handle_organization_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -481,7 +487,7 @@ class OrganizationInviteContext(ActivityContextBase):
     level: str
 
 
-@receiver(model_activity_signal, sender=OrganizationMembership)
+@mutable_receiver(model_activity_signal, sender=OrganizationMembership)
 def handle_organization_membership_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -526,7 +532,7 @@ def handle_organization_membership_change(
     )
 
 
-@receiver(model_activity_signal, sender=OrganizationInvite)
+@mutable_receiver(model_activity_signal, sender=OrganizationInvite)
 def handle_organization_invite_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

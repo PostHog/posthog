@@ -78,6 +78,27 @@ function ErrorCount({
     )
 }
 
+function RecordingExpiry({
+    iconClassNames,
+    recordingTtl,
+}: {
+    iconClassNames: string
+    recordingTtl: number | undefined
+}): JSX.Element {
+    if (recordingTtl === undefined) {
+        return <div className="flex text-secondary text-xs">-</div>
+    }
+
+    const ttlColor = recordingTtl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS ? '#f63b3bff' : 'currentColor'
+
+    return (
+        <div className="flex items-center gap-x-1 text-xs">
+            <IconHourglass fill={ttlColor} className={iconClassNames} />
+            <span style={{ color: ttlColor }}>{recordingTtl}d</span>
+        </div>
+    )
+}
+
 interface GatheredProperty {
     property: string
     value: string | undefined
@@ -242,10 +263,6 @@ export const SessionRecordingPreview = memo(
         const iconProperties = gatherIconProperties(recordingProperties, recording)
 
         const iconClassNames = 'text-secondary shrink-0'
-        const ttlColor =
-            recording.recording_ttl && recording.recording_ttl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS
-                ? '#f63b3bff'
-                : 'currentColor'
 
         return (
             <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -298,14 +315,6 @@ export const SessionRecordingPreview = memo(
                                             <span>{recording.keypress_count}</span>
                                         </span>
                                     </Tooltip>
-                                    {recording.recording_ttl && (
-                                        <Tooltip className="flex items-center" title="Days until recording expires">
-                                            <span className="flex gap-x-0.5">
-                                                <IconHourglass fill={ttlColor} className={iconClassNames} />
-                                                <span style={{ color: ttlColor }}>{recording.recording_ttl}d</span>
-                                            </span>
-                                        </Tooltip>
-                                    )}
                                 </div>
                             </div>
 
@@ -313,6 +322,11 @@ export const SessionRecordingPreview = memo(
                                 <ErrorCount
                                     iconClassNames={iconClassNames}
                                     errorCount={recording.console_error_count}
+                                />
+                            ) : filters.order === 'recording_ttl' ? (
+                                <RecordingExpiry
+                                    iconClassNames={iconClassNames}
+                                    recordingTtl={recording.recording_ttl}
                                 />
                             ) : (
                                 <RecordingDuration

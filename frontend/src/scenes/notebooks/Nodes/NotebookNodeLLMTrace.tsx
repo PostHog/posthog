@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupLogic } from 'scenes/groups/groupLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
@@ -15,65 +16,75 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import { TracesQuery } from '~/queries/schema/schema-general'
 import { isTracesQuery } from '~/queries/utils'
 
+import { LLMAnalyticsSetupPrompt } from 'products/llm_analytics/frontend/LLMAnalyticsSetupPrompt'
 import { useTracesQueryContext } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
 import { llmAnalyticsLogic } from 'products/llm_analytics/frontend/llmAnalyticsLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { getLogicKey } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
-    const { personId } = attributes
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(
-        llmAnalyticsLogic({ personId })
-    )
-    const { tracesQuery } = useValues(llmAnalyticsLogic({ personId }))
+    const { groupKey, groupTypeIndex, personId, tabId } = attributes
+    const group = groupKey && groupTypeIndex ? { groupKey, groupTypeIndex } : undefined
+    const logicKey = getLogicKey({ groupKey, personId, tabId })
+
+    const logic = llmAnalyticsLogic({ logicKey, personId, group })
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(logic)
+    const { tracesQuery } = useValues(logic)
     const context = useTracesQueryContext()
+    const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
 
     if (!expanded) {
         return null
     }
 
     return (
-        <BindLogic logic={dataNodeLogic} props={{ key: personId }}>
-            <Query
-                query={{
-                    ...tracesQuery,
-                    embedded: true,
-                    showTestAccountFilters: false,
-                    showReload: false,
-                    showExport: false,
-                    showDateRange: false,
-                    showPropertyFilter: false,
-                    showTimings: false,
-                }}
-                context={context}
-                setQuery={(query) => {
-                    if (!isTracesQuery(query.source)) {
-                        throw new Error('Invalid query')
-                    }
-                    setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
-                    setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                    setPropertyFilters(query.source.properties || [])
-                    setTracesQuery(query)
-                }}
-            />
+        <BindLogic logic={dataNodeLogic} props={{ key: logicKey }}>
+            <LLMAnalyticsSetupPrompt className="border-none">
+                <Query
+                    uniqueKey={logicKey}
+                    attachTo={attachTo}
+                    query={{
+                        ...tracesQuery,
+                        embedded: true,
+                        showTestAccountFilters: false,
+                        showReload: false,
+                        showExport: false,
+                        showDateRange: false,
+                        showPropertyFilter: false,
+                        showTimings: false,
+                    }}
+                    context={context}
+                    setQuery={(query) => {
+                        if (!isTracesQuery(query.source)) {
+                            throw new Error('Invalid query')
+                        }
+                        setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
+                        setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                        setPropertyFilters(query.source.properties || [])
+                        setTracesQuery(query)
+                    }}
+                />
+            </LLMAnalyticsSetupPrompt>
         </BindLogic>
     )
 }
 
 const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeLLMTraceAttributes>): JSX.Element => {
-    const { personId, nodeId } = attributes
-    const { setDates, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic({ personId }))
-    const { tracesQuery } = useValues(llmAnalyticsLogic({ personId }))
+    const { personId, groupKey, nodeId } = attributes
+    const logic = llmAnalyticsLogic({ logicKey: nodeId })
+    const { setDates, setPropertyFilters, setTracesQuery } = useActions(logic)
+    const { tracesQuery } = useValues(logic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
         <div className="p-2 space-y-2 mb-2">
             <BindLogic
                 logic={dataTableLogic}
-                props={{ vizKey: nodeId, dataKey: personId, query: tracesQuery, dataNodeLogicKey: nodeId }}
+                props={{ vizKey: nodeId, dataKey: nodeId, query: tracesQuery, dataNodeLogicKey: nodeId }}
             >
                 <BindLogic logic={dataNodeLogic} props={{ key: nodeId, query: tracesQuery.source }}>
                     <div className="flex gap-2 justify-between">
@@ -118,7 +129,7 @@ const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeLL
                             key="data-table-export"
                             query={tracesQuery}
                             setQuery={setTracesQuery}
-                            fileNameForExport={`${personId}-llm-traces-export`}
+                            fileNameForExport={`${personId ?? groupKey}-llm-traces-export`}
                         />
                     </div>
                 </BindLogic>
@@ -129,6 +140,9 @@ const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeLL
 
 type NotebookNodeLLMTraceAttributes = {
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: number
+    tabId: string
 }
 
 export const NotebookNodeLLMTrace = createPostHogWidgetNode<NotebookNodeLLMTraceAttributes>({
@@ -141,5 +155,8 @@ export const NotebookNodeLLMTrace = createPostHogWidgetNode<NotebookNodeLLMTrace
     startExpanded: true,
     attributes: {
         personId: {},
+        groupKey: {},
+        groupTypeIndex: {},
+        tabId: {},
     },
 })

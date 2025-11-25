@@ -5,7 +5,7 @@ use chrono::{DateTime, Duration, Utc};
 
 use sha2::{Digest, Sha512};
 use sqlx::PgPool;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -169,12 +169,17 @@ where
             metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
             if let Some(storage_ptr) = &record.storage_ptr {
                 info!("Found s3 saved symbol set data for {}", set_ref);
-                let Ok(data) = self.s3_client.get(&self.bucket, storage_ptr).await else {
-                    let mut record = record;
-                    record.delete(&self.pool).await?;
-                    // This is kind-of false - the actual problem is missing data in s3, with a record that exists, rather than no record being found for
-                    // a given chunk id - but it's close enough that it's fine for a temporary fix.
-                    return Err(FrameError::MissingChunkIdData(record.set_ref).into());
+                let data = match self.s3_client.get(&self.bucket, storage_ptr).await {
+                    Ok(Some(data)) => data,
+                    Ok(None) => {
+                        warn!("Storage pointer points to a record that doesn't exist");
+                        // If the storage pointer points to a record that doesn't exist, delete the record and treat it as a frame error
+                        let mut record = record;
+                        record.delete(&self.pool).await?;
+                        return Err(FrameError::MissingChunkIdData(record.set_ref).into());
+                    }
+                    // Otherwise, if we just failed to talk to s3 for some reason, treat it as an unhandled error, and die
+                    Err(err) => return Err(err.into()),
                 };
                 metrics::counter!(SAVED_SYMBOL_SET_LOADED).increment(1);
                 return Ok(Saveable {
@@ -438,7 +443,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(get_symbol_data_bytes()));
+            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(

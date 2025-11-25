@@ -96,6 +96,9 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(
             recalculateFocusableElements: () => listboxRef.current?.recalculateFocusableElements(),
             focusFirstItem: () => listboxRef.current?.focusFirstItem(),
             getFocusableElementsCount: () => listboxRef.current?.getFocusableElementsCount() ?? 0,
+            focusItemByKey: (key: string) => listboxRef.current?.focusItemByKey(key) ?? false,
+            focusPrevious: (stepsBack?: number) => listboxRef.current?.focusPrevious(stepsBack) ?? false,
+            getFocusHistory: () => listboxRef.current?.getFocusHistory() ?? [],
         }))
 
         useEffect(() => {
@@ -132,16 +135,22 @@ interface SearchProps {
     placeholder?: string
     className?: string
     autoFocus?: boolean
+    wrapperClassName?: string
 }
 
-const Search = ({ placeholder = 'Search...', className, autoFocus = true }: SearchProps): JSX.Element => {
+const Search = ({
+    placeholder = 'Search...',
+    className,
+    autoFocus = true,
+    wrapperClassName,
+}: SearchProps): JSX.Element => {
     const context = useContext(ComboboxContext)
     if (!context) {
         throw new Error('Combobox.Search must be used inside Combobox')
     }
 
     return (
-        <div className={cn('p-1', context.insideMenu && 'px-0 pt-0')}>
+        <div className={cn('p-1', context.insideMenu && 'px-0 pt-0', wrapperClassName)}>
             <TextInputPrimitive
                 type="text"
                 value={context.searchValue}
@@ -152,6 +161,7 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
                 role="combobox"
                 size="default"
                 aria-controls="combobox-listbox"
+                showFocusPulse
             />
         </div>
     )
@@ -242,11 +252,13 @@ export type ComboboxType = React.ForwardRefExoticComponent<ComboboxProps & React
     Empty: typeof Empty
     Content: typeof Content
     Item: typeof ListBox.Item
+    ListGroup: typeof ListBox.Group
 }
 ;(InnerCombobox as ComboboxType).Search = Search
 ;(InnerCombobox as ComboboxType).Group = Group
 ;(InnerCombobox as ComboboxType).Empty = Empty
 ;(InnerCombobox as ComboboxType).Content = Content
 ;(InnerCombobox as ComboboxType).Item = ListBox.Item
+;(InnerCombobox as ComboboxType).ListGroup = ListBox.Group
 
 export const Combobox = InnerCombobox as ComboboxType

@@ -95,7 +95,7 @@ class GroupsTypesViewSet(
             )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
-        group_type_mapping.detail_dashboard = dashboard
+        group_type_mapping.detail_dashboard_id = dashboard.id
         group_type_mapping.save()
         return response.Response(self.get_serializer(group_type_mapping).data)
 

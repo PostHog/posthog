@@ -32,7 +32,9 @@ const DropdownMenuRadioGroup = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.RadioGroup>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>
 >(({ className, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+    return (
+        <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
+    )
 })
 DropdownMenuRadioGroup.displayName = DropdownMenuPrimitive.RadioGroup.displayName
 

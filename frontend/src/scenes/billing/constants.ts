@@ -1,4 +1,4 @@
-// sync with ee/hogai/graph/billing/nodes.py
+// sync with ee/hogai/tools/read_billing_tool/tool.py
 export const USAGE_TYPES = [
     { label: 'Events', value: 'event_count_in_period' },
     { label: 'Identified Events', value: 'enhanced_persons_event_count_in_period' },
@@ -10,9 +10,11 @@ export const USAGE_TYPES = [
     { label: 'Survey Responses', value: 'survey_responses_count_in_period' },
     { label: 'LLM Events', value: 'ai_event_count_in_period' },
     { label: 'Synced Rows', value: 'rows_synced_in_period' },
+    { label: 'Free Synced Rows', value: 'free_historical_rows_synced_in_period' },
     { label: 'Data Pipelines (deprecated)', value: 'data_pipelines' },
     { label: 'Destinations Trigger Events', value: 'cdp_billable_invocations_in_period' },
     { label: 'Rows Exported', value: 'rows_exported_in_period' },
+    { label: 'PostHog AI', value: 'ai_credits_used_in_period' },
 ] as const
 
 export type UsageTypeOption = (typeof USAGE_TYPES)[number]

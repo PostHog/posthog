@@ -2,7 +2,7 @@ from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import NotImplementedError, QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -33,7 +33,7 @@ def translate_hogql(
         if context.database is None:
             if context.team_id is None:
                 raise ValueError("Cannot translate HogQL for a filter with no team specified")
-            context.database = create_hogql_database(
+            context.database = Database.create_for(
                 team_id=context.team_id,
                 modifiers=context.modifiers,
                 timings=context.timings,

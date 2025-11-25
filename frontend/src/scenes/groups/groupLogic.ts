@@ -46,11 +46,12 @@ function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTabl
 export type GroupLogicProps = {
     groupTypeIndex: number
     groupKey: string
+    tabId?: string
 }
 
 export const groupLogic = kea<groupLogicType>([
     props({} as GroupLogicProps),
-    key((props) => `${props.groupTypeIndex}-${props.groupKey}`),
+    key(({ groupKey, groupTypeIndex, tabId }) => `${groupTypeIndex}-${groupKey}-${tabId}`),
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],
@@ -212,7 +213,7 @@ export const groupLogic = kea<groupLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s, p) => [p.groupTypeIndex, p.groupKey, s.featureFlags],
             (groupTypeIndex, groupKey, featureFlags): SidePanelSceneContext | null => {
-                if (!featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+                if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
                     return null
                 }
                 return {

@@ -14,28 +14,28 @@ Please use the following format:
 
 ```yaml
 testGetBoolPropertyKey:
-    - value: false
-    - value: true
-      constraints:
-          namespace: 'global-samples-namespace'
-    - value: false
-      constraints:
-          namespace: 'samples-namespace'
+  - value: false
+  - value: true
+    constraints:
+      namespace: 'global-samples-namespace'
+  - value: false
+    constraints:
+      namespace: 'samples-namespace'
 testGetDurationPropertyKey:
-    - value: '1m'
-      constraints:
-          namespace: 'samples-namespace'
-          taskQueueName: 'longIdleTimeTaskqueue'
+  - value: '1m'
+    constraints:
+      namespace: 'samples-namespace'
+      taskQueueName: 'longIdleTimeTaskqueue'
 testGetFloat64PropertyKey:
-    - value: 12.0
-      constraints:
-          namespace: 'samples-namespace'
+  - value: 12.0
+    constraints:
+      namespace: 'samples-namespace'
 testGetMapPropertyKey:
-    - value:
-          key1: 1
-          key2: 'value 2'
-          key3:
-              - false
-              - key4: true
-                key5: 2.0
+  - value:
+      key1: 1
+      key2: 'value 2'
+      key3:
+        - false
+        - key4: true
+          key5: 2.0
 ```

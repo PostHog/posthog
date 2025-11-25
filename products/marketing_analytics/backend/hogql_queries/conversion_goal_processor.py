@@ -754,6 +754,7 @@ class ConversionGoalProcessor:
         """
         Normalize source field to map alternative UTM sources to primary sources.
         Case-insensitive matching - 'YouTube', 'youtube', 'YOUTUBE' all map to 'google'.
+        Includes both adapter-defined sources and team-configured custom sources.
         """
         # Convert source to lowercase for case-insensitive matching
         lowercase_source = ast.Call(name="lower", args=[source_expr])
@@ -761,7 +762,10 @@ class ConversionGoalProcessor:
         # Build nested if expressions for each mapping
         normalized_expr = source_expr
 
-        source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings()
+        # Get combined source mappings (adapter defaults + team custom sources)
+        source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings(
+            team_config=self.team.marketing_analytics_config
+        )
         for primary_source, alternative_sources in source_mappings.items():
             # Skip the primary source itself in the alternatives list
             alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
@@ -878,12 +882,6 @@ class ConversionGoalProcessor:
             where=where_expr,
             group_by=[ast.Field(chain=[field]) for field in self.config.group_by_fields],
         )
-
-    def generate_cte_query_expr(self, additional_conditions: list[ast.Expr]) -> ast.Expr:
-        """Generate CTE query expression"""
-        cte_name = self.get_cte_name()
-        select_query = self.generate_cte_query(additional_conditions)
-        return ast.Alias(alias=cte_name, expr=select_query)
 
     def generate_join_clause(self, use_full_outer_join: bool = False) -> ast.JoinExpr:
         """Generate JOIN clause for this conversion goal"""

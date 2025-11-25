@@ -1,5 +1,6 @@
 import uuid
 import datetime
+from datetime import timedelta
 from typing import cast
 from urllib.parse import quote, unquote
 
@@ -8,9 +9,11 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -19,8 +22,10 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -1209,6 +1214,110 @@ class TestUserAPI(APIBaseTest):
         assert_allowed_url("https://subdomain.otherexample.com")
         assert_allowed_url("https://sub.subdomain.otherexample.com")
 
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_prepare_toolbar_preloaded_flags_with_feature_flags(self, patched_token):
+        """Test that prepare_toolbar_preloaded_flags creates a cache entry with feature flags"""
+        from django.core.cache import cache
+
+        from posthog.models import FeatureFlag
+
+        patched_token.return_value = "test-cache-key-123"
+
+        # Create some feature flags
+        FeatureFlag.objects.create(team=self.team, key="test-flag-1", created_by=self.user, rollout_percentage=100)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag-2",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100, "variant": "test-variant"}]},
+        )
+
+        response = self.client.post(
+            "/api/user/prepare_toolbar_preloaded_flags/", {"distinct_id": "user123"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        # Should return cache key and flag count
+        self.assertIn("key", data)
+        self.assertIn("flag_count", data)
+        self.assertEqual(data["key"], "test-cache-key-123")
+        self.assertGreater(data["flag_count"], 0)
+
+        # Verify flags are cached with security metadata
+        cached_data = cache.get(f"toolbar_flags_{data['key']}")
+        self.assertIsNotNone(cached_data)
+        self.assertIn("feature_flags", cached_data)
+        self.assertIn("team_id", cached_data)
+        self.assertEqual(cached_data["team_id"], self.team.id)
+        self.assertIn("test-flag-1", cached_data["feature_flags"])
+        self.assertIn("test-flag-2", cached_data["feature_flags"])
+
+    def test_get_toolbar_preloaded_flags_retrieves_from_cache(self):
+        """Test that get_toolbar_preloaded_flags retrieves flags from cache"""
+        from django.core.cache import cache
+
+        # Set up cached flags with metadata
+        test_flags = {"flag1": True, "flag2": "variant-a", "flag3": False}
+        cache_data = {"feature_flags": test_flags, "team_id": self.team.id}
+        cache_key = "toolbar_flags_test-key-456"
+        cache.set(cache_key, cache_data, timeout=300)
+
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key-456")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["featureFlags"], test_flags)
+
+    def test_get_toolbar_preloaded_flags_returns_404_for_missing_key(self):
+        """Test that get_toolbar_preloaded_flags returns 404 for expired/missing cache key"""
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=nonexistent-key")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("error", response.json())
+
+    def test_get_toolbar_preloaded_flags_prevents_cross_team_access(self):
+        """Test that users cannot access flags from other teams"""
+        from django.core.cache import cache
+
+        # Create flags for a different team
+        other_team = Team.objects.create(name="Other Team", organization=self.organization)
+        test_flags = {"secret-flag": True}
+        cache_data = {"feature_flags": test_flags, "team_id": other_team.id}
+        cache_key = "toolbar_flags_test-key-789"
+        cache.set(cache_key, cache_data, timeout=300)
+
+        # Try to access with current user (who belongs to self.team, not other_team)
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key-789")
+
+        # Should be forbidden
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("error", response.json())
+
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_redirect_to_site_with_toolbar_flags_key(self, patched_token):
+        """Test that redirect_to_site passes toolbarFlagsKey through to params"""
+        patched_token.return_value = "tokenvalue"
+
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.save()
+
+        response = self.client.get(
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8010&toolbarFlagsKey=test-key-789"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location_header = response.headers.get("location", "not found")
+
+        # Verify toolbarFlagsKey is in the redirect URL params
+        self.assertIn("toolbarFlagsKey", unquote(location_header))
+        self.assertIn("test-key-789", unquote(location_header))
+
+        # Verify the full params structure
+        decoded_location = unquote(location_header)
+        self.assertIn('"toolbarFlagsKey": "test-key-789"', decoded_location)
+
     def test_user_cannot_update_protected_fields(self):
         self.user.is_staff = False
         self.user.save()
@@ -1477,6 +1586,16 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         # assert events were captured
         mock_capture.assert_any_call(
+            event="user logged in",
+            distinct_id=self.user.distinct_id,
+            properties={"social_provider": ""},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
+        )
+        mock_capture.assert_any_call(
             event="user verified email",
             distinct_id=self.user.distinct_id,
             properties={"$set": ANY},
@@ -1489,7 +1608,7 @@ class TestEmailVerificationAPI(APIBaseTest):
                 "organization": str(self.team.organization_id),
             },
         )
-        self.assertEqual(mock_capture.call_count, 2)
+        self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_verify_if_email_is_not_configured(self):
         set_instance_setting("EMAIL_HOST", "")
@@ -1593,7 +1712,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
 
-    def test_email_verification_does_not_log_in_user(self):
+    def test_email_verification_logs_in_user(self):
         token = email_verification_token_generator.make_token(self.user)
 
         self.client.logout()
@@ -1604,7 +1723,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: Posting sets the session user id but doesn't log in the test client hence we just check the session id
         self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id is None
+        assert session_user_id == str(self.user.id)
 
     def test_email_verification_logs_in_correctuser(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1614,8 +1733,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: The user id in path should basically be ignored
         self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
         session_user_id = self.client.session.get("_auth_user_id")
-        # user should still be logged out
-        assert session_user_id is None
+        assert session_user_id == str(self.other_user.id)
 
     def test_email_verification_does_not_apply_to_current_logged_in_user(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1625,7 +1743,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.other_user.refresh_from_db()
         # Should now be logged in as other user
-        assert self.client.session.get("_auth_user_id") is None
+        assert self.client.session.get("_auth_user_id") == str(self.other_user.id)
         assert not self.user.is_email_verified
         assert self.other_user.is_email_verified
 
@@ -1809,3 +1927,35 @@ class TestUserTwoFactor(APIBaseTest):
 
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_team_scoped_oauth_token_with_user_read_can_access_me_endpoint(self):
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="test_oauth_token",
+            scope="user:read project:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {access_token.token}"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["uuid"], str(self.user.uuid))

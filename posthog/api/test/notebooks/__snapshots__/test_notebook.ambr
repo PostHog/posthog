@@ -25,6 +25,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -51,6 +52,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -110,6 +112,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -187,6 +190,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -275,6 +279,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -347,6 +352,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -414,6 +420,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T5."id",
@@ -441,6 +448,7 @@
          T5."anonymize_data",
          T5."toolbar_mode",
          T5."hedgehog_config",
+         T5."allow_sidebar_suggestions",
          T5."events_column_config",
          T5."email_opt_in"
   FROM "posthog_notebook"
@@ -538,6 +546,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -651,6 +660,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -755,6 +765,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -788,6 +799,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -814,6 +826,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -873,6 +886,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -950,6 +964,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1050,6 +1065,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1111,6 +1127,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_activitylog"
@@ -1146,6 +1163,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1234,6 +1252,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1297,6 +1316,7 @@
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1323,6 +1343,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",

@@ -8,6 +8,7 @@ import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { cn } from 'lib/utils/css-classes'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
@@ -30,7 +31,8 @@ export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'tim
 }
 
 export function ExceptionCard({ issue, issueLoading, event, eventLoading, label }: ExceptionCardProps): JSX.Element {
-    const { setLoading } = useActions(exceptionCardLogic)
+    const cardLogicProps = { issueId: issue?.id ?? 'no-issue' }
+    const { setLoading } = useActions(exceptionCardLogic(cardLogicProps))
 
     useEffect(() => {
         setLoading(eventLoading)
@@ -42,14 +44,16 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
     } as ErrorPropertiesLogicProps
 
     return (
-        <BindLogic logic={errorPropertiesLogic} props={props}>
-            <BindLogic logic={releasePreviewLogic} props={props}>
-                <ExceptionCardContent
-                    issue={issue}
-                    timestamp={event?.timestamp}
-                    issueLoading={issueLoading}
-                    label={label}
-                />
+        <BindLogic logic={exceptionCardLogic} props={cardLogicProps}>
+            <BindLogic logic={errorPropertiesLogic} props={props}>
+                <BindLogic logic={releasePreviewLogic} props={props}>
+                    <ExceptionCardContent
+                        issue={issue}
+                        timestamp={event?.timestamp}
+                        issueLoading={issueLoading}
+                        label={label}
+                    />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )
@@ -60,7 +64,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
+        <LemonCard hoverEffect={false} className={cn('p-0 relative overflow-y-auto w-full')}>
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
                 <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">

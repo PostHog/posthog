@@ -13,7 +13,7 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
+import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
 import {
     CookielessServerHashMode,
     EventHeaders,
@@ -83,6 +83,7 @@ export const COOKIELESS_MODE_FLAG_PROPERTY = '$cookieless_mode'
 export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
+const MAX_SUPPORTED_INGESTION_LAG_HOURS = 72 // if changing this, you will also need to change the TTLs
 
 interface CookielessConfig {
     disabled: boolean
@@ -318,12 +319,6 @@ export class CookielessManager {
 
             if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
                 // $alias and $merge events are not supported in cookieless mode, drop them
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'cookieless_disallowed_event',
-                    })
-                    .inc()
                 results[i] = drop('cookieless_unsupported_event')
                 continue
             }
@@ -332,12 +327,6 @@ export class CookielessManager {
                 team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless
             ) {
                 // $identify events are not supported in stateless cookieless mode, drop them
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'cookieless_stateless_disallowed_identify',
-                    })
-                    .inc()
                 results[i] = drop('cookieless_stateless_no_identify')
                 continue
             }
@@ -347,24 +336,12 @@ export class CookielessManager {
                 team.cookieless_server_hash_mode === CookielessServerHashMode.Disabled
             ) {
                 // if the specific team doesn't have cookieless enabled, drop the event
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'cookieless_team_disabled',
-                    })
-                    .inc()
                 results[i] = drop('cookieless_team_disabled')
                 continue
             }
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
             if (!timestamp) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'cookieless_no_timestamp',
-                    })
-                    .inc()
                 results[i] = drop('cookieless_missing_timestamp')
                 continue
             }
@@ -388,16 +365,6 @@ export class CookielessManager {
                 timezone: eventTimeZone,
             } = getProperties(event, timestamp)
             if (!userAgent || !ip || !host) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: !userAgent
-                            ? 'cookieless_missing_ua'
-                            : !ip
-                              ? 'cookieless_missing_ip'
-                              : 'cookieless_missing_host',
-                    })
-                    .inc()
                 results[i] = drop(
                     !userAgent ? 'cookieless_missing_ua' : !ip ? 'cookieless_missing_ip' : 'cookieless_missing_host'
                 )
@@ -640,12 +607,6 @@ export class CookielessManager {
     ): PipelineResult<IncomingEventWithTeam>[] {
         return events.map((incomingEvent) => {
             if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: dropCause,
-                    })
-                    .inc()
                 return drop(dropCause)
             } else {
                 return ok(incomingEvent)
@@ -723,7 +684,7 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
     startOfDayMinus12.setUTCHours(-MAX_NEGATIVE_TIMEZONE_HOURS) // Start at UTC−12
 
     const endOfDayPlus14 = new Date(utcDate)
-    endOfDayPlus14.setUTCHours(MAX_POSITIVE_TIMEZONE_HOURS + 24) // End at UTC+14
+    endOfDayPlus14.setUTCHours(MAX_POSITIVE_TIMEZONE_HOURS + MAX_SUPPORTED_INGESTION_LAG_HOURS) // End at UTC+14 (72h ingestion lag buffer)
 
     const isGteMinimum = nowUTC >= startOfDayMinus12
     const isLtMaximum = nowUTC < endOfDayPlus14

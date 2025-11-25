@@ -9,12 +9,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
-from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 import jwt
@@ -45,6 +45,7 @@ from posthog.api.utils import (
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.auth import (
+    OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     TemporaryTokenAuthentication,
@@ -52,13 +53,20 @@ from posthog.auth import (
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_deleted_account, report_user_updated, report_user_verified_email
+from posthog.event_usage import (
+    report_user_deleted_account,
+    report_user_logged_in,
+    report_user_updated,
+    report_user_verified_email,
+)
+from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
-from posthog.permissions import APIScopePermission, UserNoOrgMembershipDeletePermission
+from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
@@ -135,6 +143,7 @@ class UserSerializer(serializers.ModelSerializer):
             "scene_personalisation",
             "theme_mode",
             "hedgehog_config",
+            "allow_sidebar_suggestions",
             "role_at_organization",
         ]
 
@@ -405,8 +414,14 @@ class UserViewSet(
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, UserNoOrgMembershipDeletePermission]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        UserNoOrgMembershipDeletePermission,
+        TimeSensitiveActionPermission,
+    ]
+    time_sensitive_allow_if_only_fields = ["theme_mode", "set_current_organization", "allow_sidebar_suggestions"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
@@ -476,12 +491,14 @@ class UserViewSet(
             user.email = user.pending_email
             user.pending_email = None
             user.save()
-            send_email_change_emails.delay(timezone.now().isoformat(), user.first_name, old_email, user.email)
+            send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
 
         user.is_email_verified = True
         user.save()
         report_user_verified_email(user)
 
+        login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
+        report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
     @action(
@@ -538,7 +555,12 @@ class UserViewSet(
         methods=["GET", "PATCH"],
         detail=True,
         throttle_classes=[],
-        authentication_classes=[TemporaryTokenAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication],
+        authentication_classes=[
+            TemporaryTokenAuthentication,
+            SessionAuthentication,
+            PersonalAPIKeyAuthentication,
+            OAuthAccessTokenAuthentication,
+        ],
     )
     def hedgehog_config(self, request, **kwargs):
         instance = self.get_object()
@@ -557,10 +579,15 @@ class UserViewSet(
     @action(methods=["GET"], detail=True)
     def two_factor_start_setup(self, request, **kwargs):
         key = random_hex(20)
-        self.request.session["django_two_factor-hex"] = key
         rawkey = unhexlify(key.encode("ascii"))
         b32key = b32encode(rawkey).decode("utf-8")
-        self.request.session["django_two_factor-qr_secret_key"] = b32key
+
+        # Concurrent requests can overwrite session saves, breaking the 2FA setup flow, but cache is atomic
+        session_cache = SessionCache(request.session)
+
+        # Store for 10 minutes (same as django-two-factor-auth setup flow)
+        session_cache.set("django_two_factor-hex", key, timeout=600, store_in_session=True)
+        session_cache.set("django_two_factor-qr_secret_key", b32key, timeout=600, store_in_session=True)
 
         # Return the secret key so the frontend can generate QR code and show it for manual entry
         return Response(
@@ -577,8 +604,16 @@ class UserViewSet(
 
     @action(methods=["POST"], detail=True)
     def two_factor_validate(self, request, **kwargs):
+        session_cache = SessionCache(request.session)
+        hex_key = session_cache.get("django_two_factor-hex")
+
+        if not hex_key:
+            raise serializers.ValidationError(
+                "2FA setup session expired. Please start setup again.", code="setup_expired"
+            )
+
         form = TOTPDeviceForm(
-            request.session["django_two_factor-hex"],
+            hex_key,
             request.user,
             data={"token": request.data["token"]},
         )
@@ -589,6 +624,9 @@ class UserViewSet(
         set_two_factor_verified_in_session(request)
 
         send_two_factor_auth_enabled_email.delay(request.user.id)
+
+        session_cache.delete("django_two_factor-hex")
+        session_cache.delete("django_two_factor-qr_secret_key")
 
         return Response({"success": True})
 
@@ -651,6 +689,70 @@ class UserViewSet(
 
 
 @authenticate_secondarily
+def get_toolbar_preloaded_flags(request):
+    """Retrieve cached feature flags for toolbar"""
+    toolbar_flags_key = request.GET.get("key")
+
+    if not toolbar_flags_key:
+        logger.warning("[Toolbar Flags] No key parameter provided")
+        return JsonResponse({"error": "key parameter is required"}, status=400)
+
+    cache_key = f"toolbar_flags_{toolbar_flags_key}"
+    cache_data = cache.get(cache_key)
+
+    if cache_data is None:
+        logger.warning(f"[Toolbar Flags] Flags not found or expired for key: {toolbar_flags_key}")
+        return JsonResponse({"error": "Flags not found or expired"}, status=404)
+
+    # Security: Verify the requesting user has access to this team's flags
+    if cache_data.get("team_id") != request.user.team.id:
+        logger.warning(
+            f"[Toolbar Flags] User {request.user.id} attempted to access toolbar flags for team {cache_data.get('team_id')}"
+        )
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    feature_flags = cache_data.get("feature_flags", {})
+
+    return JsonResponse({"featureFlags": feature_flags})
+
+
+@authenticate_secondarily
+@require_http_methods(["POST"])
+def prepare_toolbar_preloaded_flags(request):
+    """
+    Evaluate feature flags for a user and store them in cache for toolbar launch.
+    Returns a cache key to avoid URL length limits.
+    """
+    try:
+        data = json.loads(request.body)
+        distinct_id = data.get("distinct_id")
+
+        if not distinct_id:
+            logger.warning("[Toolbar Flags] No distinct_id provided")
+            return JsonResponse({"error": "distinct_id is required"}, status=400)
+
+        team = request.user.team
+        if not team:
+            logger.warning("[Toolbar Flags] No team found")
+            return JsonResponse({"error": "No team found"}, status=400)
+
+        flags, _, _, _ = get_all_feature_flags(team, distinct_id, groups={})
+        key = secrets.token_urlsafe(16)
+        cache_key = f"toolbar_flags_{key}"
+        cache_data = {
+            "feature_flags": flags,
+            "team_id": team.id,
+        }
+
+        cache.set(cache_key, cache_data, timeout=300)  # 5 minute TTL
+
+        return JsonResponse({"key": key, "flag_count": len(flags)})
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        logger.exception("Error preparing toolbar launch", error=str(e))
+        return JsonResponse({"error": "Invalid request"}, status=400)
+
+
+@authenticate_secondarily
 def redirect_to_site(request):
     REDIRECT_TO_SITE_COUNTER.inc()
     team = request.user.team
@@ -678,6 +780,10 @@ def redirect_to_site(request):
         "apiURL": request.build_absolute_uri("/")[:-1],
         "dataAttributes": team.data_attributes,
     }
+
+    toolbar_flags_key = request.GET.get("toolbarFlagsKey")
+    if toolbar_flags_key:
+        params["toolbarFlagsKey"] = toolbar_flags_key
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True

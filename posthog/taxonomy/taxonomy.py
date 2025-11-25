@@ -376,6 +376,23 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
+        "$sess_rec_flush_size": {
+            "label": "Estimated bytes flushed",
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_flushed_size": {
+            "label": "Estimated bytes flushed",
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$session_recording_remote_config": {
+            "label": "Session recording remote config received",
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "used_for_debug": True,
+        },
         "$initialization_time": {
             "label": "initialization time",
             "description": "The iso formatted timestamp of SDK initialization.",
@@ -426,6 +443,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["100"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "sdk_debug_extensions_init_method": {
+            "label": "PostHog.js extensions init method",
+            "description": "The method used to initialize PostHog.js extensions.",
+            "examples": ["deferred", "synchronous"],
+            "used_for_debug": True,
+        },
+        "sdk_debug_extensions_init_time_ms": {
+            "label": "PostHog.js extensions init time (ms)",
+            "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
+            "examples": ["150"],
             "used_for_debug": True,
         },
         "$sdk_debug_retry_queue_size": {
@@ -739,10 +768,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$exception_is_synthetic": {
             "label": "Exception is synthetic",
             "description": "Whether this was detected as a synthetic exception.",
-        },
-        "$exception_stack_trace_raw": {
-            "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string.",
         },
         "$exception_handled": {
             "label": "Exception was handled",
@@ -1368,6 +1393,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
         },
+        "$feature_flag_evaluated_at": {
+            "label": "Feature flag evaluated at",
+            "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+            "examples": ["1732051200000"],
+        },
         "$feature_flag_version": {
             "label": "Feature flag version",
             "description": "The version of the feature flag that was called.",
@@ -1795,13 +1825,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
-        "$ai_output": {
-            "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
-            ],
-        },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -1893,6 +1916,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Trace ID (LLM)",
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_session_id": {
+            "label": "AI Session ID (LLM)",
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
         },
         "$ai_request_url": {
             "label": "AI Request URL (LLM)",

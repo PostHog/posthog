@@ -1,6 +1,5 @@
-import posthog from 'posthog-js'
-
 import api, { ApiMethodOptions } from 'lib/api'
+import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils'
 
 import {
@@ -40,7 +39,9 @@ export function queryExportContext<N extends DataNode>(
     if (isDataTableNode(query) || isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isInsightQueryNode(query)) {
-        return { source: query }
+        return {
+            source: query,
+        }
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
     }

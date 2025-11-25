@@ -39,6 +39,17 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
     const BATCH_SIZES: &[f64] = &[
         1.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0,
     ];
+    const PAYLOAD_SIZES: &[f64] = &[
+        1024.0,     // 1KB
+        5120.0,     // 5KB
+        10240.0,    // 10KB
+        51200.0,    // 50KB
+        102400.0,   // 100KB
+        1048576.0,  // 1MB
+        10485760.0, // 10MB
+        20971520.0, // 20MB (cutoff for dropping analytics event payloads)
+                    // backend will include Inf+ bucket
+    ];
 
     PrometheusBuilder::new()
         .set_buckets_for_metric(
@@ -47,6 +58,11 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
         )
         .unwrap()
         .set_buckets_for_metric(Matcher::Suffix("_batch_size".to_string()), BATCH_SIZES)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("capture_full_payload_size".to_string()),
+            PAYLOAD_SIZES,
+        )
         .unwrap()
         .install_recorder()
         .unwrap()

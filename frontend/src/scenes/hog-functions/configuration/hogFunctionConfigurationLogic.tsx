@@ -478,6 +478,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         enabled: res.enabled,
                     })
 
+                    // Capture error tracking specific alert event
+                    if (
+                        res.template?.id === 'error-tracking-issue-created' ||
+                        res.template?.id === 'error-tracking-issue-reopened'
+                    ) {
+                        const triggerEvent =
+                            res.template.id === 'error-tracking-issue-created'
+                                ? '$error_tracking_issue_created'
+                                : '$error_tracking_issue_reopened'
+
+                        posthog.capture('error_tracking_alert_created', {
+                            trigger_event: triggerEvent,
+                            subtemplate_id: res.template.id,
+                            has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
+                            enabled: res.enabled,
+                        })
+                    }
+
                     lemonToast.success('Configuration saved')
                     refreshTreeItem('hog_function/', res.id)
 
@@ -1159,14 +1177,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (type, template, hogFunction) => {
                 const codeLanguage = template?.code_language || hogFunction?.template?.code_language
 
+                if (type === 'site_app' || type === 'site_destination') {
+                    return true
+                }
+
                 // Only allow editing if code language is 'hog'
                 if (codeLanguage && codeLanguage !== 'hog') {
                     return false
                 }
 
-                return ['site_destination', 'site_app', 'source_webhook', 'transformation', 'destination'].includes(
-                    type
-                )
+                return ['source_webhook', 'transformation', 'destination'].includes(type)
             },
         ],
 

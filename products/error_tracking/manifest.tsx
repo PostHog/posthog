@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -21,6 +21,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
+            layout: 'app-raw',
         },
         ErrorTrackingIssueFingerprints: {
             import: () =>
@@ -46,7 +47,6 @@ export const manifest: ProductManifest = {
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
         errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
-        /** @param id A UUID or 'new'. ':id' for routing. */
         errorTrackingIssue: (id: string, params: { timestamp?: string; fingerprint?: string } = {}): string =>
             combineUrl(`/error_tracking/${id}`, params).url,
         errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
@@ -58,6 +58,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Error tracking',
+            intents: [ProductKey.ERROR_TRACKING],
             category: 'Behavior',
             type: 'error_tracking',
             iconType: 'error_tracking' as FileSystemIconType,

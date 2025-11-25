@@ -1,5 +1,7 @@
 import dagster
 
+from posthog.settings import TEST
+
 from dags import (
     web_pre_aggregated_accuracy,
     web_preaggregated,
@@ -10,6 +12,19 @@ from dags import (
 )
 
 from . import resources
+
+# Build schedules list conditionally based on TEST mode
+schedules = [
+    web_preaggregated_daily.web_pre_aggregate_daily_schedule,
+    web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
+    web_preaggregated.web_pre_aggregate_historical_schedule,
+    web_preaggregated.web_pre_aggregate_current_day_schedule,
+]
+
+# Only include the backfill schedule when not in TEST mode
+# as it accesses Dagster instance methods that may not be initialized during tests
+if not TEST:
+    schedules.append(web_preaggregated.web_analytics_v2_backfill_schedule)
 
 defs = dagster.Definitions(
     assets=[
@@ -34,11 +49,6 @@ defs = dagster.Definitions(
         web_preaggregated_daily.web_pre_aggregate_daily_job,
         web_preaggregated.web_pre_aggregate_job,
     ],
-    schedules=[
-        web_preaggregated_daily.web_pre_aggregate_daily_schedule,
-        web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
-        web_preaggregated.web_pre_aggregate_historical_schedule,
-        web_preaggregated.web_pre_aggregate_current_day_schedule,
-    ],
+    schedules=schedules,
     resources=resources,
 )

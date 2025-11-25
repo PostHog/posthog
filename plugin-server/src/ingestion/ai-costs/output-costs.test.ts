@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { calculateOutputCost } from './output-costs'
-import { ModelRow } from './providers/types'
+import { ResolvedModelCost } from './providers/types'
 
 // Helper function to create a PluginEvent with default values
 function createAIEvent(properties?: Record<string, any>): PluginEvent {
@@ -24,10 +24,10 @@ function createModel(
     provider?: string,
     promptTokenCost?: number,
     completionTokenCost?: number
-): ModelRow {
+): ResolvedModelCost {
     return {
         model,
-        ...(provider && { provider }),
+        provider: provider ?? 'default',
         cost: {
             prompt_token: promptTokenCost ?? 0.000001,
             completion_token: completionTokenCost ?? 0.000002,

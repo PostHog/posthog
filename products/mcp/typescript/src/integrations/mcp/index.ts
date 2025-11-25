@@ -4,6 +4,7 @@ import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import { getPostHogClient } from '@/integrations/mcp/utils/client'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
 import { CUSTOM_BASE_URL, MCP_DOCS_URL } from '@/lib/constants'
@@ -11,6 +12,8 @@ import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
 import { DurableObjectCache } from '@/lib/utils/cache/DurableObjectCache'
 import { hash } from '@/lib/utils/helper-functions'
+import { registerPrompts } from '@/prompts'
+import { registerResources } from '@/resources'
 import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 
@@ -49,26 +52,23 @@ export class MyMCP extends McpAgent<Env> {
 
     _sessionManager: SessionManager | undefined
 
-    get requestProperties() {
+    get requestProperties(): RequestProperties {
         return this.props as RequestProperties
     }
 
-    get cache() {
+    get cache(): DurableObjectCache<State> {
         if (!this.requestProperties.userHash) {
             throw new Error('User hash is required to use the cache')
         }
 
         if (!this._cache) {
-            this._cache = new DurableObjectCache<State>(
-                this.requestProperties.userHash,
-                this.ctx.storage
-            )
+            this._cache = new DurableObjectCache<State>(this.requestProperties.userHash, this.ctx.storage)
         }
 
         return this._cache
     }
 
-    get sessionManager() {
+    get sessionManager(): SessionManager {
         if (!this._sessionManager) {
             this._sessionManager = new SessionManager(this.cache)
         }
@@ -87,10 +87,7 @@ export class MyMCP extends McpAgent<Env> {
             baseUrl: 'https://eu.posthog.com',
         })
 
-        const [usResult, euResult] = await Promise.all([
-            usClient.users().me(),
-            euClient.users().me(),
-        ])
+        const [usResult, euResult] = await Promise.all([usClient.users().me(), euClient.users().me()])
 
         if (usResult.success) {
             await this.cache.set('region', 'us')
@@ -105,7 +102,7 @@ export class MyMCP extends McpAgent<Env> {
         return undefined
     }
 
-    async getBaseUrl() {
+    async getBaseUrl(): Promise<string> {
         if (CUSTOM_BASE_URL) {
             return CUSTOM_BASE_URL
         }
@@ -119,7 +116,7 @@ export class MyMCP extends McpAgent<Env> {
         return 'https://us.posthog.com'
     }
 
-    async api() {
+    async api(): Promise<ApiClient> {
         if (!this._api) {
             const baseUrl = await this.getBaseUrl()
             this._api = new ApiClient({
@@ -131,7 +128,7 @@ export class MyMCP extends McpAgent<Env> {
         return this._api
     }
 
-    async getDistinctId() {
+    async getDistinctId(): Promise<string> {
         let _distinctId = await this.cache.get('distinctId')
 
         if (!_distinctId) {
@@ -146,7 +143,7 @@ export class MyMCP extends McpAgent<Env> {
         return _distinctId
     }
 
-    async trackEvent(event: AnalyticsEvent, properties: Record<string, any> = {}) {
+    async trackEvent(event: AnalyticsEvent, properties: Record<string, any> = {}): Promise<void> {
         try {
             const distinctId = await this.getDistinctId()
 
@@ -158,16 +155,14 @@ export class MyMCP extends McpAgent<Env> {
                 properties: {
                     ...(this.requestProperties.sessionId
                         ? {
-                              $session_id: await this.sessionManager.getSessionUuid(
-                                  this.requestProperties.sessionId
-                              ),
+                              $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
                           }
                         : {}),
                     ...properties,
                 },
             })
-        } catch (error) {
-            //
+        } catch {
+            // skip
         }
     }
 
@@ -175,7 +170,7 @@ export class MyMCP extends McpAgent<Env> {
         tool: Tool<z.ZodObject<TSchema>>,
         handler: (params: z.infer<z.ZodObject<TSchema>>) => Promise<any>
     ): void {
-        const wrappedHandler = async (params: z.infer<z.ZodObject<TSchema>>) => {
+        const wrappedHandler = async (params: z.infer<z.ZodObject<TSchema>>): Promise<any> => {
             const validation = tool.schema.safeParse(params)
 
             if (!validation.success) {
@@ -206,7 +201,15 @@ export class MyMCP extends McpAgent<Env> {
                     input: params,
                     output: result,
                 })
-                return result
+
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: formatResponse(result),
+                        },
+                    ],
+                }
             } catch (error: any) {
                 const distinctId = await this.getDistinctId()
                 return handleToolError(
@@ -243,10 +246,14 @@ export class MyMCP extends McpAgent<Env> {
         }
     }
 
-    async init() {
+    async init(): Promise<void> {
         const context = await this.getContext()
 
-        // Get features from request properties if available
+        // Register prompts and resources
+        await registerPrompts(this.server, context)
+        await registerResources(this.server, context)
+
+        // Register tools
         const features = this.requestProperties.features
         const allTools = await getToolsFromContext(context, features)
 
@@ -284,7 +291,7 @@ export default {
             )
         }
 
-        if (!token.startsWith('phx_')) {
+        if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
             return new Response(
                 `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
                 {

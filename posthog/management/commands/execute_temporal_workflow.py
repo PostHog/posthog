@@ -18,6 +18,7 @@ from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOW
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
+from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
 
@@ -87,6 +88,12 @@ class Command(BaseCommand):
             default=settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS,
             help="Number of max attempts",
         )
+        parser.add_argument(
+            "--use-pydantic-converter",
+            action="store_true",
+            default=settings.TEMPORAL_USE_PYDANTIC_CONVERTER,
+            help="Use Pydantic data converter",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -98,6 +105,7 @@ class Command(BaseCommand):
         client_key = options.get("client_key", None)
         workflow_id = options["workflow_id"]
         workflow_name = options["workflow"]
+        use_pydantic_converter = options["use_pydantic_converter"]
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
@@ -110,6 +118,7 @@ class Command(BaseCommand):
                 server_root_ca_cert=server_root_ca_cert,
                 client_cert=client_cert,
                 client_key=client_key,
+                use_pydantic_converter=use_pydantic_converter,
             )
         )
         retry_policy = RetryPolicy(maximum_attempts=int(options["max_attempts"]))
@@ -126,6 +135,7 @@ class Command(BaseCommand):
             + TEST_WORKFLOWS
             + DELETE_RECORDING_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+            + WEEKLY_DIGEST_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))

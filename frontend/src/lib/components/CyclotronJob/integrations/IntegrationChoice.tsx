@@ -8,6 +8,7 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
+import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
@@ -120,21 +121,30 @@ export function IntegrationChoice({
                                     },
                                 ],
                             }
-                          : {
-                                items: [
-                                    {
-                                        to: api.integrations.authorizeUrl({
-                                            kind,
-                                            next: redirectUrl,
-                                        }),
-                                        disableClientSideRouting: true,
-                                        onClick: beforeRedirect,
-                                        label: integrationsOfKind?.length
-                                            ? `Connect to a different integration for ${kindName}`
-                                            : `Connect to ${kindName}`,
-                                    },
-                                ],
-                            },
+                          : ['gitlab'].includes(kind)
+                            ? {
+                                  items: [
+                                      {
+                                          label: 'Configure new GitLab account',
+                                          onClick: () => openNewIntegrationModal('gitlab'),
+                                      },
+                                  ],
+                              }
+                            : {
+                                  items: [
+                                      {
+                                          to: api.integrations.authorizeUrl({
+                                              kind,
+                                              next: redirectUrl,
+                                          }),
+                                          disableClientSideRouting: true,
+                                          onClick: beforeRedirect,
+                                          label: integrationsOfKind?.length
+                                              ? `Connect to a different integration for ${kindName}`
+                                              : `Connect to ${kindName}`,
+                                      },
+                                  ],
+                              },
                 {
                     items: [
                         {
@@ -180,6 +190,7 @@ export function IntegrationChoice({
                 integration={integrationKind || undefined}
                 onComplete={handleNewDatabricksIntegration}
             />
+            <GitLabSetupModal isOpen={newIntegrationModalKind === 'gitlab'} onComplete={closeNewIntegrationModal} />
         </>
     )
 }

@@ -8,8 +8,12 @@ import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
+    BasicSurveyQuestion,
     EventPropertyFilter,
+    LinkSurveyQuestion,
+    MultipleSurveyQuestion,
     QuestionProcessedResponses,
+    RatingSurveyQuestion,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
@@ -95,6 +99,15 @@ export const getResponseFieldWithId = (
         indexBasedKey: getSurveyResponseKey(questionIndex),
         idBasedKey: questionId ? getSurveyIdBasedResponseKey(questionId) : undefined,
     }
+}
+
+export function getSurveyResponseValue(
+    eventProperties: Record<string, any>,
+    questionIndex: number,
+    questionId?: string
+): any {
+    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(questionIndex, questionId)
+    return (idBasedKey && eventProperties[idBasedKey]) ?? eventProperties[indexBasedKey]
 }
 
 export function sanitizeSurveyDisplayConditions(
@@ -479,7 +492,11 @@ export function buildPartialResponsesFilter(survey: Survey): string {
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }
 
-export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
+interface SanitizeSurveyOptions {
+    keepEmptyConditions?: boolean
+}
+
+export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurveyOptions): Partial<Survey> {
     const sanitizedQuestions =
         survey.questions?.map((question) => ({
             ...question,
@@ -514,7 +531,7 @@ export function sanitizeSurvey(survey: Partial<Survey>): Partial<Survey> {
         sanitized.targeting_flag_filters = undefined
     }
 
-    if (!conditions || Object.keys(conditions).length === 0) {
+    if (options?.keepEmptyConditions !== true && (!conditions || Object.keys(conditions).length === 0)) {
         delete sanitized.conditions
     }
     if (!sanitizedAppearance || Object.keys(sanitizedAppearance).length === 0) {
@@ -614,4 +631,14 @@ export function buildSurveyTimestampFilter(
 
     return `AND timestamp >= '${fromDate}'
     AND timestamp <= '${toDate}'`
+}
+
+export function getExpressionCommentForQuestion(
+    q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion,
+    questionIndex: number
+): string {
+    if (q.question.trim().length > 0) {
+        return q.question
+    }
+    return `Question ${questionIndex + 1}`
 }

@@ -112,16 +112,18 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     })),
     reducers(() => ({
         filters: {
-            setFilters: (_, { filters }) => {
-                // Only assign sort_keys to groups that don't have one
+            setFilters: (state, { filters }) => {
+                // Preserve sort_keys from previous state when possible
                 const groupsWithKeys = filters.groups.map(
-                    (group: FeatureFlagGroupType): FeatureFlagGroupTypeWithSortKey => {
+                    (group: FeatureFlagGroupType, index: number): FeatureFlagGroupTypeWithSortKey => {
                         if (group.sort_key) {
                             return group as FeatureFlagGroupTypeWithSortKey
                         }
+                        // Try to preserve sort_key from same index in previous state
+                        const previousSortKey = state?.groups?.[index]?.sort_key
                         return {
                             ...group,
-                            sort_key: uuidv4(),
+                            sort_key: previousSortKey ?? uuidv4(),
                         }
                     }
                 )
@@ -486,7 +488,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         value: isEmptyProperty(property) ? "Property filters can't be empty" : undefined,
                     })),
                     rollout_percentage:
-                        rollout_percentage === undefined ? 'You need to set a rollout % value' : undefined,
+                        rollout_percentage === undefined || rollout_percentage === null
+                            ? 'You need to set a rollout % value'
+                            : isNaN(Number(rollout_percentage))
+                              ? 'Rollout percentage must be a valid number'
+                              : rollout_percentage < 0 || rollout_percentage > 100
+                                ? 'Rollout percentage must be between 0 and 100'
+                                : undefined,
                     variant: null,
                 }))
             },

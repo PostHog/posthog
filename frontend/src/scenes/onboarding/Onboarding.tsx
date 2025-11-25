@@ -17,15 +17,16 @@ import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/ses
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     AvailableFeature,
     OnboardingStepKey,
-    ProductKey,
     type SessionRecordingMaskingLevel,
     TeamPublicType,
     TeamType,
 } from '~/types'
 
+import { OnboardingAIConsent } from './OnboardingAIConsent'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
@@ -42,6 +43,7 @@ import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
+import { LLMAnalyticsSDKInstructions } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { sdksLogic } from './sdks/sdksLogic'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
@@ -79,6 +81,7 @@ const OnboardingWrapper = ({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+    const showAIConsentStep = useFeatureFlag('ONBOARDING_AI_CONSENT_STEP', 'test')
 
     useEffect(() => {
         let steps = []
@@ -111,10 +114,15 @@ const OnboardingWrapper = ({
             steps = [...steps, inviteTeammatesStep]
         }
 
+        if (showAIConsentStep) {
+            const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
+            steps = [...steps, aiConsentStep]
+        }
+
         steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization, showAIConsentStep]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {
@@ -461,6 +469,19 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
     )
 }
 
+const LLMAnalyticsOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <OnboardingInstallStep
+                sdkInstructionMap={LLMAnalyticsSDKInstructions}
+                productKey={ProductKey.LLM_ANALYTICS}
+                stepKey={OnboardingStepKey.INSTALL}
+                listeningForName="LLM generation"
+            />
+        </OnboardingWrapper>
+    )
+}
+
 export const onboardingViews = {
     [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
     [ProductKey.WEB_ANALYTICS]: WebAnalyticsOnboarding,
@@ -470,6 +491,7 @@ export const onboardingViews = {
     [ProductKey.SURVEYS]: SurveysOnboarding,
     [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
     [ProductKey.ERROR_TRACKING]: ErrorTrackingOnboarding,
+    [ProductKey.LLM_ANALYTICS]: LLMAnalyticsOnboarding,
 }
 
 export function Onboarding(): JSX.Element | null {

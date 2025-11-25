@@ -1,14 +1,11 @@
 // Flag evaluation counters
 pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_total";
-pub const FLAG_CACHE_HIT_COUNTER: &str = "flags_flag_cache_hit_total";
-pub const FLAG_CACHE_ERRORS_COUNTER: &str = "flags_flag_cache_errors_total";
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
 pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
 pub const TEAM_CACHE_HIT_COUNTER: &str = "flags_team_cache_hit_total";
 pub const TEAM_CACHE_ERRORS_COUNTER: &str = "flags_team_cache_errors_total";
 pub const DB_TEAM_READS_COUNTER: &str = "flags_db_team_reads_total";
 pub const TOKEN_VALIDATION_ERRORS_COUNTER: &str = "flags_token_validation_errors_total";
-pub const DB_FLAG_READS_COUNTER: &str = "flags_db_flag_reads_total";
 pub const DB_COHORT_READS_COUNTER: &str = "flags_db_cohort_reads_total";
 pub const DB_COHORT_ERRORS_COUNTER: &str = "flags_db_cohort_errors_total";
 pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
@@ -52,11 +49,19 @@ pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";
 pub const FLAG_POOL_UTILIZATION_GAUGE: &str = "flags_pool_utilization_ratio";
 pub const FLAG_CONNECTION_HOLD_TIME: &str = "flags_connection_hold_time_ms";
 pub const FLAG_CONNECTION_QUEUE_DEPTH_GAUGE: &str = "flags_connection_queue_depth";
-pub const FLAG_READER_TIMEOUT_WITH_WRITER_STATE_COUNTER: &str =
-    "flags_reader_timeout_with_writer_state_total";
 pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
     "flags_experience_continuity_requests_total";
 
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Timeout tracking and classification
+pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
+
+// Error classification
+pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
+
+// Tombstone metric for tracking "impossible" failures that should never happen in production
+// Different failure types are tracked via the "failure_type" label
+pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";

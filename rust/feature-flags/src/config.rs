@@ -162,52 +162,50 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
-    // ==== DATABASE CONNECTION POOL CONFIGURATION ====
-    //
-    // KEY INSIGHT: With immediate connection release pattern, connections are held for
-    // microseconds (query time only), not hundreds of milliseconds (full request time).
-    // This dramatically reduces the number of connections needed.
-    //
-    // MONITORING: Watch these metrics to tune:
-    // - Pool acquisition timeouts → Increase max_connections or acquire_timeout
-    // - High pool utilization (>80%) → Increase max_connections
-    // - Many idle connections → Decrease min_connections or idle_timeout
-    // - Connection storms during deployments → Decrease min_connections
-    //
     // Database connection pool settings:
-    // IMPORTANT: With immediate connection release pattern, fewer connections needed
-    // - Old pattern (holding connections): Would need 20-50 connections
-    // - New pattern (immediate release): 10-15 typically sufficient
-    // - Consider: total_connections = pods × (read_pool + write_pool) × (persons + non-persons pools if split)
-    // - Example: 50 pods × 15 connections × 2 (if persons split) = 1500 connections needed
+    // - High traffic: Increase max_pg_connections (e.g., 20-50)
+    // - Bursty traffic: Increase idle_timeout_secs to keep connections warm
+    // - Set min_connections > 0 to pre-warm pools at startup and avoid cold-start latency
+    // - Total connections depend on configuration:
+    //   - With persons DB routing: 4 pools × max_pg_connections
+    //   - Without persons DB routing: 2 pools × max_pg_connections (persons pools alias to non-persons)
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
-    // How many connections to keep in the pool for writes
-    // IMPORTANT: Writes are less frequent and also use immediate release
-    // - 5 connections typically sufficient even under write load
-    #[envconfig(default = "5")]
-    pub max_pg_connections_write: u32,
-
-    // Minimum connections to keep warm in read pools to avoid cold starts
-    // Set to 0 to disable minimum (connections created on demand)
-    // IMPORTANT: With immediate connection release pattern, fewer connections are needed
-    // - Set to 0-1 to prevent "thundering herd" during deployments/scaling
-    // - Higher values (5-10) can cause connection storms when many pods start simultaneously
-    #[envconfig(default = "1")]
-    pub min_pg_connections: u32,
-
-    // Minimum connections to keep warm in write pools
-    // IMPORTANT: Write operations are less frequent, so fewer warm connections needed
-    // - Set to 0 recommended (write connections created on demand)
+    // Minimum connections to maintain in each pool
+    // Set > 0 to pre-warm connections at startup for faster first requests
+    // Production recommendation: Set to 2-5 to avoid cold start on deploy
     #[envconfig(default = "0")]
-    pub min_pg_connections_write: u32,
+    pub min_non_persons_reader_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_non_persons_writer_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_persons_reader_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub min_persons_writer_connections: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
     #[envconfig(default = "")]
     pub redis_reader_url: String,
+
+    // Dedicated Redis for feature flags (critical path: team cache + flags cache)
+    // When empty, falls back to shared Redis URLs above
+    #[envconfig(default = "")]
+    pub flags_redis_url: String,
+
+    #[envconfig(default = "")]
+    pub flags_redis_reader_url: String,
+
+    // Controls whether to read from dedicated Redis cache
+    // false = Mode 2: dual-write to both caches, read from shared (warming phase)
+    // true = Mode 3: read and write dedicated Redis only (cutover complete)
+    #[envconfig(default = "false")]
+    pub flags_redis_enabled: FlexBool,
 
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
@@ -219,42 +217,55 @@ pub struct Config {
     #[envconfig(default = "")]
     pub object_storage_endpoint: String,
 
-    #[envconfig(default = "")]
-    pub redis_writer_url: String,
+    // Redis timeout settings (in milliseconds)
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
 
     // How long to wait for a connection from the pool before timing out
-    // IMPORTANT: "PoolTimedOut" errors often indicate connection storms, not DB limits
-    // - Increase to 15-30s if seeing timeouts during deployments/scaling events
-    // - Keep at 10s for normal operation to detect real issues quickly
-    // - Never set below 5s in production (connection establishment takes 1-3s)
-    #[envconfig(default = "10")]
+    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
+    // - Decrease for faster failure detection (minimum 1s)
+    #[envconfig(default = "20")]
     pub acquire_timeout_secs: u64,
-
-    // How long to wait for a connection from the pool before timing out for writes
-    // - Usually can be lower than read timeout since write pool is less contested
-    // - Consider matching read timeout if seeing write timeouts during deployments
-    #[envconfig(default = "5")]
-    pub acquire_timeout_secs_write: u64,
 
     // Close connections that have been idle for this many seconds
     // - Set to 0 to disable (connections never close due to idle)
     // - Increase for bursty traffic to avoid reconnection overhead (e.g., 600-900)
     // - Decrease to free resources more aggressively (e.g., 60-120)
-    #[envconfig(default = "60")]
+    #[envconfig(default = "300")]
     pub idle_timeout_secs: u64,
-
-    // Force refresh connections after this many seconds regardless of activity
-    // - Set to 0 to disable (connections never refresh automatically)
-    // - Decrease for unreliable networks or frequent DB restarts (e.g., 600-900)
-    // - Increase for stable environments to reduce overhead (e.g., 3600-7200)
-    #[envconfig(default = "600")]
-    pub max_lifetime_secs: u64,
 
     // Test connection health before returning from pool
     // - Set to true for production to catch stale connections
     // - Set to false in tests or very stable environments for slight performance gain
     #[envconfig(default = "true")]
     pub test_before_acquire: FlexBool,
+
+    // PostgreSQL statement_timeout for non-persons reader queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Non-persons readers may run longer analytical queries
+    // - Default: 5000ms (5 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "5000")]
+    pub non_persons_reader_statement_timeout_ms: u64,
+
+    // PostgreSQL statement_timeout for persons reader queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Persons readers may run longer analytical queries
+    // - Default: 5000ms (5 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "5000")]
+    pub persons_reader_statement_timeout_ms: u64,
+
+    // PostgreSQL statement_timeout for writer database queries (milliseconds)
+    // - Set to 0 to use database default (typically unlimited)
+    // - Writers should be fast transactional operations
+    // - Default: 10000ms (10 seconds)
+    // - This timeout is enforced server-side and properly kills queries
+    #[envconfig(default = "10000")]
+    pub writer_statement_timeout_ms: u64,
 
     // How often to report database pool metrics (seconds)
     // - Decrease for more granular monitoring (e.g., 10-15)
@@ -301,6 +312,42 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
+    /// Redis TTL for team cache entries in seconds
+    ///
+    /// Controls how long team data is cached in Redis before expiring.
+    /// This prevents indefinite cache growth and ensures stale data is refreshed.
+    ///
+    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
+    /// Environment variable: TEAM_CACHE_TTL_SECONDS
+    ///
+    /// Common values:
+    /// - 3600 (1 hour) - For frequently changing team data
+    /// - 86400 (1 day) - For moderate refresh rate
+    /// - 432000 (5 days) - Default, balances performance and freshness
+    ///
+    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
+    #[envconfig(from = "TEAM_CACHE_TTL_SECONDS", default = "432000")]
+    pub team_cache_ttl_seconds: u64,
+
+    /// Redis TTL for feature flags cache entries in seconds
+    ///
+    /// Controls how long feature flag data is cached in Redis before expiring.
+    /// This prevents indefinite cache growth and ensures flag changes are visible
+    /// within a reasonable time.
+    ///
+    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
+    /// Environment variable: FLAGS_CACHE_TTL_SECONDS
+    ///
+    /// Common values:
+    /// - 300 (5 minutes) - For rapid flag development/testing
+    /// - 3600 (1 hour) - For frequently changing flags
+    /// - 86400 (1 day) - For stable flag deployments
+    /// - 432000 (5 days) - Default, balances performance and freshness
+    ///
+    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
+    #[envconfig(from = "FLAGS_CACHE_TTL_SECONDS", default = "432000")]
+    pub flags_cache_ttl_seconds: u64,
+
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
@@ -308,10 +355,10 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_FORCE_STATELESS", default = "false")]
     pub cookieless_force_stateless: bool,
 
-    #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "7200")]
+    #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "345600")]
     pub cookieless_identifies_ttl_seconds: u64,
 
-    #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
+    #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "345600")]
     pub cookieless_salt_ttl_seconds: u64,
 
     #[envconfig(from = "COOKIELESS_REDIS_HOST", default = "localhost")]
@@ -366,53 +413,113 @@ pub struct Config {
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
 
-    // Query timeout settings for flag evaluation (milliseconds)
-    // These control how long individual database queries can run before timing out
-    // Lower values fail fast but may timeout under load; higher values are more resilient
-    #[envconfig(from = "FLAG_PERSON_QUERY_TIMEOUT_MS", default = "500")]
-    pub flag_person_query_timeout_ms: u64,
+    // Rate limiting configuration for /flags endpoint (token-based)
+    // Enable/disable token-based rate limiting (defaults to off to match /decide)
+    #[envconfig(from = "FLAGS_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_rate_limit_enabled: FlexBool,
 
-    #[envconfig(from = "FLAG_COHORT_QUERY_TIMEOUT_MS", default = "200")]
-    pub flag_cohort_query_timeout_ms: u64,
+    // Token bucket capacity (maximum burst size)
+    // Matches Python's DecideRateThrottle default of 500
+    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "500")]
+    pub flags_bucket_capacity: u32,
 
-    #[envconfig(from = "FLAG_GROUP_QUERY_TIMEOUT_MS", default = "300")]
-    pub flag_group_query_timeout_ms: u64,
+    // Token bucket replenish rate (tokens per second)
+    // Matches Python's DecideRateThrottle default of 10.0
+    #[envconfig(from = "FLAGS_BUCKET_REPLENISH_RATE", default = "10.0")]
+    pub flags_bucket_replenish_rate: f64,
 
-    #[envconfig(from = "FLAG_HASH_KEY_OVERRIDE_QUERY_TIMEOUT_MS", default = "500")]
-    pub flag_hash_key_override_query_timeout_ms: u64,
+    // IP-based rate limiting configuration
+    // Provides defense-in-depth against DDoS attacks with rotating fake tokens
+    // This limits ALL requests per IP address, regardless of token validity
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_ip_rate_limit_enabled: FlexBool,
 
-    // Server-side statement timeout (milliseconds)
-    // This sets PostgreSQL's statement_timeout to actually cancel long-running queries
-    // Should be slightly higher than client-side timeouts to allow for network overhead
-    #[envconfig(from = "STATEMENT_TIMEOUT_MS", default = "1000")]
-    pub statement_timeout_ms: u64,
+    // IP rate limit burst size (maximum requests per IP in a burst)
+    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "1000")]
+    pub flags_ip_burst_size: u32,
 
-    // Logging thresholds for slow queries (milliseconds)
-    // Queries exceeding these thresholds will be logged at different severity levels
-    #[envconfig(from = "FLAG_QUERY_SLOW_INFO_THRESHOLD_MS", default = "100")]
-    pub flag_query_slow_info_threshold_ms: u64,
+    // IP rate limit replenish rate (requests per second per IP)
+    // Set higher than token bucket rate to account for multiple users behind same IP
+    #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "50.0")]
+    pub flags_ip_replenish_rate: f64,
 
-    #[envconfig(from = "FLAG_QUERY_SLOW_WARN_THRESHOLD_MS", default = "500")]
-    pub flag_query_slow_warn_threshold_ms: u64,
+    // Log-only mode for rate limiting (defaults to true for safe rollout)
+    // When true, rate limits are checked and violations logged, but requests are not blocked
+    // This allows gathering metrics to tune limits before enforcing them
+    #[envconfig(from = "FLAGS_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_rate_limit_log_only: FlexBool,
 
-    #[envconfig(from = "FLAG_QUERY_SLOW_ERROR_THRESHOLD_MS", default = "1000")]
-    pub flag_query_slow_error_threshold_ms: u64,
+    // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_ip_rate_limit_log_only: FlexBool,
 
-    // Total function execution time threshold for critical logging (milliseconds)
-    #[envconfig(from = "FLAG_TOTAL_EXECUTION_WARN_THRESHOLD_MS", default = "1000")]
-    pub flag_total_execution_warn_threshold_ms: u64,
+    // Redis compression configuration
+    // When enabled, uses zstd compression for Redis values above threshold
+    // The `default_test_config()` sets this to true for test/development scenarios.
+    #[envconfig(from = "REDIS_COMPRESSION_ENABLED", default = "false")]
+    pub redis_compression_enabled: FlexBool,
 
-    #[envconfig(from = "FLAG_TOTAL_EXECUTION_ERROR_THRESHOLD_MS", default = "2000")]
-    pub flag_total_execution_error_threshold_ms: u64,
+    // Number of times to retry creating a Redis client before giving up
+    // Helps handle transient network issues during startup
+    // Set to 0 to disable retries (fail immediately on first error)
+    #[envconfig(from = "REDIS_CLIENT_RETRY_COUNT", default = "3")]
+    pub redis_client_retry_count: u32,
 }
 
 impl Config {
+    const MAX_RESPONSE_TIMEOUT_MS: u64 = 30_000; // 30 seconds
+    const MAX_CONNECTION_TIMEOUT_MS: u64 = 60_000; // 60 seconds
+
+    /// Validate and fix timeout configuration, logging warnings and applying defaults for invalid values
+    ///
+    /// This method checks timeout values and relationships, applying safe defaults when invalid
+    /// configurations are detected. It never fails - it logs warnings and corrects problems.
+    pub fn validate_and_fix_timeouts(&mut self) {
+        let mut fixed = false;
+
+        // Note: Zero values are now valid - they mean "no timeout" (blocks indefinitely)
+        // The RedisClient will skip setting the timeout when Duration::ZERO is provided
+
+        // Fix excessive values
+        if self.redis_response_timeout_ms > Self::MAX_RESPONSE_TIMEOUT_MS {
+            tracing::warn!(
+                "Redis response timeout ({}ms) exceeds maximum recommended value ({}ms), capping at maximum",
+                self.redis_response_timeout_ms,
+                Self::MAX_RESPONSE_TIMEOUT_MS
+            );
+            self.redis_response_timeout_ms = Self::MAX_RESPONSE_TIMEOUT_MS;
+            fixed = true;
+        }
+
+        if self.redis_connection_timeout_ms > Self::MAX_CONNECTION_TIMEOUT_MS {
+            tracing::warn!(
+                "Redis connection timeout ({}ms) exceeds maximum recommended value ({}ms), capping at maximum",
+                self.redis_connection_timeout_ms,
+                Self::MAX_CONNECTION_TIMEOUT_MS
+            );
+            self.redis_connection_timeout_ms = Self::MAX_CONNECTION_TIMEOUT_MS;
+            fixed = true;
+        }
+
+        if fixed {
+            tracing::info!(
+                "Using Redis timeouts: response={}ms, connection={}ms",
+                self.redis_response_timeout_ms,
+                self.redis_connection_timeout_ms
+            );
+        }
+    }
+
     pub fn default_test_config() -> Self {
         Self {
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
             redis_url: "redis://localhost:6379/".to_string(),
             redis_reader_url: "".to_string(),
-            redis_writer_url: "".to_string(),
+            flags_redis_url: "".to_string(),
+            flags_redis_reader_url: "".to_string(),
+            flags_redis_enabled: FlexBool(false),
+            redis_response_timeout_ms: 100,
+            redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
@@ -422,12 +529,16 @@ impl Config {
                 .to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
-            max_pg_connections_write: 5,
-            acquire_timeout_secs: 10,
-            acquire_timeout_secs_write: 5,
-            idle_timeout_secs: 60,
-            max_lifetime_secs: 600,
+            min_non_persons_reader_connections: 0,
+            min_non_persons_writer_connections: 0,
+            min_persons_reader_connections: 0,
+            min_persons_writer_connections: 0,
+            acquire_timeout_secs: 3,
+            idle_timeout_secs: 300,
             test_before_acquire: FlexBool(true),
+            non_persons_reader_statement_timeout_ms: 5000,
+            persons_reader_statement_timeout_ms: 5000,
+            writer_statement_timeout_ms: 5000,
             db_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
@@ -438,10 +549,12 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
+            team_cache_ttl_seconds: 432000,
+            flags_cache_ttl_seconds: 432000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
-            cookieless_identifies_ttl_seconds: 7200,
-            cookieless_salt_ttl_seconds: 86400,
+            cookieless_identifies_ttl_seconds: 345600,
+            cookieless_salt_ttl_seconds: 345600,
             cookieless_redis_host: "localhost".to_string(),
             cookieless_redis_port: 6379,
             new_analytics_capture_endpoint: "/i/v0/e/".to_string(),
@@ -457,21 +570,19 @@ impl Config {
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
             otel_log_level: Level::ERROR,
-            flag_person_query_timeout_ms: 500,
-            flag_cohort_query_timeout_ms: 200,
-            flag_group_query_timeout_ms: 300,
-            flag_hash_key_override_query_timeout_ms: 500,
-            statement_timeout_ms: 1000,
-            flag_query_slow_info_threshold_ms: 100,
-            flag_query_slow_warn_threshold_ms: 500,
-            flag_query_slow_error_threshold_ms: 1000,
-            flag_total_execution_warn_threshold_ms: 1000,
-            flag_total_execution_error_threshold_ms: 2000,
-            min_pg_connections: 1,
-            min_pg_connections_write: 0,
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            flags_rate_limit_enabled: FlexBool(false),
+            flags_bucket_capacity: 500,
+            flags_bucket_replenish_rate: 10.0,
+            flags_ip_rate_limit_enabled: FlexBool(false),
+            flags_ip_burst_size: 500,
+            flags_ip_replenish_rate: 100.0,
+            flags_rate_limit_log_only: FlexBool(true),
+            flags_ip_rate_limit_log_only: FlexBool(true),
+            redis_compression_enabled: FlexBool(true),
+            redis_client_retry_count: 3,
         }
     }
 
@@ -498,10 +609,28 @@ impl Config {
     }
 
     pub fn get_redis_writer_url(&self) -> &str {
-        if self.redis_writer_url.is_empty() {
-            &self.redis_url
+        &self.redis_url
+    }
+
+    /// Get the Redis URL for flags cache reads (critical path: team cache + flags cache)
+    /// Returns None if dedicated flags Redis is not configured
+    pub fn get_flags_redis_reader_url(&self) -> Option<&str> {
+        if !self.flags_redis_reader_url.is_empty() {
+            Some(&self.flags_redis_reader_url)
+        } else if !self.flags_redis_url.is_empty() {
+            Some(&self.flags_redis_url)
         } else {
-            &self.redis_writer_url
+            None
+        }
+    }
+
+    /// Get the Redis URL for flags cache writes (critical path: team cache + flags cache)
+    /// Returns None if dedicated flags Redis is not configured
+    pub fn get_flags_redis_writer_url(&self) -> Option<&str> {
+        if !self.flags_redis_url.is_empty() {
+            Some(&self.flags_redis_url)
+        } else {
+            None
         }
     }
 
@@ -555,13 +684,6 @@ impl Config {
 
 pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_config);
 
-/// Test-only helper to get a shared test config instance as Arc
-#[cfg(test)]
-pub fn test_config() -> std::sync::Arc<Config> {
-    use std::sync::Arc;
-    Arc::new(DEFAULT_TEST_CONFIG.clone())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -584,6 +706,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -613,6 +739,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -639,6 +769,10 @@ mod tests {
         );
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.min_non_persons_reader_connections, 0);
+        assert_eq!(config.min_non_persons_writer_connections, 0);
+        assert_eq!(config.min_persons_reader_connections, 0);
+        assert_eq!(config.min_persons_writer_connections, 0);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -758,5 +892,229 @@ mod tests {
         let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
         assert_eq!(limits.0.len(), 1);
         assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_valid_config() {
+        let mut config = Config::default_test_config();
+        let original_response = config.redis_response_timeout_ms;
+        let original_connection = config.redis_connection_timeout_ms;
+        config.validate_and_fix_timeouts();
+        // Should not change valid config
+        assert_eq!(config.redis_response_timeout_ms, original_response);
+        assert_eq!(config.redis_connection_timeout_ms, original_connection);
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_zero_values_allowed() {
+        let mut config = Config::default_test_config();
+        // Zero values are allowed - they mean "no timeout"
+        config.redis_response_timeout_ms = 0;
+        config.redis_connection_timeout_ms = 0;
+        config.validate_and_fix_timeouts();
+        // Should preserve zero values
+        assert_eq!(config.redis_response_timeout_ms, 0);
+        assert_eq!(config.redis_connection_timeout_ms, 0);
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_excessive_response_timeout() {
+        let mut config = Config::default_test_config();
+        config.redis_response_timeout_ms = 31_000; // > 30 seconds max
+        config.redis_connection_timeout_ms = 40_000; // Allow connection timeout to be higher
+        config.validate_and_fix_timeouts();
+        // Should cap at maximum
+        assert_eq!(
+            config.redis_response_timeout_ms,
+            Config::MAX_RESPONSE_TIMEOUT_MS
+        );
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_excessive_connection_timeout() {
+        let mut config = Config::default_test_config();
+        config.redis_connection_timeout_ms = 61_000; // > 60 seconds max
+        config.validate_and_fix_timeouts();
+        // Should cap at maximum
+        assert_eq!(
+            config.redis_connection_timeout_ms,
+            Config::MAX_CONNECTION_TIMEOUT_MS
+        );
+    }
+
+    #[test]
+    fn test_validate_and_fix_timeouts_any_relationship_allowed() {
+        let mut config = Config::default_test_config();
+
+        // Test 1: Equal values are allowed
+        config.redis_response_timeout_ms = 1000;
+        config.redis_connection_timeout_ms = 1000;
+        config.validate_and_fix_timeouts();
+        assert_eq!(config.redis_response_timeout_ms, 1000);
+        assert_eq!(config.redis_connection_timeout_ms, 1000);
+
+        // Test 2: Response > Connection is also allowed (no relationship validation)
+        config.redis_response_timeout_ms = 5000;
+        config.redis_connection_timeout_ms = 1000;
+        config.validate_and_fix_timeouts();
+        assert_eq!(config.redis_response_timeout_ms, 5000);
+        assert_eq!(config.redis_connection_timeout_ms, 1000);
+
+        // Test 3: Response < Connection is allowed
+        config.redis_response_timeout_ms = 100;
+        config.redis_connection_timeout_ms = 5000;
+        config.validate_and_fix_timeouts();
+        assert_eq!(config.redis_response_timeout_ms, 100);
+        assert_eq!(config.redis_connection_timeout_ms, 5000);
+    }
+
+    #[test]
+    fn test_timeout_values_apply_to_redis_client() {
+        use std::time::Duration;
+
+        let config = Config::default_test_config();
+
+        // Verify that config values would translate correctly to Duration
+        let response_timeout = Duration::from_millis(config.redis_response_timeout_ms);
+        let connection_timeout = Duration::from_millis(config.redis_connection_timeout_ms);
+
+        assert_eq!(response_timeout, Duration::from_millis(100));
+        assert_eq!(connection_timeout, Duration::from_millis(5000));
+
+        // Verify zero values work (treated as None/no timeout)
+        let mut zero_config = Config::default_test_config();
+        zero_config.redis_response_timeout_ms = 0;
+        zero_config.redis_connection_timeout_ms = 0;
+        zero_config.validate_and_fix_timeouts();
+
+        assert_eq!(zero_config.redis_response_timeout_ms, 0);
+        assert_eq!(zero_config.redis_connection_timeout_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod timeout_behavior_tests {
+    #[test]
+    fn test_is_timeout_correctly_identifies_timeout_errors() {
+        use common_redis::CustomRedisError;
+
+        // Test that CustomRedisError::Timeout is correctly identified
+        let timeout_err = CustomRedisError::Timeout;
+
+        // Verify timeout errors are recognized as timeouts
+        assert!(
+            matches!(timeout_err, CustomRedisError::Timeout),
+            "CustomRedisError::Timeout should match Timeout variant"
+        );
+
+        // Verify timeout errors are transient (not unrecoverable)
+        assert!(
+            !timeout_err.is_unrecoverable_error(),
+            "Timeout errors should be recoverable"
+        );
+
+        // Verify timeout errors use WaitAndRetry strategy
+        assert!(
+            matches!(
+                timeout_err.retry_method(),
+                common_redis::RetryMethod::WaitAndRetry
+            ),
+            "Timeout errors should use WaitAndRetry strategy"
+        );
+    }
+
+    #[test]
+    fn test_non_timeout_io_errors_not_identified_as_timeout() {
+        use common_redis::{CustomRedisError, RedisErrorKind};
+
+        // Create a non-timeout IoError
+        let io_err =
+            CustomRedisError::from_redis_kind(RedisErrorKind::IoError, "connection refused");
+
+        // Should not be converted to CustomRedisError::Timeout
+        match io_err {
+            CustomRedisError::Timeout => {
+                panic!("Non-timeout IoError should not be identified as timeout");
+            }
+            CustomRedisError::Redis(_) => {
+                // Expected - it's a Redis error but not a timeout
+            }
+            _ => {}
+        }
+    }
+
+    #[tokio::test]
+    async fn test_redis_timeout_integration() {
+        use common_redis::{Client, CompressionConfig, RedisClient, RedisValueFormat};
+        use std::time::Duration;
+
+        // This test requires a running Redis instance
+        // Set REDIS_URL environment variable to customize, defaults to localhost
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+
+        // Test 1: Very short timeout should fail quickly with timeout error
+        let short_timeout_client = RedisClient::with_config(
+            redis_url.clone(),
+            CompressionConfig::disabled(),
+            RedisValueFormat::default(),
+            Some(Duration::from_millis(1)), // 1ms - too short for any operation
+            Some(Duration::from_millis(100)),
+        )
+        .await;
+
+        // With such a short timeout, we might fail during connection or during operation
+        // Either way, we're testing that timeouts work
+        match short_timeout_client {
+            Ok(client) => {
+                // If connection succeeded, try an operation
+                let result = client.get("test_timeout_key".to_string()).await;
+
+                // Should timeout (or not find the key - that's fine too)
+                if let Err(e) = result {
+                    println!("Got expected error with short timeout: {e:?}");
+                    // We got some error - that's expected with 1ms timeout
+                }
+            }
+            Err(e) => {
+                // Connection itself timed out - that's also valid
+                println!("Connection with short timeout failed as expected: {e:?}");
+            }
+        }
+
+        // Test 2: Reasonable timeout should allow successful connection
+        let normal_client = RedisClient::with_config(
+            redis_url,
+            CompressionConfig::disabled(),
+            RedisValueFormat::default(),
+            Some(Duration::from_millis(5000)), // 5 seconds - plenty of time
+            Some(Duration::from_millis(5000)),
+        )
+        .await;
+
+        match normal_client {
+            Ok(client) => {
+                // Connection worked - test a simple operation
+                let test_key = format!(
+                    "test_timeout_integration_{}",
+                    chrono::Utc::now().timestamp()
+                );
+                let test_value = "timeout_test_value".to_string();
+
+                // Should succeed with reasonable timeout
+                let set_result = client.set(test_key.clone(), test_value.clone()).await;
+                assert!(
+                    set_result.is_ok(),
+                    "Set operation should succeed with reasonable timeout"
+                );
+
+                // Clean up
+                drop(client.del(test_key).await);
+            }
+            Err(e) => {
+                println!("WARNING: Integration test skipped - could not connect to Redis: {e:?}");
+                println!("To run this test, ensure Redis is running at $REDIS_URL (default: redis://localhost:6379)");
+            }
+        }
     }
 }

@@ -4,7 +4,7 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -24,7 +24,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: Object.values(FEATURE_FLAGS),
+        featureFlags: STORYBOOK_FEATURE_FLAGS,
     },
     decorators: [
         mswDecorator({
@@ -34,10 +34,8 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     cloud: true,
                     realm: 'cloud',
                 },
-                '/api/projects/:id/integrations': { results: [] },
-                '/api/billing/spend/': { results: [] },
-                '/api/billing/usage/': { results: [] },
                 '/api/billing/': { products: [] },
+                '/api/projects/:id/integrations': { results: [] },
                 '/api/projects/:id/core_memory': { results: [] },
                 '/api/projects/:id/hog_functions': { results: [] },
                 '/api/projects/:id/pipeline_destination_configs': { results: [] },
@@ -83,6 +81,9 @@ SettingsEnvironmentRevenueAnalytics.args = { sectionId: 'environment-revenue-ana
 
 export const SettingsEnvironmentMarketingAnalytics: Story = Template.bind({})
 SettingsEnvironmentMarketingAnalytics.args = { sectionId: 'environment-marketing-analytics' }
+SettingsEnvironmentMarketingAnalytics.parameters = {
+    featureFlags: [...STORYBOOK_FEATURE_FLAGS, 'advance-marketing-analytics-settings'],
+}
 
 export const SettingsEnvironmentWebAnalytics: Story = Template.bind({})
 SettingsEnvironmentWebAnalytics.args = { sectionId: 'environment-web-analytics' }

@@ -1,3 +1,4 @@
+import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
 import { HogFlow } from '~/schema/hogflow'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -7,7 +8,6 @@ import { HOG_FLOW_MASK_EXAMPLES, HOG_MASK_EXAMPLES } from '../../_tests/examples
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from '../../_tests/redis'
-import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
 import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
@@ -19,14 +19,14 @@ describe('HogMasker', () => {
         let now: number
         let hub: Hub
         let masker: HogMaskerService
-        let redis: CdpRedis
+        let redis: RedisV2
 
         beforeEach(async () => {
             hub = await createHub()
             now = 1720000000000
             mockNow.mockReturnValue(now)
 
-            redis = createCdpRedisPool(hub)
+            redis = createRedisV2Pool(hub, 'cdp')
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
             masker = new HogMaskerService(redis)

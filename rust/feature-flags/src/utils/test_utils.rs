@@ -10,13 +10,14 @@ use crate::{
 };
 use anyhow::Error;
 use axum::async_trait;
-use common_database::{get_pool_with_config, Client, CustomDatabaseError, PoolConfig};
+use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
-use common_types::{PersonId, TeamId};
+use common_types::{Person, PersonId, ProjectId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
 use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub fn random_string(prefix: &str, length: usize) -> String {
@@ -31,14 +32,14 @@ pub fn random_string(prefix: &str, length: usize) -> String {
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
-    let id = rand::thread_rng().gen_range(1..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: i64::from(id),
+        project_id: Some(i64::from(id)),
         name: "team".to_string(),
         api_token: token,
-        cookieless_server_hash_mode: 0,
+        cookieless_server_hash_mode: Some(0),
         timezone: "UTC".to_string(),
         ..Default::default()
     };
@@ -57,7 +58,7 @@ pub async fn insert_new_team_in_redis(
 pub async fn insert_flags_for_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
-    project_id: i64,
+    project_id: ProjectId,
     json_value: Option<String>,
 ) -> Result<(), Error> {
     let payload = match json_value {
@@ -98,10 +99,19 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
         Some(value) => value,
         None => "redis://localhost:6379/".to_string(),
     };
-    // Use 5 second timeout for tests to handle concurrent test execution
-    let client = RedisClient::with_timeout(redis_url, Some(5000))
-        .await
-        .expect("Failed to create redis client");
+    // Use reasonable test timeout defaults
+    const TEST_RESPONSE_TIMEOUT_MS: u64 = 1000; // 1s for tests - longer than production to avoid flaky tests
+    const TEST_CONNECTION_TIMEOUT_MS: u64 = 5000; // 5s connection timeout
+
+    let client = RedisClient::with_config(
+        redis_url,
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::default(),
+        Some(Duration::from_millis(TEST_RESPONSE_TIMEOUT_MS)),
+        Some(Duration::from_millis(TEST_CONNECTION_TIMEOUT_MS)),
+    )
+    .await
+    .expect("Failed to create redis client");
     Arc::new(client)
 }
 
@@ -140,27 +150,8 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
 
 pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
-    let pool_config = PoolConfig {
-        max_connections: config.max_pg_connections,
-        min_connections: config.min_pg_connections,
-        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs),
-        idle_timeout: if config.idle_timeout_secs > 0 {
-            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
-        } else {
-            None
-        },
-        max_lifetime: if config.max_lifetime_secs > 0 {
-            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
-        } else {
-            None
-        },
-        test_before_acquire: *config.test_before_acquire,
-        statement_timeout: Some(std::time::Duration::from_millis(
-            config.statement_timeout_ms,
-        )),
-    };
     Arc::new(
-        get_pool_with_config(&config.read_database_url, pool_config)
+        get_pool(&config.read_database_url, config.max_pg_connections)
             .await
             .expect("Failed to create Postgres client"),
     )
@@ -168,27 +159,8 @@ pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client +
 
 pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
-    let pool_config = PoolConfig {
-        max_connections: config.max_pg_connections_write,
-        min_connections: config.min_pg_connections_write,
-        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs_write),
-        idle_timeout: if config.idle_timeout_secs > 0 {
-            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
-        } else {
-            None
-        },
-        max_lifetime: if config.max_lifetime_secs > 0 {
-            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
-        } else {
-            None
-        },
-        test_before_acquire: *config.test_before_acquire,
-        statement_timeout: Some(std::time::Duration::from_millis(
-            config.statement_timeout_ms,
-        )),
-    };
     Arc::new(
-        get_pool_with_config(&config.write_database_url, pool_config)
+        get_pool(&config.write_database_url, config.max_pg_connections)
             .await
             .expect("Failed to create Postgres client"),
     )
@@ -201,38 +173,18 @@ pub async fn setup_dual_pg_readers(
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
 
-    let read_pool_config = PoolConfig {
-        max_connections: config.max_pg_connections,
-        min_connections: config.min_pg_connections,
-        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs),
-        idle_timeout: if config.idle_timeout_secs > 0 {
-            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
-        } else {
-            None
-        },
-        max_lifetime: if config.max_lifetime_secs > 0 {
-            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
-        } else {
-            None
-        },
-        test_before_acquire: *config.test_before_acquire,
-        statement_timeout: Some(std::time::Duration::from_millis(
-            config.statement_timeout_ms,
-        )),
-    };
-
     if config.is_persons_db_routing_enabled() {
         // Separate persons and non-persons databases
         let persons_reader = Arc::new(
-            get_pool_with_config(
+            get_pool(
                 &config.get_persons_read_database_url(),
-                read_pool_config.clone(),
+                config.max_pg_connections,
             )
             .await
             .expect("Failed to create Postgres persons reader client"),
         );
         let non_persons_reader = Arc::new(
-            get_pool_with_config(&config.read_database_url, read_pool_config)
+            get_pool(&config.read_database_url, config.max_pg_connections)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -240,7 +192,7 @@ pub async fn setup_dual_pg_readers(
     } else {
         // Same database for both
         let client = Arc::new(
-            get_pool_with_config(&config.read_database_url, read_pool_config)
+            get_pool(&config.read_database_url, config.max_pg_connections)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -255,38 +207,18 @@ pub async fn setup_dual_pg_writers(
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
 
-    let write_pool_config = PoolConfig {
-        max_connections: config.max_pg_connections_write,
-        min_connections: config.min_pg_connections_write,
-        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs_write),
-        idle_timeout: if config.idle_timeout_secs > 0 {
-            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
-        } else {
-            None
-        },
-        max_lifetime: if config.max_lifetime_secs > 0 {
-            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
-        } else {
-            None
-        },
-        test_before_acquire: *config.test_before_acquire,
-        statement_timeout: Some(std::time::Duration::from_millis(
-            config.statement_timeout_ms,
-        )),
-    };
-
     if config.is_persons_db_routing_enabled() {
         // Separate persons and non-persons databases
         let persons_writer = Arc::new(
-            get_pool_with_config(
+            get_pool(
                 &config.get_persons_write_database_url(),
-                write_pool_config.clone(),
+                config.max_pg_connections,
             )
             .await
             .expect("Failed to create Postgres persons writer client"),
         );
         let non_persons_writer = Arc::new(
-            get_pool_with_config(&config.write_database_url, write_pool_config)
+            get_pool(&config.write_database_url, config.max_pg_connections)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -294,7 +226,7 @@ pub async fn setup_dual_pg_writers(
     } else {
         // Same database for both
         let client = Arc::new(
-            get_pool_with_config(&config.write_database_url, write_pool_config)
+            get_pool(&config.write_database_url, config.max_pg_connections)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -335,9 +267,9 @@ async fn insert_organization_if_not_exists(
 
     sqlx::query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources)
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
         VALUES
-        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true)
+        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true, false)
         ON CONFLICT DO NOTHING"#,
     )
     .bind(org_id)
@@ -372,7 +304,7 @@ async fn insert_team_group_mappings(
         .bind(group_type)
         .bind(group_type_index)
         .bind(team.id)
-        .bind(team.project_id)
+        .bind(team.project_id())
         .execute(&mut *persons_conn)
         .await?;
         assert_eq!(res.rows_affected(), 1);
@@ -392,15 +324,15 @@ pub async fn insert_new_team_in_pg(
     // Create team model
     let id = match team_id {
         Some(value) => value,
-        None => rand::thread_rng().gen_range(0..10_000_000),
+        None => rand::thread_rng().gen_range(1_000_000..100_000_000),
     };
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: id as i64,
+        project_id: Some(id as i64),
         name: "Test Team".to_string(),
         api_token: token.clone(),
-        cookieless_server_hash_mode: 0,
+        cookieless_server_hash_mode: Some(0),
         timezone: "UTC".to_string(),
         ..Default::default()
     };
@@ -415,7 +347,7 @@ pub async fn insert_new_team_in_pg(
         (id, organization_id, name, created_at) VALUES
         ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
     )
-    .bind(team.project_id)
+    .bind(team.project_id())
     .bind(org_id)
     .bind(&team.name)
     .execute(&mut *non_persons_conn)
@@ -427,7 +359,7 @@ pub async fn insert_new_team_in_pg(
         r#"INSERT INTO posthog_team
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES
         ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)"#
-    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode).execute(&mut *non_persons_conn).await?;
+    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id()).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode.unwrap_or(0)).execute(&mut *non_persons_conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
     // Insert group type mappings
@@ -441,7 +373,7 @@ pub async fn insert_flag_for_team_in_pg(
     team_id: i32,
     flag: Option<FeatureFlagRow>,
 ) -> Result<FeatureFlagRow, Error> {
-    let id = rand::thread_rng().gen_range(0..10_000_000);
+    let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
 
     let payload_flag = match flag {
         Some(mut value) => {
@@ -636,22 +568,10 @@ pub async fn get_person_id_by_distinct_id(
     distinct_id: &str,
 ) -> Result<PersonId, Error> {
     let mut conn = client.get_connection().await?;
-    let row: (PersonId,) = sqlx::query_as(
-        r#"SELECT id FROM posthog_person
-           WHERE team_id = $1 AND id = (
-               SELECT person_id FROM posthog_persondistinctid
-               WHERE team_id = $1 AND distinct_id = $2
-               LIMIT 1
-           )
-           LIMIT 1"#,
-    )
-    .bind(team_id)
-    .bind(distinct_id)
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(|_| anyhow::anyhow!("Person not found"))?;
-
-    Ok(row.0)
+    Person::from_distinct_id(&mut conn, team_id, distinct_id)
+        .await?
+        .map(|p| p.id)
+        .ok_or_else(|| anyhow::anyhow!("Person not found"))
 }
 
 pub async fn add_person_to_cohort(
@@ -871,7 +791,7 @@ pub struct TestContext {
     pub persons_writer: Arc<dyn Client + Send + Sync>,
     pub non_persons_reader: Arc<dyn Client + Send + Sync>,
     pub non_persons_writer: Arc<dyn Client + Send + Sync>,
-    pub config: Config,
+    config: Config,
 }
 
 impl TestContext {
@@ -996,7 +916,6 @@ impl TestContext {
             self.persons_reader.clone(),
             team_id,
             distinct_ids,
-            &self.config,
         )
         .await
     }
@@ -1197,13 +1116,13 @@ impl TestContext {
         const ORG_ID: &str = "019026a4be8000005bf3171d00629163";
 
         // Create team model
-        let id = rand::thread_rng().gen_range(0..10_000_000);
+        let id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         let team = Team {
             id,
-            project_id: id as i64,
+            project_id: Some(id as i64),
             name: "Test Team".to_string(),
             api_token: public_token.clone(),
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -1218,7 +1137,7 @@ impl TestContext {
             (id, organization_id, name, created_at) VALUES
             ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
         )
-        .bind(team.project_id)
+        .bind(team.project_id())
         .bind(ORG_ID)
         .bind(&team.name)
         .execute(&mut *conn)
@@ -1249,7 +1168,7 @@ impl TestContext {
             .bind(team.id)
             .bind(uuid)
             .bind(ORG_ID)
-            .bind(team.project_id)
+            .bind(team.project_id())
             .bind(&team.api_token)
             .bind(&secret_token);
 
@@ -1259,7 +1178,7 @@ impl TestContext {
 
         query = query
             .bind(&team.name)
-            .bind(team.cookieless_server_hash_mode);
+            .bind(team.cookieless_server_hash_mode.unwrap_or(0));
 
         let res = query.execute(&mut *conn).await?;
         assert_eq!(res.rows_affected(), 1);
@@ -1303,7 +1222,7 @@ impl TestContext {
         let mut conn = self.non_persons_reader.get_connection().await?;
         let org_id: uuid::Uuid =
             sqlx::query_scalar("SELECT organization_id FROM posthog_project WHERE id = $1")
-                .bind(team.project_id)
+                .bind(team.project_id())
                 .fetch_one(&mut *conn)
                 .await?;
         Ok(org_id)
