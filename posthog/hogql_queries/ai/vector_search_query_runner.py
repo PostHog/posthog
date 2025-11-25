@@ -9,7 +9,6 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
@@ -24,15 +23,13 @@ class VectorSearchQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[VectorSea
     cached_response: CachedVectorSearchQueryResponse
 
     def _calculate(self):
-        timings = HogQLTimings()
-
-        with timings.measure("to_query"):
+        with self.timings.measure("to_query"):
             query = self.to_query()
 
-        with timings.measure("to_printed_hogql"):
+        with self.timings.measure("to_printed_hogql"):
             hogql = to_printed_hogql(query, self.team)
 
-        with tags_context(product=Product.MAX_AI), timings.measure("execute_hogql_query"):
+        with tags_context(product=Product.MAX_AI), self.timings.measure("execute_hogql_query"):
             response = execute_hogql_query(
                 query_type="VectorSearchQuery",
                 query=query,
