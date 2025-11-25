@@ -180,6 +180,77 @@ class SessionSummarySerializer(IntermediateSessionSummarySerializer):
         child=EnrichedSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """
+        Validate that all LLM-generated fields are present and properly filled.
+        Fields are optional during streaming but must be complete in final output.
+        Should be replaced with Pydantic conditional validation in the future.
+        """
+        errors: dict[str, list[str]] = {}
+        # Validate top-level fields
+        segments = attrs.get("segments")
+        if segments is None or len(segments) == 0:
+            errors["segments"] = ["This field is required and must not be empty."]
+        key_actions = attrs.get("key_actions")
+        if key_actions is None or len(key_actions) == 0:
+            errors["key_actions"] = ["This field is required and must not be empty."]
+        segment_outcomes = attrs.get("segment_outcomes")
+        if segment_outcomes is None or len(segment_outcomes) == 0:
+            errors["segment_outcomes"] = ["This field is required and must not be empty."]
+        session_outcome = attrs.get("session_outcome")
+        if session_outcome is None:
+            errors["session_outcome"] = ["This field is required."]
+        # Validate each segment
+        if segments:
+            for i, segment in enumerate(segments):
+                if segment.get("index") is None:
+                    errors[f"segments[{i}].index"] = ["This field is required."]
+                if segment.get("name") is None:
+                    errors[f"segments[{i}].name"] = ["This field is required."]
+                if segment.get("start_event_id") is None:
+                    errors[f"segments[{i}].start_event_id"] = ["This field is required."]
+                if segment.get("end_event_id") is None:
+                    errors[f"segments[{i}].end_event_id"] = ["This field is required."]
+        # Validate each key_actions group
+        if key_actions:
+            for i, key_action_group in enumerate(key_actions):
+                if key_action_group.get("segment_index") is None:
+                    errors[f"key_actions[{i}].segment_index"] = ["This field is required."]
+                events = key_action_group.get("events")
+                if events is None or len(events) == 0:
+                    errors[f"key_actions[{i}].events"] = ["This field is required and must not be empty."]
+                else:
+                    # Validate each event
+                    for j, event in enumerate(events):
+                        if event.get("event_id") is None:
+                            errors[f"key_actions[{i}].events[{j}].event_id"] = ["This field is required."]
+                        if event.get("description") is None:
+                            errors[f"key_actions[{i}].events[{j}].description"] = ["This field is required."]
+                        if not isinstance(event.get("abandonment"), bool):
+                            errors[f"key_actions[{i}].events[{j}].abandonment"] = ["This field must be a boolean."]
+                        if not isinstance(event.get("confusion"), bool):
+                            errors[f"key_actions[{i}].events[{j}].confusion"] = ["This field must be a boolean."]
+                        if "exception" not in event:
+                            errors[f"key_actions[{i}].events[{j}].exception"] = ["This field is required."]
+        # Validate each segment_outcome
+        if segment_outcomes:
+            for i, outcome in enumerate(segment_outcomes):
+                if outcome.get("segment_index") is None:
+                    errors[f"segment_outcomes[{i}].segment_index"] = ["This field is required."]
+                if outcome.get("summary") is None:
+                    errors[f"segment_outcomes[{i}].summary"] = ["This field is required."]
+                if not isinstance(outcome.get("success"), bool):
+                    errors[f"segment_outcomes[{i}].success"] = ["This field must be a boolean."]
+        # Validate session_outcome
+        if session_outcome:
+            if session_outcome.get("description") is None:
+                errors["session_outcome.description"] = ["This field is required."]
+            if not isinstance(session_outcome.get("success"), bool):
+                errors["session_outcome.success"] = ["This field must be a boolean."]
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
 
 def _remove_hallucinated_events(
     hallucinated_events: list[tuple[int, int, dict[str, Any]]],
