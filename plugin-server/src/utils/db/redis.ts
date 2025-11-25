@@ -81,6 +81,7 @@ export function getRedisConnectionOptions(
                       url: serverConfig.LOGS_REDIS_HOST,
                       options: {
                           port: serverConfig.LOGS_REDIS_PORT,
+                          tls: serverConfig.LOGS_REDIS_TLS,
                       },
                   }
                 : fallback
