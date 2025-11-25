@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import date, datetime
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -12,7 +12,7 @@ from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
-from posthog.hogql.escape_sql import safe_identifier
+from posthog.hogql.escape_sql import Dialect, safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
@@ -90,8 +90,8 @@ def resolve_types_from_table(
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
-    scopes: Optional[list[ast.SelectQueryType]] = None,
+    dialect: Dialect,
+    scopes: list[ast.SelectQueryType] | None = None,
 ) -> _T_AST:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
 
@@ -112,8 +112,8 @@ class Resolver(CloningVisitor):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
-        scopes: Optional[list[ast.SelectQueryType]] = None,
+        dialect: Dialect = "clickhouse",
+        scopes: list[ast.SelectQueryType] | None = None,
     ):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
@@ -532,7 +532,7 @@ class Resolver(CloningVisitor):
                 arg_types.append(arg.type.resolve_constant_type(self.context))
             else:
                 arg_types.append(ast.UnknownType())
-        param_types: Optional[list[ast.ConstantType]] = None
+        param_types: list[ast.ConstantType] | None = None
         if node.params is not None:
             param_types = []
             for i, param in enumerate(node.params):
@@ -615,7 +615,7 @@ class Resolver(CloningVisitor):
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
         scope = self.scopes[-1]
 
-        type: Optional[ast.Type] = None
+        type: ast.Type | None = None
         name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
@@ -869,6 +869,13 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        # DuckDB doesn't support IN COHORT - raise error early before cohort lookup
+        if self.dialect == "duckdb":
+            if node.op == ast.CompareOperationOp.InCohort:
+                raise QueryError("IN COHORT is not supported in DuckDB")
+            elif node.op == ast.CompareOperationOp.NotInCohort:
+                raise QueryError("NOT IN COHORT is not supported in DuckDB")
+
         if self.context.modifiers.inCohortVia == "subquery":
             if node.op == ast.CompareOperationOp.InCohort:
                 return self.visit(
@@ -904,7 +911,7 @@ class Resolver(CloningVisitor):
         return node
 
     # Used to find events table in current scope for action functions
-    def _get_events_table_current_scope(self) -> tuple[Optional[str], Optional[EventsTable]]:
+    def _get_events_table_current_scope(self) -> tuple[str | None, EventsTable | None]:
         scope = self.scopes[-1]
         for alias, table_type in scope.tables.items():
             if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
@@ -956,7 +963,7 @@ class Resolver(CloningVisitor):
 
         return False
 
-    def _is_next_s3(self, node: Optional[ast.JoinExpr]):
+    def _is_next_s3(self, node: ast.JoinExpr | None):
         if node is None:
             return False
         if isinstance(node.type, ast.TableAliasType):
