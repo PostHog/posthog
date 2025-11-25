@@ -35,12 +35,13 @@ class IngestionPipeline(models.TextChoices):
 
 class EventIngestionRestrictionConfig(UUIDTModel):
     """
-    Configuration for various restrictions we can set by token or token:distinct_id
+    Configuration for various restrictions we can set by token, token:distinct_id, or token:session_id
     """
 
     token = models.CharField(max_length=100)
     restriction_type = models.CharField(max_length=100, choices=RestrictionType.choices)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    session_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     note = models.TextField(
         blank=True, null=True, help_text="Optional note explaining why this restriction was put in place"
     )
