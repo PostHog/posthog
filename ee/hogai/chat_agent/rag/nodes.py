@@ -1,10 +1,10 @@
 import json
 import xml.etree.ElementTree as ET
-from typing import Literal
+from typing import Literal, TypedDict
 
 import posthoganalytics
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
-from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
 
@@ -25,6 +25,13 @@ NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
 NextRagNode = Literal["trends", "funnel", "retention", "sql", "end"]
 
 
+class RagContext(TypedDict):
+    plan: str
+    actions_in_context: list[MaxActionContext]
+    embedding: list[float] | None
+    action_ids: list[str]
+
+
 class InsightRagContextNode(AssistantNode):
     """
     Injects the RAG context of product analytics insights: actions and events.
@@ -42,28 +49,46 @@ class InsightRagContextNode(AssistantNode):
         if ui_context := self.context_manager.get_ui_context(state):
             actions_in_context = ui_context.actions if ui_context.actions else []
 
-        try:
-            embeddings_client = get_azure_embeddings_client()
-            vector = embed_search_query(embeddings_client, plan)
-        except (AzureHttpResponseError, ValueError) as e:
-            posthoganalytics.capture_exception(
-                e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
-            )
-            if len(actions_in_context) == 0:
-                return None
-            else:
-                vector = None
-        return PartialAssistantState(
-            rag_context=self._retrieve_actions(config, vector, actions_in_context=actions_in_context)
+        context: RagContext = {
+            "plan": plan,
+            "actions_in_context": actions_in_context,
+            "embedding": None,
+            "action_ids": [],
+        }
+
+        # Compose the runnable chain
+        chain = (
+            RunnableLambda(self._get_embedding)
+            | RunnableLambda(self._search_actions)
+            | RunnableLambda(self._retrieve_actions)
         )
 
-    def _retrieve_actions(
-        self,
-        config: RunnableConfig,
-        embedding: list[float] | None,
-        actions_in_context: list[MaxActionContext],
-    ) -> str:
+        rag_context = chain.invoke(context, config)
+
+        if not rag_context:
+            return None
+
+        return PartialAssistantState(rag_context=rag_context)
+
+    def _get_embedding(self, context: RagContext, config: RunnableConfig) -> RagContext:
+        """Generate embedding for the search query, returns None on error."""
+        try:
+            embeddings_client = get_azure_embeddings_client()
+            context["embedding"] = embed_search_query(embeddings_client, context["plan"])
+        except (AzureHttpResponseError, ValueError) as e:
+            posthoganalytics.capture_exception(
+                e,
+                distinct_id=self._get_user_distinct_id(config),
+                properties=self._get_debug_props(config),
+            )
+            context["embedding"] = None
+        return context
+
+    def _search_actions(self, context: RagContext, config: RunnableConfig) -> RagContext:
+        """Search for action IDs using vector search and UI context, reports metrics."""
         # action.id in UI context actions is typed as float from schema.py, so we need to convert it to int to match the Action.id field
+        actions_in_context = context["actions_in_context"]
+        embedding = context["embedding"]
         ids = [str(int(action.id)) for action in actions_in_context] if actions_in_context else []
 
         if embedding:
@@ -77,6 +102,12 @@ class InsightRagContextNode(AssistantNode):
                 distances = [row.distance for row in response.results]
                 self._report_metrics(config, distances)
 
+        context["action_ids"] = ids
+        return context
+
+    def _retrieve_actions(self, context: RagContext) -> str:
+        """Retrieve actions from database and format as XML."""
+        ids = context["action_ids"]
         if len(ids) == 0:
             return ""
 
