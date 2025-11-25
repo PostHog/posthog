@@ -165,8 +165,7 @@ def mock_loaded_llm_json_response() -> dict[str, Any]:
     }
 
 
-@pytest.fixture
-def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
+def get_mock_enriched_llm_json_response(session_id: str) -> dict[str, Any]:
     return {
         "segments": [
             {
@@ -221,7 +220,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "click",
                         "event_index": 0,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000001",
                     },
                     {
@@ -237,7 +236,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "submit",
                         "event_index": 1,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000002",
                     },
                 ],
@@ -258,7 +257,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "click",
                         "event_index": 4,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000005",
                     },
                     {
@@ -274,7 +273,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "submit",
                         "event_index": 5,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000006",
                     },
                     {
@@ -290,7 +289,7 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
                         "event": "$autocapture",
                         "event_type": "click",
                         "event_index": 6,
-                        "session_id": mock_session_id,
+                        "session_id": session_id,
                         "event_uuid": "00000000-0000-0000-0001-000000000007",
                     },
                 ],
@@ -309,6 +308,11 @@ def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
             "success": True,
         },
     }
+
+
+@pytest.fixture
+def mock_enriched_llm_json_response(mock_session_id: str) -> dict[str, Any]:
+    return get_mock_enriched_llm_json_response(mock_session_id)
 
 
 @pytest.fixture

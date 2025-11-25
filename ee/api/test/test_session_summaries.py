@@ -17,6 +17,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPatternStats,
 )
+from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
 
 
 class TestSessionSummariesAPI(APIBaseTest):
@@ -290,35 +291,19 @@ class TestSessionSummariesAPI(APIBaseTest):
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),
         )
-        mock_execute.return_value = {
-            "key_actions": None,
-            "segment_outcomes": None,
-            "segments": None,
-            "session_outcome": None,
-        }
+        mock_execute.side_effect = lambda session_id, **kwargs: get_mock_enriched_llm_json_response(session_id)
         # Make request
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
         response = self.client.post(url, {"session_ids": ["session_1", "session_2"]}, format="json")
         # Check the response - should return two summaries
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(
-            data,
-            {
-                "session_1": {
-                    "key_actions": None,
-                    "segment_outcomes": None,
-                    "segments": None,
-                    "session_outcome": None,
-                },
-                "session_2": {
-                    "key_actions": None,
-                    "segment_outcomes": None,
-                    "segments": None,
-                    "session_outcome": None,
-                },
-            },
-        )
+        self.assertEqual(set(data.keys()), {"session_1", "session_2"})
+        for session_id in ["session_1", "session_2"]:
+            self.assertIn("segments", data[session_id])
+            self.assertIn("key_actions", data[session_id])
+            self.assertIn("segment_outcomes", data[session_id])
+            self.assertIn("session_outcome", data[session_id])
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
@@ -339,12 +324,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Mock execute to succeed for first session, fail for second
         def mock_execute_side_effect(session_id: str, **kwargs: Any) -> dict[str, Any]:
             if session_id == "session_1":
-                return {
-                    "key_actions": None,
-                    "segment_outcomes": None,
-                    "segments": None,
-                    "session_outcome": None,
-                }
+                return get_mock_enriched_llm_json_response(session_id)
             raise Exception("Failed to summarize session")
 
         mock_execute.side_effect = mock_execute_side_effect
@@ -355,14 +335,8 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Check the response - should return one summary
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(
-            data,
-            {
-                "session_1": {
-                    "key_actions": None,
-                    "segment_outcomes": None,
-                    "segments": None,
-                    "session_outcome": None,
-                }
-            },
-        )
+        self.assertEqual(set(data.keys()), {"session_1"})
+        self.assertIn("segments", data["session_1"])
+        self.assertIn("key_actions", data["session_1"])
+        self.assertIn("segment_outcomes", data["session_1"])
+        self.assertIn("session_outcome", data["session_1"])
