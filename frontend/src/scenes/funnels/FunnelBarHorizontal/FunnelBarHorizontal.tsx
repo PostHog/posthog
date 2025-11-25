@@ -135,11 +135,15 @@ export function FunnelBarHorizontal({
                                     })}
                                     <div
                                         className="funnel-bar-empty-space"
-                                        onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
+                                        onClick={
+                                            showPersonsModal
+                                                ? () => openPersonsModalForStep({ step, converted: false }) // dropoff value for steps is negative
+                                                : undefined
+                                        }
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
                                             flex: `${1 - breakdownSum / basisStep.count} 1 0`,
-                                            cursor: `${!inCardView ? 'pointer' : ''}`,
+                                            cursor: `${showPersonsModal && !inCardView ? 'pointer' : ''}`,
                                         }}
                                     >
                                         {isBreakdown && (
@@ -163,11 +167,15 @@ export function FunnelBarHorizontal({
                                     />
                                     <div
                                         className="funnel-bar-empty-space"
-                                        onClick={() => openPersonsModalForStep({ step, converted: false })} // dropoff value for steps is negative
+                                        onClick={
+                                            showPersonsModal
+                                                ? () => openPersonsModalForStep({ step, converted: false }) // dropoff value for steps is negative
+                                                : undefined
+                                        }
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
                                             flex: `${1 - step.conversionRates.fromBasisStep} 1 0`,
-                                            cursor: `${!inCardView ? 'pointer' : ''}`,
+                                            cursor: `${showPersonsModal && !inCardView ? 'pointer' : ''}`,
                                         }}
                                     />
                                 </>

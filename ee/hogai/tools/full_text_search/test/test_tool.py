@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.tools.full_text_search.tool import ENTITY_MAP, EntitySearchTool, FTSKind
 from ee.hogai.utils.types.base import AssistantState
 

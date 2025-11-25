@@ -9,7 +9,7 @@ import type { batchTriggerLogicType } from './batchTriggerLogicType'
 
 export interface BatchTriggerLogicProps {
     id?: string | 'new'
-    filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+    filters?: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
 }
 
 export const batchTriggerLogic = kea<batchTriggerLogicType>([

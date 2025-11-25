@@ -106,6 +106,32 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "NoSuchTableError": None,
+            "is not permitted to log in": None,
+            "Tenant or user not found connection to server": None,
+            "FATAL: Tenant or user not found": None,
+            "error received from server in SCRAM exchange: Wrong password": None,
+            "could not translate host name": None,
+            "timeout expired connection to server at": None,
+            "password authentication failed for user": None,
+            "No primary key defined for table": None,
+            "failed: timeout expired": None,
+            "SSL connection has been closed unexpectedly": None,
+            "Address not in tenant allow_list": None,
+            "FATAL: no such database": None,
+            "does not exist": None,
+            "timestamp too small": None,
+            "QueryTimeoutException": None,
+            "TemporaryFileSizeExceedsLimitException": None,
+            "Name or service not known": None,
+            "Network is unreachable": None,
+            "InsufficientPrivilege": None,
+            "OperationalError: connection failed: connection to server at": None,
+            "password authentication failed connection": None,
+        }
+
     def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 

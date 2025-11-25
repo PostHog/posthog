@@ -93,7 +93,7 @@ export function Login(): JSX.Element {
             // clear form when password field becomes hidden
             resetLogin()
         }
-    }, [isPasswordHidden])
+    }, [isPasswordHidden, resetLogin])
 
     return (
         <BridgePage

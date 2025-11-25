@@ -30,7 +30,7 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(response_data["results"][0]["key"], "12345::67890")
         self.assertEqual(
             response_data["results"][0]["valid_until"],
-            timezone.datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")).isoformat().replace("+00:00", "Z"),
+            datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")).isoformat().replace("+00:00", "Z"),
         )
 
         retrieve_response = self.client.get(f"/api/license/{response_data['results'][0]['id']}")
@@ -94,13 +94,13 @@ class TestLicenseAPI(APILicensedTest):
             License.objects.create(
                 key="old",
                 plan="scale",
-                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
+                valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
         with freeze_time("2022-06-03T12:00:00.000Z"):
             License.objects.create(
                 key="new",
                 plan="enterprise",
-                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
+                valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
 
         with freeze_time("2022-06-03T13:00:00.000Z"):
@@ -115,13 +115,13 @@ class TestLicenseAPI(APILicensedTest):
             License.objects.create(
                 key="new",
                 plan="enterprise",
-                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
+                valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
         with freeze_time("2022-06-27T12:00:00.000Z"):
             License.objects.create(
                 key="old",
                 plan="scale",
-                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
+                valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
 
         with freeze_time("2022-06-27T13:00:00.000Z"):

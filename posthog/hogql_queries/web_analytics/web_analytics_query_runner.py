@@ -416,7 +416,8 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
     def _sample_rate_cache_key(self) -> str:
         return generate_cache_key(
-            f"web_analytics_sample_rate_{self.query.dateRange.model_dump_json() if self.query.dateRange else None}_{self.team.pk}_{self.team.timezone}"
+            self.team.pk,
+            f"web_analytics_sample_rate_{self.query.dateRange.model_dump_json() if self.query.dateRange else None}_{self.team.pk}_{self.team.timezone}",
         )
 
     def _get_or_calculate_sample_ratio(self) -> SamplingRate:

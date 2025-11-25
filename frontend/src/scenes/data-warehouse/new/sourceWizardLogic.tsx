@@ -7,7 +7,6 @@ import { IconWarning } from '@posthog/icons'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,9 +15,12 @@ import { urls } from 'scenes/urls'
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
     ExternalDataSourceType,
+    ProductIntentContext,
+    ProductKey,
     SourceConfig,
     SourceFieldConfig,
     SourceFieldSwitchGroupConfig,
+    SuggestedTable,
     externalDataSources,
 } from '~/queries/schema/schema-general'
 import {
@@ -27,7 +29,6 @@ import {
     ExternalDataSourceSyncSchema,
     IncrementalField,
     ManualLinkSourceType,
-    ProductKey,
     manualLinkSources,
 } from '~/types'
 
@@ -384,6 +385,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     }),
     selectors({
         availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
+        suggestedTablesMap: [
+            (s) => [s.selectedConnector],
+            (selectedConnector: SourceConfig | null): Record<string, string | null> => {
+                if (!selectedConnector?.suggestedTables) {
+                    return {}
+                }
+
+                return selectedConnector.suggestedTables.reduce(
+                    (acc: Record<string, string | null>, suggested: SuggestedTable) => {
+                        acc[suggested.table] = suggested.tooltip ?? null
+                        return acc
+                    },
+                    {} as Record<string, string | null>
+                )
+            },
+        ],
         breadcrumbs: [
             (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
@@ -472,6 +489,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         connectors: [
             (s) => [s.dataWarehouseSources, s.availableSources],
             (sources, availableSources: Record<string, SourceConfig>): SourceConfig[] => {
+                if (!availableSources) {
+                    return []
+                }
                 return Object.values(availableSources).map((connector) => ({
                     ...connector,
                     disabledReason:
