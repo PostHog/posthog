@@ -166,9 +166,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="send delayed org usage reports",
         )
 
-    # Send LLM Analytics usage reports daily at 3:45 AM UTC
+    # Send LLM Analytics usage reports daily at 4:15 AM UTC
     sender.add_periodic_task(
-        crontab(hour="3", minute="45"),
+        crontab(hour="4", minute="15"),
         send_llm_analytics_usage_reports.s(),
         name="send llm analytics usage reports",
     )
