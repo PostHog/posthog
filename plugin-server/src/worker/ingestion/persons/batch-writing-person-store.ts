@@ -1004,40 +1004,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return personUpdate
     }
 
-    private mergePersonUpdateForCache(existing: PersonUpdate, incoming: PersonUpdate): PersonUpdate {
-        // Merge properties_to_set and properties_to_unset
-        const merged = { ...existing }
-
-        // Merge properties_to_set
-        Object.entries(incoming.properties_to_set).forEach(([key, value]) => {
-            merged.properties_to_set[key] = value
-            // Remove from unset list if it was there
-            const unsetIndex = merged.properties_to_unset.indexOf(key)
-            if (unsetIndex !== -1) {
-                merged.properties_to_unset.splice(unsetIndex, 1)
-            }
-        })
-
-        // Merge properties_to_unset
-        incoming.properties_to_unset.forEach((key) => {
-            if (!merged.properties_to_unset.includes(key)) {
-                merged.properties_to_unset.push(key)
-            }
-            // Remove from set list if it was there
-            delete merged.properties_to_set[key]
-        })
-
-        // Handle is_identified with || operator
-        merged.is_identified = merged.is_identified || incoming.is_identified
-
-        // Handle force_update with || operator - once true, stays true
-        merged.force_update = merged.force_update || incoming.force_update
-
-        merged.needs_write = true
-
-        return merged
-    }
-
     private addPersonPropertiesUpdateToBatch(
         person: InternalPerson,
         propertiesToSet: Properties,

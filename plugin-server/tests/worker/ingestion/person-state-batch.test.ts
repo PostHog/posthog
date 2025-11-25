@@ -702,7 +702,7 @@ describe('PersonState.processEvent()', () => {
             ])
 
             const propertyService = personPropertyService({
-                event: '$set',
+                event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
                     $set: { $current_url: 4 },
