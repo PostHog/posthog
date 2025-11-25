@@ -64,17 +64,21 @@
 # ---
 # name: TestRawSessionsModel.test_get_number_of_umerged_parts
   '''
-
-  SELECT max(parts_count)
+  
+  SELECT coalesce(max(parts_count), 0),
+         argMax(partition, parts_count),
+         argMax(host, parts_count)
   FROM
-    (SELECT hostName() AS host,
-            count() AS parts_count
+    (SELECT hostName() as host,
+            count() as parts_count,
+            partition
      FROM clusterAllReplicas('posthog', system.parts)
      WHERE database = 'posthog_test'
        AND table = 'sharded_raw_sessions_v3'
-       AND partition IN ('99999')
+       AND partition IN ('202511')
        AND active = 99999
-     GROUP BY host)
+     GROUP BY host,
+              partition)
   '''
 # ---
 # name: TestRawSessionsModel.test_handles_different_distinct_id_across_same_session
