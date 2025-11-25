@@ -46,6 +46,15 @@ class ClusterData:
 
 
 @dataclass
+class ClusteringMetrics:
+    """Metrics from the clustering algorithm."""
+
+    total_traces_analyzed: int = 0
+    num_clusters: int = 0
+    duration_seconds: float = 0.0
+
+
+@dataclass
 class ClusteringResult:
     """Result of the clustering workflow."""
 
@@ -54,13 +63,8 @@ class ClusteringResult:
     timestamp: str  # ISO format
     window_start: str  # ISO format
     window_end: str  # ISO format
-    total_traces_analyzed: int
-    sampled_traces_count: int
-    optimal_k: int
-    silhouette_score: float
-    inertia: float
+    metrics: ClusteringMetrics
     clusters: list[ClusterData]
-    duration_seconds: float
 
 
 class TraceSummary(TypedDict):
@@ -74,3 +78,12 @@ class TraceSummary(TypedDict):
 TraceId = str
 TraceEmbeddings = dict[TraceId, list[float]]
 TraceSummaries = dict[TraceId, TraceSummary]
+ClusterRepresentatives = dict[int, list[TraceId]]  # cluster_id -> list of representative trace IDs
+
+
+@dataclass
+class KMeansResult:
+    """Result of k-means clustering."""
+
+    labels: list[int]  # Cluster assignment for each sample
+    centroids: list[list[float]]  # Cluster centroids

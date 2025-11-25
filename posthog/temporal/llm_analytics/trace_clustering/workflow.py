@@ -17,12 +17,11 @@ async def perform_clustering_activity(inputs: ClusteringInputs) -> ClusteringRes
     """Activity wrapper for the main clustering function.
 
     This activity executes the complete clustering pipeline which internally:
-    1. Queries and samples trace IDs
-    2. Fetches embeddings from ClickHouse
-    3. Determines optimal k using silhouette score
-    4. Performs k-means clustering
-    5. Generates LLM-based cluster labels
-    6. Emits results as $ai_trace_clusters events
+    1. Fetches trace IDs and embeddings from ClickHouse
+    2. Performs k-means clustering with optimal k selection
+    3. Selects representative traces for labeling
+    4. Generates LLM-based cluster labels
+    5. Emits results as $ai_trace_clusters events
 
     Args:
         inputs: ClusteringInputs with team_id and parameters

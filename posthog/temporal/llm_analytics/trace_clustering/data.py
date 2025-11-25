@@ -12,14 +12,13 @@ from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.models import TraceEmbeddings, TraceId, TraceSummaries
 
 
-def fetch_trace_ids_for_clustering(
+def fetch_trace_embeddings_for_clustering(
     team_id: int,
     window_start: datetime,
     window_end: datetime,
     max_samples: int | None = None,
-    random_seed: int = 42,
-) -> list[TraceId]:
-    """Query and sample trace IDs from document_embeddings table.
+) -> tuple[list[TraceId], TraceEmbeddings]:
+    """Query trace IDs and embeddings from document_embeddings table.
 
     Args:
         team_id: Team ID to query embeddings for
@@ -28,14 +27,15 @@ def fetch_trace_ids_for_clustering(
         max_samples: Maximum number of traces to sample (None = all traces)
 
     Returns:
-        List of trace IDs (strings)
+        Tuple of (list of trace IDs, dict mapping trace_id -> embedding vector)
     """
     query = """
-        SELECT document_id as trace_id
+        SELECT document_id, embedding
         FROM posthog_document_embeddings
         WHERE team_id = %(team_id)s
             AND timestamp >= %(start_dt)s
             AND timestamp < %(end_dt)s
+            AND document_type = %(document_type)s
             AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
             AND length(embedding) > 0
     """
@@ -43,6 +43,7 @@ def fetch_trace_ids_for_clustering(
         "team_id": team_id,
         "start_dt": window_start,
         "end_dt": window_end,
+        "document_type": constants.LLMA_TRACE_DOCUMENT_TYPE,
         "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
         "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
     }
@@ -55,52 +56,11 @@ def fetch_trace_ids_for_clustering(
         params["max_samples"] = max_samples
 
     results = sync_execute(query, params, workload=Workload.OFFLINE)
+
     trace_ids = [row[0] for row in results]
+    embeddings_map = {row[0]: row[1] for row in results}
 
-    return trace_ids
-
-
-def fetch_embeddings_by_trace_ids(
-    team_id: int,
-    trace_ids: list[TraceId],
-    window_start: datetime,
-    window_end: datetime,
-) -> TraceEmbeddings:
-    """Fetch embeddings for given trace IDs from document_embeddings table.
-
-    Args:
-        team_id: Team ID (for security/filtering)
-        trace_ids: List of trace IDs to fetch embeddings for
-
-    Returns:
-        Dictionary mapping trace_id -> embedding vector
-    """
-
-    query = """
-        SELECT document_id, embedding
-        FROM posthog_document_embeddings
-        WHERE team_id = %(team_id)s
-            AND timestamp >= %(start_dt)s
-            AND timestamp < %(end_dt)s
-            AND document_id IN %(trace_ids)s
-            AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
-            AND length(embedding) > 0
-    """
-    params = {
-        "team_id": team_id,
-        "start_dt": window_start,
-        "end_dt": window_end,
-        "trace_ids": trace_ids,
-        "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
-        "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
-    }
-
-    results = sync_execute(query, params, workload=Workload.OFFLINE)
-
-    # Build mapping: trace_id -> embedding
-    embedding_map = {row[0]: row[1] for row in results}
-
-    return embedding_map
+    return trace_ids, embeddings_map
 
 
 def fetch_trace_summaries(
@@ -114,6 +74,8 @@ def fetch_trace_summaries(
     Args:
         team_id: Team ID (for security/filtering)
         trace_ids: List of trace IDs to fetch summaries for
+        window_start: Start of time window
+        window_end: End of time window
 
     Returns:
         Dictionary mapping trace_id -> {title, flow_diagram, bullets, interesting_notes}

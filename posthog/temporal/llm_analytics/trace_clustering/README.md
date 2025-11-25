@@ -24,14 +24,12 @@ posthog/temporal/llm_analytics/trace_clustering/
 
 This workflow implements trace clustering for LLM analytics:
 
-1. **Fetch trace IDs** - Query trace IDs from embeddings table for the time window
-2. **Fetch embeddings** - Load embedding vectors for the trace IDs
-3. **Determine optimal k** - Test k values and pick best using silhouette score
-4. **Perform clustering** - Run k-means clustering with optimal k
-5. **Compute distances** - Calculate distance from each trace to cluster centroids
-6. **Select representatives** - Pick traces closest to each centroid for labeling
-7. **Generate labels** - Use LLM to create human-readable titles and descriptions
-8. **Emit events** - Store results as `$ai_trace_clusters` events in ClickHouse
+1. **Fetch trace IDs and embeddings** - Query trace IDs and embeddings from `posthog_document_embeddings` table in a single query
+2. **Perform clustering with optimal k** - Test k values using silhouette score and return the best clustering result
+3. **Compute distances** - Calculate distance from each trace to cluster centroids
+4. **Select representatives** - Pick traces closest to each centroid for labeling
+5. **Generate labels** - Use LLM to create human-readable titles and descriptions
+6. **Emit events** - Store results as `$ai_trace_clusters` events in ClickHouse
 
 The workflow is designed to run on a schedule (daily) and is **versioned** - each run creates a fresh clustering that can be tracked over time.
 
@@ -44,10 +42,8 @@ graph TB
     end
 
     subgraph "Clustering Pipeline (Single Activity)"
-        ACT --> FETCH_IDS[Fetch Trace IDs]
-        FETCH_IDS --> FETCH_EMB[Fetch Embeddings]
-        FETCH_EMB --> OPTIMAL[Determine Optimal K]
-        OPTIMAL --> CLUSTER[Perform K-Means]
+        ACT --> FETCH[Fetch Trace IDs & Embeddings]
+        FETCH --> CLUSTER[Perform K-Means with Optimal K]
         CLUSTER --> DIST[Compute Distances]
         DIST --> REPS[Select Representatives]
         REPS --> LABEL[Generate LLM Labels]
@@ -55,8 +51,7 @@ graph TB
     end
 
     subgraph "Data Sources"
-        CH_EMB[(document_embeddings)] --> FETCH_IDS
-        CH_EMB --> FETCH_EMB
+        CH_EMB[(document_embeddings)] --> FETCH
         CH_SUM[(events: $ai_trace_summary)] --> LABEL
     end
 
@@ -80,9 +75,9 @@ graph TB
 - `team_id` (required): Team ID to cluster traces for
 - `current_time` (auto): Timestamp from workflow.now()
 - `lookback_days` (optional): Days of trace history to analyze (default: 7)
-- `max_samples` (optional): Maximum traces to sample (default: 2000)
-- `min_k` (optional): Minimum number of clusters to test (default: 3)
-- `max_k` (optional): Maximum number of clusters to test (default: 6)
+- `max_samples` (optional): Maximum traces to sample (default: 5000)
+- `min_k` (optional): Minimum number of clusters to test (default: 2)
+- `max_k` (optional): Maximum number of clusters to test (default: 10)
 - `window_start` (optional): Explicit window start in RFC3339 format (overrides lookback_days)
 - `window_end` (optional): Explicit window end in RFC3339 format (overrides lookback_days)
 
@@ -96,8 +91,8 @@ The workflow uses a **single activity** (`perform_clustering_activity`) that run
 
 The activity internally calls `perform_clustering()` which orchestrates:
 
-1. **data.py** - `fetch_trace_ids_for_clustering()`, `fetch_embeddings_by_trace_ids()`, `fetch_trace_summaries()`
-2. **clustering_utils.py** - `determine_optimal_k()`, `perform_kmeans_clustering()`, `calculate_trace_distances()`, `select_representatives_from_distances()`
+1. **data.py** - `fetch_trace_embeddings_for_clustering()`, `fetch_trace_summaries()`
+2. **clustering_utils.py** - `perform_kmeans_with_optimal_k()`, `calculate_trace_distances()`, `select_representatives_from_distances()`
 3. **labeling.py** - `generate_cluster_labels()`
 4. **event_emission.py** - `emit_cluster_events()`
 
@@ -117,16 +112,14 @@ The activity internally calls `perform_clustering()` which orchestrates:
 
 **`data.py`** - Data access layer:
 
-- `fetch_trace_ids_for_clustering()` - Query trace IDs from embeddings table
-- `fetch_embeddings_by_trace_ids()` - Fetch embedding vectors
+- `fetch_trace_embeddings_for_clustering()` - Query trace IDs and embeddings in a single query (filters by `document_type='llm-trace-summary'`)
 - `fetch_trace_summaries()` - Fetch trace summaries for LLM labeling
 
 **`clustering_utils.py`** - Clustering algorithms:
 
-- `determine_optimal_k()` - Test k values using silhouette score
-- `perform_kmeans_clustering()` - Run k-means with optimal k
+- `perform_kmeans_with_optimal_k()` - Test k values using silhouette score and return `KMeansResult` with labels and centroids
 - `calculate_trace_distances()` - Compute distances to all centroids
-- `select_representatives_from_distances()` - Pick traces closest to centroids
+- `select_representatives_from_distances()` - Pick traces closest to centroids, returns `ClusterRepresentatives`
 
 **`labeling.py`** - LLM label generation:
 
@@ -149,7 +142,6 @@ Each clustering run generates one `$ai_trace_clusters` event with native JSON st
     "$ai_window_start": "2025-01-16T00:00:00Z",
     "$ai_window_end": "2025-01-23T00:00:00Z",
     "$ai_total_traces_analyzed": 1847,
-    "$ai_sampled_traces_count": 1847,
 
     # Clusters array (native JSON, not string)
     "$ai_clusters": [
@@ -187,7 +179,7 @@ temporal workflow start \
   --task-queue development-task-queue \
   --type daily-trace-clustering \
   --workflow-id "trace-clustering-test-$(date +%Y%m%d-%H%M%S)" \
-  --input '{"team_id": 1, "current_time": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'", "lookback_days": 7, "max_samples": 500, "min_k": 3, "max_k": 6}'
+  --input '{"team_id": 1, "current_time": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'", "lookback_days": 7, "max_samples": 100, "min_k": 2, "max_k": 5}'
 
 # Check status
 temporal workflow describe --workflow-id "trace-clustering-test-YYYYMMDD-HHMMSS"
@@ -246,40 +238,41 @@ Key constants in `constants.py`:
 | Constant | Default | Description |
 |----------|---------|-------------|
 | `DEFAULT_LOOKBACK_DAYS` | 7 | Days of trace history to analyze |
-| `DEFAULT_MAX_SAMPLES` | 2000 | Maximum traces to sample |
-| `DEFAULT_MIN_K` | 3 | Minimum clusters to test |
-| `DEFAULT_MAX_K` | 6 | Maximum clusters to test |
+| `DEFAULT_MAX_SAMPLES` | 5000 | Maximum traces to sample |
+| `DEFAULT_MIN_K` | 2 | Minimum clusters to test |
+| `DEFAULT_MAX_K` | 10 | Maximum clusters to test |
 | `MIN_TRACES_FOR_CLUSTERING` | 20 | Minimum traces required |
 | `CLUSTERING_ACTIVITY_TIMEOUT` | 30 min | Activity timeout |
 | `DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING` | 7 | Representatives for LLM |
+| `LABELING_LLM_MODEL` | gpt-5.1 | OpenAI model for labeling |
+| `LABELING_LLM_TIMEOUT` | 240.0 | LLM request timeout (seconds) |
+| `LLMA_TRACE_DOCUMENT_TYPE` | llm-trace-summary | Document type filter for embeddings |
 
 ## Processing Flow
 
 1. **Fetch Data** (< 1 min)
-   - Query trace IDs from `posthog_document_embeddings`
-   - Fetch embeddings for those trace IDs
+   - Query trace IDs and embeddings from `posthog_document_embeddings` in a single query
+   - Filter by `document_type='llm-trace-summary'`
    - Sample if more than `max_samples`
 
-2. **Determine Optimal K** (< 2 min)
+2. **Cluster with Optimal K** (< 2 min)
    - Test k values from `min_k` to `max_k`
-   - Calculate silhouette score for each
-   - Pick k with highest score
-
-3. **Cluster & Compute Distances** (< 1 min)
-   - Run k-means with optimal k
+   - Calculate silhouette score for each k
+   - Return `KMeansResult` with best labels and centroids
    - Compute distance matrix (traces × centroids)
    - **Distances computed once and reused**
 
-4. **Select Representatives** (< 1 sec)
+3. **Select Representatives** (< 1 sec)
    - For each cluster, pick N traces closest to centroid
    - Uses pre-computed distance matrix
+   - Returns `ClusterRepresentatives` mapping
 
-5. **Generate Labels** (< 2 min)
+4. **Generate Labels** (< 2 min)
    - Fetch trace summaries from `$ai_trace_summary` events
    - Build prompt with representative trace details
    - Call OpenAI to generate titles and descriptions
 
-6. **Emit Events** (< 1 sec)
+5. **Emit Events** (< 1 sec)
    - Build cluster data with traces sorted by distance
    - Emit single `$ai_trace_clusters` event
 
@@ -298,17 +291,17 @@ pytest posthog/temporal/llm_analytics/trace_clustering/test_workflow.py -v
 
 Test coverage:
 
-- Optimal k selection with silhouette scores
-- K-means clustering with reproducibility
-- Distance calculations
-- Representative selection from pre-computed distances
-- Event emission with correct schema
+- `perform_kmeans_with_optimal_k()` - Optimal k selection and clustering
+- `KMeansResult` structure validation
+- Distance calculations with `calculate_trace_distances()`
+- Representative selection with `select_representatives_from_distances()`
+- `ClusteringInputs` model validation
 
 ## Dependencies
 
 - **sklearn**: K-means clustering and silhouette score
 - **numpy**: Vector operations and distance calculations
-- **OpenAI**: LLM-based cluster labeling (gpt-4o-mini)
+- **OpenAI**: LLM-based cluster labeling (configured via `LABELING_LLM_MODEL`)
 - **Temporal**: Workflow orchestration
 
 ## References

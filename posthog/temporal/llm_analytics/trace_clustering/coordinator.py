@@ -173,14 +173,14 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                 )
 
-                total_clusters += workflow_result.optimal_k
-                total_traces += workflow_result.total_traces_analyzed
+                total_clusters += workflow_result.metrics.num_clusters
+                total_traces += workflow_result.metrics.total_traces_analyzed
 
                 logger.info(
                     "Completed clustering for team",
                     team_id=team_id,
-                    traces=workflow_result.total_traces_analyzed,
-                    clusters=workflow_result.optimal_k,
+                    traces=workflow_result.metrics.total_traces_analyzed,
+                    clusters=workflow_result.metrics.num_clusters,
                 )
 
             except Exception as e:
