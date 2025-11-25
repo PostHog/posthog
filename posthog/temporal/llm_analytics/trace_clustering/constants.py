@@ -37,6 +37,9 @@ EVENT_NAME = "$ai_trace_clusters"
 LLMA_TRACE_MINIMAL_RENDERING = "llma_trace_minimal"
 LLMA_TRACE_DETAILED_RENDERING = "llma_trace_detailed"
 
+# Document type for LLM trace summaries
+LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary"
+
 # Team allowlist (empty list = all teams allowed)
 ALLOWED_TEAM_IDS: list[int] = [
     1,  # Local development
@@ -46,3 +49,5 @@ ALLOWED_TEAM_IDS: list[int] = [
 
 # Cluster labeling configuration
 DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING = 7  # Number of representative traces to use for LLM labeling
+LABELING_LLM_MODEL = "gpt-5.1"
+LABELING_LLM_TIMEOUT = 240.0

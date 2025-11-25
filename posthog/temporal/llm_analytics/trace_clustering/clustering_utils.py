@@ -6,94 +6,43 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 
-from posthog.temporal.llm_analytics.trace_clustering.constants import MIN_TRACES_FOR_CLUSTERING
+from posthog.temporal.llm_analytics.trace_clustering.models import ClusterRepresentatives, KMeansResult
 
 logger = logging.getLogger(__name__)
 
 
-def determine_optimal_k(
+def perform_kmeans_with_optimal_k(
     embeddings: np.ndarray,
     min_k: int,
     max_k: int,
-    random_state: int = 42,
-) -> tuple[int, dict[int, float]]:
+) -> KMeansResult:
     """
-    Determine optimal number of clusters using silhouette score.
-
-    Tests each k value from min_k to max_k and returns the k with
-    the highest silhouette score.
+    Determine optimal k using silhouette score and return the clustering results.
 
     Args:
         embeddings: Array of embedding vectors, shape (n_samples, n_features)
         min_k: Minimum number of clusters to test
         max_k: Maximum number of clusters to test
-        random_state: Random seed for reproducibility
 
     Returns:
-        Tuple of (optimal_k, scores_dict)
-        - optimal_k: The k value with highest silhouette score
-        - scores_dict: Dictionary mapping k to silhouette score
-
-    Raises:
-        ValueError: If insufficient data for clustering
+        KMeansResult with labels and centroids
     """
-    n_samples = len(embeddings)
-
-    # Validate we have enough samples
-    if n_samples < MIN_TRACES_FOR_CLUSTERING:
-        raise ValueError(f"Insufficient traces for clustering: {n_samples} < {MIN_TRACES_FOR_CLUSTERING}")
-
-    # Adjust max_k if we don't have enough samples
-    # Need at least k+1 samples for valid silhouette score
-    max_k = min(max_k, n_samples - 1)
-
-    if max_k < min_k:
-        raise ValueError(f"Not enough samples ({n_samples}) to test k range [{min_k}, {max_k}]")
-
-    scores = {}
-    best_k = min_k
     best_score = -1.0
+    best_kmeans = None
 
     for k in range(min_k, max_k + 1):
-        kmeans = KMeans(n_clusters=k, random_state=random_state, n_init=10)
-        labels = kmeans.fit_predict(embeddings)
-
-        score = silhouette_score(embeddings, labels)
-        scores[k] = score
+        kmeans = KMeans(n_clusters=k, n_init=10)
+        kmeans.fit_predict(embeddings)
+        score = silhouette_score(embeddings, kmeans.labels_)
 
         if score > best_score:
             best_score = score
-            best_k = k
+            best_kmeans = kmeans
 
-    return best_k, scores
-
-
-def perform_kmeans_clustering(
-    embeddings: np.ndarray,
-    k: int,
-    random_state: int = 42,
-) -> tuple[np.ndarray, np.ndarray, float]:
-    """
-    Perform k-means clustering on embeddings.
-
-    Args:
-        embeddings: Array of embedding vectors, shape (n_samples, n_features)
-        k: Number of clusters
-        random_state: Random seed for reproducibility
-
-    Returns:
-        Tuple of (labels, centroids, inertia)
-        - labels: Cluster assignment for each sample, shape (n_samples,)
-        - centroids: Cluster centroids, shape (k, n_features)
-        - inertia: Sum of squared distances to nearest centroid
-    """
-
-    kmeans = KMeans(n_clusters=k, random_state=random_state, n_init=10)
-    labels = kmeans.fit_predict(embeddings)
-    centroids = kmeans.cluster_centers_
-    inertia = kmeans.inertia_
-
-    return labels, centroids, inertia
+    return KMeansResult(
+        labels=best_kmeans.labels_.tolist(),
+        centroids=best_kmeans.cluster_centers_.tolist(),
+    )
 
 
 def calculate_trace_distances(
@@ -120,7 +69,7 @@ def select_representatives_from_distances(
     distances_matrix: np.ndarray,
     trace_ids: list[str],
     n_closest: int = 5,
-) -> dict[int, list[str]]:
+) -> "ClusterRepresentatives":
     """
     Select representative traces using pre-computed distances.
 
@@ -134,9 +83,9 @@ def select_representatives_from_distances(
         n_closest: Number of closest traces to select per cluster
 
     Returns:
-        Dictionary mapping cluster_id to list of representative trace_ids
+        ClusterRepresentatives mapping cluster_id to list of representative trace_ids
     """
-    representatives = {}
+    representatives: ClusterRepresentatives = {}
     unique_labels = np.unique(labels)
 
     for cluster_id in unique_labels:

@@ -1,8 +1,7 @@
 """LLM-based cluster labeling for trace clustering workflow.
 
-This module contains functions for generating human-readable cluster labels:
-- Select representative traces from each cluster
-- Generate titles and descriptions using LLM
+This module contains functions for generating human-readable cluster labels
+using LLM to create titles and descriptions based on representative traces.
 """
 
 import os
@@ -16,8 +15,9 @@ from posthoganalytics.ai.openai import OpenAI
 from pydantic import BaseModel
 
 from posthog.cloud_utils import is_cloud
-from posthog.temporal.llm_analytics.trace_clustering import data
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, TraceId
+from posthog.temporal.llm_analytics.trace_clustering.constants import LABELING_LLM_MODEL, LABELING_LLM_TIMEOUT
+from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
+from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, ClusterRepresentatives
 from posthog.utils import get_instance_region
 
 logger = logging.getLogger(__name__)
@@ -36,8 +36,7 @@ class ClusterLabelsResponse(BaseModel):
 def generate_cluster_labels(
     team_id: int,
     labels: np.ndarray,
-    representative_trace_ids: dict[int, list[TraceId]],
-    optimal_k: int,
+    representative_trace_ids: ClusterRepresentatives,
     window_start: datetime,
     window_end: datetime,
 ) -> dict[int, ClusterLabel]:
@@ -52,14 +51,15 @@ def generate_cluster_labels(
         team_id: Team ID
         labels: Cluster assignments for each trace (used for cluster sizes)
         representative_trace_ids: Dict mapping cluster_id to list of representative trace IDs
-        optimal_k: Number of clusters
         window_start: Start of time window
         window_end: End of time window
 
     Returns:
         Dict mapping cluster_id -> ClusterLabel
     """
-    representative_trace_summaries = data.fetch_trace_summaries(
+    num_clusters = len(np.unique(labels))
+
+    representative_trace_summaries = fetch_trace_summaries(
         team_id=team_id,
         trace_ids=[tid for tids in representative_trace_ids.values() for tid in tids],
         window_start=window_start,
@@ -67,7 +67,7 @@ def generate_cluster_labels(
     )
 
     clusters_data = []
-    for cluster_id in range(optimal_k):
+    for cluster_id in range(num_clusters):
         trace_ids_in_cluster = representative_trace_ids.get(cluster_id, [])
 
         representative_traces = []
@@ -83,26 +83,26 @@ def generate_cluster_labels(
             }
         )
 
-    prompt = _build_cluster_labels_prompt(optimal_k, clusters_data)
+    prompt = _build_cluster_labels_prompt(num_clusters, clusters_data)
 
-    return _call_llm_for_labels(prompt, team_id, optimal_k, labels)
+    return _call_llm_for_labels(prompt, team_id, num_clusters, labels)
 
 
-def _build_cluster_labels_prompt(optimal_k: int, clusters_data: list[dict]) -> str:
+def _build_cluster_labels_prompt(num_clusters: int, clusters_data: list[dict]) -> str:
     """Build the prompt for generating cluster labels.
 
     Args:
-        optimal_k: Number of clusters
+        num_clusters: Number of clusters
         clusters_data: List of dicts with cluster_id, size, and representative_traces
 
     Returns:
         Formatted prompt string for LLM
     """
-    prompt = f"""You are analyzing {optimal_k} clusters of similar LLM traces. For each cluster, provide a short title and description that captures what makes traces in that cluster similar.
+    prompt = f"""You are analyzing {num_clusters} clusters of similar LLM traces. For each cluster, provide a short title and description that captures what makes traces in that cluster similar.
 
 Having context about ALL clusters helps you create more distinctive and useful labels that differentiate between clusters.
 
-Here are the {optimal_k} clusters with their representative traces:
+Here are the {num_clusters} clusters with their representative traces:
 
 """
 
@@ -127,8 +127,8 @@ Here are the {optimal_k} clusters with their representative traces:
     prompt += """
 Based on these representative traces, provide a title and description for each cluster:
 
-1. **Title**: 3-5 words that capture the main pattern (e.g., "PDF Generation Errors", "Authentication Flows", "Data Pipeline Processing")
-2. **Description**: 1-2 sentences explaining what traces in this cluster have in common - focus on functionality, error patterns, API usage, or workflows
+1. **Title**: 3-10 words that capture the main pattern (e.g., "PDF Generation Errors", "Authentication Flows", "Data Pipeline Processing")
+2. **Description**: 2-3 sentences explaining what traces in this cluster have in common in terms of similar usage patterns, error messages, functionality or anything that jumps out as interesting.
 
 Respond with JSON in this exact format:
 {
@@ -140,7 +140,7 @@ Respond with JSON in this exact format:
     },
     {
       "cluster_id": 1,
-      "title": "Another Pattern",
+      "title": "Another Pattern explaining the cluster",
       "description": "What makes this cluster distinct from others."
     }
   ]
@@ -154,7 +154,7 @@ Make titles and descriptions distinctive - users need to quickly understand how 
 def _call_llm_for_labels(
     prompt: str,
     team_id: int,
-    optimal_k: int,
+    num_clusters: int,
     labels: np.ndarray,
 ) -> dict[int, ClusterLabel]:
     """Call OpenAI LLM to generate cluster labels.
@@ -162,7 +162,7 @@ def _call_llm_for_labels(
     Args:
         prompt: The formatted prompt
         team_id: Team ID for tracking
-        optimal_k: Number of clusters
+        num_clusters: Number of clusters
         labels: Cluster assignments (for fallback labels)
 
     Returns:
@@ -181,7 +181,7 @@ def _call_llm_for_labels(
 
     client = OpenAI(
         posthog_client=_NoOpPostHogClient(),  # type: ignore[arg-type]
-        timeout=120.0,
+        timeout=LABELING_LLM_TIMEOUT,
         base_url=getattr(settings, "OPENAI_BASE_URL", None),
     )
 
@@ -191,7 +191,7 @@ def _call_llm_for_labels(
 
     try:
         response = client.beta.chat.completions.parse(
-            model="gpt-4o-mini",  # Cheaper model for this task
+            model=LABELING_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             user=user_param,
             response_format=ClusterLabelsResponse,
@@ -220,5 +220,5 @@ def _call_llm_for_labels(
                 title=f"Cluster {cluster_id}",
                 description=f"Cluster of {sum(1 for label in labels if label == cluster_id)} similar traces",
             )
-            for cluster_id in range(optimal_k)
+            for cluster_id in range(num_clusters)
         }

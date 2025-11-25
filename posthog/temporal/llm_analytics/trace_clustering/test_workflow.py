@@ -6,8 +6,7 @@ import numpy as np
 
 from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
     calculate_trace_distances,
-    determine_optimal_k,
-    perform_kmeans_clustering,
+    perform_kmeans_with_optimal_k,
     select_representatives_from_distances,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs
@@ -58,35 +57,29 @@ def sample_embeddings():
 class TestClusteringUtils:
     """Tests for clustering utility functions."""
 
-    def test_determine_optimal_k_success(self, sample_embeddings):
-        """Test optimal k determination with valid data."""
+    def test_perform_kmeans_with_optimal_k_success(self, sample_embeddings):
+        """Test optimal k determination and clustering with valid data."""
         embeddings_array = np.array([e["embedding"] for e in sample_embeddings])
 
-        optimal_k, scores = determine_optimal_k(embeddings_array, min_k=2, max_k=5)
+        result = perform_kmeans_with_optimal_k(embeddings_array, min_k=2, max_k=5)
 
-        assert 2 <= optimal_k <= 5
-        assert len(scores) == 4  # k=2,3,4,5
-        assert all(-1 <= score <= 1 for score in scores.values())
+        num_clusters = len(result.centroids)
+        assert 2 <= num_clusters <= 5
+        assert len(result.labels) == len(sample_embeddings)
         # Should pick k=3 since we generated 3 clusters
-        assert optimal_k == 3
+        assert num_clusters == 3
 
-    def test_determine_optimal_k_insufficient_data(self):
-        """Test optimal k with insufficient data."""
-        embeddings = np.random.rand(10, 384)  # Only 10 samples (less than MIN_TRACES_FOR_CLUSTERING=20)
-
-        with pytest.raises(ValueError, match="Insufficient traces"):
-            determine_optimal_k(embeddings, min_k=3, max_k=6)
-
-    def test_perform_kmeans_clustering(self, sample_embeddings):
-        """Test k-means clustering execution."""
+    def test_perform_kmeans_with_optimal_k_returns_correct_structure(self, sample_embeddings):
+        """Test that perform_kmeans_with_optimal_k returns correct KMeansResult structure."""
         embeddings_array = np.array([e["embedding"] for e in sample_embeddings])
 
-        labels, centroids, inertia = perform_kmeans_clustering(embeddings_array, k=3)
+        result = perform_kmeans_with_optimal_k(embeddings_array, min_k=2, max_k=5)
 
-        assert len(labels) == len(sample_embeddings)
-        assert centroids.shape == (3, 384)
-        assert inertia > 0
-        assert set(labels) == {0, 1, 2}  # Should have 3 clusters
+        assert isinstance(result.labels, list)
+        assert isinstance(result.centroids, list)
+        assert len(result.labels) == len(sample_embeddings)
+        assert all(isinstance(label, int) for label in result.labels)
+        assert all(isinstance(centroid, list) for centroid in result.centroids)
 
     def test_select_representatives_from_distances(self, sample_embeddings):
         """Test representative selection using pre-computed distances."""
@@ -94,20 +87,22 @@ class TestClusteringUtils:
         trace_ids = [e["trace_id"] for e in sample_embeddings]
 
         # Run clustering
-        labels, centroids, _ = perform_kmeans_clustering(embeddings_array, k=3)
+        result = perform_kmeans_with_optimal_k(embeddings_array, min_k=2, max_k=5)
 
         # Compute distances once
-        distances_matrix = calculate_trace_distances(embeddings_array, centroids)
+        distances_matrix = calculate_trace_distances(embeddings_array, np.array(result.centroids))
 
         # Select representatives using pre-computed distances
-        representatives = select_representatives_from_distances(labels, distances_matrix, trace_ids, n_closest=5)
+        representatives = select_representatives_from_distances(
+            np.array(result.labels), distances_matrix, trace_ids, n_closest=5
+        )
 
-        assert len(representatives) == 3
+        assert len(representatives) == len(result.centroids)
         for cluster_id, rep_ids in representatives.items():
             assert len(rep_ids) <= 5
             assert all(isinstance(tid, str) for tid in rep_ids)
             # Verify these are from the correct cluster
-            cluster_mask = labels == cluster_id
+            cluster_mask = np.array(result.labels) == cluster_id
             cluster_trace_ids = [trace_ids[i] for i in range(len(trace_ids)) if cluster_mask[i]]
             assert all(tid in cluster_trace_ids for tid in rep_ids)
 
