@@ -18,8 +18,6 @@ from posthog.models.person import Person, PersonDistinctId
 
 logger = structlog.get_logger(__name__)
 
-# Batch size for PostgreSQL queries when fetching person data
-# This prevents timeouts when exporting large numbers of actors
 PERSON_ACTORS_QUERY_BATCH_SIZE = 1000
 
 
