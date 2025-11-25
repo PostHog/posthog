@@ -3,6 +3,7 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 import { ErrorPropertyTabEvent, EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { SurveyResponseDisplay } from 'lib/components/SurveyResponseDisplay/SurveyResponseDisplay'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
@@ -57,6 +58,15 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         return (
                             <div className="mx-3">
                                 <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                            </div>
+                        )
+                    case 'survey_response':
+                        return (
+                            <div className="mx-3">
+                                <SurveyResponseDisplay
+                                    eventProperties={properties}
+                                    eventUuid={'uuid' in event ? event.uuid : undefined}
+                                />
                             </div>
                         )
                     case 'exception_properties':

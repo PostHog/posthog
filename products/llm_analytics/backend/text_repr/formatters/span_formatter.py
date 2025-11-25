@@ -162,7 +162,7 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
         lines.append(str(state))
         return lines
     except Exception:
-        lines.append(f"[UNABLE_TO_PARSE: {type(state).__name__}]")
+        lines.append(str(state))
         return lines
 
 

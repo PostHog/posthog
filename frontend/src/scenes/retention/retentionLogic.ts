@@ -61,6 +61,8 @@ export const retentionLogic = kea<retentionLogicType>([
             // Reset selected breakdown value when breakdown filter changes
             // This prevents the dropdown from showing invalid cohort IDs
             actions.setSelectedBreakdownValue(null)
+            // Reset selected interval when breakdown filter changes
+            actions.updateInsightFilter({ selectedInterval: null })
         },
         updateLocalCustomBracket: async (_, breakpoint) => {
             await breakpoint(1000)

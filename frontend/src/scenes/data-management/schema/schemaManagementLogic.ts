@@ -10,6 +10,8 @@ import type { schemaManagementLogicType } from './schemaManagementLogicType'
 
 export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Object'
 
+export const MAX_PROPERTY_NAME_LENGTH = 200
+
 export const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
     { value: 'String', label: 'String' },
     { value: 'Numeric', label: 'Numeric' },
@@ -261,11 +263,11 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                     return 'All properties must have a name'
                 }
 
-                const invalidProperties = form.properties.filter(
-                    (prop) => prop.name && prop.name.trim() && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(prop.name.trim())
+                const tooLongProperties = form.properties.filter(
+                    (prop) => prop.name && prop.name.trim().length > MAX_PROPERTY_NAME_LENGTH
                 )
-                if (invalidProperties.length > 0) {
-                    return 'Property names must start with a letter or underscore and contain only letters, numbers, and underscores'
+                if (tooLongProperties.length > 0) {
+                    return `Property names must be ${MAX_PROPERTY_NAME_LENGTH} characters or less`
                 }
 
                 return null
