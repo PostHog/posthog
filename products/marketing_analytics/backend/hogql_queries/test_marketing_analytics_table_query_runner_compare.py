@@ -541,12 +541,12 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         assert response.results is not None
         assert len(response.results) == 3, "Should have 3 Facebook campaigns in November 2024"
 
-        sources = [row[1].value for row in response.results]
+        sources = [row[2].value for row in response.results]
         assert all(source == "Facebook Ads" for source in sources), "All sources should be Facebook Ads"
 
-        total_cost = sum(float(row[2].value or 0) for row in response.results)
-        total_clicks = sum(int(row[3].value or 0) for row in response.results)
-        total_impressions = sum(int(row[4].value or 0) for row in response.results)
+        total_cost = sum(float(row[3].value or 0) for row in response.results)
+        total_clicks = sum(int(row[4].value or 0) for row in response.results)
+        total_impressions = sum(int(row[5].value or 0) for row in response.results)
 
         assert round(total_cost, 2) == 8.40, f"Expected cost $8.40, got ${total_cost}"
         assert total_clicks == 4, f"Expected 4 clicks, got {total_clicks}"
