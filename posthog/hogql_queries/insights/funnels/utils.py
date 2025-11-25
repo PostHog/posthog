@@ -1,6 +1,6 @@
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, FunnelVizType, StepOrderValue
+from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, FunnelVizType
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -24,15 +24,9 @@ def use_udf(funnelsFilter: FunnelsFilter, team: Team):
 
 
 def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
-    from posthog.hogql_queries.insights.funnels import Funnel, FunnelUDF
+    from posthog.hogql_queries.insights.funnels import FunnelUDF
 
-    if (
-        use_udf
-        or funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED
-        or funnelsFilter.funnelOrderType == StepOrderValue.STRICT
-    ):
-        return FunnelUDF
-    return Funnel
+    return FunnelUDF
 
 
 def get_funnel_actor_class(funnelsFilter: FunnelsFilter):

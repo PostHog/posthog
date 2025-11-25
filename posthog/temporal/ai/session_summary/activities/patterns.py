@@ -402,8 +402,10 @@ async def assign_events_to_patterns_activity(
         session_id_to_ready_summaries_mapping=session_id_to_ready_summaries_mapping
     )
     # Combine patterns assignments to have a single pattern-to-events list
+    # Deduplicates to keep only one event per session per pattern
     combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
-        patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
+        patterns_assignments_list_of_lists=patterns_assignments_list_of_lists,
+        event_id_to_session_id_mapping=combined_event_ids_mappings,
     )
     # Combine patterns ids with full event ids (from DB) and previous/next events in the segment per each assigned event
     pattern_id_to_event_context_mapping = combine_patterns_ids_with_events_context(
