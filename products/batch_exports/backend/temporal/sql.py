@@ -890,8 +890,6 @@ FROM (
         INNER JOIN person_distinct_id2 pd
             ON p.id = pd.person_id
             AND pd.team_id = p.team_id
-        -- TODO - this probably needs updating
-        $filter_distinct_ids
     WHERE
         pd.team_id = {team_id}::Int64
         AND (pd.distinct_id, pd.person_id, pd.version) IN (
