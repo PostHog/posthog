@@ -102,8 +102,7 @@
             "workerd",
             "sharp",
             "ssh2",
-            "lmdb",
-            "parcel"
+            "lmdb"
         ]
     },
     "lint-staged": {
