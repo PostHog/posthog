@@ -148,7 +148,7 @@ def test_load_session_data_handles_timestamp_formats(
         session_id=mock_session_id,
     )
     assert len(events_mapping) == 1
-    event = next(events_mapping.values())[0]
+    event = next(iter(events_mapping.values()))
     timestamp_index = prompt_data.columns.index("timestamp")
     assert event[timestamp_index] == "2025-03-31T18:40:39.302000+00:00"
 
