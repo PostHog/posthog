@@ -174,7 +174,9 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             return response.Response(results)
         except Exception as e:
             logger.exception("Failed to get auto-materialized columns", error=str(e))
-            return response.Response({"error": str(e)}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return response.Response(
+                {"error": "An internal error has occurred."}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def _validate_property_for_materialization(
         self,
@@ -256,7 +258,7 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 team_id=slot.team_id,
                 error=str(e),
             )
-            return f"Failed to start backfill workflow: {str(e)}"
+            return "Failed to start backfill workflow due to an internal error."
 
     def _log_slot_created(self, slot: MaterializedColumnSlot, request) -> None:
         """Log activity for slot creation."""
@@ -397,8 +399,9 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             workflow_id_suffix=f"-retry-{slot.updated_at.timestamp()}",
         )
         if workflow_error:
-            # Revert state back to ERROR
+            # Revert state and record the new error
             slot.state = MaterializedColumnSlotState.ERROR
+            slot.error_message = workflow_error
             slot.save()
             return response.Response({"error": workflow_error}, status=http_status.HTTP_500_INTERNAL_SERVER_ERROR)
 
