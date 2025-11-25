@@ -94,6 +94,7 @@ import (
         event_name = self._escape_go_string(event_name)
         base_name = self._to_go_func_name(event_name)
         func_name = f"{base_name}Capture"
+        func_name_from_base = f"{func_name}FromBase"
 
         return f"""// {func_name} creates a capture for the {event_name} event.
 // This event has no defined schema properties.
@@ -110,6 +111,26 @@ func {func_name}(distinctId string, properties ...posthog.Properties) posthog.Ca
 \t\tEvent:      {event_name},
 \t\tProperties: props,
 \t}}
+}}
+
+// {func_name_from_base} creates a posthog.Capture for the {event_name} event
+// starting from an existing base capture. The event name is overridden, and
+// any additional properties can be passed via the properties parameter.
+func {func_name_from_base}(base posthog.Capture, properties ...posthog.Properties) posthog.Capture {{
+\tprops := posthog.Properties{{}}
+\tfor _, p := range properties {{
+\t\tfor k, v := range p {{
+\t\t\tprops[k] = v
+\t\t}}
+\t}}
+
+\tbase.Event = {event_name}
+\tif base.Properties == nil {{
+\t\tbase.Properties = posthog.Properties{{}}
+\t}}
+\tbase.Properties = base.Properties.Merge(props)
+
+\treturn base
 }}
 
 """

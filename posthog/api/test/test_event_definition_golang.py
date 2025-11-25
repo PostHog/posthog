@@ -133,6 +133,26 @@ func SimpleClickCapture(distinctId string, properties ...posthog.Properties) pos
 		Event:      "simple_click",
 		Properties: props,
 	}
+}
+
+// SimpleClickCaptureFromBase creates a posthog.Capture for the "simple_click" event
+// starting from an existing base capture. The event name is overridden, and
+// any additional properties can be passed via the properties parameter.
+func SimpleClickCaptureFromBase(base posthog.Capture, properties ...posthog.Properties) posthog.Capture {
+\tprops := posthog.Properties{}
+\tfor _, p := range properties {
+\t\tfor k, v := range p {
+\t\t\tprops[k] = v
+\t\t}
+\t}
+
+\tbase.Event = "simple_click"
+\tif base.Properties == nil {
+\t\tbase.Properties = posthog.Properties{}
+\t}
+\tbase.Properties = base.Properties.Merge(props)
+
+\treturn base
 }""",
             code.strip(),
         )
