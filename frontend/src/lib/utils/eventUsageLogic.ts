@@ -500,6 +500,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId,
             metric,
         }),
+        reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1196,6 +1197,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             metric: ExperimentMetric
         }) => {
             posthog.capture('experiment timeseries recalculated', { experiment_id: experimentId, metric })
+        },
+        reportExperimentAiSummaryRequested: ({ experiment }) => {
+            posthog.capture('experiment ai summary requested', {
+                experiment_id: experiment.id,
+                experiment_name: experiment.name,
+                experiment_description: experiment.description,
+            })
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
