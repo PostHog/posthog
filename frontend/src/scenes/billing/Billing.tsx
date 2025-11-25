@@ -22,7 +22,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingProductV2Type, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { BillingProductV2Type } from '~/types'
 
 import { BillingHero } from './BillingHero'
 import { BillingNoAccess } from './BillingNoAccess'

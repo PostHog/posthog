@@ -45,9 +45,9 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 @config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
-    password: str
-    private_key: str
     selection: Literal["password", "keypair"] = "password"
+    password: str | None = None
+    private_key: str | None = None
     passphrase: str | None = None
 
 
@@ -66,6 +66,12 @@ class BigQuerySourceConfig(config.Config):
     )
     use_custom_region: BigQueryUseCustomRegionConfig | None = None
     dataset_project: BigQueryDatasetProjectConfig | None = None
+
+
+@config.config
+class BingAdsSourceConfig(config.Config):
+    account_id: str
+    bing_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -259,6 +265,7 @@ class ZendeskSourceConfig(config.Config):
 def get_config_for_source(source: ExternalDataSourceType):
     return {
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
+        ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,

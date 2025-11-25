@@ -34,9 +34,7 @@ export const propertyDefinitionsHandler: ToolBase<typeof schema>['handler'] = as
 
     const simplifiedProperties = PropertyDefinitionSchema.array().parse(propDefsResult.data)
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(simplifiedProperties) }],
-    }
+    return simplifiedProperties
 }
 
 const tool = (): ToolBase<typeof schema> => ({

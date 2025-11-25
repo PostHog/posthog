@@ -1,4 +1,5 @@
 import time
+import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -235,7 +236,7 @@ def ingestion_lag() -> None:
     FROM events
     WHERE team_id IN %(team_ids)s
         AND event IN %(events)s
-        AND timestamp > yesterday() AND timestamp < now() + toIntervalMinute(3)
+        AND timestamp > now() - interval 72 hours AND timestamp < now() + toIntervalMinute(3)
     GROUP BY event
     """
 
@@ -527,7 +528,7 @@ def clean_stale_partials() -> None:
     """Clean stale (meaning older than 7 days) partial social auth sessions."""
     from social_django.models import Partial
 
-    Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
+    Partial.objects.filter(timestamp__lt=timezone.now() - datetime.timedelta(7)).delete()
 
 
 @shared_task(ignore_result=True)

@@ -968,3 +968,76 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 {"type": "event_metadata", "key": "$group_3", "operator": "exact", "value": ["1", "2"]}, scope="group"
             )
+
+    def test_property_to_expr_between_operator(self):
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
+            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
+            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
+            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
+        )
+
+    def test_property_to_expr_between_operator_validation(self):
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": 25})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 25, 65]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires a two-element array [min, max]"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": 1})
+
+        with self.assertRaisesMessage(
+            QueryError, "between operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [10, 1]})
+
+        with self.assertRaisesMessage(
+            QueryError, "not_between operator requires min value to be less than or equal to max value"
+        ):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": [10, 1]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": ["abc", "def"]})
+
+        with self.assertRaisesMessage(QueryError, "not_between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "not_between", "value": ["xyz", "123"]})
+
+        with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
+            self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [None, 10]})
+
+    def test_property_to_expr_min_max_operators(self):
+        # Test MIN operator (alias for GTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
+            self._parse_expr("properties.age >= 18"),
+        )
+
+        # Test MAX operator (alias for LTE)
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
+            self._parse_expr("properties.age <= 65"),
+        )
+
+        # Test MIN with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
+            self._parse_expr("person.properties.age >= 25"),
+        )
+
+        # Test MAX with person properties
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
+            self._parse_expr("person.properties.score <= 100"),
+        )

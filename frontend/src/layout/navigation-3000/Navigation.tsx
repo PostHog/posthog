@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
-import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -103,7 +102,12 @@ export function Navigation({
                 >
                     <SceneLayout sceneConfig={sceneConfig}>
                         {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
-                            <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                            <div
+                                className={cn({
+                                    'px-4': sceneConfig?.layout === 'app-raw-no-header',
+                                    'pt-4': sceneConfig?.layout === 'app-raw',
+                                })}
+                            >
                                 {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
                                 {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
                             </div>
@@ -112,7 +116,6 @@ export function Navigation({
                     </SceneLayout>
                 </main>
                 <SidePanel />
-                <CommandBar />
             </FloatingContainerContext.Provider>
         </div>
     )

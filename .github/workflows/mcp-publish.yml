@@ -23,7 +23,7 @@ jobs:
               with:
                   filters: |
                       mcp:
-                        - 'mcp/**'
+                        - 'products/mcp/**'
                         - '.github/workflows/mcp-ci.yml'
                         - '.github/workflows/mcp-publish.yml'
 

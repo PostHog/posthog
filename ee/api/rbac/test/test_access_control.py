@@ -1062,7 +1062,9 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
             scopes=["project:read"],  # Only project:read, no access_control:read
         )
 
-        response = self.client.get("/api/projects/@current/access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        response = self.client.get(
+            "/api/projects/@current/access_controls", headers={"authorization": f"Bearer {key_value}"}
+        )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:read" in response.json()["detail"]
 
@@ -1077,7 +1079,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         )
 
         response = self.client.get(
-            "/api/projects/@current/resource_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+            "/api/projects/@current/resource_access_controls", headers={"authorization": f"Bearer {key_value}"}
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:read" in response.json()["detail"]
@@ -1093,7 +1095,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         )
 
         response = self.client.get(
-            "/api/projects/@current/global_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+            "/api/projects/@current/global_access_controls", headers={"authorization": f"Bearer {key_value}"}
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:read" in response.json()["detail"]
@@ -1105,7 +1107,9 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
             user=self.user, label="test_key", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
         )
 
-        response = self.client.get("/api/projects/@current/access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        response = self.client.get(
+            "/api/projects/@current/access_controls", headers={"authorization": f"Bearer {key_value}"}
+        )
         assert response.status_code == status.HTTP_200_OK
 
     def test_resource_access_controls_get_succeeds_with_access_control_read_scope(self):
@@ -1116,7 +1120,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         )
 
         response = self.client.get(
-            "/api/projects/@current/resource_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+            "/api/projects/@current/resource_access_controls", headers={"authorization": f"Bearer {key_value}"}
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -1136,7 +1140,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
 
         response = self.client.get(
             f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:read" in response.json()["detail"]
@@ -1154,7 +1158,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
 
         response = self.client.get(
             f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -1175,7 +1179,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         response = self.client.put(
             f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
             {"organization_member": str(self.organization_membership.id), "access_level": "viewer"},
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:write" in response.json()["detail"]
@@ -1197,7 +1201,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         response = self.client.put(
             f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
             {"organization_member": str(self.organization_membership.id), "access_level": "viewer"},
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -1214,7 +1218,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         response = self.client.put(
             f"/api/projects/@current/access_controls",
             {"access_level": "editor"},
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:write" in response.json()["detail"]
@@ -1232,7 +1236,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         response = self.client.put(
             f"/api/projects/@current/access_controls",
             {"access_level": "admin", "resource": "project", "resource_id": str(self.team.id)},
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -1249,7 +1253,7 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         response = self.client.put(
             f"/api/projects/@current/resource_access_controls",
             {"access_level": "editor", "resource": "notebook"},
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "access_control:write" in response.json()["detail"]
@@ -1267,6 +1271,6 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
         response = self.client.put(
             f"/api/projects/@current/resource_access_controls",
             {"access_level": "editor", "resource": "dashboard"},
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_200_OK

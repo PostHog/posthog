@@ -96,6 +96,8 @@ export default defineConfig(({ mode }) => {
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
+            // this is just used in dev
+            // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: {
                 // Allow Django backend to access Vite dev server
                 origin: ['http://localhost:8000', 'http://localhost:8010'],

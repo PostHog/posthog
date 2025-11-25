@@ -94,6 +94,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCohort: (personId: string) => ({ personId }),
         resetPersonsToCreateStaticCohort: true,
+        refreshPersonsData: true,
     }),
 
     reducers(({ props }) => ({
@@ -405,10 +406,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     })
                     actions.checkIfFinishedCalculating(cohort)
                     if (cohort.id !== 'new') {
-                        const mountedDataNodeLogic = dataNodeLogic.findMounted({
-                            key: createCohortDataNodeLogicKey(cohort.id),
-                        })
-                        mountedDataNodeLogic?.actions.loadData('force_blocking')
+                        actions.refreshPersonsData()
                     }
                     if (existingCohort.id === 'new') {
                         router.actions.push(urls.cohort(cohort.id))
@@ -496,12 +494,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         throw error
                     }
                     // Refresh cohort data + count
-                    const dataLogic = dataNodeLogic.findMounted({
-                        key: createCohortDataNodeLogicKey(values.cohort.id),
-                    })
-                    if (dataLogic) {
-                        dataLogic.actions.loadData('force_blocking')
-                    }
+                    actions.refreshPersonsData()
                     actions.updateCohortCount()
                 },
             },
@@ -538,11 +531,18 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 actions.setCohort({ ...values.cohort, ...calculationFields })
                 cohortsModel.actions.updateCohort(cohort)
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
+                actions.refreshPersonsData()
                 if (values.pollTimeout) {
                     clearTimeout(values.pollTimeout)
                     actions.setPollTimeout(null)
                 }
             }
+        },
+        refreshPersonsData: async (_, breakpoint) => {
+            await breakpoint(100)
+            // Refresh the persons data table
+            const dataNodeLogicKey = createCohortDataNodeLogicKey(values.cohort.id)
+            dataNodeLogic.findMounted({ key: dataNodeLogicKey })?.actions.loadData('force_blocking')
         },
     })),
 
