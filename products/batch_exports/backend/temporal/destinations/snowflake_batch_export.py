@@ -54,7 +54,6 @@ from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
-    cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -97,7 +96,12 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when we hit our self-imposed query timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
     # lead to a lot of queries queuing up for a given warehouse.
-    "SnowflakeQueryTimeoutError",
+    "SnowflakeQueryClientTimeoutError",
+    # Raised when a Snowflake query exceeds the timeout set in the user's account. This is typically set by
+    # STATEMENT_TIMEOUT_IN_SECONDS, which can be set at various levels (account, warehouse, user).
+    "SnowflakeQueryServerTimeoutError",
+    # Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it
+    "SnowflakeWarehouseUsageError",
 )
 
 
@@ -137,6 +141,13 @@ class SnowflakeWarehouseSuspendedError(Exception):
     pass
 
 
+class SnowflakeWarehouseUsageError(Exception):
+    """Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it"""
+
+    def __init__(self, warehouse: str):
+        super().__init__(f"Warehouse '{warehouse}' does not exist or we are missing 'USAGE' permissions on it")
+
+
 class SnowflakeTableNotFoundError(Exception):
     """Raised when a table is not found in Snowflake."""
 
@@ -167,7 +178,7 @@ class SnowflakeIncompatibleSchemaError(Exception):
         )
 
 
-class SnowflakeQueryTimeoutError(TimeoutError):
+class SnowflakeQueryClientTimeoutError(TimeoutError):
     """Raised when a Snowflake query times out."""
 
     def __init__(self, timeout: float, query_id: str, query_status: str):
@@ -194,6 +205,16 @@ class SnowflakeQueryTimeoutError(TimeoutError):
         guidance = status_guidance.get(query_status, f"Query status: {query_status}")
 
         super().__init__(f"Query timed out after {timeout:.0f} seconds (query_id: {query_id}). {guidance}")
+
+
+class SnowflakeQueryServerTimeoutError(TimeoutError):
+    """Raised when a Snowflake query exceeds the timeout set in the user's account.
+
+    This is typically set by STATEMENT_TIMEOUT_IN_SECONDS, which can be set at various
+    levels (account, warehouse, user).
+    """
+
+    pass
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -365,7 +386,8 @@ class SnowflakeClient:
                     warehouse=self.warehouse,
                     database=self.database,
                     schema=self.schema,
-                    role=self.role,
+                    # wrap role in quotes in case it contains lowercase or special characters
+                    role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
                 )
@@ -390,6 +412,8 @@ class SnowflakeClient:
         # Call this again in case level was reset.
         self.ensure_snowflake_logger_level("INFO")
 
+        await self.execute_async_query("ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE", fetch_results=False)
+
         if use_namespace:
             await self.use_namespace()
         await self.execute_async_query("SET ABORT_DETACHED_QUERY = FALSE", fetch_results=False)
@@ -407,12 +431,19 @@ class SnowflakeClient:
         logger.setLevel(level)
 
     async def use_namespace(self) -> None:
-        """Switch to a namespace given by database and schema.
+        """Switch to a namespace given by database, schema, and warehouse.
 
         This allows all queries that follow to ignore database and schema.
+        It also ensures that we have permissions to use the warehouse.
         """
         await self.execute_async_query(f'USE DATABASE "{self.database}"', fetch_results=False)
         await self.execute_async_query(f'USE SCHEMA "{self.schema}"', fetch_results=False)
+        try:
+            await self.execute_async_query(f'USE WAREHOUSE "{self.warehouse}"', fetch_results=False)
+        except snowflake.connector.errors.ProgrammingError as exc:
+            if exc.msg is not None and "Object does not exist" in exc.msg:
+                raise SnowflakeWarehouseUsageError(self.warehouse)
+            raise
 
     async def get_query_status(self, query_id: str, throw_if_error: bool = True) -> QueryStatus:
         """Get the status of a query.
@@ -471,7 +502,7 @@ class SnowflakeClient:
             Else when `fetch_results` is `False` we return `None`.
 
         Raises:
-            SnowflakeQueryTimeoutError: If the query exceeds the specified timeout.
+            SnowflakeQueryClientTimeoutError: If the query exceeds the specified timeout set by us.
         """
         query_start_time = time.monotonic()
         self.logger.debug("Executing async query: %s", query)
@@ -502,7 +533,7 @@ class SnowflakeClient:
                 # Cancel the query in Snowflake to prevent it from continuing to run
                 await self.abort_query(query_id)
 
-                raise SnowflakeQueryTimeoutError(
+                raise SnowflakeQueryClientTimeoutError(
                     timeout=timeout,
                     query_id=query_id,
                     query_status=final_status.name if final_status else "UNKNOWN",
@@ -692,14 +723,35 @@ class SnowflakeClient:
             timeout: The timeout (in seconds) to wait for the COPY INTO query to complete.
 
         Raises:
-            SnowflakeQueryTimeoutError: If the COPY INTO query exceeds the specified timeout.
+            SnowflakeQueryClientTimeoutError: If the COPY INTO query exceeds the specified timeout set by us.
+            SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
         """
         col_names = [field[0] for field in table_fields]
+
+        try:
+            final_table_column_names = await self.aget_table_columns(table_name)
+        except:
+            # This is exclusively done to make a test using a mocked cursor to pass.
+            # In reality, if we are not able to query for columns, the 'COPY' query
+            # below will also fail, so we are not hiding the errors too long.
+            # TODO: Remove all tests using mocked objects.
+            final_table_column_names = []
+
+        aliases = {}
+        for column in col_names:
+            if column not in final_table_column_names and column.upper() in final_table_column_names:
+                aliases[column] = column.upper()
+            else:
+                aliases[column] = column
+
         select_fields = ", ".join(
-            f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
+            f'PARSE_JSON($1:"{col_name}") AS "{alias}"'
+            if col_name in known_json_columns
+            else f'$1:"{col_name}" AS "{alias}"'
+            for col_name, alias in aliases.items()
         )
         query = f"""
-        COPY INTO "{table_name}" ({", ".join(f'"{col_name}"' for col_name in col_names)})
+        COPY INTO "{table_name}" ({", ".join(f'"{aliases[col_name]}"' for col_name in col_names)})
         FROM (
             SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
         )
@@ -717,25 +769,27 @@ class SnowflakeClient:
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
             # 608 = Warehouse suspended error
             is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
-            and e.errno == 608,
+            and (e.errno == 608 or e.errno == 90073),
         )
 
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
         try:
             result = await execute_copy_into(query, poll_interval=1.0, timeout=timeout)
-        except SnowflakeQueryTimeoutError:
+        except SnowflakeQueryClientTimeoutError:
             # Re-raise as-is since it already has good context
             raise
         except snowflake.connector.errors.ProgrammingError as e:
             self.logger.exception(f"Error executing COPY INTO query: {e}")
 
-            if e.errno == 608:
+            if e.errno == 608 or e.errno == 90073:
                 err_msg = (
                     f"Failed to execute COPY INTO query after {max_attempts} attempts due to warehouse being suspended"
                 )
                 if e.msg is not None:
                     err_msg += f": {e.msg}"
                 raise SnowflakeWarehouseSuspendedError(err_msg)
+            elif e.errno in (630, 604) and e.msg is not None:
+                raise SnowflakeQueryServerTimeoutError(e.msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
                 raise SnowflakeIncompatibleSchemaError(e.msg)
 
@@ -795,27 +849,39 @@ class SnowflakeClient:
             timeout: The timeout (in seconds) to wait for the MERGE query to complete.
 
         Raises:
-            SnowflakeQueryTimeoutError: If the MERGE query exceeds the specified timeout.
+            SnowflakeQueryClientTimeoutError: If the MERGE query exceeds the specified timeout set by us.
         """
 
         # handle the case where the final table doesn't contain all the fields present in the stage table
         # (for example, if we've added new fields to the person model)
         final_table_column_names = await self.aget_table_columns(final_table)
-        update_when_matched = [field for field in update_when_matched if field[0] in final_table_column_names]
+        # handle the case where the final table columns are in uppercase
+        column_names = [field[0] for field in update_when_matched]
+        aliases = {}
+        for column in column_names:
+            if column not in final_table_column_names and column.upper() in final_table_column_names:
+                aliases[column] = column.upper()
+            elif column in final_table_column_names:
+                aliases[column] = column
+        update_when_matched = [field for field in update_when_matched if field[0] in aliases.keys()]
 
         merge_condition = "ON "
 
         for n, field in enumerate(merge_key):
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f'final."{field[0]}" = stage."{field[0]}"'
+            # to account for the case where the final table columns are in uppercase
+            final_field_name = aliases[field[0]]
+            merge_condition += f'final."{final_field_name}" = stage."{field[0]}"'
 
         update_condition = "AND ("
 
         for index, field_name in enumerate(update_key):
             if index > 0:
                 update_condition += " OR "
-            update_condition += f'final."{field_name}" < stage."{field_name}"'
+            # to account for the case where the final table columns are in uppercase
+            final_field_name = aliases[field_name]
+            update_condition += f'final."{final_field_name}" < stage."{field_name}"'
         update_condition += ")"
 
         update_clause = ""
@@ -826,10 +892,13 @@ class SnowflakeClient:
                 update_clause += ", "
                 values += ", "
                 field_names += ", "
+            field_name = field[0]
+            # to account for the case where the final table columns are in uppercase
+            final_field_name = aliases[field_name]
 
-            update_clause += f'final."{field[0]}" = stage."{field[0]}"'
-            field_names += f'"{field[0]}"'
-            values += f'stage."{field[0]}"'
+            update_clause += f'final."{final_field_name}" = stage."{field_name}"'
+            field_names += f'"{final_field_name}"'
+            values += f'stage."{field_name}"'
 
         merge_query = f"""
         MERGE INTO "{final_table}" AS final
@@ -1162,18 +1231,14 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                 )
 
                 transformer = ParquetStreamTransformer(
-                    schema=cast_record_batch_schema_json_columns(
-                        record_batch_schema, json_columns=known_variant_columns
-                    ),
                     compression="zstd",
+                    max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                 )
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
-                    schema=record_batch_schema,
-                    max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )
 

@@ -10,9 +10,9 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EarlyAccessFeatureType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { EarlyAccessFeatureType } from '~/types'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
@@ -49,7 +49,6 @@ export function EarlyAccessFeatures(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <SceneDivider />
 
             <ProductIntroduction
                 productName="Early access features"

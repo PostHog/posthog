@@ -150,7 +150,10 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
         if (changes.length) {
             return {
                 description: (
-                    <SentenceList listParts={changes} prefix={<strong>{userNameForLogItem(logItem)}</strong>} />
+                    <SentenceList
+                        listParts={changes}
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                    />
                 ),
             }
         }

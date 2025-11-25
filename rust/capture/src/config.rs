@@ -40,6 +40,13 @@ pub struct Config {
     pub address: SocketAddr,
 
     pub redis_url: String,
+
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
+
     pub otel_url: Option<String>,
 
     #[envconfig(default = "false")]
@@ -107,6 +114,9 @@ pub struct Config {
     // AI endpoint size limits
     #[envconfig(default = "26214400")] // 25MB in bytes
     pub ai_max_sum_of_parts_bytes: usize,
+
+    // if set in env, will configure a request timeout on the server's Axum router
+    pub request_timeout_seconds: Option<u64>,
 }
 
 #[derive(Envconfig, Clone)]

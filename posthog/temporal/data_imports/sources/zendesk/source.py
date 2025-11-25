@@ -9,7 +9,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourc
 from posthog.temporal.data_imports.sources.zendesk.settings import (
     BASE_ENDPOINTS,
     INCREMENTAL_FIELDS as ZENDESK_INCREMENTAL_FIELDS,
+    PARTITION_FIELDS,
     SUPPORT_ENDPOINTS,
 )
 from posthog.temporal.data_imports.sources.zendesk.zendesk import validate_credentials, zendesk_source
@@ -25,10 +26,17 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ZendeskSource(BaseSource[ZendeskSourceConfig]):
+class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ZENDESK
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "404 Client Error: Not Found for url": "Zendesk authentication failed. Please check your API token and subdomain.",
+            "403 Client Error: Forbidden for url": "Zendesk authentication failed. Please check your API token and subdomain.",
+            "401 Client Error": "Zendesk authentication failed. Please check your API token and subdomain.",
+        }
 
     def get_schemas(self, config: ZendeskSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
@@ -88,7 +96,7 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
         )
 
     def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return dlt_source_to_source_response(
+        zendesk_source_response = dlt_source_to_source_response(
             zendesk_source(
                 subdomain=config.subdomain,
                 api_key=config.api_key,
@@ -102,3 +110,15 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
                 else None,
             )
         )
+
+        partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)
+
+        # All partition keys are datetime
+        if partition_key:
+            zendesk_source_response.partition_count = 1
+            zendesk_source_response.partition_size = 1
+            zendesk_source_response.partition_mode = "datetime"
+            zendesk_source_response.partition_format = "week"
+            zendesk_source_response.partition_keys = [partition_key]
+
+        return zendesk_source_response

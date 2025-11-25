@@ -15,9 +15,8 @@ from posthog.schema import (
     AssistantMessage,
 )
 
-from posthog.temporal.ai.conversation import CONVERSATION_STREAM_TIMEOUT
-
 from ee.hogai.stream.redis_stream import (
+    CONVERSATION_STREAM_TIMEOUT,
     ConversationRedisStream,
     ConversationStreamSerializer,
     MessageEvent,

@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from django.template import Context, Engine
 
 import tiktoken
+from tiktoken.model import MODEL_TO_ENCODING
 
 from ee.hogai.session_summaries.constants import MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH
 
@@ -143,6 +144,9 @@ def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
     """Estimate the token count for a list of strings."""
     if not strings:
         return 0
+    if model not in MODEL_TO_ENCODING:
+        # If the model aren't supported yet - default to o3 as it should be similar to other thinking models
+        model = "o3"
     encoding = tiktoken.encoding_for_model(model)
     total_tokens = 0
     for string in strings:

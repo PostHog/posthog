@@ -9,8 +9,6 @@ from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.util import _recalculate_cohortpeople_chunked, _recalculate_cohortpeople_standard
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
     COHORT_STUCK_COUNT_GAUGE,
@@ -49,7 +47,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
-            people = Person.objects.filter(cohort__id=cohort.pk)
+            people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people.count(), 1)
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -81,7 +79,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             _calculate_cohort_from_list.assert_called_once_with(cohort_id, ["blabla"])
             calculate_cohort_from_list(cohort_id, ["blabla"], team_id=self.team.id, id_type="distinct_id")
             cohort = Cohort.objects.get(pk=cohort_id)
-            people = Person.objects.filter(cohort__id=cohort.pk)
+            people = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people.count(), 1)
 
         def test_calculate_cohort_from_list_with_person_id_type(self) -> None:
@@ -98,7 +96,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             # Verify persons were added to cohort
             cohort.refresh_from_db()
-            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people_in_cohort.count(), 2)
 
             # Verify specific persons are in the cohort
@@ -118,7 +116,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             # Verify persons were added to cohort
             cohort.refresh_from_db()
-            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+            people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
             self.assertEqual(people_in_cohort.count(), 2)
 
             # Verify specific persons are in the cohort
@@ -924,34 +922,5 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             mock_chain.assert_called_once()
             mock_chain_instance.apply_async.assert_called_once()
-
-        def test_chunked_calculation_matches_standard(self) -> None:
-            for i in range(50):
-                person_factory(
-                    team_id=self.team.pk, distinct_ids=[f"person_{i}"], properties={"email": f"user{i}@example.com"}
-                )
-
-            cohort = Cohort.objects.create(
-                team=self.team,
-                name="Test Cohort",
-                filters={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
-                        ],
-                    }
-                },
-            )
-
-            history_standard = CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={})
-            result_standard = _recalculate_cohortpeople_standard(cohort, 1, self.team, history_standard)
-
-            history_chunked = CohortCalculationHistory.objects.create(team=self.team, cohort=cohort, filters={})
-            result_chunked = _recalculate_cohortpeople_chunked(
-                cohort, 2, self.team, total_chunks=3, history=history_chunked
-            )
-
-            self.assertEqual(result_standard, result_chunked)
 
     return TestCalculateCohort

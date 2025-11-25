@@ -15,6 +15,7 @@ import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/not
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 
+import { AddInsightsToNotebookModal } from '../AddInsightsToNotebookModal/AddInsightsToNotebookModal'
 import { Editor } from './Editor'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { NotebookColumnRight } from './NotebookColumnRight'
@@ -144,6 +145,7 @@ export function Notebook({
                     </div>
                 </div>
             )}
+            <AddInsightsToNotebookModal />
         </BindLogic>
     )
 }

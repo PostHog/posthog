@@ -1,4 +1,3 @@
-import json
 import hashlib
 from datetime import datetime
 from typing import Any, Literal, Optional, cast
@@ -6,6 +5,7 @@ from typing import Any, Literal, Optional, cast
 from django.core.cache import cache
 from django.db.models import Manager, Q
 
+import orjson
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
@@ -106,6 +106,16 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "post_to_slack",
         )
 
+    def validate_name(self, value):
+        # For creation, check if event definition with this name already exists
+        if not self.instance:  # Only for creation, not updates
+            view = self.context.get("view")
+            if view:
+                existing = EventDefinition.objects.filter(team_id=view.team_id, name=value).exists()
+                if existing:
+                    raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
+        return value
+
     def validate(self, data):
         validated_data = super().validate(data)
 
@@ -114,6 +124,50 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
 
         return validated_data
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        # Get viewset from context to access organization_id and team_id
+        view = self.context.get("view")
+        if not view:
+            raise serializers.ValidationError("View context is required")
+
+        # Type narrowing for mypy
+        assert view is not None
+
+        validated_data["team_id"] = view.team_id
+        validated_data["project_id"] = view.project_id
+        # Set timestamps to None - will be populated when first real event is ingested
+        validated_data["created_at"] = None
+        validated_data["last_seen_at"] = None
+
+        # Remove fields that don't exist on the model
+        validated_data.pop("post_to_slack", None)
+
+        event_definition = super().create(validated_data)
+
+        # Report user action for analytics
+        if request and request.user:
+            report_user_action(
+                cast(User, request.user),
+                "event definition created",
+                {"name": event_definition.name},
+            )
+
+        # Log activity for audit trail
+        if request and request.user:
+            log_activity(
+                organization_id=cast(UUIDT, view.organization_id),
+                team_id=view.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(event_definition.id),
+                scope="EventDefinition",
+                activity="created",
+                detail=Detail(name=event_definition.name, changes=None),
+            )
+
+        return event_definition
 
     def update(self, event_definition: EventDefinition, validated_data):
         request = self.context.get("request")
@@ -130,6 +184,7 @@ class EventDefinitionViewSet(
     TaggedItemViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
@@ -173,7 +228,7 @@ class EventDefinitionViewSet(
         excluded_properties = self.request.GET.get("excluded_properties")
 
         if excluded_properties:
-            excluded_list = list(set(json.loads(excluded_properties)))
+            excluded_list = list(set(orjson.loads(excluded_properties)))
             search_query = search_query + f" AND NOT name = ANY(ARRAY{excluded_list})"
 
         sql = create_event_definitions_sql(
@@ -182,7 +237,24 @@ class EventDefinitionViewSet(
             conditions=search_query,
             order_expressions=order_expressions,
         )
-        return event_definition_object_manager.raw(sql, params=params)
+        queryset = event_definition_object_manager.raw(sql, params=params)
+
+        # Apply tags filter if provided
+        tags = self.request.GET.get("tags")
+        if tags:
+            try:
+                tags_list = orjson.loads(tags)
+                if tags_list:
+                    # Convert raw queryset to regular queryset for filtering
+                    ids = [obj.id for obj in queryset]
+                    queryset = event_definition_object_manager.filter(  # type: ignore[assignment]
+                        id__in=ids, tagged_items__tag__name__in=tags_list
+                    ).distinct()
+            except (orjson.JSONDecodeError, TypeError):
+                # If the JSON is invalid, ignore the filter
+                pass
+
+        return queryset
 
     def _ordering_params_from_request(
         self,
@@ -239,6 +311,70 @@ class EventDefinitionViewSet(
 
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
+
+    def perform_create(self, serializer):
+        """Handle context and side effects for event definition creation."""
+        user = cast(User, self.request.user)
+
+        # Build save kwargs - only include updated_by for enterprise
+        save_kwargs: dict[str, Any] = {
+            "team_id": self.team_id,
+            "project_id": self.project_id,
+            "created_at": None,  # Will be populated when first real event is ingested
+            "last_seen_at": None,
+        }
+
+        # Add updated_by only for EnterpriseEventDefinition
+        if hasattr(serializer.Meta.model, "updated_by"):
+            save_kwargs["updated_by"] = user
+
+        event_definition = serializer.save(**save_kwargs)
+
+        # Log activity for audit trail
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(self.request),
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="created",
+            detail=Detail(name=event_definition.name, changes=None),
+        )
+
+    def perform_update(self, serializer):
+        """Handle context and side effects for event definition updates."""
+        user = cast(User, self.request.user)
+        instance = serializer.instance
+
+        # Capture before state for activity logging
+        before_state = {k: instance.__dict__[k] for k in serializer.validated_data.keys() if k in instance.__dict__}
+        # Handle tags None -> [] to avoid spurious activity logs
+        if "tags" not in before_state or before_state["tags"] is None:
+            before_state["tags"] = []
+
+        # Only pass updated_by for EnterpriseEventDefinition
+        save_kwargs: dict[str, Any] = {}
+        if hasattr(instance, "updated_by"):
+            save_kwargs["updated_by"] = user
+
+        event_definition = serializer.save(**save_kwargs)
+
+        # Log activity for audit trail
+        from posthog.models.activity_logging.activity_log import dict_changes_between
+
+        changes = dict_changes_between("EventDefinition", before_state, serializer.validated_data, True)
+
+        log_activity(
+            organization_id=None,
+            team_id=self.team_id,
+            user=user,
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="changed",
+            was_impersonated=is_impersonated_session(self.request),
+            detail=Detail(name=str(event_definition.name), changes=changes),
+        )
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: EventDefinition = self.get_object()
@@ -316,7 +452,7 @@ class EventDefinitionViewSet(
             "version": self.TYPESCRIPT_GENERATOR_VERSION,
             "schemas": schema_data,
         }
-        schema_hash = hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode()).hexdigest()[:32]
+        schema_hash = hashlib.sha256(orjson.dumps(hash_input, option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
 
         # Generate TypeScript definitions
         ts_content = self._generate_typescript(event_definitions, schema_map)
@@ -354,19 +490,18 @@ import type {{ CaptureOptions, CaptureResult, PostHog as OriginalPostHog, Proper
 
         for event_def in event_definitions:
             properties = schema_map.get(str(event_def.id), [])
-            # Escape event name for use as object key
-            event_name = event_def.name.replace("'", "\\'")
+            event_name_json = orjson.dumps(event_def.name).decode("utf-8")
 
             if not properties:
-                event_schemas_lines.append(f"    '{event_name}': Record<string, any>")
+                event_schemas_lines.append(f"    {event_name_json}: Record<string, any>")
             else:
-                event_schemas_lines.append(f"    '{event_name}': {{")
+                event_schemas_lines.append(f"    {event_name_json}: {{")
                 for prop in properties:
                     ts_type = self._map_property_type(prop.property_type)
                     optional_marker = "" if prop.is_required else "?"
-                    # Always quote property names (simpler and handles all edge cases)
-                    prop_name = f"'{prop.name.replace("'", "\\'")}'"
-                    event_schemas_lines.append(f"        {prop_name}{optional_marker}: {ts_type}")
+                    # Use orjson.dumps() for proper escaping of property names
+                    prop_name_json = orjson.dumps(prop.name).decode("utf-8")
+                    event_schemas_lines.append(f"        {prop_name_json}{optional_marker}: {ts_type}")
                 event_schemas_lines.append("    }")
 
         event_schemas_lines.append("}")
@@ -490,7 +625,6 @@ const createTypedPostHog = (original: OriginalPostHog): TypedPostHog => {
 const posthog = createTypedPostHog(originalPostHog as OriginalPostHog)
 
 export default posthog
-export { posthog }
 export type { EventSchemas, TypedPostHog }
 
 // Re-export everything else from posthog-js

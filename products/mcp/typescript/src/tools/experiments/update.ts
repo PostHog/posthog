@@ -1,14 +1,15 @@
+import type { z } from 'zod'
+
 import { ExperimentUpdateTransformSchema } from '@/schema/experiments'
 import { ExperimentUpdateSchema } from '@/schema/tool-inputs'
 import { getToolDefinition } from '@/tools/toolDefinitions'
-import type { Context, Tool } from '@/tools/types'
-import type { z } from 'zod'
+import type { Context, Tool, ToolBase } from '@/tools/types'
 
 const schema = ExperimentUpdateSchema
 
 type Params = z.infer<typeof schema>
 
-export const updateHandler = async (context: Context, params: Params) => {
+export const updateHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { experimentId, data } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -29,9 +30,7 @@ export const updateHandler = async (context: Context, params: Params) => {
         url: `${context.api.getProjectBaseUrl(projectId)}/experiments/${updateResult.data.id}`,
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(experimentWithUrl, null, 2) }],
-    }
+    return experimentWithUrl
 }
 
 const definition = getToolDefinition('experiment-update')

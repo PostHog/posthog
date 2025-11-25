@@ -8,7 +8,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
@@ -24,7 +24,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ShopifySource(BaseSource[ShopifySourceConfig]):
+class ShopifySource(SimpleSource[ShopifySourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHOPIFY
@@ -64,6 +64,7 @@ The simplest setup for permissions is to only allow **read** permissions for the
                     ),
                 ],
             ),
+            unreleasedSource=True,
             betaSource=True,
             featureFlag="shopify-dwh",
         )
@@ -81,13 +82,13 @@ The simplest setup for permissions is to only allow **read** permissions for the
 
     def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
-        for object_name in SHOPIFY_GRAPHQL_OBJECTS:
-            endpoint_config = ENDPOINT_CONFIGS.get(object_name)
+        for obj in SHOPIFY_GRAPHQL_OBJECTS.values():
+            endpoint_config = ENDPOINT_CONFIGS.get(obj.name)
             if not endpoint_config:
-                raise ValueError(f"No endpoint config found for {object_name}")
+                raise ValueError(f"No endpoint config found for {obj.name}")
             schemas.append(
                 SourceSchema(
-                    name=object_name,
+                    name=obj.display_name or obj.name,
                     supports_incremental=len(endpoint_config.fields) > 0,
                     supports_append=len(endpoint_config.fields) > 0,
                     incremental_fields=endpoint_config.fields,

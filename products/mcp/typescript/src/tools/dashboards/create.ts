@@ -1,12 +1,13 @@
+import type { z } from 'zod'
+
 import { DashboardCreateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = DashboardCreateSchema
 
 type Params = z.infer<typeof schema>
 
-export const createHandler = async (context: Context, params: Params) => {
+export const createHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { data } = params
     const projectId = await context.stateManager.getProjectId()
     const dashboardResult = await context.api.dashboards({ projectId }).create({ data })
@@ -20,7 +21,7 @@ export const createHandler = async (context: Context, params: Params) => {
         url: `${context.api.getProjectBaseUrl(projectId)}/dashboard/${dashboardResult.data.id}`,
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(dashboardWithUrl) }] }
+    return dashboardWithUrl
 }
 
 const tool = (): ToolBase<typeof schema> => ({

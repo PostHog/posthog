@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
@@ -10,7 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { ActivityScope } from '~/types'
 
 import { Workflow } from './Workflow'
 import { WorkflowMetrics } from './WorkflowMetrics'
@@ -71,12 +72,20 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <WorkflowMetrics id={props.id!} />,
         },
+        {
+            label: 'History',
+            key: 'history',
+            /**
+             * If we're rendering tabs, props.id is guaranteed to be
+             * defined and not "new" (see return statement below)
+             */
+            content: <ActivityLog id={props.id!} scope={ActivityScope.HOG_FLOW} />,
+        },
     ]
 
     return (
         <SceneContent className="flex flex-col">
             <WorkflowSceneHeader {...props} />
-            <SceneDivider />
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (
                 <Workflow {...props} />

@@ -1,16 +1,16 @@
 import { useRef } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconGitLab, IconGithub } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconGithub } from 'lib/lemon-ui/icons'
 
 import { SourceData } from './framesCodeSourceLogic'
 
 const PROVIDER_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
     github: IconGithub,
+    gitlab: IconGitLab,
 }
 
 export function GitProviderFileLink({ sourceData }: { sourceData: SourceData }): JSX.Element {

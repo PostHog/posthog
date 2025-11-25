@@ -1,3 +1,9 @@
+NODE_CONNECTION_ID_FRAGMENT = """{
+    nodes {
+        id
+    }
+}"""
+
 COUNT_FRAGMENT = """{
     count
     precision

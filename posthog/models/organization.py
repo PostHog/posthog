@@ -39,6 +39,7 @@ class OrganizationUsageResource(TypedDict):
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
 # as well as for enforcing limits.
+# These keys must match QuotaResource and UsageCounters (except for `period`).
 class OrganizationUsageInfo(TypedDict):
     events: OrganizationUsageResource | None
     exceptions: OrganizationUsageResource | None
@@ -65,6 +66,9 @@ class ProductFeature(TypedDict):
 
 class OrganizationManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
+        # Set default_anonymize_ips based on deployment if not explicitly provided
+        if "default_anonymize_ips" not in kwargs:
+            kwargs["default_anonymize_ips"] = default_anonymize_ips()
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
@@ -78,6 +82,9 @@ class OrganizationManager(models.Manager):
         from .project import Project  # Avoiding circular import
 
         with transaction.atomic(using=self.db):
+            # Set default_anonymize_ips based on deployment if not explicitly provided
+            if "default_anonymize_ips" not in kwargs:
+                kwargs["default_anonymize_ips"] = default_anonymize_ips()
             organization = Organization.objects.create(**kwargs)
             _, team = Project.objects.create_with_team(
                 initiating_user=user, organization=organization, team_fields=team_fields
@@ -96,6 +103,11 @@ class OrganizationManager(models.Manager):
                 user.save()
 
         return organization, organization_membership, team
+
+
+def default_anonymize_ips():
+    """Default to True for EU cloud deployments to comply with stricter privacy requirements"""
+    return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
 class Organization(ModelActivityMixin, UUIDTModel):
@@ -173,6 +185,10 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="Default statistical method for new experiments in this organization.",
         null=True,
         blank=True,
+    )
+    default_anonymize_ips = models.BooleanField(
+        default=False,
+        help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
