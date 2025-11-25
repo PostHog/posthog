@@ -19,7 +19,7 @@ export function useErrorTrackingExplainIssueMaxTool(
 
     const context: ErrorTrackingExplainIssueToolContext = {
         stacktrace: stacktraceText,
-        issue_name: issueId,
+        issue_id: issueId,
     }
 
     const maxToolResult = useMaxTool({
