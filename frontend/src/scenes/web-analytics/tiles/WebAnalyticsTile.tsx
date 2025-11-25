@@ -73,6 +73,26 @@ export const toUtcOffsetFormat = (value: number): string => {
     return `UTC${sign}${integerPart}${formattedMinutes}`
 }
 
+const getDomainFromValue = (value: string): string | null => {
+    try {
+        if (value === '$direct' || value.trim() === '') {
+            return null
+        }
+
+        const url = new URL(value.startsWith('http://') || value.startsWith('https://') ? value : `https://${value}`)
+
+        let domain = url.hostname
+
+        if (domain.startsWith('www.')) {
+            domain = domain.slice(4)
+        }
+
+        return domain
+    } catch {
+        return null
+    }
+}
+
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }
 const VariationCell = (
     { isPercentage, reverseColors }: VariationCellProps = { isPercentage: false, reverseColors: false }
@@ -208,6 +228,7 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
 const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { value, query } = props
     const { source } = query
+
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
@@ -301,6 +322,15 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return <PropertyIcon.WithLabel property="$os" value={value} />
             }
             break
+        case WebStatsBreakdown.InitialReferringDomain:
+            let domain = getDomainFromValue(value as string)
+            return (
+                <div className="flex items-center gap-2">
+                    {' '}
+                    {domain && <img src={`https://icon.horse/icon/${domain}`} width={24} height={24} />}
+                    {value}
+                </div>
+            )
     }
 
     if (typeof value === 'string') {
