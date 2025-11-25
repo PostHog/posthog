@@ -51,12 +51,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'annotation',
     },
     [Scene.BillingAuthorizationStatus]: {
-        hideProjectNotice: true,
         organizationBased: true,
         defaultDocsPath: '/pricing',
     },
     [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
-    [Scene.Billing]: { hideProjectNotice: true, organizationBased: true, defaultDocsPath: '/pricing' },
+    [Scene.Billing]: { organizationBased: true, defaultDocsPath: '/pricing' },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
