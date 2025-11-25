@@ -26,10 +26,15 @@ DEFAULT_MAX_ASSET_COUNT = 6
 # Maximum height for screenshots in pixels. This prevents Chrome from consuming excessive memory
 # when rendering very tall pages (e.g., tables with thousands of rows).
 MAX_SCREENSHOT_HEIGHT_PIXELS = 5000
+ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
+
+
+def _has_asset_failed(asset: ExportedAsset) -> bool:
+    return (not asset.content and not asset.content_location) or asset.exception is not None
 
 
 def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:
-    failed_assets = [a for a in assets if not a.content and not a.content_location]
+    failed_assets = [a for a in assets if _has_asset_failed(a)]
     failed_insight_ids = [a.insight_id for a in failed_assets if a.insight_id]
     failed_insight_urls = [
         f"/project/{resource.team_id}/insights/{a.insight.short_id}"
