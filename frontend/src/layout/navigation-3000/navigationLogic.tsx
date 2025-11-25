@@ -15,8 +15,8 @@ import {
     IconLive,
     IconLlmAnalytics,
     IconMessage,
+    IconNewspaper,
     IconNotebook,
-    IconNotification,
     IconPeople,
     IconPieChart,
     IconPiggyBank,
@@ -374,12 +374,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconHome />,
                             to: urls.projectRoot(),
                         },
-                        {
-                            identifier: Scene.Feed,
-                            label: 'Feed',
-                            icon: <IconNotification />,
-                            to: urls.feed(),
-                        },
+                        featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
+                            ? {
+                                  identifier: Scene.Feed,
+                                  label: 'Feed',
+                                  icon: <IconNewspaper />,
+                                  to: urls.feed(),
+                              }
+                            : null,
                         {
                             identifier: Scene.Dashboards,
                             label: 'Dashboards',

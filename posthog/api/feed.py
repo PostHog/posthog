@@ -9,6 +9,9 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Dashboard, EventDefinition, Experiment, FeatureFlag, Survey
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+
+from products.data_warehouse.backend.models import DataWarehouseTable
 
 
 class FeedItemSerializer(serializers.Serializer):
@@ -45,6 +48,7 @@ class FeedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     created_at__lte=period_end,
                 )
                 .select_related("created_by")
+                .only("id", "name", "created_at", "description", "created_by__id", "created_by__email")
                 .order_by("-created_at")
             )
 
@@ -64,11 +68,15 @@ class FeedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # New event definitions
         try:
-            event_defs = EventDefinition.objects.filter(
-                team_id=team.id,
-                created_at__gt=period_start,
-                created_at__lte=period_end,
-            ).order_by("-created_at")
+            event_defs = (
+                EventDefinition.objects.filter(
+                    team_id=team.id,
+                    created_at__gt=period_start,
+                    created_at__lte=period_end,
+                )
+                .only("id", "name", "created_at")
+                .order_by("-created_at")
+            )
 
             for event_def in event_defs:
                 feed_items.append(
@@ -92,6 +100,7 @@ class FeedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     start_date__lte=period_end,
                 )
                 .select_related("created_by")
+                .only("id", "name", "start_date", "description", "created_by__id", "created_by__email")
                 .order_by("-start_date")
             )
 
@@ -118,6 +127,7 @@ class FeedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     created_at__lte=period_end,
                 )
                 .select_related("created_by")
+                .only("id", "name", "key", "created_at", "created_by__id", "created_by__email")
                 .order_by("-created_at")
             )
 
@@ -145,6 +155,7 @@ class FeedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     start_date__lte=period_end,
                 )
                 .select_related("created_by")
+                .only("id", "name", "start_date", "description", "created_by__id", "created_by__email")
                 .order_by("-start_date")
             )
 
@@ -157,6 +168,70 @@ class FeedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "created_at": survey.start_date,
                         "description": survey.description or "New survey launched",
                         "created_by": survey.created_by.email if survey.created_by else None,
+                    }
+                )
+        except Exception:
+            pass
+
+        # New replay playlists
+        try:
+            playlists = (
+                SessionRecordingPlaylist.objects.filter(
+                    team_id=team.id,
+                    created_at__gt=period_start,
+                    created_at__lte=period_end,
+                    deleted=False,
+                )
+                .select_related("created_by")
+                .only(
+                    "short_id",
+                    "name",
+                    "derived_name",
+                    "created_at",
+                    "description",
+                    "created_by__id",
+                    "created_by__email",
+                )
+                .order_by("-created_at")
+            )
+
+            for playlist in playlists:
+                feed_items.append(
+                    {
+                        "id": playlist.short_id,
+                        "type": "session_recording_playlist",
+                        "name": playlist.name or playlist.derived_name or "Untitled playlist",
+                        "created_at": playlist.created_at,
+                        "description": playlist.description or "New replay playlist created",
+                        "created_by": playlist.created_by.email if playlist.created_by else None,
+                    }
+                )
+        except Exception:
+            pass
+
+        # New data warehouse tables (external data sources)
+        try:
+            tables = (
+                DataWarehouseTable.objects.filter(
+                    team_id=team.id,
+                    created_at__gt=period_start,
+                    created_at__lte=period_end,
+                    deleted=False,
+                )
+                .select_related("created_by")
+                .only("id", "name", "created_at", "created_by__id", "created_by__email")
+                .order_by("-created_at")
+            )
+
+            for table in tables:
+                feed_items.append(
+                    {
+                        "id": str(table.id),
+                        "type": "external_data_source",
+                        "name": table.name,
+                        "created_at": table.created_at,
+                        "description": "New data source added",
+                        "created_by": table.created_by.email if table.created_by else None,
                     }
                 )
         except Exception:

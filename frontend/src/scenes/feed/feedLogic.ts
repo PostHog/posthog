@@ -1,7 +1,9 @@
+import Fuse from 'fuse.js'
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
 import type { feedLogicType } from './feedLogicType'
 
@@ -44,7 +46,7 @@ export const feedLogic = kea<feedLogicType>([
             },
         ],
         selectedTypes: [
-            ['all'] as string[],
+            'all' as string,
             {
                 setSelectedTypes: (_, { selectedTypes }) => selectedTypes,
             },
@@ -67,19 +69,20 @@ export const feedLogic = kea<feedLogicType>([
         ],
     })),
     selectors({
+        fuse: [
+            (s) => [s.feedItems],
+            (items): Fuse<FeedItem> => {
+                return new Fuse<FeedItem>(items, {
+                    keys: ['name', 'created_by', 'description'],
+                    threshold: 0.3,
+                    ignoreLocation: true,
+                })
+            },
+        ],
         groupedFeedItems: [
-            (s) => [s.feedItems, s.searchQuery, s.selectedTypes],
-            (items, searchQuery, selectedTypes): Record<string, Record<string, FeedItem[]>> => {
-                let filteredItems = searchQuery
-                    ? items.filter((item) => {
-                          const query = searchQuery.toLowerCase()
-                          return (
-                              item.name?.toLowerCase().includes(query) ||
-                              item.created_by?.toLowerCase().includes(query) ||
-                              item.description?.toLowerCase().includes(query)
-                          )
-                      })
-                    : items
+            (s) => [s.feedItems, s.searchQuery, s.selectedTypes, s.fuse],
+            (items, searchQuery, selectedTypes, fuse): Record<string, Record<string, FeedItem[]>> => {
+                let filteredItems = searchQuery ? fuse.search(searchQuery).map((result) => result.item) : items
 
                 // Filter by selected types (if not "all")
                 if (selectedTypes.length > 0 && !selectedTypes.includes('all')) {
@@ -89,13 +92,11 @@ export const feedLogic = kea<feedLogicType>([
                 // Group items by date - enumerate last 7 days, then "OLDER"
                 const dateGroups: Record<string, FeedItem[]> = {}
 
-                const now = new Date()
-                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+                const today = dayjs().startOf('day')
 
                 filteredItems.forEach((item) => {
-                    const itemDate = new Date(item.created_at)
-                    const itemDay = new Date(itemDate.getFullYear(), itemDate.getMonth(), itemDate.getDate())
-                    const dayDiff = Math.floor((today.getTime() - itemDay.getTime()) / (1000 * 60 * 60 * 24))
+                    const itemDay = dayjs(item.created_at).startOf('day')
+                    const dayDiff = today.diff(itemDay, 'days')
 
                     let groupKey: string
 
@@ -105,9 +106,7 @@ export const feedLogic = kea<feedLogicType>([
                         groupKey = 'YESTERDAY'
                     } else if (dayDiff >= 2 && dayDiff <= 6) {
                         // Format: "Tuesday, Nov 25" for days 2-6
-                        const dayName = itemDay.toLocaleDateString('en-US', { weekday: 'long' })
-                        const monthDay = itemDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                        groupKey = `${dayName}, ${monthDay}`
+                        groupKey = itemDay.format('dddd, MMM D')
                     } else {
                         groupKey = 'OLDER'
                     }

@@ -35,7 +35,7 @@ const DISCOVERY_PROMPTS = [
     },
     {
         title: 'Create a new dashboard',
-        subtitle: 'Ask Posthog AI to create a new dashboard for you',
+        subtitle: 'Ask PostHog AI to create a new dashboard for you',
         placeholder: 'e.g., "key metrics for our mobile app"',
         promptPrefix: 'Create a new dashboard: ',
         icon: <IconDashboard style={{ color: '#36B37E' }} />,

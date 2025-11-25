@@ -30,6 +30,9 @@ function getItemUrl(item: FeedItem): string | undefined {
             return urls.survey(item.id as string)
         case 'session_recording_playlist':
             return urls.replayPlaylist(item.id as string)
+        case 'external_data_source':
+            // Data warehouse tables don't have direct URLs yet
+            return undefined
         default:
             return undefined
     }

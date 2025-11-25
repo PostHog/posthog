@@ -241,6 +241,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Feed',
         description: 'Stay updated with recent activities and changes in your project.',
+        iconType: 'feed',
     },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
     [Scene.Group]: {

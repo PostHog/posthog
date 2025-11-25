@@ -12,6 +12,7 @@ import {
     IconFolderOpen,
     IconGear,
     IconHome,
+    IconNewspaper,
     IconPeople,
     IconShortcut,
     IconSidebarClose,
@@ -29,8 +30,9 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { IconMenu } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -106,6 +108,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { preflight } = useValues(preflightLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -174,14 +177,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => handleStaticNavbarItemClick(urls.projectRoot(), true),
             collapsedTooltip: 'Home',
         },
-        {
-            identifier: 'ProjectFeed',
-            label: 'Feed',
-            icon: <IconMenu />,
-            to: urls.feed(),
-            onClick: () => handleStaticNavbarItemClick(urls.feed(), true),
-            collapsedTooltip: 'Feed',
-        },
+        featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
+            ? {
+                  identifier: 'ProjectFeed',
+                  label: 'Feed',
+                  icon: <IconNewspaper />,
+                  to: urls.feed(),
+                  onClick: () => handleStaticNavbarItemClick(urls.feed(), true),
+                  collapsedTooltip: 'Feed',
+              }
+            : null,
         {
             identifier: 'Products',
             label: 'All apps',
@@ -266,7 +271,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
-    ]
+    ].filter(Boolean)
 
     return (
         <>

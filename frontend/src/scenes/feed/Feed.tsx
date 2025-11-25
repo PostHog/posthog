@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import {
-    IconActivity,
     IconDashboard,
     IconFlask,
+    IconNewspaper,
     IconNotification,
     IconPlaylist,
     IconPulse,
@@ -14,13 +14,16 @@ import {
 } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconSurveys } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { Error404 } from '~/layout/Error404'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -86,11 +89,17 @@ const FEED_TYPE_CONFIGS: Record<string, { title: string; icon: JSX.Element; colo
 }
 
 export function Feed(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { groupedFeedItems, feedItemsLoading, filters, searchQuery, selectedTypes } = useValues(feedLogic)
     const { loadFeed, setFilters, setSearchQuery, setSelectedTypes } = useActions(feedLogic)
     useEffect(() => {
         loadFeed()
     }, [loadFeed])
+
+    // Feature flag gate
+    if (!featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]) {
+        return <Error404 />
+    }
 
     const hasAnyItems = Object.keys(groupedFeedItems).length > 0
 
@@ -101,7 +110,7 @@ export function Feed(): JSX.Element {
                 description="Stay updated with recent activities and changes in your project"
                 resourceType={{
                     type: 'project',
-                    forceIcon: <IconNotification />,
+                    forceIcon: <IconNewspaper />,
                 }}
                 actions={
                     <div className="flex gap-2 items-center">
@@ -137,7 +146,7 @@ export function Feed(): JSX.Element {
             <div className="mb-6">
                 <div className="flex items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-2">
-                        <IconActivity className="text-lg" />
+                        <IconNotification className="text-lg" />
                         <h2 className="text-lg font-semibold mb-0">Updates</h2>
                     </div>
                     <LemonSelect
