@@ -379,7 +379,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             <DropdownMenuSubContent>
                                 <DropdownMenuGroup>
                                     {getTreeItemsGames().map((game) => (
-                                        <DropdownMenuItem asChild>
+                                        <DropdownMenuItem asChild key={game.path}>
                                             <Link to={game.href} buttonProps={{ menuItem: true }}>
                                                 {game.path}
                                             </Link>

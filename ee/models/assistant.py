@@ -1,11 +1,22 @@
+import string
+import secrets
 from datetime import timedelta
 
-from django.db import models
+from django.db import IntegrityError, models
 from django.utils import timezone
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
+
+
+def generate_short_id():
+    """Generate securely random 4 characters long alphanumeric ID.
+
+    With team-scoped uniqueness, 4 characters (62^4 = 14.7M combinations)
+    is sufficient to avoid collisions within a single team.
+    """
+    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(4))
 
 
 class Conversation(UUIDTModel):
@@ -183,3 +194,36 @@ class CoreMemory(UUIDTModel):
         if self.initial_text.endswith("\nAnswer:"):
             answers_given -= 1
         return MAX_ONBOARDING_QUESTIONS - answers_given
+
+
+class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields):
+    class Type(models.TextChoices):
+        VISUALIZATION = "visualization", "Visualization"
+        NOTEBOOK = "notebook", "Notebook"
+
+    short_id = models.CharField(max_length=4, default=generate_short_id)
+    name = models.CharField(max_length=400)
+    type = models.CharField(max_length=50, choices=Type.choices)
+    data = models.JSONField(help_text="Artifact content. Structure depends on artifact type.")
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="artifacts")
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "short_id"]),
+            models.Index(fields=["team", "conversation", "created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "short_id"], name="unique_team_short_id"),
+        ]
+
+    def save(self, *args, **kwargs):
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                return super().save(*args, **kwargs)
+            except IntegrityError as e:
+                if "short_id" in str(e) and attempt < max_retries - 1:
+                    self.short_id = generate_short_id()
+                else:
+                    raise

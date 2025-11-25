@@ -450,9 +450,6 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
     @staticmethod
     def get_token_response(token_value=None):
-        if not token_value:
-            return JsonResponse({"error": "invalid_request", "error_description": "Token is required"}, status=400)
-
         try:
             token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
             token = OAuthAccessToken.objects.get(token_checksum=token_checksum) or OAuthRefreshToken.objects.get(

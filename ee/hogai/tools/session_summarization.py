@@ -3,7 +3,7 @@ from typing import Literal
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
+from ee.hogai.chat_agent.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState

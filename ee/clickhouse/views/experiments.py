@@ -159,10 +159,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
 
-        # check if all saved metrics exist
-        saved_metrics = ExperimentSavedMetric.objects.filter(id__in=[saved_metric["id"] for saved_metric in value])
+        # check if all saved metrics exist and belong to the same team
+        saved_metrics = ExperimentSavedMetric.objects.filter(
+            id__in=[saved_metric["id"] for saved_metric in value], team_id=self.context["team_id"]
+        )
         if saved_metrics.count() != len(value):
-            raise ValidationError("Saved metric does not exist")
+            raise ValidationError("Saved metric does not exist or does not belong to this project")
 
         return value
 
@@ -919,10 +921,16 @@ class EnterpriseExperimentsViewSet(
         latest_completed_at = None
 
         # Create mapping from query_to to result, deriving the day in project timezone
+        # Note: query_to is the EXCLUSIVE end of the time range
+        # Example: Data for 2025-11-09 has query_to = 2025-11-10T00:00:00 (recalculation)
+        #          or query_to = 2025-11-09T02:00:00 (regular DAG)
+        # To find which day the data represents, subtract 1 microsecond to get the last included moment
         results_by_date = {}
         for result in metric_results:
-            # Convert UTC query_to to project timezone to determine which day this result belongs to
-            day_in_project_tz = result.query_to.astimezone(project_tz).date()
+            # Subtract 1 microsecond to convert exclusive boundary to inclusive
+            query_to_adjusted = result.query_to - timedelta(microseconds=1)
+            query_to_in_project_tz = query_to_adjusted.astimezone(project_tz)
+            day_in_project_tz = query_to_in_project_tz.date()
             results_by_date[day_in_project_tz] = result
 
         for experiment_date in experiment_dates:

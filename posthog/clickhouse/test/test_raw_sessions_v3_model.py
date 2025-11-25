@@ -613,6 +613,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             session_id=session_id,
             first_timestamp="2024-03-08",
             last_timestamp="2024-03-08",
+            ensure_analytics_event_in_session=False,
         )
 
         result_2 = self.select_by_session_id(session_id)
@@ -622,3 +623,72 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         assert {k: v for k, v in result_1[0].items() if k not in {"has_replay_events", "max_inserted_at"}} == {
             k: v for k, v in result_2[0].items() if k not in {"has_replay_events", "max_inserted_at"}
         }
+
+    def test_event_names_are_collected(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="custom_event",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert set(result[0]["event_names"]) == {"$pageview", "$autocapture", "custom_event"}
+
+    def test_flag_keys_are_collected(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_a": "value1",
+                "$feature/flag_b": "value2",
+            },
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_a": "different_value",
+                "$feature/flag_c": "value3",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        # Should have all unique flag keys (not values)
+        assert set(result[0]["flag_keys"]) == {"$feature/flag_a", "$feature/flag_b", "$feature/flag_c"}

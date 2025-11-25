@@ -1917,6 +1917,14 @@ class OrderBy3(StrEnum):
     EARLIEST = "earliest"
 
 
+class MarkdownBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    type: Literal["markdown"] = "markdown"
+
+
 class MarketingAnalyticsBaseColumns(StrEnum):
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
@@ -2304,6 +2312,58 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     team_name: str
     user_email: str
     user_id: str
+
+
+class ProductIntentContext(StrEnum):
+    ONBOARDING_PRODUCT_SELECTED___PRIMARY = "onboarding product selected - primary"
+    ONBOARDING_PRODUCT_SELECTED___SECONDARY = "onboarding product selected - secondary"
+    QUICK_START_PRODUCT_SELECTED = "quick start product selected"
+    SELECTED_CONNECTOR = "selected connector"
+    SQL_EDITOR_EMPTY_STATE = "sql editor empty state"
+    DATA_WAREHOUSE_SOURCES_TABLE = "data warehouse sources table"
+    EXPERIMENT_CREATED = "experiment created"
+    EXPERIMENT_ANALYZED = "experiment analyzed"
+    FEATURE_FLAG_CREATED = "feature flag created"
+    SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
+    ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = "error_tracking_exception_autocapture_enabled"
+    ERROR_TRACKING_ISSUE_SORTING = "error_tracking_issue_sorting"
+    ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
+    ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
+    LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
+    LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
+    TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
+    CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
+    WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
+    WEB_VITALS_INSIGHT = "web_vitals_insight"
+    WEB_ANALYTICS_RECORDINGS = "web_analytics_recordings"
+    WEB_ANALYTICS_ERROR_TRACKING = "web_analytics_error_tracking"
+    WEB_ANALYTICS_ERRORS = "web_analytics_errors"
+    WEB_ANALYTICS_FRUSTRATING_PAGES = "web_analytics_frustrating_pages"
+    ACTION_VIEW_RECORDINGS = "action_view_recordings"
+    PERSON_VIEW_RECORDINGS = "person_view_recordings"
+    FEATURE_FLAG_CREATE_INSIGHT = "feature_flag_create_insight"
+    FEATURE_FLAG_VIEW_RECORDINGS = "feature_flag_view_recordings"
+    EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = "early_access_feature_view_recordings"
+    DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = "data_warehouse_stripe_source_created"
+    SURVEYS_VIEWED = "surveys_viewed"
+    SURVEY_CREATED = "survey_created"
+    SURVEY_LAUNCHED = "survey_launched"
+    SURVEY_VIEWED = "survey_viewed"
+    SURVEY_COMPLETED = "survey_completed"
+    SURVEY_RESUMED = "survey_resumed"
+    SURVEY_ARCHIVED = "survey_archived"
+    SURVEY_UNARCHIVED = "survey_unarchived"
+    SURVEY_DELETED = "survey_deleted"
+    SURVEY_DUPLICATED = "survey_duplicated"
+    SURVEY_BULK_DUPLICATED = "survey_bulk_duplicated"
+    SURVEY_EDITED = "survey_edited"
+    SURVEY_ANALYZED = "survey_analyzed"
+    REVENUE_ANALYTICS_VIEWED = "revenue_analytics_viewed"
+    REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
+    REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
+    REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
+    NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
+    VERCEL_INTEGRATION = "vercel_integration"
 
 
 class ProductKey(StrEnum):
@@ -2737,6 +2797,16 @@ class Storage(StrEnum):
     OBJECT_STORAGE = "object_storage"
 
 
+class SessionReplayBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: str
+    timestamp_ms: float
+    title: Optional[str] = None
+    type: Literal["session_replay"] = "session_replay"
+
+
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3124,6 +3194,14 @@ class VectorSearchResponseItem(BaseModel):
     )
     distance: float
     id: str
+
+
+class VisualizationBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str
+    type: Literal["visualization"] = "visualization"
 
 
 class ActionsPie(BaseModel):
@@ -5029,6 +5107,9 @@ class SavedInsightNode(BaseModel):
     )
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
+    )
+    contextKey: Optional[str] = Field(
+        default=None, description='Context key for universal column configuration (e.g., "survey:123")'
     )
     defaultColumns: Optional[list[str]] = Field(
         default=None, description="Default columns to use when resetting column configuration"
@@ -8265,6 +8346,7 @@ class DashboardFilter(BaseModel):
     breakdown_filter: Optional[BreakdownFilter] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -8898,6 +8980,13 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     source: Optional[DatabaseSchemaSource] = None
     type: Literal["data_warehouse"] = "data_warehouse"
     url_pattern: str
+
+
+class DocumentArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[Union[MarkdownBlock, VisualizationBlock, SessionReplayBlock]]
 
 
 class DocumentSimilarityQueryResponse(BaseModel):
@@ -9970,6 +10059,7 @@ class MarketingAnalyticsConfig(BaseModel):
     attribution_window_days: Optional[float] = None
     campaign_name_mappings: Optional[dict[str, dict[str, list[str]]]] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
+    custom_source_mappings: Optional[dict[str, list[str]]] = None
     sources_map: Optional[dict[str, SourceMap]] = None
 
 
@@ -12046,6 +12136,7 @@ class TileFilters(BaseModel):
     breakdown_filter: Optional[BreakdownFilter] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -12200,6 +12291,15 @@ class VectorSearchQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class VisualizationArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    name: Optional[str] = None
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
 
 
 class WebAnalyticsAssistantFilters(BaseModel):
@@ -12538,6 +12638,10 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     response: Optional[ActorsPropertyTaxonomyQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class AgentArtifactContent(RootModel[Union[DocumentArtifactContent, VisualizationArtifactContent]]):
+    root: Union[DocumentArtifactContent, VisualizationArtifactContent]
 
 
 class AnyResponseType(
@@ -15798,6 +15902,9 @@ class DataTableNode(BaseModel):
     )
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
+    )
+    contextKey: Optional[str] = Field(
+        default=None, description='Context key for universal column configuration (e.g., "survey:123")'
     )
     defaultColumns: Optional[list[str]] = Field(
         default=None, description="Default columns to use when resetting column configuration"

@@ -1,7 +1,9 @@
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText } from 'lib/utils'
+import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-import { Node, NodeKind } from '~/queries/schema/schema-general'
+import { Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     dateRangeFor,
@@ -17,10 +19,12 @@ export function TopHeading({
     query,
     lastRefresh,
     hasTileOverrides,
+    resolvedDateRange,
 }: {
     query: Node | null
     lastRefresh?: string | null
     hasTileOverrides?: boolean | null
+    resolvedDateRange?: ResolvedDateRangeResponse | null
 }): JSX.Element {
     let insightType: InsightTypeMetadata
 
@@ -50,13 +54,23 @@ export function TopHeading({
             query == undefined || isInsightQueryNode(query) || isInsightVizNode(query) ? 'Last 7 days' : null
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
+
+    const resolvedDateTooltip = formatResolvedDateRange(resolvedDateRange)
+
     return (
         <div className="flex items-center gap-1">
             <span title={insightType?.description}>{insightType?.name}</span>
             {dateText ? (
                 <>
                     {' '}
-                    • <span className="whitespace-nowrap">{dateText}</span>
+                    •{' '}
+                    {resolvedDateTooltip ? (
+                        <Tooltip title={resolvedDateTooltip}>
+                            <span className="whitespace-nowrap">{dateText}</span>
+                        </Tooltip>
+                    ) : (
+                        <span className="whitespace-nowrap">{dateText}</span>
+                    )}
                 </>
             ) : null}
             {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}

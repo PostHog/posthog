@@ -64,7 +64,7 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
         if request.GET.get("cache_invalidation_key"):
             cache_key += f"_{request.GET['cache_invalidation_key']}"
 
-        cache_key = generate_cache_key(cache_key)
+        cache_key = generate_cache_key(team.pk, cache_key)
 
         tag_queries(cache_key=cache_key)
 
