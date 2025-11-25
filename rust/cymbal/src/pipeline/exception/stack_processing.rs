@@ -84,7 +84,7 @@ pub async fn do_stack_processing(
                         .remap_class(
                             team_id,
                             module,
-                            q & exception.exception_type,
+                            &exception.exception_type,
                             &context.catalog,
                         )
                         .await?;
