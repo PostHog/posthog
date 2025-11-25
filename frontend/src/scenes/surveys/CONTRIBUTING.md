@@ -88,10 +88,10 @@ Here's how to run it in the Django shell:
 ```python
 # In python manage.py shell
 from posthog.tasks.usage_report import get_teams_with_survey_responses_count_in_period
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 # Define the period for the last 60 days
-now = datetime.now(tz=timezone.utc)
+now = datetime.now(tz=UTC)
 start_time = now - timedelta(days=60)
 end_time = now
 
