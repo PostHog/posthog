@@ -106,6 +106,15 @@ jobs:
               run: |
                   ruff format --check --diff .
 
+            - name: Check module boundaries (informational)
+              shell: bash
+              continue-on-error: true
+              run: |
+                  echo "👀 Running tach module boundary check (informational - does not block CI)"
+                  echo "📖 See tach.toml for configuration. Feedback welcome in #team-devex"
+                  echo ""
+                  tach check || echo "⚠️ tach found boundary violations (not blocking)"
+
             - name: Add ty Problem Matcher
               shell: bash
               run: |
