@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonTable, LemonTableColumn, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
@@ -60,10 +62,30 @@ export function HogFunctionList({
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     const humanizedType = humanizeHogFunctionType(props.type)
+    const [isPausedExpanded, setIsPausedExpanded] = useState(false)
+    const [searchValue, setSearchValue] = useState(filters.search ?? '')
+
+    // Debounced search to avoid API calls on every keystroke
+    const debouncedSetFilters = useDebouncedCallback((search: string) => {
+        setFilters({ search })
+    }, 300)
+
+    // Update local search value immediately, debounce the filter update
+    const handleSearchChange = useCallback(
+        (value: string) => {
+            setSearchValue(value)
+            debouncedSetFilters(value)
+        },
+        [debouncedSetFilters]
+    )
+
+    // Sync local search value with filters when they change externally (e.g., reset)
+    useEffect(() => {
+        setSearchValue(filters.search ?? '')
+    }, [filters.search])
 
     useOnMountEffect(() => {
         loadActiveHogFunctions()
-        loadPausedHogFunctions()
     })
 
     const isManualFunction = useCallback(
@@ -223,12 +245,7 @@ export function HogFunctionList({
     return (
         <div className="flex flex-col gap-4">
             <div className="flex gap-2 items-center">
-                <LemonInput
-                    type="search"
-                    placeholder="Search..."
-                    value={filters.search ?? ''}
-                    onChange={(e) => setFilters({ search: e })}
-                />
+                <LemonInput type="search" placeholder="Search..." value={searchValue} onChange={handleSearchChange} />
                 {!hideFeedback ? (
                     <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
                         Can't find what you're looking for?
@@ -280,41 +297,57 @@ export function HogFunctionList({
 
                 {/* Paused Functions Table */}
                 <div>
-                    <h3 className="mb-2">Paused {humanizedType}s</h3>
-                    <LemonTable
-                        dataSource={filteredPausedHogFunctions}
-                        size="small"
-                        loading={pausedLoading}
-                        columns={pausedColumns}
-                        pagination={{
-                            controlled: true,
-                            pageSize: pausedPagination.limit,
-                            currentPage: Math.floor(pausedPagination.offset / pausedPagination.limit) + 1,
-                            entryCount: pausedTotalCount,
-                            onForward:
-                                pausedPagination.offset + pausedPagination.limit < pausedTotalCount
-                                    ? () =>
-                                          setPagination('paused', {
-                                              offset: pausedPagination.offset + pausedPagination.limit,
-                                          })
-                                    : undefined,
-                            onBackward:
-                                pausedPagination.offset > 0
-                                    ? () =>
-                                          setPagination('paused', {
-                                              offset: Math.max(0, pausedPagination.offset - pausedPagination.limit),
-                                          })
-                                    : undefined,
+                    <div
+                        className="flex items-center gap-2 cursor-pointer mb-2"
+                        onClick={() => {
+                            const newExpanded = !isPausedExpanded
+                            setIsPausedExpanded(newExpanded)
+                            if (newExpanded) {
+                                loadPausedHogFunctions()
+                            }
                         }}
-                        emptyState={
-                            filteredPausedHogFunctions.length === 0 && !pausedLoading ? (
-                                <>
-                                    No paused {humanizedType}s found.{' '}
-                                    {filters.search && <Link onClick={() => resetFilters()}>Clear filters</Link>}
-                                </>
-                            ) : undefined
-                        }
-                    />
+                    >
+                        {isPausedExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                        <h3 className="mb-0">
+                            Paused {humanizedType}s {pausedTotalCount > 0 && `(${pausedTotalCount})`}
+                        </h3>
+                    </div>
+                    {isPausedExpanded && (
+                        <LemonTable
+                            dataSource={filteredPausedHogFunctions}
+                            size="small"
+                            loading={pausedLoading}
+                            columns={pausedColumns}
+                            pagination={{
+                                controlled: true,
+                                pageSize: pausedPagination.limit,
+                                currentPage: Math.floor(pausedPagination.offset / pausedPagination.limit) + 1,
+                                entryCount: pausedTotalCount,
+                                onForward:
+                                    pausedPagination.offset + pausedPagination.limit < pausedTotalCount
+                                        ? () =>
+                                              setPagination('paused', {
+                                                  offset: pausedPagination.offset + pausedPagination.limit,
+                                              })
+                                        : undefined,
+                                onBackward:
+                                    pausedPagination.offset > 0
+                                        ? () =>
+                                              setPagination('paused', {
+                                                  offset: Math.max(0, pausedPagination.offset - pausedPagination.limit),
+                                              })
+                                        : undefined,
+                            }}
+                            emptyState={
+                                filteredPausedHogFunctions.length === 0 && !pausedLoading ? (
+                                    <>
+                                        No paused {humanizedType}s found.{' '}
+                                        {filters.search && <Link onClick={() => resetFilters()}>Clear filters</Link>}
+                                    </>
+                                ) : undefined
+                            }
+                        />
+                    )}
                 </div>
 
                 <HogFunctionOrderModal />

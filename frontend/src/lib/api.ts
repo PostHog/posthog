@@ -2953,7 +2953,6 @@ const api = {
                 .hogFunctions()
                 .withQueryString({
                     filter_groups,
-                    // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
                     ...(search ? { search } : {}),
                     ...(limit ? { limit } : {}),
