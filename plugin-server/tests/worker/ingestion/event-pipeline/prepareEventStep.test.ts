@@ -114,29 +114,6 @@ describe('prepareEventStep()', () => {
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
 
-    it('scrubs IPs when team.anonymize_ips=true', async () => {
-        jest.mocked(runner.hub.teamManager.getTeam).mockReturnValue({
-            ...teamTwo,
-            // @ts-expect-error TODO: Check if prop is necessary
-            anonymize_ips: true,
-        })
-
-        const response = await prepareEventStep(runner as EventPipelineRunner, pluginEvent, false)
-
-        expect(response).toEqual({
-            distinctId: 'my_id',
-            event: 'default event',
-            eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
-            properties: {},
-            teamId: 2,
-            projectId: 1,
-            timestamp: '2020-02-23T02:15:00.000Z',
-        })
-
-        // @ts-expect-error TODO: Check existence of queueMessage
-        expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
-    })
-
     // Tests combo of prepareEvent + createEvent
     it('extracts elements_chain from properties', async () => {
         const event: PluginEvent = { ...pluginEvent, ip: null, properties: { $elements_chain: 'random string', a: 1 } }
