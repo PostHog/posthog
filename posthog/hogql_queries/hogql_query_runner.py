@@ -7,12 +7,12 @@ import structlog
 from posthog.schema import (
     CachedHogQLQueryResponse,
     DashboardFilter,
-    Database as WarehouseTarget,
     DateRange,
     HogQLASTQuery,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryResponse,
+    WarehouseTarget,
 )
 
 from posthog.hogql import ast
@@ -139,7 +139,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def _calculate_warehouse(self) -> HogQLQueryResponse:
         """Execute query against external data warehouse (DuckDB)."""
-        from posthog.hogql_queries.duckdb_client import get_duckdb_client
+        from posthog.duckdb.client import get_duckdb_client
 
         # Get the raw SQL query string
         if isinstance(self.query, HogQLQuery):

@@ -10198,12 +10198,6 @@
             },
             "type": "object"
         },
-        "Database": {
-            "default": "posthog",
-            "description": "The target database for the query.\n- `'posthog'` - Query the PostHog database\n- `'warehouse'` - Query the external data warehouse",
-            "enum": ["posthog", "warehouse"],
-            "type": "string"
-        },
         "DatabaseSchemaBatchExportTable": {
             "additionalProperties": false,
             "properties": {
@@ -19790,11 +19784,6 @@
                     "description": "Client provided query ID. Can be used to retrieve the status or cancel the query.",
                     "type": "string"
                 },
-                "database": {
-                    "$ref": "#/definitions/Database",
-                    "default": "posthog",
-                    "description": "The target database for the query."
-                },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
                 },
@@ -19816,6 +19805,11 @@
                         "type": "object"
                     },
                     "type": "object"
+                },
+                "warehouse_target": {
+                    "$ref": "#/definitions/WarehouseTarget",
+                    "default": "posthog",
+                    "description": "The target warehouse for the query."
                 }
             },
             "required": ["query"],
@@ -29060,6 +29054,12 @@
                 }
             },
             "type": "object"
+        },
+        "WarehouseTarget": {
+            "default": "posthog",
+            "description": "The target warehouse for the query.\n- `'posthog'` - Query the PostHog database\n- `'warehouse'` - Query the external data warehouse",
+            "enum": ["posthog", "warehouse"],
+            "type": "string"
         },
         "WebAnalyticsAssistantFilters": {
             "additionalProperties": false,

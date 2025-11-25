@@ -67,7 +67,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         editor,
     })
 
-    const { queryInput, sourceQuery, dataLogicKey, database } = useValues(logic)
+    const { queryInput, sourceQuery, dataLogicKey, warehouseTarget } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
@@ -112,7 +112,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         sourceQuery,
         setQuery: setSourceQuery,
         onUpdate: (query) => {
-            loadData('force_async', undefined, query.source, database)
+            loadData('force_async', undefined, query.source, warehouseTarget)
         },
     }
 

@@ -1741,7 +1741,7 @@ export interface QueryRequest {
      * The target warehouse for the query.
      * @default 'posthog'
      */
-    warehouseTarget?: WarehouseTarget
+    warehouse_target?: WarehouseTarget
 }
 
 export interface QueryUpgradeRequest {

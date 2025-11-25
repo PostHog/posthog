@@ -926,11 +926,6 @@ class DataWarehouseViewLinkConfiguration(BaseModel):
     experiments_timestamp_key: Optional[str] = None
 
 
-class Database(StrEnum):
-    POSTHOG = "posthog"
-    WAREHOUSE = "warehouse"
-
-
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -3232,6 +3227,11 @@ class VizSpecificOptions(BaseModel):
     )
     ActionsPie_1: Optional[ActionsPie] = Field(default=None, alias="ActionsPie")
     RETENTION_1: Optional[RETENTION] = Field(default=None, alias="RETENTION")
+
+
+class WarehouseTarget(StrEnum):
+    POSTHOG = "posthog"
+    WAREHOUSE = "warehouse"
 
 
 class WebAnalyticsExternalSummaryRequest(BaseModel):
@@ -16289,7 +16289,6 @@ class QueryRequest(BaseModel):
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
-    database: Optional[Database] = Field(default=Database.POSTHOG, description="The target database for the query.")
     filters_override: Optional[DashboardFilter] = None
     name: Optional[str] = Field(
         default=None,
@@ -16387,6 +16386,9 @@ class QueryRequest(BaseModel):
         ),
     )
     variables_override: Optional[dict[str, dict[str, Any]]] = None
+    warehouse_target: Optional[WarehouseTarget] = Field(
+        default=WarehouseTarget.POSTHOG, description="The target warehouse for the query."
+    )
 
 
 class QuerySchemaRoot(

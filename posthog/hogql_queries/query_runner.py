@@ -16,7 +16,6 @@ from posthog.schema import (
     CalendarHeatmapQuery,
     ChartDisplayType,
     DashboardFilter,
-    Database as WarehouseTarget,
     DateRange,
     EventsQuery,
     EventTaxonomyQuery,
@@ -58,6 +57,7 @@ from posthog.schema import (
     TrendsQuery,
     UsageMetricsQuery,
     VectorSearchQuery,
+    WarehouseTarget,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -789,7 +789,12 @@ def get_query_runner_or_none(
 ) -> Optional["QueryRunner"]:
     try:
         return get_query_runner(
-            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers, warehouse_target=warehouse_target
+            query=query,
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            warehouse_target=warehouse_target,
         )
     except ValueError as e:
         if "Can't get a runner for an unknown" in str(e):

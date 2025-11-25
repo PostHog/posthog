@@ -1,9 +1,5 @@
 from typing import Any
 
-import structlog
-
-logger = structlog.get_logger(__name__)
-
 
 class DuckDBClient:
     """
@@ -15,16 +11,11 @@ class DuckDBClient:
         self._connection = None
 
     def _get_connection(self):
-        """
-        Get or create a DuckDB connection.
-        Lazily initializes the connection on first use.
-        """
         if self._connection is None:
             try:
                 import duckdb
 
                 self._connection = duckdb.connect()
-                logger.info("duckdb_connection_initialized")
             except ImportError:
                 raise ImportError("duckdb is not installed. Please install it with: pip install duckdb")
         return self._connection
@@ -54,19 +45,13 @@ class DuckDBClient:
 
             return [list(row) for row in rows], columns
         except Exception:
-            logger.exception("duckdb_query_error", query=query[:200])
             raise
 
     def close(self):
-        """Close the DuckDB connection."""
         if self._connection is not None:
             self._connection.close()
             self._connection = None
 
 
 def get_duckdb_client() -> DuckDBClient:
-    """
-    Factory function to get a DuckDB client instance.
-    Returns a new client instance for each call.
-    """
     return DuckDBClient()

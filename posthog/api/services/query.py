@@ -5,7 +5,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DashboardFilter,
-    Database as WarehouseTarget,
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
     DataWarehouseViewLink,
@@ -15,6 +14,7 @@ from posthog.schema import (
     HogQuery,
     HogQueryResponse,
     QuerySchemaRoot,
+    WarehouseTarget,
 )
 
 from posthog.hogql.autocomplete import get_hogql_autocomplete

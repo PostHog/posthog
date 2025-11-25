@@ -11,7 +11,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
-    Database,
     HogQLQuery,
     HogQLQueryModifiers,
     QueryRequest,
@@ -19,6 +18,7 @@ from posthog.schema import (
     QueryStatusResponse,
     QueryUpgradeRequest,
     QueryUpgradeResponse,
+    WarehouseTarget,
 )
 
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
@@ -60,7 +60,7 @@ from common.hogvm.python.utils import HogVMException
 
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
-) -> tuple[BaseModel, str, ExecutionMode, Database | None]:
+) -> tuple[BaseModel, str, ExecutionMode, WarehouseTarget | None]:
     """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
     query = request_data.query
 
@@ -88,7 +88,7 @@ def _process_query_request(
     qt.query = query.model_dump()
 
     # Get warehouse target from request (defaults to 'posthog')
-    warehouse_target = request_data.database
+    warehouse_target = request_data.warehouse_target
 
     return query, query_id, execution_mode, warehouse_target
 
