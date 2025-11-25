@@ -138,7 +138,7 @@ def test_load_session_data_handles_timestamp_formats(
     """Timestamps can be datetime objects (direct from DB) or ISO strings (from cache deserialization)."""
     prompt_data = SessionSummaryPromptData()
     raw_columns = ["event", "timestamp", "$window_id", "$current_url", "uuid"]
-    raw_events = [
+    raw_events: list[tuple[str | datetime | list[str] | None, ...]] = [
         ("$pageview", timestamp_value, "window-1", "http://example.com", "uuid-1"),
     ]
     events_mapping, _ = prompt_data.load_session_data(
@@ -170,7 +170,7 @@ def test_load_session_data_rejects_invalid_timestamps(
 ) -> None:
     prompt_data = SessionSummaryPromptData()
     raw_columns = ["event", "timestamp", "$window_id", "$current_url", "uuid"]
-    raw_events = [
+    raw_events: list[tuple[str | datetime | list[str] | None, ...]] = [
         ("$pageview", invalid_timestamp, "window-1", "http://example.com", "uuid-1"),
     ]
 
