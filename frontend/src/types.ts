@@ -5890,6 +5890,7 @@ export interface Conversation {
     agent_mode?: string | null
     slack_thread_key?: string | null
     slack_workspace_domain?: string | null
+    is_internal?: boolean
 }
 
 export interface ConversationDetail extends Conversation {
