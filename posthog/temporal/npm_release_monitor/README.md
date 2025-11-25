@@ -27,62 +27,62 @@ Last validated: November 2024
 
 These packages are all published from the [posthog-js](https://github.com/PostHog/posthog-js) monorepo:
 
-| npm package | Notes |
-|-------------|-------|
-| `posthog-js` | Core browser SDK |
-| `posthog-node` | Node.js SDK |
-| `posthog-react-native` | React Native SDK |
-| `@posthog/core` | Shared core library |
-| `@posthog/ai` | AI/LLM integration |
+| npm package              | Notes                 |
+| ------------------------ | --------------------- |
+| `posthog-js`             | Core browser SDK      |
+| `posthog-node`           | Node.js SDK           |
+| `posthog-react-native`   | React Native SDK      |
+| `@posthog/core`          | Shared core library   |
+| `@posthog/ai`            | AI/LLM integration    |
 | `@posthog/nextjs-config` | Next.js config helper |
-| `@posthog/nuxt` | Nuxt.js integration |
+| `@posthog/nuxt`          | Nuxt.js integration   |
 
 ### PostHog/posthog monorepo
 
 These packages are published from the main [posthog](https://github.com/PostHog/posthog) monorepo:
 
-| npm package | Notes |
-|-------------|-------|
-| `@posthog/plugin-server` | Plugin server (in `/plugin-server`) |
-| `@posthog/icons` | Icon library |
-| `@posthog/lemon-ui` | UI component library (in `/frontend/@posthog/lemon-ui`) |
-| `@posthog/cli` | PostHog CLI tool |
+| npm package              | Notes                                                   |
+| ------------------------ | ------------------------------------------------------- |
+| `@posthog/plugin-server` | Plugin server (in `/plugin-server`)                     |
+| `@posthog/icons`         | Icon library                                            |
+| `@posthog/lemon-ui`      | UI component library (in `/frontend/@posthog/lemon-ui`) |
+| `@posthog/cli`           | PostHog CLI tool                                        |
 
 ### Separate repositories
 
-| npm package | GitHub repo | Notes |
-|-------------|-------------|-------|
+| npm package                           | GitHub repo                                 | Notes                           |
+| ------------------------------------- | ------------------------------------------- | ------------------------------- |
 | `posthog-react-native-session-replay` | PostHog/posthog-react-native-session-replay | Session replay for React Native |
-| `@posthog/nextjs` | PostHog/posthog-js-lite | Next.js SDK (lightweight) |
-| `@posthog/wizard` | PostHog/wizard | Setup wizard CLI |
-| `@posthog/hedgehog-mode` | PostHog/hedgehog-mode | Easter egg hedgehog animation |
+| `@posthog/nextjs`                     | PostHog/posthog-js-lite                     | Next.js SDK (lightweight)       |
+| `@posthog/wizard`                     | PostHog/wizard                              | Setup wizard CLI                |
+| `@posthog/hedgehog-mode`              | PostHog/hedgehog-mode                       | Easter egg hedgehog animation   |
 
 ### rrweb packages
 
 These are published from PostHog's fork of rrweb:
 
-| npm package | GitHub repo |
-|-------------|-------------|
-| `@posthog/rrweb-player` | PostHog/posthog-rrweb |
-| `@posthog/rrweb-record` | PostHog/posthog-rrweb |
-| `@posthog/rrweb-replay` | PostHog/posthog-rrweb |
-| `@posthog/rrweb-snapshot` | PostHog/posthog-rrweb |
-| `@posthog/rrweb-utils` | PostHog/posthog-rrweb |
-| `@posthog/rrdom` | PostHog/posthog-rrweb |
+| npm package                   | GitHub repo                        |
+| ----------------------------- | ---------------------------------- |
+| `@posthog/rrweb-player`       | PostHog/posthog-rrweb              |
+| `@posthog/rrweb-record`       | PostHog/posthog-rrweb              |
+| `@posthog/rrweb-replay`       | PostHog/posthog-rrweb              |
+| `@posthog/rrweb-snapshot`     | PostHog/posthog-rrweb              |
+| `@posthog/rrweb-utils`        | PostHog/posthog-rrweb              |
+| `@posthog/rrdom`              | PostHog/posthog-rrweb              |
 | `@posthog/react-rrweb-player` | PostHog/posthog-react-rrweb-player |
 
 ### Forked/utility packages
 
-| npm package | GitHub repo | Notes |
-|-------------|-------------|-------|
-| `@posthog/piscina` | PostHog/piscina | Fork of piscina worker pool |
-| `@posthog/clickhouse` | PostHog/node-clickhouse | ClickHouse client |
-| `@posthog/siphash` | PostHog/siphash-js | SipHash implementation |
+| npm package           | GitHub repo             | Notes                       |
+| --------------------- | ----------------------- | --------------------------- |
+| `@posthog/piscina`    | PostHog/piscina         | Fork of piscina worker pool |
+| `@posthog/clickhouse` | PostHog/node-clickhouse | ClickHouse client           |
+| `@posthog/siphash`    | PostHog/siphash-js      | SipHash implementation      |
 
 ### Example packages
 
-| npm package | GitHub repo |
-|-------------|-------------|
+| npm package                  | GitHub repo                        |
+| ---------------------------- | ---------------------------------- |
 | `posthog-plugin-hello-world` | PostHog/posthog-plugin-hello-world |
 
 ## Packages NOT monitored (and why)
@@ -109,11 +109,11 @@ No repository field in npm registry. Unable to determine the source repo.
 
 Environment variables required:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GITHUB_TOKEN` | Yes | GitHub token with `repo` read access for fetching workflow runs |
-| `NPM_RELEASE_MONITOR_SLACK_WEBHOOK` | No | Slack webhook URL for alerts |
-| `INCIDENT_IO_API_KEY` | No | incident.io API key for creating incidents |
+| Variable                            | Required | Description                                                     |
+| ----------------------------------- | -------- | --------------------------------------------------------------- |
+| `GITHUB_TOKEN`                      | Yes      | GitHub token with `repo` read access for fetching workflow runs |
+| `NPM_RELEASE_MONITOR_SLACK_WEBHOOK` | No       | Slack webhook URL for alerts                                    |
+| `INCIDENT_IO_API_KEY`               | No       | incident.io API key for creating incidents                      |
 
 ## Adding new packages
 
