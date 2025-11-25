@@ -190,6 +190,7 @@ class BigQueryField(Field):
 
     def __init__(self, name: str, type: BigQueryType, nullable: bool):
         self.name = name
+        self.alias = name
         self.bigquery_type = type
         self.nullable = nullable
         self.data_type = bigquery_type_to_data_type(type)
