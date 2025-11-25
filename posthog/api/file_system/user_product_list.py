@@ -28,10 +28,10 @@ class UserProductListSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "product_path",
-            "created_at",
-            "updated_at",
             "reason",
             "reason_text",
+            "created_at",
+            "updated_at",
         ]
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> UserProductList:
@@ -61,18 +61,16 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not product_path:
             return Response({"error": "product_path is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        existing_item = UserProductList.objects.filter(
-            team=self.team, user=cast(User, request.user), product_path=product_path
-        ).first()
+        existing_item, created = UserProductList.objects.get_or_create(
+            team=self.team,
+            user=cast(User, request.user),
+            product_path=product_path,
+            defaults={"enabled": True},
+        )
 
-        if existing_item:
-            serializer = self.get_serializer(existing_item, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return Response(serializer.data)
-        else:
-            # Create new item - need to explicitly set product_path since it's read-only
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        serializer = self.get_serializer(existing_item, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(serializer.data, status=status_code)
