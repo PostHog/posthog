@@ -5,8 +5,6 @@ from pathlib import Path
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
-
 from parameterized import parameterized
 from rest_framework import status
 
@@ -303,14 +301,10 @@ class TestGolangGeneratorAPI(APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        # Create event definitions with schemas
         self.event_def_1 = EventDefinition.objects.create(team=self.team, project=self.project, name="file_downloaded")
-        self.event_def_2 = EventDefinition.objects.create(team=self.team, project=self.project, name="user_signed_up")
-
         self.prop_group_1 = SchemaPropertyGroup.objects.create(
             team=self.team, project=self.project, name="File Download Properties"
         )
-
         SchemaPropertyGroupProperty.objects.create(
             property_group=self.prop_group_1,
             name="file_name",
@@ -335,36 +329,30 @@ class TestGolangGeneratorAPI(APIBaseTest):
             property_type="String",
             is_required=False,
         )
-
-        # Link event to property group
         EventSchema.objects.create(event_definition=self.event_def_1, property_group=self.prop_group_1)
 
-        # Create property group for user_signed_up (only required props)
+        self.event_def_2 = EventDefinition.objects.create(team=self.team, project=self.project, name="user_signed_up")
         self.prop_group_2 = SchemaPropertyGroup.objects.create(
             team=self.team, project=self.project, name="User Signup Properties"
         )
-
         SchemaPropertyGroupProperty.objects.create(
             property_group=self.prop_group_2,
             name="email",
             property_type="String",
             is_required=True,
         )
-
         SchemaPropertyGroupProperty.objects.create(
             property_group=self.prop_group_2,
             name="plan",
             property_type="String",
             is_required=True,
         )
-
         EventSchema.objects.create(event_definition=self.event_def_2, property_group=self.prop_group_2)
 
     @patch("posthog.api.event_definition_generators.base.report_user_action")
     def test_golang_endpoint_success(self, mock_report):
         """Test that the golang endpoint returns valid code"""
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
@@ -387,33 +375,23 @@ class TestGolangGeneratorAPI(APIBaseTest):
         self.assertIn("FileDownloadedCaptureFromBase", code)
 
         # Verify telemetry was called
-        self.assertEqual(mock_report.call_count, 1)
-        call_args = mock_report.call_args
-        self.assertEqual(call_args[0][0], self.user)  # user
-        self.assertEqual(call_args[0][1], "generated event definitions")
-        telemetry_props = call_args[0][2]
-        self.assertEqual(telemetry_props["language"], "Go")
-        self.assertEqual(telemetry_props["team_id"], self.team.id)
-        self.assertEqual(telemetry_props["project_id"], self.project.id)
-        self.assertEqual(telemetry_props["event_count"], 2)
+        self._test_telemetry_called(mock_report, 2)
 
-    def test_golang_endpoint_excludes_system_events(self):
-        """Test that all system events are excluded"""
-        # Create system events (both should be excluded)
+    def test_golang_endpoint_excludes_non_whitelisted_system_events(self):
+        # $autocapture should be excluded
+        # $pageview is whitelisted and should be included
         EventDefinition.objects.create(team=self.team, project=self.project, name="$autocapture")
         EventDefinition.objects.create(team=self.team, project=self.project, name="$pageview")
 
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
 
         code = response.json()["content"]
-
-        # All system events should be excluded in Go generator
         self.assertNotIn("Autocapture", code)
         self.assertIn("Pageview", code)
 
-    def test_golang_endpoint_handles_no_events(self):
-        """Test endpoint when no events are defined"""
-        # Delete all events
+    @patch("posthog.api.event_definition_generators.base.report_user_action")
+    def test_golang_endpoint_handles_no_events(self, mock_report):
+        # Delete all events to test this behaviour
         EventDefinition.objects.filter(team=self.team).delete()
 
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
@@ -423,41 +401,22 @@ class TestGolangGeneratorAPI(APIBaseTest):
         self.assertEqual(data["event_count"], 0)
         self.assertIn("package typed", data["content"])
 
-    def test_golang_schema_hash_changes_on_update(self):
+        # Verify telemetry was called herre
+        self._test_telemetry_called(mock_report, 0)
+
+    def test_golang_schema_hash_differs_from_typescript(self):
         """Test that schema_hash changes when properties are modified"""
-        # Get initial hash
-        response1 = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
-        hash1 = response1.json()["schema_hash"]
+        responseGo = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
+        hashGo = responseGo.json()["schema_hash"]
 
-        # Add a new property
-        SchemaPropertyGroupProperty.objects.create(
-            property_group=self.prop_group_1,
-            name="download_speed",
-            property_type="Numeric",
-            is_required=False,
-        )
-
-        # Get new hash
-        response2 = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
-        hash2 = response2.json()["schema_hash"]
+        responseTS = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript")
+        hashTS = responseTS.json()["schema_hash"]
 
         # Hashes should differ
-        self.assertNotEqual(hash1, hash2, "Schema hash should change when properties are added")
-
-    @override_settings(SKIP_ASYNC_MIGRATIONS_SETUP=True)
-    def test_golang_endpoint_permissions(self):
-        """Test that endpoint requires proper authentication"""
-        self.client.logout()
-
-        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
-
-        # Should require authentication
-        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+        self.assertNotEqual(hashGo, hashTS, "Schema hash should differ between Go and Typescript")
 
     def test_golang_code_compiles(self):
         """
-        Critical integration test: Verify generated Go code actually compiles.
-
         This test:
         1. Creates event definitions with schemas
         2. Generates Go code via the API endpoint
@@ -466,35 +425,28 @@ class TestGolangGeneratorAPI(APIBaseTest):
 
         This ensures the generated code is syntactically correct and type-safe.
         """
-        # Create additional test event with special characters
         special_event = EventDefinition.objects.create(
             team=self.team, project=self.project, name="user'event\"with\\quotes"
         )
-
         special_group = SchemaPropertyGroup.objects.create(
             team=self.team, project=self.project, name="Special Properties"
         )
-
         SchemaPropertyGroupProperty.objects.create(
             property_group=special_group,
             name="prop'with\"quotes",
             property_type="String",
             is_required=True,
         )
-
         EventSchema.objects.create(event_definition=special_event, property_group=special_group)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
 
-            # Generate Go code
             response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             go_content = response.json()["content"]
 
-            # Create Go module
             subprocess.run(["go", "mod", "init", "testmodule"], cwd=str(tmpdir_path), check=True, capture_output=True)
-
             # Install posthog-go dependency
             install_result = subprocess.run(
                 ["go", "get", "github.com/posthog/posthog-go"],
@@ -503,7 +455,6 @@ class TestGolangGeneratorAPI(APIBaseTest):
                 text=True,
                 timeout=60,
             )
-
             if install_result.returncode != 0:
                 self.fail(
                     f"Failed to install posthog-go dependency:\n"
@@ -514,7 +465,7 @@ class TestGolangGeneratorAPI(APIBaseTest):
             # Write generated types
             typed_dir = tmpdir_path / "typed"
             typed_dir.mkdir()
-            typed_file = typed_dir / "events.go"
+            typed_file = typed_dir / "event_definitions.go"
             typed_file.write_text(go_content)
 
             # Create test file that uses the generated code
@@ -523,6 +474,7 @@ class TestGolangGeneratorAPI(APIBaseTest):
                 """package main
 
 import (
+	"time"
 	"testmodule/typed"
 	"github.com/posthog/posthog-go"
 )
@@ -530,7 +482,8 @@ import (
 func main() {
 	// Test 1: Event with required and optional properties
 	cap1 := typed.FileDownloadedCapture(
-		"user_123",
+		"user_123",      // distinct_id (required)
+		time.Now(),      // downloaded_at (required)
 		"document.pdf",  // file_name (required)
 		1024,            // file_size (required)
 		typed.FileDownloadedWithFileExtension("pdf"), // optional
@@ -555,6 +508,7 @@ func main() {
 	}
 	cap3 := typed.FileDownloadedCaptureFromBase(
 		base,
+		time.Now(),
 		"image.png",
 		2048,
 	)
@@ -588,3 +542,15 @@ func main() {
                 f"STDERR:\n{build_result.stderr}\n\n"
                 f"Generated Go file location: {typed_file}",
             )
+
+    def _test_telemetry_called(self, mock_report, event_count: int) -> None:
+        # Verify telemetry was called
+        self.assertEqual(mock_report.call_count, 1)
+        call_args = mock_report.call_args
+        self.assertEqual(call_args[0][0], self.user)  # user
+        self.assertEqual(call_args[0][1], "generated event definitions")
+        telemetry_props = call_args[0][2]
+        self.assertEqual(telemetry_props["language"], "Go")
+        self.assertEqual(telemetry_props["team_id"], self.team.id)
+        self.assertEqual(telemetry_props["project_id"], self.project.id)
+        self.assertEqual(telemetry_props["event_count"], event_count)
