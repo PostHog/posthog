@@ -110,6 +110,7 @@ export function HogFunctionList({
                 width: 0,
                 render: (_, hogFunction) => {
                     if (hogFunction.id.startsWith('batch-export-')) {
+                        // TODO: Make this less hacky, maybe with some extended type for managing these values
                         const batchExportId = hogFunction.id.replace('batch-export-', '')
                         return (
                             <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
@@ -168,6 +169,7 @@ export function HogFunctionList({
                                     items={
                                         isManualFunction(hogFunction)
                                             ? [
+                                                  // TRICKY: Hack for now to just link out to the full view
                                                   {
                                                       label: 'View & configure',
                                                       to: urlForHogFunction(hogFunction),
@@ -180,7 +182,7 @@ export function HogFunctionList({
                                                   },
                                                   {
                                                       label: 'Delete',
-                                                      status: 'danger' as const,
+                                                      status: 'danger' as const, // for typechecker happiness
                                                       onClick: () => deleteHogFunction(hogFunction),
                                                   },
                                               ]
@@ -194,6 +196,7 @@ export function HogFunctionList({
         ]
 
         if (props.type === 'transformation') {
+            // insert it in the second column
             columns.splice(1, 0, {
                 title: 'Prio',
                 key: 'execution_order',
