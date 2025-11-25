@@ -12,9 +12,9 @@ class TestCampaignFieldPreferencesValidation(BaseTest):
     def test_valid_campaign_field_preferences_structure(self):
         """Test that valid campaign_field_preferences structure is accepted"""
         valid_preferences = {
-            "GoogleAds": {"match_field": "campaign_name", "fallback_field": None},
-            "MetaAds": {"match_field": "campaign_id", "fallback_field": "campaign_name"},
-            "LinkedinAds": {"match_field": "campaign_id", "fallback_field": None},
+            "GoogleAds": {"match_field": "campaign_name"},
+            "MetaAds": {"match_field": "campaign_id"},
+            "LinkedinAds": {"match_field": "campaign_id"},
         }
 
         # Should not raise ValidationError
@@ -34,7 +34,7 @@ class TestCampaignFieldPreferencesValidation(BaseTest):
 
     def test_invalid_match_field_value(self):
         """Test that invalid match_field value is rejected"""
-        invalid_preferences = {"GoogleAds": {"match_field": "invalid_value", "fallback_field": None}}
+        invalid_preferences = {"GoogleAds": {"match_field": "invalid_value"}}
 
         with pytest.raises(ValidationError) as exc_info:
             self.team.marketing_analytics_config.campaign_field_preferences = invalid_preferences
@@ -44,7 +44,7 @@ class TestCampaignFieldPreferencesValidation(BaseTest):
 
     def test_manual_only_is_no_longer_valid(self):
         """Test that manual_only is no longer a valid match_field (manual mappings always override)"""
-        invalid_preferences = {"GoogleAds": {"match_field": "manual_only", "fallback_field": None}}
+        invalid_preferences = {"GoogleAds": {"match_field": "manual_only"}}
 
         with pytest.raises(ValidationError) as exc_info:
             self.team.marketing_analytics_config.campaign_field_preferences = invalid_preferences
@@ -52,28 +52,9 @@ class TestCampaignFieldPreferencesValidation(BaseTest):
         assert "Invalid match_field" in str(exc_info.value)
         assert "manual_only" in str(exc_info.value)
 
-    def test_invalid_fallback_field_value(self):
-        """Test that invalid fallback_field value is rejected"""
-        invalid_preferences = {"GoogleAds": {"match_field": "campaign_name", "fallback_field": "invalid_value"}}
-
-        with pytest.raises(ValidationError) as exc_info:
-            self.team.marketing_analytics_config.campaign_field_preferences = invalid_preferences
-
-        assert "Invalid fallback_field" in str(exc_info.value)
-        assert "Must be one of" in str(exc_info.value)
-
-    def test_fallback_cannot_equal_match_field(self):
-        """Test that fallback_field cannot be the same as match_field"""
-        invalid_preferences = {"GoogleAds": {"match_field": "campaign_name", "fallback_field": "campaign_name"}}
-
-        with pytest.raises(ValidationError) as exc_info:
-            self.team.marketing_analytics_config.campaign_field_preferences = invalid_preferences
-
-        assert "fallback_field cannot be the same as match_field" in str(exc_info.value)
-
     def test_missing_match_field(self):
         """Test that match_field is required"""
-        invalid_preferences = {"GoogleAds": {"fallback_field": None}}
+        invalid_preferences = {"GoogleAds": {}}
 
         with pytest.raises(ValidationError) as exc_info:
             self.team.marketing_analytics_config.campaign_field_preferences = invalid_preferences
@@ -101,7 +82,7 @@ class TestCampaignFieldPreferencesValidation(BaseTest):
         """Test that integration type keys must be strings"""
         # This should already be enforced by Python dict keys, but let's ensure non-string keys are handled
         # In practice, JSON doesn't support non-string keys, so this is mostly for completeness
-        valid_preferences = {"GoogleAds": {"match_field": "campaign_name", "fallback_field": None}}
+        valid_preferences = {"GoogleAds": {"match_field": "campaign_name"}}
 
         self.team.marketing_analytics_config.campaign_field_preferences = valid_preferences
         self.team.marketing_analytics_config.save()
@@ -110,11 +91,11 @@ class TestCampaignFieldPreferencesValidation(BaseTest):
     def test_multiple_integrations_with_different_preferences(self):
         """Test that different integrations can have different preferences"""
         preferences = {
-            "GoogleAds": {"match_field": "campaign_id", "fallback_field": None},
-            "MetaAds": {"match_field": "campaign_name", "fallback_field": "campaign_id"},
-            "LinkedinAds": {"match_field": "campaign_id", "fallback_field": "campaign_name"},
-            "TikTokAds": {"match_field": "campaign_id", "fallback_field": "campaign_name"},
-            "RedditAds": {"match_field": "campaign_name", "fallback_field": None},
+            "GoogleAds": {"match_field": "campaign_id"},
+            "MetaAds": {"match_field": "campaign_name"},
+            "LinkedinAds": {"match_field": "campaign_id"},
+            "TikTokAds": {"match_field": "campaign_id"},
+            "RedditAds": {"match_field": "campaign_name"},
         }
 
         self.team.marketing_analytics_config.campaign_field_preferences = preferences
@@ -135,21 +116,23 @@ class TestCampaignFieldPreferencesValidation(BaseTest):
     def test_valid_all_match_field_options(self):
         """Test that all valid match_field options work"""
         for match_field in ["campaign_name", "campaign_id"]:
-            preferences = {"GoogleAds": {"match_field": match_field, "fallback_field": None}}
+            preferences = {"GoogleAds": {"match_field": match_field}}
             self.team.marketing_analytics_config.campaign_field_preferences = preferences
             self.team.marketing_analytics_config.save()
             # Should not raise
 
-    def test_valid_fallback_field_options(self):
-        """Test that all valid fallback_field options work"""
-        for fallback_field in ["campaign_name", "campaign_id", None]:
-            # Skip if fallback equals match_field
-            if fallback_field == "campaign_name":
-                match_field = "campaign_id"
-            else:
-                match_field = "campaign_name"
+    def test_fallback_when_integration_not_configured(self):
+        """Test that when an integration is not in preferences, it falls back to campaign_name (tested in adapter)"""
+        # Set preferences for some integrations but not GoogleAds
+        preferences = {
+            "MetaAds": {"match_field": "campaign_id"},
+            "LinkedinAds": {"match_field": "campaign_id"},
+        }
+        self.team.marketing_analytics_config.campaign_field_preferences = preferences
+        self.team.marketing_analytics_config.save()
+        self.team.marketing_analytics_config.refresh_from_db()
 
-            preferences = {"GoogleAds": {"match_field": match_field, "fallback_field": fallback_field}}
-            self.team.marketing_analytics_config.campaign_field_preferences = preferences
-            self.team.marketing_analytics_config.save()
-            # Should not raise
+        # Preferences saved correctly
+        assert self.team.marketing_analytics_config.campaign_field_preferences == preferences
+        # GoogleAds not in preferences - will use default "campaign_name" in adapter layer
+        assert "GoogleAds" not in self.team.marketing_analytics_config.campaign_field_preferences
