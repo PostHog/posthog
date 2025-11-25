@@ -62,6 +62,7 @@ def main():
     logger.info(
         "  POSTHOG_TEST_BASE_URL: %s", os.environ.get("POSTHOG_TEST_BASE_URL", "http://localhost:8010 (default)")
     )
+    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
     logger.info("  POSTHOG_PERSONAL_API_KEY: %s", "SET" if os.environ.get("POSTHOG_PERSONAL_API_KEY") else "NOT SET")
 
     exit_code = 1
