@@ -357,9 +357,6 @@ describe('processEvent', () => {
         expect(event.properties['$ip']).toBe('1.0.0.1')
     })
 
-    // NOTE: IP anonymization is now handled in the preprocessing pipeline (filter-ip-properties step)
-    // This test has been moved to ingestion-consumer.test.ts where the full pipeline is tested
-
     test('merge_dangerously', async () => {
         await createPerson(hub, team, ['old_distinct_id'])
 
