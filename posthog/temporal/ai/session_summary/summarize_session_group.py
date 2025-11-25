@@ -292,7 +292,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             raise ApplicationError(
                 f"Failed to fetch batch data from DB, when summarizing {len(inputs.session_ids)} "
                 f"sessions ({inputs.session_ids}) for user {inputs.user_id} in team {inputs.team_id}"
-            )
+            ) from fetch_result
         # Create SingleSessionSummaryInputs for each session
         session_inputs: list[SingleSessionSummaryInputs] = []
         for session_id in fetch_result:

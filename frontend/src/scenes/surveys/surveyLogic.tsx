@@ -29,8 +29,14 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    CompareFilter,
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
@@ -1291,7 +1297,6 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         dateRange: [
             null as SurveyDateRange | null,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },

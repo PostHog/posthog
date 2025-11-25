@@ -32,6 +32,11 @@ class TestMaxTool(BaseTest):
         result = tool.format_context_prompt_injection({})
         assert result == "Test"
 
+    def test_format_context_prompt_injection_missing_key_defaults_to_none(self):
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template="Value: {expected_key}")
+        result = tool.format_context_prompt_injection({})
+        assert result == "Value: None"
+
 
 class TestMaxToolNodePath(BaseTest):
     def test_node_path_uses_context_when_not_passed(self):
