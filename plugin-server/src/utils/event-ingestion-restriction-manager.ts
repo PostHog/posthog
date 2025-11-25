@@ -98,14 +98,11 @@ export class EventIngestionRestrictionManager {
                         const parsedArray = parseJSON(redisResult[1] as string)
                         if (Array.isArray(parsedArray)) {
                             // Convert array items to strings
-                            // Old format: ["token1", "token2:distinct_id"]
                             // New format: [{"token": "token1", "pipelines": ["analytics", "session_recordings"]}, ...]
+                            // Old format entries (plain strings) are ignored
                             const items = parsedArray.flatMap((item) => {
                                 if (typeof item === 'string') {
-                                    // Old format - assume applies to analytics only for backwards compatibility
-                                    if (this.pipeline === 'analytics') {
-                                        return [item]
-                                    }
+                                    // Old format - ignore these entries
                                     return []
                                 } else if (typeof item === 'object' && item !== null && 'token' in item) {
                                     // New format - check if this pipeline is in the pipelines array
@@ -115,7 +112,9 @@ export class EventIngestionRestrictionManager {
 
                                     if (appliesToPipeline) {
                                         if ('distinct_id' in item && item.distinct_id) {
-                                            return [`${item.token}:${item.distinct_id}`]
+                                            return [`${item.token}:distinct_id:${item.distinct_id}`]
+                                        } else if ('session_id' in item && item.session_id) {
+                                            return [`${item.token}:session_id:${item.session_id}`]
                                         } else {
                                             return [item.token]
                                         }
@@ -151,15 +150,19 @@ export class EventIngestionRestrictionManager {
         }
     }
 
-    shouldDropEvent(token?: string, distinctId?: string): boolean {
+    shouldDropEvent(token?: string, distinctId?: string, sessionId?: string): boolean {
         if (!token) {
             return false
         }
 
-        const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
+        const tokenDistinctIdKey = distinctId ? `${token}:distinct_id:${distinctId}` : undefined
+        const tokenSessionIdKey = sessionId ? `${token}:session_id:${sessionId}` : undefined
+
+        // Check static config
         if (
             this.staticDropEventList.has(token) ||
-            (tokenDistinctIdKey && this.staticDropEventList.has(tokenDistinctIdKey))
+            (tokenDistinctIdKey && this.staticDropEventList.has(tokenDistinctIdKey)) ||
+            (tokenSessionIdKey && this.staticDropEventList.has(tokenSessionIdKey))
         ) {
             return true
         }
@@ -177,18 +180,27 @@ export class EventIngestionRestrictionManager {
         if (!dropSet) {
             return false
         }
-        return dropSet.has(token) || (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey))
+
+        return (
+            dropSet.has(token) ||
+            (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey)) ||
+            (!!tokenSessionIdKey && dropSet.has(tokenSessionIdKey))
+        )
     }
 
-    shouldSkipPerson(token?: string, distinctId?: string): boolean {
+    shouldSkipPerson(token?: string, distinctId?: string, sessionId?: string): boolean {
         if (!token) {
             return false
         }
 
-        const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
+        const tokenDistinctIdKey = distinctId ? `${token}:distinct_id:${distinctId}` : undefined
+        const tokenSessionIdKey = sessionId ? `${token}:session_id:${sessionId}` : undefined
+
+        // Check static config
         if (
             this.staticSkipPersonList.has(token) ||
-            (tokenDistinctIdKey && this.staticSkipPersonList.has(tokenDistinctIdKey))
+            (tokenDistinctIdKey && this.staticSkipPersonList.has(tokenDistinctIdKey)) ||
+            (tokenSessionIdKey && this.staticSkipPersonList.has(tokenSessionIdKey))
         ) {
             return true
         }
@@ -206,18 +218,27 @@ export class EventIngestionRestrictionManager {
         if (!dropSet) {
             return false
         }
-        return dropSet.has(token) || (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey))
+
+        return (
+            dropSet.has(token) ||
+            (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey)) ||
+            (!!tokenSessionIdKey && dropSet.has(tokenSessionIdKey))
+        )
     }
 
-    shouldForceOverflow(token?: string, distinctId?: string): boolean {
+    shouldForceOverflow(token?: string, distinctId?: string, sessionId?: string): boolean {
         if (!token) {
             return false
         }
 
-        const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
+        const tokenDistinctIdKey = distinctId ? `${token}:distinct_id:${distinctId}` : undefined
+        const tokenSessionIdKey = sessionId ? `${token}:session_id:${sessionId}` : undefined
+
+        // Check static config
         if (
             this.staticForceOverflowList.has(token) ||
-            (tokenDistinctIdKey && this.staticForceOverflowList.has(tokenDistinctIdKey))
+            (tokenDistinctIdKey && this.staticForceOverflowList.has(tokenDistinctIdKey)) ||
+            (tokenSessionIdKey && this.staticForceOverflowList.has(tokenSessionIdKey))
         ) {
             return true
         }
@@ -235,6 +256,11 @@ export class EventIngestionRestrictionManager {
         if (!dropSet) {
             return false
         }
-        return dropSet.has(token) || (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey))
+
+        return (
+            dropSet.has(token) ||
+            (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey)) ||
+            (!!tokenSessionIdKey && dropSet.has(tokenSessionIdKey))
+        )
     }
 }
