@@ -158,10 +158,7 @@ services:
             file: docker-compose.base.yml
             service: proxy
         ports:
-            # expose these ports on all interfaces
-            # nosemgrep: trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces
             - '80:80'
-            # nosemgrep: trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces
             - '443:443'
         volumes:
             - caddy-data:/data
@@ -179,8 +176,8 @@ services:
         volumes:
             - objectstorage:/data
         ports:
-            - '127.0.0.1:19000:19000'
-            - '127.0.0.1:19001:19001'
+            - '19000:19000'
+            - '19001:19001'
 
     seaweedfs:
         extends:
@@ -208,7 +205,7 @@ services:
         environment:
             - ENABLE_ES=false
         ports:
-            - 127.0.0.1:7233:7233
+            - 7233:7233
         volumes:
             - ./posthog/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
     elasticsearch:
@@ -226,8 +223,6 @@ services:
             file: docker-compose.base.yml
             service: temporal-ui
         ports:
-            # expose this port on all interfaces
-            # nosemgrep: trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces
             - 8081:8080
         depends_on:
             temporal:
@@ -297,7 +292,7 @@ services:
         environment:
             - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
         ports:
-            - '127.0.0.1:8666:8080'
+            - '8666:8080'
         volumes:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
