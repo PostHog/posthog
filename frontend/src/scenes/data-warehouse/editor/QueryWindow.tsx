@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { Database, NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, WarehouseTarget } from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { OutputPane } from './OutputPane'
@@ -45,7 +45,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         currentDraft,
         changesToSave,
         inProgressViewEdits,
-        database,
+        warehouseTarget,
     } = useValues(multitabEditorLogic)
 
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
@@ -60,7 +60,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         saveAsView,
         saveDraft,
         updateView,
-        setDatabase,
+        setWarehouseTarget,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
@@ -256,13 +256,13 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 <div className="flex-1" />
                 <LemonSelect
                     size="xsmall"
-                    value={database}
-                    onChange={(value) => setDatabase(value as Database)}
+                    value={warehouseTarget}
+                    onChange={(value) => setWarehouseTarget(value as WarehouseTarget)}
                     options={[
                         { value: 'posthog', label: 'PostHog' },
                         { value: 'warehouse', label: 'Warehouse' },
                     ]}
-                    data-attr="sql-editor-database-select"
+                    data-attr="sql-editor-warehouse-target-select"
                 />
             </div>
             <QueryPane

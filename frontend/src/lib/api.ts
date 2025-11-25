@@ -21,7 +21,6 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
     DashboardFilter,
-    Database,
     DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
     EndpointLastExecutionTimesRequest,
@@ -51,6 +50,7 @@ import {
     RefreshType,
     SourceConfig,
     TileFilters,
+    WarehouseTarget,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -4434,7 +4434,7 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
-            database?: Database
+            warehouseTarget?: WarehouseTarget
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -4451,7 +4451,7 @@ const api = {
                 refresh: queryOptions?.refresh,
                 filters_override: queryOptions?.filtersOverride,
                 variables_override: queryOptions?.variablesOverride,
-                database: queryOptions?.database,
+                warehouse_target: queryOptions?.warehouseTarget,
             },
         })
     },
