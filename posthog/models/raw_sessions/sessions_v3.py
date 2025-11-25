@@ -712,3 +712,11 @@ GROUP BY value
 ORDER BY count(value) DESC
 LIMIT 20
 """
+
+GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS = f"""
+    SELECT count()
+    FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
+    WHERE database = '{settings.CLICKHOUSE_DATABASE}'
+      AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
+      AND active = 1
+"""

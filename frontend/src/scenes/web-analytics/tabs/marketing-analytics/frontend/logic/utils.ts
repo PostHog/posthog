@@ -15,7 +15,7 @@ import { NativeSource } from './marketingAnalyticsLogic'
 
 export type NativeMarketingSource = Extract<
     ExternalDataSourceType,
-    'GoogleAds' | 'RedditAds' | 'LinkedinAds' | 'MetaAds' | 'TikTokAds'
+    'GoogleAds' | 'RedditAds' | 'LinkedinAds' | 'MetaAds' | 'TikTokAds' | 'BingAds'
 >
 export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
 
@@ -25,6 +25,7 @@ export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = [
     'LinkedinAds',
     'MetaAds',
     'TikTokAds',
+    'BingAds',
 ]
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
@@ -52,12 +53,16 @@ export const META_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
 export const TIKTOK_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
 export const TIKTOK_ADS_CAMPAIGN_REPORT_TABLE_NAME = 'campaign_report'
 
+export const BING_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
+export const BING_ADS_CAMPAIGN_PERFORMANCE_REPORT_TABLE_NAME = 'campaign_performance_report'
+
 export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = {
     GoogleAds: [GOOGLE_ADS_CAMPAIGN_TABLE_NAME, GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME],
     LinkedinAds: [LINKEDIN_ADS_CAMPAIGN_TABLE_NAME, LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME],
     RedditAds: [REDDIT_ADS_CAMPAIGN_TABLE_NAME, REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME],
     MetaAds: [META_ADS_CAMPAIGN_TABLE_NAME, META_ADS_CAMPAIGN_STATS_TABLE_NAME],
     TikTokAds: [TIKTOK_ADS_CAMPAIGN_TABLE_NAME, TIKTOK_ADS_CAMPAIGN_REPORT_TABLE_NAME],
+    BingAds: [BING_ADS_CAMPAIGN_TABLE_NAME, BING_ADS_CAMPAIGN_PERFORMANCE_REPORT_TABLE_NAME],
 }
 
 export const MAX_ATTRIBUTION_WINDOW_DAYS = 90
@@ -328,6 +333,36 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                     return {
                         math: 'hogql' as any,
                         math_hogql: 'SUM(toFloat(conversion))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            return null
+        },
+    },
+    BingAds: {
+        statsTableName: 'campaign_performance_report',
+        displayName: 'bing',
+        idField: 'campaign_id',
+        timestampField: 'time_period',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'conversions',
+            currencyColumn: 'currency_code',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                // If Bing Ads does not return conversions it won't be in the table.fields.
+                const hasConversionsColumn = table.fields && 'conversions' in table.fields
+                if (hasConversionsColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(toFloat(conversions))',
                     }
                 }
                 return {
