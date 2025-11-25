@@ -38,9 +38,9 @@ COPY ee/frontend/ ee/frontend/
 COPY .git/config .git/config
 COPY .git/HEAD .git/HEAD
 COPY .git/refs/heads .git/refs/heads
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && pnpm --version && \
-    CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23
+    CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
@@ -106,10 +106,10 @@ ENV BUILD_LIBRDKAFKA=0
 
 # Compile and install Node.js dependencies.
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
-    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
 # Build the plugin server.
@@ -121,18 +121,11 @@ COPY ./plugin-server/tests/ ./plugin-server/tests/
 COPY ./plugin-server/assets/ ./plugin-server/assets/
 COPY ./plugin-server/bin/ ./plugin-server/bin/
 
-# Build cyclotron first with increased memory
+# Build cyclotron first
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
-# Then build the plugin server with increased memory
+# Then build the plugin server
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server build
-
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
-    corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store-v23 --prod && \
-    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
 
 #
 # ---------------------------------------------------------

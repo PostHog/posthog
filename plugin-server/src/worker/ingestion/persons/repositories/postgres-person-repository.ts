@@ -581,7 +581,7 @@ export class PostgresPersonRepository
                 .map((_, index) => {
                     const teamIdParam = index * 2 + 1
                     const distinctIdParam = index * 2 + 2
-                    return `(posthog_persondistinctid.team_id = $${teamIdParam} AND posthog_persondistinctid.distinct_id = $${distinctIdParam})`
+                    return `(posthog_persondistinctid.team_id = $${teamIdParam} AND posthog_persondistinctid.distinct_id = $${distinctIdParam} AND posthog_person.team_id = $${teamIdParam})`
                 })
                 .join(' OR ')
 
@@ -653,7 +653,7 @@ export class PostgresPersonRepository
 
             // When cutover is enabled and no forcedId, we need to explicitly call nextval() for id
             // because partitioned tables don't automatically apply DEFAULT values when the column is omitted
-            const useDefaultId = this.options.tableCutoverEnabled && !forcedId
+            const useDefaultId = !forcedId
 
             let columns: string[]
             let valuePlaceholders: string
