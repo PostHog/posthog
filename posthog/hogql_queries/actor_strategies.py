@@ -1,19 +1,33 @@
-from typing import Literal, Optional, cast
+from typing import Any, Literal, Optional, cast
 
-from django.db import connection, connections
-
-import orjson as json
+import structlog
 
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Group, Team
-from posthog.models.person import Person, PersonDistinctId
+
+logger = structlog.get_logger(__name__)
+
+
+def _parse_properties(properties: Any) -> dict:
+    """Parse properties from ClickHouse which may be a string or dict."""
+    if isinstance(properties, dict):
+        return properties
+    if isinstance(properties, str):
+        import json
+
+        try:
+            return json.loads(properties)
+        except json.JSONDecodeError:
+            return {}
+    return {}
 
 
 class ActorStrategy:
@@ -47,54 +61,56 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
-    # This is hand written instead of using the ORM because the ORM was blowing up the memory on exports and taking forever
     def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
-        # If actor queries start quietly dying again, this might need batching at some point
-        # but currently works with 800,000 persondistinctid entries (May 24, 2024)
-        person_table = Person._meta.db_table
-        pdi_table = PersonDistinctId._meta.db_table
-        persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
-            FROM {person_table}
-            WHERE {person_table}.uuid = ANY(%(uuids)s)
-            AND {person_table}.team_id = %(team_id)s"""
-        if order_by:
-            persons_query += f" ORDER BY {order_by}"
+        actor_ids_list = list(actor_ids)
 
-        conn = connections["persons_db_reader"] if "persons_db_reader" in connections else connection
+        if not actor_ids_list:
+            return {}
 
-        with conn.cursor() as cursor:
-            cursor.execute(
-                persons_query,
-                {"uuids": list(actor_ids), "team_id": self.team.pk},
-            )
-            people = cursor.fetchall()
-            cursor.execute(
-                f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
-            FROM {pdi_table}
-            WHERE {pdi_table}.person_id = ANY(%(people_ids)s)
-            AND {pdi_table}.team_id = %(team_id)s""",
-                {"people_ids": [x[0] for x in people], "team_id": self.team.pk},
-            )
-            distinct_ids = cursor.fetchall()
+        logger.info(
+            "get_actors_started",
+            team_id=self.team.pk,
+            actor_ids_count=len(actor_ids_list),
+        )
 
-        person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in people}
+        query = parse_select(
+            """
+            SELECT
+                persons.id AS id,
+                persons.properties AS properties,
+                persons.is_identified AS is_identified,
+                persons.created_at AS created_at,
+                groupArray(pdi.distinct_id) AS distinct_ids
+            FROM persons
+            LEFT JOIN person_distinct_ids AS pdi ON persons.id = pdi.person_id
+            WHERE persons.id IN {actor_ids}
+            GROUP BY persons.id, persons.properties, persons.is_identified, persons.created_at
+            """,
+            placeholders={"actor_ids": ast.Constant(value=actor_ids_list)},
+        )
 
-        for pdid in distinct_ids:
-            person_id_to_raw_person_and_set[pdid[0]][1].append(pdid[1])
-        del distinct_ids
+        response = execute_hogql_query(
+            query_type="ActorsQuery",
+            query=query,
+            team=self.team,
+        )
 
-        person_uuid_to_person = {
-            str(person[1]): {
-                "id": person[1],
-                "properties": json.loads(person[2]),
-                "is_identified": person[3],
-                "created_at": person[4],
-                "distinct_ids": distinct_ids,
+        logger.info(
+            "get_actors_fetched",
+            team_id=self.team.pk,
+            actors_count=len(response.results) if response.results else 0,
+        )
+
+        return {
+            str(row[0]): {
+                "id": row[0],
+                "properties": _parse_properties(row[1]),
+                "is_identified": bool(row[2]),
+                "created_at": row[3],
+                "distinct_ids": row[4],
             }
-            for person, distinct_ids in person_id_to_raw_person_and_set.values()
+            for row in response.results or []
         }
-
-        return person_uuid_to_person
 
     def input_columns(self) -> list[str]:
         if isinstance(self.query.source, InsightActorsQuery) and isinstance(self.query.source.source, TrendsQuery):

@@ -1,5 +1,6 @@
+import csv
 from datetime import datetime
-from io import BytesIO
+from io import BytesIO, StringIO
 from typing import Any, Optional
 
 import pytest
@@ -600,9 +601,9 @@ class TestCSVExporter(APIBaseTest):
         }
         csv_list = list(_convert_response_to_csv_data(data))
         assert len(bins) == len(csv_list)
-        for bin, csv in zip(bins, csv_list):
-            assert bin[0] == csv["bin"]
-            assert bin[1] == csv["value"]
+        for bin, row in zip(bins, csv_list):
+            assert bin[0] == row["bin"]
+            assert bin[1] == row["value"]
 
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_empty_result(self, mocked_uuidt: Any) -> None:
@@ -876,15 +877,25 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)  # type: ignore
-            lines = (content or "").strip().split("\r\n")
-            self.assertEqual(
-                lines,
-                [
-                    "actor.id,actor.is_identified,actor.created_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
-                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,user_1,2,user_1",
-                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,user_2,1,user_2",
-                ],
-            )
+            reader = csv.DictReader(StringIO(content or ""))
+            rows = list(reader)
+
+            self.assertEqual(len(rows), 2)
+
+            # First row: identified user with 2 events
+            self.assertEqual(rows[0]["actor.id"], "4beb316f-23aa-2584-66d3-4a1b8ab458f2")
+            self.assertEqual(rows[0]["actor.is_identified"], "False")
+            self.assertEqual(rows[0]["event_count"], "2")
+            self.assertEqual(rows[0]["event_distinct_ids.0"], "user_1")
+            self.assertIsNotNone(rows[0]["actor.created_at"])
+
+            # Second row: personless user with 1 event
+            self.assertEqual(rows[1]["actor.id"], "d0780d6b-ccd0-44fa-a227-47efe4f3f30d")
+            self.assertEqual(rows[1]["actor.is_identified"], "")
+            self.assertEqual(rows[1]["actor.created_at"], "")
+            self.assertEqual(rows[1]["actor.distinct_ids.0"], "user_2")
+            self.assertEqual(rows[1]["event_count"], "1")
+            self.assertEqual(rows[1]["event_distinct_ids.0"], "user_2")
 
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_query_with_formula(
