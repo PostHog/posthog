@@ -237,6 +237,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
         assert result.is_valid()
         # Check segments
@@ -295,6 +296,7 @@ class TestEnrichRawSessionSummary:
                 session_id=mock_session_id,
                 session_start_time_str=mock_session_metadata.start_time.isoformat(),
                 session_duration=mock_session_metadata.duration,
+                final_validation=True,
             )
 
     def test_calculate_segment_meta_missing_event(
@@ -322,6 +324,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
         assert result.is_valid()
         # Verify the result has segments and the missing event was handled
@@ -368,6 +371,7 @@ class TestEnrichRawSessionSummary:
                 session_id=mock_session_id,
                 session_start_time_str=mock_session_metadata.start_time.isoformat(),
                 session_duration=mock_session_metadata.duration,
+                final_validation=True,
             )
 
     def test_enrich_raw_session_summary_missing_url(
@@ -395,6 +399,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
 
     def test_enrich_raw_session_summary_missing_window_id(
@@ -422,6 +427,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
 
     def test_enrich_raw_session_summary_chronological_sorting(
@@ -450,6 +456,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
         assert result.is_valid()
         # Check that events are sorted chronologically
@@ -482,6 +489,7 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
+            final_validation=True,
         )
         assert result.is_valid()
 
@@ -537,6 +545,12 @@ def _get_valid_summary_data() -> dict[str, Any]:
 class TestSessionSummarySerializerValidation:
     def test_valid_summary_passes_validation(self) -> None:
         serializer = SessionSummarySerializer(data=_get_valid_summary_data())
+        assert serializer.is_valid()
+
+    def test_validation_skipped_with_streaming_validation_context(self) -> None:
+        data = _get_valid_summary_data()
+        data["session_outcome"] = None
+        serializer = SessionSummarySerializer(data=data, context={"streaming_validation": True})
         assert serializer.is_valid()
 
     @pytest.mark.parametrize(

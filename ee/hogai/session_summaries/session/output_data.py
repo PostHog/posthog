@@ -184,8 +184,10 @@ class SessionSummarySerializer(IntermediateSessionSummarySerializer):
         """
         Validate that all LLM-generated fields are present and properly filled.
         Fields are optional during streaming but must be complete in final output.
-        Should be replaced with Pydantic conditional validation in the future.
         """
+        if self.context.get("streaming_validation"):
+            # Disable strict validation for streaming, as the context could be incomplete
+            return attrs
         errors: dict[str, list[str]] = {}
         # Validate top-level fields
         segments = attrs.get("segments")
@@ -353,9 +355,12 @@ def calculate_time_since_start(session_timestamp: str, session_start_time: datet
     return max(0, int((timestamp_datetime - session_start_time).total_seconds() * 1000))
 
 
-def _validate_enriched_summary(data: dict[str, Any], session_id: str) -> SessionSummarySerializer:
-    session_summary = SessionSummarySerializer(data=data)
-    # Validating even when processing incomplete chunks as the `.data` can't be used without validation check
+def _validate_enriched_summary(
+    data: dict[str, Any], session_id: str, final_validation: bool
+) -> SessionSummarySerializer:
+    # Avoid strict validation, if it's not the final step, as the context could be incomplete because of the streaming
+    session_summary = SessionSummarySerializer(data=data, context={"streaming_validation": not final_validation})
+    # Validate even when processing incomplete chunks as the `.data` can't be used without validation check
     if not session_summary.is_valid():
         # Most of the fields are optional, so failed validation should be reported
         raise SummaryValidationError(
@@ -602,6 +607,7 @@ def enrich_raw_session_summary_with_meta(
     session_id: str,
     session_start_time_str: str,
     session_duration: int,
+    final_validation: bool,
 ) -> SessionSummarySerializer:
     timestamp_index = get_column_index(simplified_events_columns, "timestamp")
     window_id_index = get_column_index(simplified_events_columns, "$window_id")
@@ -617,7 +623,9 @@ def enrich_raw_session_summary_with_meta(
     enriched_segments = []
     if not raw_segments:
         # If segments aren't generated yet - return the current state
-        session_summary = _validate_enriched_summary(raw_session_summary.data, session_id)
+        session_summary = _validate_enriched_summary(
+            data=raw_session_summary.data, session_id=session_id, final_validation=final_validation
+        )
         return session_summary
     for raw_segment in raw_segments:
         enriched_segment = dict(raw_segment)
@@ -644,7 +652,9 @@ def enrich_raw_session_summary_with_meta(
     enriched_key_actions = []
     if not raw_key_actions:
         # If key actions aren't generated yet - return the current state
-        session_summary = _validate_enriched_summary(summary_to_enrich, session_id)
+        session_summary = _validate_enriched_summary(
+            data=summary_to_enrich, session_id=session_id, final_validation=final_validation
+        )
         return session_summary
     # Iterate over key actions groups per segment
     for key_action_group in raw_key_actions:
@@ -700,5 +710,7 @@ def enrich_raw_session_summary_with_meta(
         enriched_key_actions.append({"segment_index": segment_index, "events": enriched_events})
     # Validate the enriched content against the schema
     summary_to_enrich["key_actions"] = enriched_key_actions
-    session_summary = _validate_enriched_summary(summary_to_enrich, session_id)
+    session_summary = _validate_enriched_summary(
+        data=summary_to_enrich, session_id=session_id, final_validation=final_validation
+    )
     return session_summary
