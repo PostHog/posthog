@@ -101,22 +101,19 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
             "pipelines": config.pipelines or [],
         }
 
-        has_distinct_ids = config.distinct_ids and len(config.distinct_ids) > 0
-        has_session_ids = config.session_ids and len(config.session_ids) > 0
-
-        if not has_distinct_ids and not has_session_ids:
+        if not config.distinct_ids and not config.session_ids:
             # No specific IDs - applies to all events for this token
             data.append(entry_base)
         else:
             # Add entries for each distinct_id
-            if has_distinct_ids:
+            if config.distinct_ids:
                 for distinct_id in config.distinct_ids:
                     entry = entry_base.copy()
                     entry["distinct_id"] = distinct_id
                     data.append(entry)
 
             # Add entries for each session_id
-            if has_session_ids:
+            if config.session_ids:
                 for session_id in config.session_ids:
                     entry = entry_base.copy()
                     entry["session_id"] = session_id
