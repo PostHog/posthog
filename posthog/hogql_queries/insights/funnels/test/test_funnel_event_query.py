@@ -158,3 +158,14 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(select_2, expected_2)
 
         select_3 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[1].select_query)
+        expected_3 = dedent("""
+            SELECT e.ts AS timestamp,
+                toUUID(e.some_user_id) AS aggregation_target,
+                0 AS step_0,
+                if(and(0, equals(some_prop, 'some_value')), 1, 0) AS step_1,
+                if(and(1, equals(another_prop, 'another_value')), 1, 0) AS step_2,
+                if(and(0, equals(other_prop, 'other_value')), 1, 0) AS step_3
+            FROM table_two AS e
+            WHERE and(and(greaterOrEquals(e.ts, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.ts, toDateTime('2025-11-12 23:59:59.999999'))), equals(step_2, 1))
+        """).strip()
+        self.assertEqual(select_3, expected_3)
