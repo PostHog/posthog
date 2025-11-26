@@ -73,16 +73,9 @@ class FunnelEventQuery:
         def _build_events_table_query(steps: list[tuple[int, EventsNode | ActionsNode]]) -> ast.SelectQuery:
             all_step_cols, all_exclusions = self._get_funnel_cols()
 
-            # TODO: move into _get_funnel_cols?
-            _extra_fields: list[ast.Expr] = [
-                ast.Alias(alias=field, expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, field]))
-                for field in self.extra_fields
-            ]
-
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
                 ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
-                *_extra_fields,
                 *all_step_cols,
             ]
 
@@ -190,11 +183,14 @@ class FunnelEventQuery:
 
         all_step_cols: list[ast.Expr] = []
         all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
+
+        # step cols
         for index, entity in enumerate(series):
             step_cols = self._get_step_col(entity, index)
             all_step_cols.extend(step_cols)
             all_exclusions.append([])
 
+        # exclusion cols
         if funnelsFilter.exclusions:
             for excluded_entity in funnelsFilter.exclusions:
                 for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
@@ -204,10 +200,11 @@ class FunnelEventQuery:
                 exclusion_col_expr = self._get_exclusions_col(exclusions, index)
                 all_step_cols.append(exclusion_col_expr)
 
-        breakdown_select_prop = self._get_breakdown_select_prop()
+        # breakdown (attribution) col
+        all_step_cols.extend(self._get_breakdown_select_prop())
 
-        if breakdown_select_prop:
-            all_step_cols.extend(breakdown_select_prop)
+        # extra fields
+        all_step_cols.extend(self._get_extra_fields())
 
         return all_step_cols, all_exclusions
 
@@ -380,6 +377,12 @@ class FunnelEventQuery:
                 prop_basic,
                 ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
             ]
+
+    def _get_extra_fields(self) -> list[ast.Expr]:
+        extra_fields: list[ast.Expr] = [
+            ast.Alias(alias=field, expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])) for field in self.extra_fields
+        ]
+        return extra_fields
 
     def _aggregation_target_expr(self) -> ast.Expr:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
