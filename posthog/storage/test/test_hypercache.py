@@ -412,3 +412,99 @@ class TestHyperCacheCustomCacheClient(BaseTest):
         cache_key = hc.get_cache_key(team_id)
         default_value = cache.get(cache_key)
         assert default_value == json.dumps(self.sample_data)
+
+
+class TestHyperCacheOptimisticConcurrency(HyperCacheTestBase):
+    """Test optimistic concurrency control to prevent out-of-order writes."""
+
+    def test_older_data_does_not_overwrite_newer_data(self):
+        """Test that data with older updated_at does not overwrite data with newer updated_at"""
+
+        def load_fn(team):
+            return {"data": "test"}
+
+        hc = HyperCache(namespace="test_occ", value="value", load_fn=load_fn)
+        # Only clear Redis to avoid S3 connection issues in tests
+        hc.clear_cache(self.team_id, kinds=["redis"])
+
+        # Write newer data first (simulating Task #2 completing before Task #1)
+        newer_data = {"updated_at": "2025-01-01T12:00:00+00:00", "value": "newer"}
+        hc._set_cache_value_redis(self.team_id, newer_data)
+
+        # Try to write older data (simulating Task #1 completing after Task #2)
+        older_data = {"updated_at": "2025-01-01T11:00:00+00:00", "value": "older"}
+        hc._set_cache_value_redis(self.team_id, older_data)
+
+        # Cache should still have the newer data
+        cache_key = hc.get_cache_key(self.team_id)
+        cached = hc.cache_client.get(cache_key)
+        result = json.loads(cached)
+        assert result["value"] == "newer"
+        assert result["updated_at"] == "2025-01-01T12:00:00+00:00"
+
+    def test_newer_data_does_overwrite_older_data(self):
+        """Test that data with newer updated_at does overwrite data with older updated_at"""
+
+        def load_fn(team):
+            return {"data": "test"}
+
+        hc = HyperCache(namespace="test_occ", value="value", load_fn=load_fn)
+        hc.clear_cache(self.team_id, kinds=["redis"])
+
+        # Write older data first
+        older_data = {"updated_at": "2025-01-01T11:00:00+00:00", "value": "older"}
+        hc._set_cache_value_redis(self.team_id, older_data)
+
+        # Write newer data
+        newer_data = {"updated_at": "2025-01-01T12:00:00+00:00", "value": "newer"}
+        hc._set_cache_value_redis(self.team_id, newer_data)
+
+        # Cache should have the newer data
+        cache_key = hc.get_cache_key(self.team_id)
+        cached = hc.cache_client.get(cache_key)
+        result = json.loads(cached)
+        assert result["value"] == "newer"
+        assert result["updated_at"] == "2025-01-01T12:00:00+00:00"
+
+    def test_data_without_updated_at_is_always_written(self):
+        """Test that data without updated_at field is always written (no version check)"""
+
+        def load_fn(team):
+            return {"data": "test"}
+
+        hc = HyperCache(namespace="test_occ", value="value", load_fn=load_fn)
+        hc.clear_cache(self.team_id, kinds=["redis"])
+
+        # Write data with updated_at
+        data_with_timestamp = {"updated_at": "2025-01-01T12:00:00+00:00", "value": "timestamped"}
+        hc._set_cache_value_redis(self.team_id, data_with_timestamp)
+
+        # Write data without updated_at (should overwrite)
+        data_without_timestamp = {"value": "no_timestamp"}
+        hc._set_cache_value_redis(self.team_id, data_without_timestamp)
+
+        # Cache should have the data without timestamp
+        cache_key = hc.get_cache_key(self.team_id)
+        cached = hc.cache_client.get(cache_key)
+        result = json.loads(cached)
+        assert result["value"] == "no_timestamp"
+        assert "updated_at" not in result
+
+    def test_first_write_always_succeeds(self):
+        """Test that first write to empty cache always succeeds"""
+
+        def load_fn(team):
+            return {"data": "test"}
+
+        hc = HyperCache(namespace="test_occ", value="value", load_fn=load_fn)
+        hc.clear_cache(self.team_id, kinds=["redis"])
+
+        # Write data to empty cache
+        data = {"updated_at": "2025-01-01T12:00:00+00:00", "value": "first"}
+        hc._set_cache_value_redis(self.team_id, data)
+
+        # Cache should have the data
+        cache_key = hc.get_cache_key(self.team_id)
+        cached = hc.cache_client.get(cache_key)
+        result = json.loads(cached)
+        assert result["value"] == "first"

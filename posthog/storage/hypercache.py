@@ -205,12 +205,33 @@ class HyperCache:
     def _set_cache_value_redis(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
     ):
-        key = self.get_cache_key(key)
+        cache_key = self.get_cache_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
-            self.cache_client.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
+            self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
-            self.cache_client.set(key, json.dumps(data), timeout=timeout)
+
+            # Optimistic concurrency: only write if new data is newer than cached data
+            # This prevents out-of-order Celery task execution from overwriting newer data
+            if "updated_at" in data:
+                existing = self.cache_client.get(cache_key)
+                if existing and existing != _HYPER_CACHE_EMPTY_VALUE:
+                    try:
+                        existing_data = json.loads(existing)
+                        existing_updated_at = existing_data.get("updated_at")
+                        new_updated_at = data.get("updated_at")
+                        if existing_updated_at and new_updated_at and existing_updated_at > new_updated_at:
+                            logger.info(
+                                "Skipping cache write - existing data is newer",
+                                namespace=self.namespace,
+                                existing_updated_at=existing_updated_at,
+                                new_updated_at=new_updated_at,
+                            )
+                            return
+                    except (json.JSONDecodeError, TypeError):
+                        pass  # If we can't parse existing, just overwrite
+
+            self.cache_client.set(cache_key, json.dumps(data), timeout=timeout)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):
         """
