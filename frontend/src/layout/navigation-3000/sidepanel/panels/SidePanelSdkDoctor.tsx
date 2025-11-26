@@ -362,7 +362,7 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                         <Tooltip
                             title={
                                 <>
-                                    This is the latest available version
+                                    This was the latest available version
                                     {cachedAt ? ` as of ${dayjs().diff(dayjs(cachedAt), 'hour')} hours ago` : ''}
                                     .
                                     <br />
