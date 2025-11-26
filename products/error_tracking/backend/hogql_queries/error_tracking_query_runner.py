@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -604,6 +605,12 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         with self.timings.measure("issue_fetching_execute"):
             issues = self.error_tracking_issues(issue_ids)
 
+        # Batch check which session IDs have recordings
+        session_recordings_map = None
+        if self.query.withFirstEvent or self.query.withLastEvent:
+            with self.timings.measure("session_recordings_check"):
+                session_recordings_map = self.batch_check_session_recordings(mapped_results)
+
         with self.timings.measure("issue_resolution"):
             for result_dict in mapped_results:
                 issue = issues.get(str(result_dict["id"]))
@@ -617,12 +624,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                             "function": result_dict.get("function"),
                             "source": result_dict.get("source"),
                             "first_event": (
-                                self.extract_event(result_dict.get("first_event"))
+                                self.extract_event(result_dict.get("first_event"), session_recordings_map)
                                 if self.query.withFirstEvent
                                 else None
                             ),
                             "last_event": (
-                                self.extract_event(result_dict.get("last_event")) if self.query.withLastEvent else None
+                                self.extract_event(result_dict.get("last_event"), session_recordings_map)
+                                if self.query.withLastEvent
+                                else None
                             ),
                             "aggregations": (
                                 self.extract_aggregations(result_dict) if self.query.withAggregations else None
@@ -633,15 +642,22 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
         return results
 
-    def extract_event(self, event_tuple):
+    def extract_event(self, event_tuple, session_recordings_map=None):
         if event_tuple is None:
             return None
         else:
+            properties = event_tuple[3]
+            # Add has_recording field if session_id exists
+            if session_recordings_map is not None:
+                session_id = properties.get("$session_id")
+                if session_id:
+                    properties = {**properties, "has_recording": session_id in session_recordings_map}
+
             return {
                 "uuid": str(event_tuple[0]),
                 "distinct_id": str(event_tuple[1]),
                 "timestamp": str(event_tuple[2]),
-                "properties": event_tuple[3],
+                "properties": properties,
             }
 
     def get_volume_buckets(self) -> list[datetime.datetime]:
@@ -754,6 +770,58 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     @cached_property
     def revenue_entity(self):
         return self.query.revenueEntity or RevenueEntity.PERSON
+
+    def batch_check_session_recordings(self, mapped_results: list[dict]) -> set[str]:
+        """
+        Batch check which session IDs have recordings.
+        Returns a set of session IDs that have recordings.
+        """
+        # Extract all unique session IDs from events
+        session_ids = set()
+        for result in mapped_results:
+            for event_key in ["first_event", "last_event"]:
+                event_tuple = result.get(event_key)
+                if event_tuple and len(event_tuple) >= 4:
+                    properties = event_tuple[3]
+                    session_id = properties.get("$session_id")
+                    if session_id and session_id != "":
+                        session_ids.add(session_id)
+
+        # If no session IDs, return empty set
+        if not session_ids:
+            return set()
+
+        # Query to check which session IDs exist in raw_session_replay_events
+        session_check_query = ast.SelectQuery(
+            select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["session_id"]))],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["session_id"]),
+                        right=ast.Constant(value=list(session_ids)),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["team_id"]),
+                        right=ast.Constant(value=self.team.pk),
+                    ),
+                ]
+            ),
+            group_by=[ast.Field(chain=["session_id"])],
+        )
+
+        result = execute_hogql_query(
+            query=session_check_query,
+            team=self.team,
+            query_type="ErrorTrackingSessionRecordingsCheck",
+            timings=self.timings,
+            modifiers=self.modifiers,
+        )
+
+        # Return set of session IDs that exist
+        return {row[0] for row in result.results if row}
 
 
 def search_tokenizer(query: str) -> list[str]:

@@ -23,6 +23,7 @@ type ViewRecordingProps = {
     // whether to open in a modal or navigate to the replay page
     inModal?: boolean
     matchingEvents?: MatchedRecording[]
+    hasRecording?: boolean
 }
 
 export default function ViewRecordingButton({
@@ -98,7 +99,8 @@ export default function ViewRecordingButton({
 
 const recordingDisabledReason = (
     sessionId: string | undefined,
-    recordingStatus: string | undefined
+    recordingStatus: string | undefined,
+    hasRecording?: boolean
 ): JSX.Element | string | null => {
     if (!sessionId) {
         return (
@@ -108,6 +110,8 @@ const recordingDisabledReason = (
                 set it on all events.
             </>
         )
+    } else if (hasRecording === false) {
+        return 'No recording for this event'
     } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
         return (
             <>
@@ -145,6 +149,7 @@ export function useRecordingButton({
     timestamp,
     matchingEvents,
     inModal,
+    hasRecording,
 }: ViewRecordingProps): {
     onClick: () => void
     disabledReason: JSX.Element | string | null
@@ -166,7 +171,7 @@ export function useRecordingButton({
         }
     }
 
-    const disabledReason = recordingDisabledReason(sessionId, recordingStatus)
+    const disabledReason = recordingDisabledReason(sessionId, recordingStatus, hasRecording)
     const warningReason = recordingWarningReason(recordingDuration, minimumDuration, recordingStatus)
     const to = inModal ? undefined : urls.replaySingle(sessionId ?? '')
 
