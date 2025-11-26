@@ -781,6 +781,52 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             ),
         )
 
+    def get_person_condition(self, prop: Property) -> ast.SelectQuery:
+        """
+        Query precalculated_person_property using conditionHash for realtime person property matching.
+        Uses the precalculated_person_property table populated by CdpPersonPropertyEventsConsumer.
+
+        Uses argMax(matches, _timestamp) to get the latest evaluation result without relying on
+        ReplacingMergeTree compaction. Only returns persons where latest evaluation matches=1.
+        """
+        condition_hash = getattr(prop, "conditionHash", None)
+        if not condition_hash:
+            cohort_id = self.cohort.id if self.cohort else "unknown"
+            raise ValueError(
+                f"BUG: Realtime cohort (cohort_id={cohort_id}) has person property without conditionHash. "
+                f"All realtime cohorts MUST have conditionHash for person property filters. Property: {prop}"
+            )
+
+        # Build query using precalculated_person_property with argMax pattern
+        query_str = """
+            SELECT person_id as id
+            FROM (
+                SELECT
+                    person_id,
+                    argMax(matches, _timestamp) as latest_matches
+                FROM precalculated_person_property
+                WHERE
+                    team_id = {team_id}
+                    AND condition = {condition_hash}
+                GROUP BY person_id
+                HAVING latest_matches = 1
+            )
+            WHERE person_id IN (
+                SELECT id FROM persons WHERE team_id = {team_id} AND is_deleted = 0
+            )
+        """
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                query_str,
+                {
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "condition_hash": ast.Constant(value=condition_hash),
+                },
+            ),
+        )
+
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         """
         Realtime cohorts do not support static cohorts.
