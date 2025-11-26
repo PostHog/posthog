@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -80,6 +80,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         statsMethod,
         usesNewQueryRunner,
         isExperimentDraft,
+        isSingleVariantShipped,
         featureFlags,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
@@ -124,7 +125,18 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                     <div className="inline-flex deprecated-space-x-8">
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
-                            <StatusTag status={status} />
+                            <div className="flex gap-1">
+                                <StatusTag status={status} />
+                                {isSingleVariantShipped && (
+                                    <Tooltip
+                                        title={`Variant "${experiment.feature_flag?.filters.multivariate?.variants?.find((v) => v.rollout_percentage === 100)?.key}" has been rolled out to 100% of users`}
+                                    >
+                                        <LemonTag type="completion" className="cursor-default">
+                                            <b className="uppercase">100% rollout</b>
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </div>
                         </div>
                         {experiment.feature_flag && (
                             <div className="flex flex-col">
