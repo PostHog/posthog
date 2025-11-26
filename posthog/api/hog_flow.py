@@ -96,8 +96,8 @@ class HogFlowActionSerializer(serializers.Serializer):
 
             data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
 
-        if len(data.get("config", {}).get("conditions", [])) > 0:
-            conditions = data.get("config", {}).get("conditions", [])
+        conditions = data.get("config", {}).get("conditions", [])
+        if conditions:
             for condition in conditions:
                 filters = condition.get("filters")
                 if filters is not None:
