@@ -535,7 +535,9 @@ export function MetricRowGroup({
                 if (variantResults.length === 0) {
                     return (
                         <tr
-                            className="hover:bg-bg-hover group [&:last-child>td]:border-b-5 border-l-5 border-r-5"
+                            className={`hover:bg-bg-hover group [&:last-child>td]:border-b-5 border-l-5 border-r-5 ${
+                                !isLastMetric ? 'border-b-5' : ''
+                            }`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             {/* Metric column - always visible */}
@@ -555,9 +557,7 @@ export function MetricRowGroup({
                             {/* Combined columns for loading/error state */}
                             <td
                                 colSpan={5}
-                                className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
-                                    !isLastMetric ? 'border-b-5' : ''
-                                }`}
+                                className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                             >
                                 {isLoading || exposuresLoading ? (
@@ -583,9 +583,7 @@ export function MetricRowGroup({
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <td
-                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
-                                    !isLastMetric ? 'border-b' : ''
-                                } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                                 rowSpan={totalRows}
                                 style={{
                                     height: `${CELL_HEIGHT * totalRows}px`,

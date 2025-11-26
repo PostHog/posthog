@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconPencil, IconPlusSmall } from '@posthog/icons'
+import { IconCopy, IconPencil, IconStack } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -77,13 +77,8 @@ const AddBreakdownButton = ({
             visible={dropdownOpen}
             onClickOutside={() => setDropdownOpen(false)}
         >
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                icon={<IconPlusSmall />}
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-            >
-                Add breakdown
+            <LemonButton type="secondary" size="xsmall" onClick={() => setDropdownOpen(!dropdownOpen)}>
+                <IconStack />
             </LemonButton>
         </LemonDropdown>
     )
