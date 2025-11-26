@@ -123,7 +123,10 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
     })),
     selectors({
-        tabId: [() => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId], (tabIdProp): string => tabIdProp],
+        tabId: [
+            () => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId],
+            (tabIdProp: string): string => tabIdProp,
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -137,7 +140,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         customerLabel: [
             (s) => [s.aggregationLabel, s.businessType, s.selectedGroupType],
-            (aggregationLabel, businessType, selectedGroupType) => {
+            (
+                aggregationLabel: any,
+                businessType: BusinessType,
+                selectedGroupType: number
+            ): { singular: string; plural: string } => {
                 if (!aggregationLabel || typeof aggregationLabel !== 'function') {
                     return { singular: 'user', plural: 'users' }
                 }
@@ -149,14 +156,17 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         dateRange: [
             (s) => [s.dateFilter],
-            (dateFilter) => ({
+            (dateFilter: {
+                dateFrom: string | null
+                dateTo: string | null
+            }): { date_from: string | null; date_to: string | null } => ({
                 date_from: dateFilter.dateFrom,
                 date_to: dateFilter.dateTo,
             }),
         ],
         groupOptions: [
             (s) => [s.groupTypesRaw],
-            (groupTypesRaw) => {
+            (groupTypesRaw: any[]): { label: string; value: number }[] => {
                 return groupTypesRaw.map((groupType) => ({
                     label: capitalizeFirstLetter(groupType.name_plural || wordPluralize(groupType.group_type)),
                     value: groupType.group_type_index,
@@ -436,7 +446,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         sessionInsights: [
             (s) => [s.customerLabel],
-            (customerLabel) => [
+            (customerLabel: { singular: string; plural: string }): InsightDefinition[] => [
                 {
                     name: 'Unique sessions',
                     description: 'Events without session IDs are excluded.',
@@ -575,15 +585,15 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 s.dateRange,
             ],
             (
-                businessType,
-                customerLabel,
-                signupSeries,
-                paymentSeries,
-                selectedGroupType,
-                subscriptionSeries,
-                signupPageviewSeries,
-                dauSeries,
-                dateRange
+                businessType: BusinessType,
+                customerLabel: { singular: string; plural: string },
+                signupSeries: AnyEntityNode | null,
+                paymentSeries: AnyEntityNode | null,
+                selectedGroupType: number,
+                subscriptionSeries: AnyEntityNode | null,
+                signupPageviewSeries: AnyEntityNode | null,
+                dauSeries: AnyEntityNode | null,
+                dateRange: { date_from: string | null; date_to: string | null }
             ): InsightDefinition[] => [
                 {
                     name: `${capitalizeFirstLetter(customerLabel.singular)} signups`,
