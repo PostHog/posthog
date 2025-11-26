@@ -44,7 +44,7 @@ TEXT_REPR_CACHE_TIMEOUT = 3600
 class TextReprOptionsSerializer(serializers.Serializer):
     max_length = serializers.IntegerField(
         required=False,
-        help_text="Maximum length of generated text (default: 4000000)",
+        help_text="Maximum length of generated text (default: 10000000)",
     )
     truncated = serializers.BooleanField(
         required=False,
@@ -230,7 +230,7 @@ into formatted text representations suitable for display, logging, or analysis.
 - `$ai_trace`: Full traces with hierarchical structure
 
 **Options:**
-- `max_length`: Maximum character count (default: 4000000)
+- `max_length`: Maximum character count (default: 10000000)
 - `truncated`: Enable middle-content truncation within events (default: true)
 - `truncate_buffer`: Characters at start/end when truncating (default: 1000)
 - `include_markers`: Use interactive markers vs plain text indicators (default: true)
@@ -318,7 +318,7 @@ The response includes the formatted text and metadata about the rendering.
                 text = format_event_text_repr(event=data, options=options)
 
             # Apply max_length cap if output exceeds limit
-            max_len = options.get("max_length", 4000000)
+            max_len = options.get("max_length", 10000000)
             original_length = len(text)
             truncated_by_max_length = original_length > max_len
 
