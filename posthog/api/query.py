@@ -18,6 +18,7 @@ from posthog.schema import (
     QueryStatusResponse,
     QueryUpgradeRequest,
     QueryUpgradeResponse,
+    WarehouseTarget,
 )
 
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
@@ -59,7 +60,7 @@ from common.hogvm.python.utils import HogVMException
 
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
-) -> tuple[BaseModel, str, ExecutionMode]:
+) -> tuple[BaseModel, str, ExecutionMode, WarehouseTarget | None]:
     """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
     query = request_data.query
 
@@ -86,7 +87,10 @@ def _process_query_request(
         qt.request_name = request_data.query.name
     qt.query = query.model_dump()
 
-    return query, query_id, execution_mode
+    # Get warehouse target from request (defaults to 'posthog')
+    warehouse_target = request_data.warehouse_target
+
+    return query, query_id, execution_mode, warehouse_target
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -135,7 +139,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
         try:
-            query, client_query_id, execution_mode = _process_query_request(
+            query, client_query_id, execution_mode, warehouse_target = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
@@ -159,6 +163,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     and get_query_tag_value("access_method") != "personal_api_key"
                     else None
                 ),
+                warehouse_target=warehouse_target,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)

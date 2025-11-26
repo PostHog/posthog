@@ -59,6 +59,7 @@ import {
     SessionsQueryResponse,
     TracesQuery,
     TracesQueryResponse,
+    WarehouseTarget,
 } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
@@ -245,12 +246,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         loadData: (
             refresh?: RefreshType,
             alreadyRunningQueryId?: string,
-            overrideQuery?: DataNode<Record<string, any>>
+            overrideQuery?: DataNode<Record<string, any>>,
+            warehouseTarget?: WarehouseTarget
         ) => ({
             refresh,
             queryId: alreadyRunningQueryId || uuid(),
             pollOnly: !!alreadyRunningQueryId,
             overrideQuery,
+            warehouseTarget,
         }),
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
@@ -273,7 +276,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 setResponse: (response) => response,
                 clearResponse: () => null,
-                loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
+                loadData: async (
+                    { refresh: refreshArg, queryId, pollOnly, overrideQuery, warehouseTarget },
+                    breakpoint
+                ) => {
                     const query = addTags(overrideQuery ?? props.query)
 
                     // Use the explicit refresh type passed, or determine it based on query type
@@ -354,7 +360,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             actions.setPollResponse,
                                             props.filtersOverride,
                                             props.variablesOverride,
-                                            pollOnly
+                                            pollOnly,
+                                            warehouseTarget
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }

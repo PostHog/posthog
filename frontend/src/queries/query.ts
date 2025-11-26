@@ -12,6 +12,7 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
+    WarehouseTarget,
 } from '~/queries/schema/schema-general'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
@@ -91,7 +92,8 @@ async function executeQuery<N extends DataNode>(
      * Whether to limit the function to just polling the provided query ID.
      * This is important in shared contexts, where we cannot create arbitrary queries via POST – we can only GET.
      */
-    pollOnly = false
+    pollOnly = false,
+    warehouseTarget?: WarehouseTarget
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         // Determine the refresh type based on the query node type and refresh parameter
@@ -113,6 +115,7 @@ async function executeQuery<N extends DataNode>(
             refresh: refreshParam,
             filtersOverride,
             variablesOverride,
+            warehouseTarget,
         })
 
         if (response.detail) {
@@ -147,7 +150,8 @@ export async function performQuery<N extends DataNode>(
     setPollResponse?: (status: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
     variablesOverride?: Record<string, HogQLVariable> | null,
-    pollOnly = false
+    pollOnly = false,
+    warehouseTarget?: WarehouseTarget
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
@@ -165,7 +169,8 @@ export async function performQuery<N extends DataNode>(
                 setPollResponse,
                 filtersOverride,
                 variablesOverride,
-                pollOnly
+                pollOnly,
+                warehouseTarget
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse

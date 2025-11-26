@@ -410,7 +410,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         """Shared query execution logic."""
         merged_data = self.get_model(query_request_data, QueryRequest)
 
-        query, client_query_id, execution_mode = _process_query_request(
+        query, client_query_id, execution_mode, _ = _process_query_request(
             merged_data, self.team, client_query_id, request.user
         )
         self._tag_client_query_id(client_query_id)

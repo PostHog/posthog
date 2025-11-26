@@ -3236,6 +3236,11 @@ class VizSpecificOptions(BaseModel):
     RETENTION_1: Optional[RETENTION] = Field(default=None, alias="RETENTION")
 
 
+class WarehouseTarget(StrEnum):
+    POSTHOG = "posthog"
+    WAREHOUSE = "warehouse"
+
+
 class WebAnalyticsExternalSummaryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16450,6 +16455,9 @@ class QueryRequest(BaseModel):
         ),
     )
     variables_override: Optional[dict[str, dict[str, Any]]] = None
+    warehouse_target: Optional[WarehouseTarget] = Field(
+        default=WarehouseTarget.POSTHOG, description="The target warehouse for the query."
+    )
 
 
 class QuerySchemaRoot(

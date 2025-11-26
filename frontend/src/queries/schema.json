@@ -19926,6 +19926,11 @@
                         "type": "object"
                     },
                     "type": "object"
+                },
+                "warehouse_target": {
+                    "$ref": "#/definitions/WarehouseTarget",
+                    "default": "posthog",
+                    "description": "The target warehouse for the query."
                 }
             },
             "required": ["query"],
@@ -29170,6 +29175,12 @@
                 }
             },
             "type": "object"
+        },
+        "WarehouseTarget": {
+            "default": "posthog",
+            "description": "The target warehouse for the query.\n- `'posthog'` - Query the PostHog database\n- `'warehouse'` - Query the external data warehouse",
+            "enum": ["posthog", "warehouse"],
+            "type": "string"
         },
         "WebAnalyticsAssistantFilters": {
             "additionalProperties": false,

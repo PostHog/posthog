@@ -33,6 +33,7 @@ import {
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
+    WarehouseTarget,
 } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
@@ -230,6 +231,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             queryInput,
             viewId,
         }),
+        setWarehouseTarget: (warehouseTarget: WarehouseTarget) => ({ warehouseTarget }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -376,6 +378,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as string | null,
             {
                 setHoveredNode: (_, { nodeId }) => nodeId,
+            },
+        ],
+        warehouseTarget: [
+            'posthog' as WarehouseTarget,
+            {
+                setWarehouseTarget: (_, { warehouseTarget }) => warehouseTarget,
             },
         ],
     })),
@@ -664,7 +672,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
-            }).actions.loadData(!switchTab ? 'force_async' : 'async')
+            }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, undefined, values.warehouseTarget)
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             LemonDialog.openForm({

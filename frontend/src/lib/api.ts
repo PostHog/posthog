@@ -50,6 +50,7 @@ import {
     RefreshType,
     SourceConfig,
     TileFilters,
+    WarehouseTarget,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -4444,6 +4445,7 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
+            warehouseTarget?: WarehouseTarget
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -4460,6 +4462,7 @@ const api = {
                 refresh: queryOptions?.refresh,
                 filters_override: queryOptions?.filtersOverride,
                 variables_override: queryOptions?.variablesOverride,
+                warehouse_target: queryOptions?.warehouseTarget,
             },
         })
     },
