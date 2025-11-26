@@ -63,8 +63,10 @@ class PersonStrategy(ActorStrategy):
         if not actor_ids_list:
             return {}
 
+        order_by_clause = f"ORDER BY {order_by}" if order_by else ""
+
         query = parse_select(
-            """
+            f"""
             SELECT
                 persons.id AS id,
                 persons.properties AS properties,
@@ -73,8 +75,9 @@ class PersonStrategy(ActorStrategy):
                 groupArray(pdi.distinct_id) AS distinct_ids
             FROM persons
             LEFT JOIN person_distinct_ids AS pdi ON persons.id = pdi.person_id
-            WHERE persons.id IN {actor_ids}
+            WHERE persons.id IN {{actor_ids}}
             GROUP BY persons.id, persons.properties, persons.is_identified, persons.created_at
+            {order_by_clause}
             """,
             placeholders={"actor_ids": ast.Constant(value=actor_ids_list)},
         )
