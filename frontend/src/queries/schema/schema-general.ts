@@ -4716,6 +4716,9 @@ export enum ProductIntentContext {
     // Nav Panel Advertisement
     NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',
 
+    // Feature previews
+    FEATURE_PREVIEW_ENABLED = 'feature_preview_enabled',
+
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
 }

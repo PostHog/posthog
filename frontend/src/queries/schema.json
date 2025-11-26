@@ -19626,6 +19626,7 @@
                 "revenue_analytics_event_created",
                 "revenue_analytics_data_source_connected",
                 "nav_panel_advertisement_clicked",
+                "feature_preview_enabled",
                 "vercel_integration"
             ],
             "type": "string"
