@@ -59,14 +59,17 @@ function PowerUsersTable(): JSX.Element {
         dashboardItemId: buildDashboardItemId(uniqueKey),
     }
 
-    // TODO: Fix query for b2b
+    const isB2c = businessType === 'b2c'
+    const buttonTo = isB2c ? urls.persons() : urls.groups(selectedGroupType)
+    const tooltip = isB2c ? 'Open people list' : `Open ${customerLabel.plural} list`
+
     const query = {
         kind: NodeKind.DataTableNode,
         hiddenColumns: ['id', 'person.$delete', 'event_distinct_ids'],
         showSourceQueryOptions: false,
         source: {
             kind: NodeKind.ActorsQuery,
-            select: ['person', 'event_count'],
+            select: isB2c ? ['person', 'event_count'] : ['group', 'event_count'],
             source: {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
@@ -79,6 +82,7 @@ function PowerUsersTable(): JSX.Element {
                     trendsFilter: {
                         display: ChartDisplayType.ActionsTable,
                     },
+                    ...(isB2c ? {} : { aggregation_group_type_index: selectedGroupType }),
                 },
                 series: 0,
             },
@@ -86,8 +90,6 @@ function PowerUsersTable(): JSX.Element {
             limit: 10,
         },
     }
-    const buttonTo = businessType === 'b2c' ? urls.persons() : urls.groups(selectedGroupType)
-    const tooltip = businessType === 'b2c' ? 'Open people list' : 'Open groups list'
 
     return (
         <>
@@ -102,6 +104,7 @@ function PowerUsersTable(): JSX.Element {
                 context={{
                     columns: {
                         event_count: { title: 'Event count' },
+                        group: { title: customerLabel.singular },
                     },
                     insightProps,
                 }}

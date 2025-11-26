@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
 
@@ -35,9 +35,10 @@ function getEmptySeriesNames(requiredSeries: object): string[] {
 }
 
 export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalyticsQueryCardProps): JSX.Element {
+    const { businessType, selectedGroupType } = useValues(customerAnalyticsSceneLogic)
     const { addEventToHighlight, toggleModalOpen } = useActions(eventConfigModalLogic)
     const needsConfig = insight?.requiredSeries ? anyValueIsNull(insight.requiredSeries) : false
-    const uniqueKey = `${insight.name}-${tabId}`
+    const uniqueKey = `${insight.name}-${tabId}-${businessType}-${businessType === 'b2b' ? selectedGroupType : 'users'}`
     const insightProps: InsightLogicProps<QuerySchema> = {
         dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
         dashboardItemId: buildDashboardItemId(uniqueKey),
