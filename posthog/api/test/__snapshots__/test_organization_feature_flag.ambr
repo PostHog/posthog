@@ -2278,6 +2278,7 @@
          "posthog_earlyaccessfeature"."description",
          "posthog_earlyaccessfeature"."stage",
          "posthog_earlyaccessfeature"."documentation_url",
+         "posthog_earlyaccessfeature"."payload",
          "posthog_earlyaccessfeature"."created_at"
   FROM "posthog_earlyaccessfeature"
   WHERE "posthog_earlyaccessfeature"."feature_flag_id" = 99999
