@@ -3350,6 +3350,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: SurveyRatingScaleValue
     lowerBoundLabel: string
     upperBoundLabel: string
+    isNpsQuestion?: boolean
     skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
