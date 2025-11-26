@@ -1,6 +1,6 @@
 from collections import defaultdict
-from typing import Optional, Union
 from enum import Enum, auto
+from typing import Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -35,6 +35,22 @@ FunnelsNode = EventsNode | ActionsNode | DataWarehouseNode
 class SourceTableKind(Enum):
     EVENTS = auto()
     DATA_WAREHOUSE = auto()
+
+
+def is_events_entity(entity: EventsNode | ActionsNode | DataWarehouseNode) -> bool:
+    return isinstance(entity, EventsNode) or isinstance(entity, ActionsNode)
+
+
+def is_data_warehouse_entity(entity: EventsNode | ActionsNode | DataWarehouseNode) -> bool:
+    return isinstance(entity, DataWarehouseNode)
+
+
+def entity_source_mismatch(entity: EventsNode | ActionsNode | DataWarehouseNode, source_kind: SourceTableKind) -> bool:
+    if source_kind == SourceTableKind.EVENTS:
+        return not is_events_entity(entity)
+    if source_kind == SourceTableKind.DATA_WAREHOUSE:
+        return not is_data_warehouse_entity(entity)
+    raise ValueError(f"Unknown SourceTableKind: {source_kind}")
 
 
 class FunnelEventQuery:
@@ -220,6 +236,9 @@ class FunnelEventQuery:
         entity: EntityNode | ExclusionEntityNode,
         index: int,
     ) -> ast.Expr:
+        if entity_source_mismatch(entity, source_kind):
+            parse_expr(f"0 as step_{index}")
+
         condition = self._build_step_query(entity, index)
         return parse_expr(f"if({{condition}}, 1, 0) as step_{index}", placeholders={"condition": condition})
 
