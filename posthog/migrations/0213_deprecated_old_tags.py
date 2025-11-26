@@ -99,7 +99,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(
                         ("dashboard__isnull", False),
                         ("insight__isnull", True),

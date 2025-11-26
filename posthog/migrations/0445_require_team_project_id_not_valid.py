@@ -35,7 +35,7 @@ class Migration(migrations.Migration):
             # https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation
             model_name="team",
             constraint=models.CheckConstraint(
-                check=models.Q(("project_id__isnull", False)), name="project_id_is_not_null"
+                condition=models.Q(("project_id__isnull", False)), name="project_id_is_not_null"
             ),
         ),
     ]

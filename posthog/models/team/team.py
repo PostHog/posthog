@@ -254,7 +254,7 @@ class Team(UUIDTClassicModel):
                 # We have this as a constraint rather than IS NOT NULL on the field, because setting IS NOT NULL cannot
                 # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
                 # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
-                check=models.Q(project_id__isnull=False),
+                condition=models.Q(project_id__isnull=False),
             )
         ]
 
@@ -364,7 +364,7 @@ class Team(UUIDTClassicModel):
     session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
         max_length=3,
-        choices=SessionRecordingRetentionPeriod.choices,
+        choices=SessionRecordingRetentionPeriod,
         default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
 
@@ -413,7 +413,7 @@ class Team(UUIDTClassicModel):
     # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)
 
-    week_start_day = models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices)
+    week_start_day = models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay)
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
 
@@ -430,7 +430,7 @@ class Team(UUIDTClassicModel):
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
     human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
     cookieless_server_hash_mode = models.SmallIntegerField(
-        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
+        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode, null=True
     )
 
     primary_dashboard = models.ForeignKey(

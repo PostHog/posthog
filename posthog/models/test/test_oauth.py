@@ -15,6 +15,7 @@ from posthog.models import Organization, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 
+
 @override_settings(
     OAUTH2_PROVIDER={
         **settings.OAUTH2_PROVIDER,

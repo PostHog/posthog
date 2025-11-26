@@ -27,11 +27,16 @@ from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import DECIDE_REQUEST_DATA_CACHE_KEY
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.exceptions import generate_exception_response
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+    generate_exception_response,
+)
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
@@ -40,6 +45,7 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+from posthog.utils import load_data_from_request
 
 from products.notebooks.backend.models import Notebook
 
@@ -338,8 +344,12 @@ class CHQueries:
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
             return request.GET[name]
-        if name in request.POST:
-            return request.POST[name]
+        try:
+            if name in request.POST:
+                return request.POST[name]
+        except (ValueError, RuntimeError):
+            # Django 5 ASGI: request stream may be closed when accessing POST
+            pass
         return None
 
 
@@ -408,7 +418,24 @@ class ShortCircuitMiddleware:
                     http_referer=request.headers.get("referer"),
                     http_user_agent=request.headers.get("user-agent"),
                 )
+                parsing_error = None
+                if not hasattr(request, DECIDE_REQUEST_DATA_CACHE_KEY):
+                    try:
+                        setattr(request, DECIDE_REQUEST_DATA_CACHE_KEY, load_data_from_request(request))
+                    except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
+                        # Cache the error but continue to rate limiting
+                        parsing_error = error
+                        setattr(request, DECIDE_REQUEST_DATA_CACHE_KEY, None)
+
                 if self.decide_throttler.allow_request(request, None):
+                    # If there was a parsing error, return it now (after rate limiting)
+                    if parsing_error:
+                        return cors_response(
+                            request,
+                            generate_exception_response(
+                                "decide", f"Malformed request data: {parsing_error}", code="malformed_data"
+                            ),
+                        )
                     return get_decide(request)
                 else:
                     return cors_response(

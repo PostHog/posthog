@@ -13,8 +13,10 @@ services:
         extends:
             file: docker-compose.base.yml
             service: db
-        # Pin to postgres 12 until we have a process for pg_upgrade to postgres 15 for exsisting installations
-        image: ${DOCKER_REGISTRY_PREFIX:-}postgres:12-alpine
+        # Django 5.1 requires PostgreSQL 13+, using 15 to match production
+        # BREAKING: Existing hobby installations on PostgreSQL 12 must manually migrate data before upgrading
+        # See: https://www.postgresql.org/docs/15/upgrading.html
+        image: ${DOCKER_REGISTRY_PREFIX:-}postgres:15-alpine
         volumes:
             - postgres-data:/var/lib/postgresql/data
 

@@ -3,7 +3,6 @@ import os
 # Django Imports
 from django.conf import settings
 from django.core.asgi import get_asgi_application
-from django.http.response import HttpResponse
 
 # Structlog Import
 import structlog
@@ -23,14 +22,28 @@ initialize_otel()  # Initialize OpenTelemetry first
 logger = structlog.get_logger(__name__)
 
 
-# Django doesn't support lifetime requests and raises an exception
-# when it receives them. This creates a lot of noise in error tracking so
-# intercept these requests and return a 501 error without raising an exception
+# Django 5 sends ASGI lifespan events during startup/shutdown. Earlier versions
+# would raise when receiving them, so we intercept the handshake here and
+# acknowledge it ourselves to avoid noisy errors while still delegating other
+# scope types to Django.
 def lifetime_wrapper(func):
     async def inner(scope, receive, send):
-        if scope["type"] != "http":
-            return HttpResponse(status=501)
-        return await func(scope, receive, send)
+        scope_type = scope.get("type")
+
+        if scope_type == "lifespan":
+            while True:
+                message = await receive()
+                message_type = message.get("type")
+
+                if message_type == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message_type == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+                else:
+                    logger.warning("Received unexpected lifespan message", message_type=message_type)
+        else:
+            return await func(scope, receive, send)
 
     return inner
 
