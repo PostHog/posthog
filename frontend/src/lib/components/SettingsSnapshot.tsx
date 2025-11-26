@@ -25,12 +25,24 @@ export function SettingsSnapshot({
     const scopeKey = useMemo(() => scope.join('|'), [scope])
 
     useEffect(() => {
-        // if at is not provided, loader returns current settings
-        loadSettingsAsOf(at ?? '', scope)
+        // Backend requires `at` - only fetch when provided
+        if (at) {
+            loadSettingsAsOf(at, scope)
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [at, scopeKey])
 
     const header = showHeader ? <div className="font-semibold text-muted mb-1">{title}</div> : null
+
+    // If no timestamp is provided, we don't fetch – show empty state/header if requested
+    if (!at) {
+        return showHeader ? (
+            <div className={className}>
+                {header}
+                <div className="text-muted text-xs">No timestamp provided.</div>
+            </div>
+        ) : null
+    }
 
     if (settingsSnapshotLoading) {
         return (

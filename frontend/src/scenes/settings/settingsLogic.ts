@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -131,7 +132,7 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
     })),
 
-    loaders(({ values }) => ({
+    loaders(() => ({
         settingsSnapshot: [
             null as Record<string, any> | null,
             {
@@ -142,21 +143,8 @@ export const settingsLogic = kea<settingsLogicType>([
                           ? [scope]
                           : undefined
                     if (!at) {
-                        const team = values.currentTeam
-                        if (!team) {
-                            return {}
-                        }
-                        if (scopeArray?.length) {
-                            const picked: Record<string, any> = {}
-                            for (const key of scopeArray) {
-                                if (key in team) {
-                                    picked[key] = (team as any)[key]
-                                }
-                            }
-                            return picked
-                        }
-                        // Return shallow copy of current team settings if no scope specified
-                        return { ...team }
+                        lemonToast.warning('A timestamp is required to load settings at a point in time')
+                        return {}
                     }
                     return await api.teamSettings.asOf(at, scopeArray)
                 },

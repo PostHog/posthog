@@ -1219,7 +1219,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         scope_values = request.query_params.getlist("scope")
 
         if scope_values:
-            filtered = {k: snapshot.get(k) for k in scope_values if k in snapshot}
+            filtered = {k: snapshot.get(k, None) for k in scope_values}
             return response.Response(filtered)
 
         return response.Response(snapshot)
