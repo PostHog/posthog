@@ -49,6 +49,8 @@ import { ParsedLogMessage } from './types'
 
 export const scene: SceneExport = {
     component: LogsScene,
+    logic: logsLogic,
+    settingSectionId: 'product-logs',
 }
 
 export function LogsScene(): JSX.Element {
