@@ -33,7 +33,6 @@ FunnelsNode = EventsNode | ActionsNode | DataWarehouseNode
 
 class FunnelEventQuery:
     context: FunnelQueryContext
-    _entity_name = "events"
     _extra_event_fields_and_properties: list[ColumnName | PropertyName]
 
     EVENT_TABLE_ALIAS = "e"
@@ -41,14 +40,12 @@ class FunnelEventQuery:
     def __init__(
         self,
         context: FunnelQueryContext,
-        entity_name="events",
         extra_event_fields_and_properties: Optional[list[ColumnName | PropertyName]] = None,
     ):
         if extra_event_fields_and_properties is None:
             extra_event_fields_and_properties = []
 
         self.context = context
-        self._entity_name = entity_name
         self._extra_event_fields_and_properties = extra_event_fields_and_properties
 
     @property
@@ -79,7 +76,7 @@ class FunnelEventQuery:
             all_step_cols: list[ast.Expr] = []
             all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
             for index, entity in enumerate(series):
-                step_cols = self._get_step_col(entity, index, self._entity_name, for_udf=True)
+                step_cols = self._get_step_col(entity, index, for_udf=True)
                 all_step_cols.extend(step_cols)
                 all_exclusions.append([])
 
@@ -89,7 +86,7 @@ class FunnelEventQuery:
                         all_exclusions[i].append(excluded_entity)
 
                 for index, exclusions in enumerate(all_exclusions):
-                    exclusion_col_expr = self._get_exclusions_col(exclusions, index, self._entity_name)
+                    exclusion_col_expr = self._get_exclusions_col(exclusions, index)
                     all_step_cols.append(exclusion_col_expr)
 
             breakdown_select_prop = self._get_breakdown_select_prop(for_udf=True)
@@ -210,11 +207,10 @@ class FunnelEventQuery:
         self,
         exclusions: list[ExclusionEntityNode],
         index: int,
-        entity_name: str,
     ) -> ast.Expr:
         if not exclusions:
             return parse_expr(f"0 as exclusion_{index}")
-        conditions = [self._build_step_query(exclusion, index, entity_name, "") for exclusion in exclusions]
+        conditions = [self._build_step_query(exclusion, index, "") for exclusion in exclusions]
         return parse_expr(
             f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)}
         )
@@ -223,14 +219,13 @@ class FunnelEventQuery:
         self,
         entity: EntityNode | ExclusionEntityNode,
         index: int,
-        entity_name: str,
         step_prefix: str = "",
         for_udf: bool = False,
     ) -> list[ast.Expr]:
         # step prefix is used to distinguish actual steps, and exclusion steps
         # without the prefix, we get the same parameter binding for both, which borks things up
         step_cols: list[ast.Expr] = []
-        condition = self._build_step_query(entity, index, entity_name, step_prefix)
+        condition = self._build_step_query(entity, index, step_prefix)
         step_cols.append(
             parse_expr(f"if({{condition}}, 1, 0) as {step_prefix}step_{index}", placeholders={"condition": condition})
         )
@@ -250,7 +245,6 @@ class FunnelEventQuery:
         self,
         entity: EntityNode | ExclusionEntityNode,
         index: int,
-        entity_name: str,
         step_prefix: str,
     ) -> ast.Expr:
         filters: list[ast.Expr] = []

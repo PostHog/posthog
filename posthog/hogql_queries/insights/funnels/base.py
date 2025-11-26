@@ -312,7 +312,6 @@ class FunnelBase(ABC):
     # make them behave more like steps. It returns a boolean "exclusion_{0..n}" for each event
     def _get_inner_event_query_for_udf(
         self,
-        entity_name="events",
         skip_entity_filter=False,
         skip_step_filter=False,
     ) -> ast.SelectQuery:
@@ -323,7 +322,6 @@ class FunnelBase(ABC):
 
         funnel_events_query = FunnelEventQuery(
             context=self.context,
-            entity_name=entity_name,
             extra_event_fields_and_properties=self.extra_event_fields_and_properties,
         ).to_query(
             skip_entity_filter=skip_entity_filter,
