@@ -170,7 +170,7 @@ def get_variant_result(
 
 def get_variant_results(
     sorted_results: list[tuple],
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
 ) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
     """
     Parse multiple result rows from experiment query into structured variant results.
