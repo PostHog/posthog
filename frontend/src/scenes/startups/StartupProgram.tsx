@@ -17,7 +17,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2Type, StartupProgramLabel } from '~/types'
 
 import { RAISED_OPTIONS } from './constants'
 import { StartupProgramLogicProps, startupProgramLogic } from './startupProgramLogic'
@@ -67,7 +67,7 @@ export function StartupProgram(): JSX.Element {
     const { billing, billingLoading, isAnnualPlanCustomer, accountOwner } = useValues(billingLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
 
-    const currentProgramName = currentStartupProgramLabel === 'YC' ? 'YC Program' : 'Startup Program'
+    const currentProgramName = currentStartupProgramLabel === StartupProgramLabel.YC ? 'YC Program' : 'Startup Program'
     const platformAndSupportProduct = billing?.products?.find(
         (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
     )
@@ -90,7 +90,7 @@ export function StartupProgram(): JSX.Element {
                 <LemonBanner type="info">
                     <h2 className="mb-2">You are already in the {currentProgramName}</h2>
                     <p>It looks like your organization is already part of our {currentProgramName}.</p>
-                    {currentStartupProgramLabel === 'YC' && (
+                    {currentStartupProgramLabel === StartupProgramLabel.YC && (
                         <p>
                             Your credits will renew automatically{' '}
                             <span className="font-semibold">every year, forever.</span>
@@ -323,7 +323,7 @@ export function StartupProgram(): JSX.Element {
                                 <IconCheck className="text-success shrink-0 size-6" />
                                 <h2 className="text-xl m-0">You're in the {currentProgramName}</h2>
                             </div>
-                            {currentStartupProgramLabel === 'YC' ? (
+                            {currentStartupProgramLabel === StartupProgramLabel.YC ? (
                                 <p>
                                     Your credits will renew automatically{' '}
                                     <span className="font-semibold">every year, forever.</span>
