@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { EntityTypes, FilterType } from '~/types'
 
-import { eventConfigModalLogic } from 'products/customer_analytics/frontend/components/Insights/eventConfigModalLogic'
+import { customerAnalyticsDashboardEventsLogic } from './customerAnalyticsDashboardEventsLogic'
 
 export interface EventSelectorProps {
     caption?: string
@@ -20,7 +20,7 @@ export interface EventSelectorProps {
 }
 
 function EventSelector({ filters, setFilters, title, caption }: EventSelectorProps): JSX.Element {
-    const { eventsToHighlight } = useValues(eventConfigModalLogic)
+    const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
 
     return (
@@ -67,8 +67,10 @@ function EventSelector({ filters, setFilters, title, caption }: EventSelectorPro
 }
 
 export function CustomerAnalyticsDashboardEvents(): JSX.Element {
-    const { eventSelectors, hasChanges } = useValues(eventConfigModalLogic)
-    const { saveEvents, clearFilterSelections, clearEventsToHighlight } = useActions(eventConfigModalLogic)
+    const { eventSelectors, hasChanges } = useValues(customerAnalyticsDashboardEventsLogic)
+    const { saveEvents, clearFilterSelections, clearEventsToHighlight } = useActions(
+        customerAnalyticsDashboardEventsLogic
+    )
 
     const handleSave = (): void => {
         saveEvents()

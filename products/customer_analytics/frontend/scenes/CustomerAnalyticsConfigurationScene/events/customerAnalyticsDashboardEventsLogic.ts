@@ -10,10 +10,9 @@ import { FilterType, InsightType } from '~/types'
 
 import { customerAnalyticsConfigLogic } from 'products/customer_analytics/frontend/customerAnalyticsConfigLogic'
 
-import { EventSelectorProps } from './EventConfigModal'
-import type { eventConfigModalLogicType } from './eventConfigModalLogicType'
+import { EventSelectorProps } from './CustomerAnalyticsDashboardEvents'
 
-export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
+export const customerAnalyticsDashboardEventsLogic = kea([
     path(['products', 'customerAnalytics', 'components', 'insights', 'eventConfigModal']),
     connect(() => ({
         values: [
@@ -42,7 +41,6 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
             filters,
         }),
         saveEvents: true,
-        toggleModalOpen: (isOpen?: boolean) => ({ isOpen }),
     }),
     reducers({
         activityEventSelection: [
@@ -78,12 +76,6 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
             {
                 setSubscriptionEventSelection: (_, { filters }) => filters,
                 clearFilterSelections: () => null,
-            },
-        ],
-        isOpen: [
-            false,
-            {
-                toggleModalOpen: (state, { isOpen }) => (isOpen !== undefined ? isOpen : !state),
             },
         ],
         eventsToHighlight: [
@@ -283,16 +275,6 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                 events['subscription_event'] = subscriptionEvents[0]
             }
             actions.updateEvents(events)
-        },
-        toggleModalOpen: ({ isOpen }) => {
-            const isClosing = isOpen === false || (isOpen === undefined && values.isOpen)
-            if (isClosing) {
-                actions.setActivityEventSelection(null)
-                actions.setSignupEventSelection(null)
-                actions.setSignupPageviewEventSelection(null)
-                actions.setPaymentEventSelection(null)
-                actions.setSubscriptionEventSelection(null)
-            }
         },
     })),
 ])
