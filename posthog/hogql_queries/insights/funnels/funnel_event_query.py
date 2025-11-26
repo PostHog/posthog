@@ -114,6 +114,19 @@ class FunnelEventQuery:
 
         return [*self._extra_event_fields_and_properties, *extra_fields_from_context]
 
+    @property
+    def exclusions_by_index(self):
+        series, funnelsFilter = self.context.query.series, self.context.funnelsFilter
+
+        result: list[list[ExclusionEntityNode]] = [[] for _ in series]
+        exclusions = funnelsFilter.exclusions or []
+
+        for exclusion in exclusions:
+            for i in range(exclusion.funnelFromStep + 1, exclusion.funnelToStep + 1):
+                result[i].append(exclusion)
+
+        return result
+
     def to_query(self, skip_entity_filter=False, skip_step_filter=False) -> ast.SelectQuery:
         tables_to_steps: dict[str, list[tuple[int, EntityNode]]] = defaultdict(list)
 
@@ -124,7 +137,7 @@ class FunnelEventQuery:
         def _build_events_table_query(
             table_name: str, steps: list[tuple[int, EventsNode | ActionsNode]]
         ) -> ast.SelectQuery:
-            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.EVENTS, table_name)
+            all_step_cols = self._get_funnel_cols(SourceTableKind.EVENTS, table_name)
 
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
@@ -147,7 +160,7 @@ class FunnelEventQuery:
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
             if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions(SourceTableKind.EVENTS, steps, all_exclusions)
+                steps_conditions = self._get_steps_conditions(SourceTableKind.EVENTS, steps)
                 where = ast.And(exprs=[where, steps_conditions])
 
             stmt = ast.SelectQuery(
@@ -163,7 +176,7 @@ class FunnelEventQuery:
             # TODO: Implement where conditions for data warehouse sources
             node = steps[0][1]
 
-            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name)
+            all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name)
 
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])),
@@ -198,7 +211,7 @@ class FunnelEventQuery:
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
             if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions(SourceTableKind.DATA_WAREHOUSE, steps, all_exclusions)
+                steps_conditions = self._get_steps_conditions(SourceTableKind.DATA_WAREHOUSE, steps)
                 where = ast.And(exprs=[where, steps_conditions])
 
             return ast.SelectQuery(
@@ -228,37 +241,27 @@ class FunnelEventQuery:
             ),
         )
 
-    def _get_funnel_cols(
-        self, source_kind: SourceTableKind, table_name
-    ) -> tuple[list[ast.Expr], list[list[ExclusionEntityNode]]]:
-        series, funnelsFilter = self.context.query.series, self.context.funnelsFilter
-
-        all_step_cols: list[ast.Expr] = []
-        all_exclusions: list[list[ExclusionEntityNode]] = []
+    def _get_funnel_cols(self, source_kind: SourceTableKind, table_name) -> tuple[list[ast.Expr]]:
+        cols: list[ast.Expr] = []
 
         # step cols
-        for index, entity in enumerate(series):
+        for index, entity in enumerate(self.context.query.series):
             step_col = self._get_step_col(source_kind, table_name, entity, index)
-            all_step_cols.append(step_col)
-            all_exclusions.append([])
+            cols.append(step_col)
 
         # exclusion cols
-        if funnelsFilter.exclusions:
-            for excluded_entity in funnelsFilter.exclusions:
-                for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
-                    all_exclusions[i].append(excluded_entity)
-
-            for index, exclusions in enumerate(all_exclusions):
+        for index, exclusions in enumerate(self.exclusions_by_index):
+            if exclusions:
                 exclusion_col_expr = self._get_exclusions_col(source_kind, table_name, exclusions, index)
-                all_step_cols.append(exclusion_col_expr)
+                cols.append(exclusion_col_expr)
 
         # breakdown (attribution) col
-        all_step_cols.extend(self._get_breakdown_select_prop())
+        cols.extend(self._get_breakdown_select_prop())
 
         # extra fields
-        all_step_cols.extend(self._get_extra_fields(source_kind))
+        cols.extend(self._get_extra_fields(source_kind))
 
-        return all_step_cols, all_exclusions
+        return cols
 
     def _get_step_col(
         self,
@@ -343,15 +346,13 @@ class FunnelEventQuery:
             return ast.And(exprs=filters)
         return filters[0]
 
-    def _get_steps_conditions(
-        self, source_kind: SourceTableKind, steps: list[tuple[int, EntityNode]], exclusions
-    ) -> ast.Expr:
+    def _get_steps_conditions(self, source_kind: SourceTableKind, steps: list[tuple[int, EntityNode]]) -> ast.Expr:
         step_conditions: list[ast.Expr] = []
 
         for index, step in steps:
             if not entity_source_mismatch(step, source_kind):
                 step_conditions.append(parse_expr(f"step_{index} = 1"))
-                if exclusions[index]:
+                if self.exclusions_by_index[index]:
                     step_conditions.append(parse_expr(f"exclusion_{index} = 1"))
 
         return ast.Or(exprs=step_conditions)
