@@ -68,11 +68,11 @@ def _generate_property_extraction_sql(property_type: str) -> str:
         return f"transform(toString({base_extract}), ['true', 'false'], [1, 0], NULL)"
 
     elif property_type == PropertyType.Datetime:
-        # Match HogQL's toDateTime() which uses parseDateTimeBestEffort
-        return f"""coalesce(
-            parseDateTimeBestEffortOrNull({base_extract}),
-            parseDateTimeBestEffortOrNull(substring({base_extract}, 1, 10))
-        )"""
+        # Match HogQL's toDateTime() -> parseDateTime64BestEffortOrNull with precision 6
+        # See posthog/hogql/printer.py L1391-1392 and posthog/hogql/functions/clickhouse/conversions.py L112-127
+        # Timezone param omitted - uses server default (UTC). Most datetime strings have explicit
+        # timezone info anyway, and for ambiguous strings UTC is a reasonable default.
+        return f"parseDateTime64BestEffortOrNull({base_extract}, 6)"
 
     else:
         raise ValueError(f"Unsupported property type for materialization: {property_type}")

@@ -24,7 +24,7 @@ class TestPropertyExtractionSQL:
             ("String", ["replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(property_name)s)", "'null')"]),
             ("Numeric", ["toFloat64OrNull("]),
             ("Boolean", ["transform(toString(", "['true', 'false'], [1, 0], NULL)"]),
-            ("DateTime", ["coalesce(", "parseDateTimeBestEffortOrNull("]),
+            ("DateTime", ["parseDateTime64BestEffortOrNull(", ", 6)"]),
         ],
     )
     def test_property_extraction_sql_generation(
