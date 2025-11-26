@@ -1,30 +1,22 @@
 import React from "react"
-import { Steps, Step } from "components/Docs/Steps"
-import { MdxCodeBlock } from "components/CodeBlock"
-import Link from "components/Link"
-import { CalloutBox } from "components/Docs/CalloutBox"
-import { ProductScreenshot } from "components/ProductScreenshot"
-import OSButton from "components/OSButton"
-import Markdown from "components/Squeak/components/Markdown"
-import { Blockquote } from "components/BlockQuote"
 import { dedent } from "~/utils"
+import { useMDXComponents } from "components/Docs/OnboardingContentWrapper"
 
-const createCodeBlock = (language, code, file = undefined) => ({
-    props: {
-        mdxType: "pre",
-        children: {
-            key: null,
-            props: {
-                className: `language-${language}`,
-                mdxType: "code",
-                children: code,
-                file: file,
-            },
-        },
-    },
-})
-
-export const OpenAIInstallation = () => {
+export const OpenRouterInstallation = () => {
+    const {
+        Steps,
+        Step,
+        MdxCodeBlock,
+        CalloutBox,
+        ProductScreenshot,
+        OSButton,
+        Markdown,
+        Blockquote,
+        createCodeBlock,
+        snippets,
+    } = useMDXComponents()
+    
+    const NotableGenerationProperties = snippets?.NotableGenerationProperties
     return (
         <Steps>
             <Step title="Install the PostHog SDK" badge="required">
@@ -73,7 +65,9 @@ export const OpenAIInstallation = () => {
 
             <Step title="Initialize PostHog and OpenAI client" badge="required">
                 <Markdown>
-                    Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass it to our OpenAI wrapper.
+                    We call OpenRouter through the OpenAI client and generate a response. We'll use PostHog's OpenAI provider to capture all the details of the call.
+
+                    Initialize PostHog with your PostHog project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass the PostHog client along with the OpenRouter config (the base URL and API key) to our OpenAI wrapper.
                 </Markdown>
 
                 <MdxCodeBlock>
@@ -89,7 +83,8 @@ export const OpenAIInstallation = () => {
                             )
 
                             client = OpenAI(
-                                api_key="your_openai_api_key",
+                                baseURL="https://openrouter.ai/api/v1",
+                                api_key="<openrouter_api_key>",
                                 posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
                             )
                         `
@@ -106,7 +101,8 @@ export const OpenAIInstallation = () => {
                             );
 
                             const openai = new OpenAI({
-                              apiKey: 'your_openai_api_key',
+                              baseURL: 'https://openrouter.ai/api/v1',
+                              apiKey: '<openrouter_api_key>',
                               posthog: phClient,
                             });
 
@@ -133,11 +129,11 @@ export const OpenAIInstallation = () => {
                 </CalloutBox>
             </Step>
 
-            <Step title="Call OpenAI LLMs" badge="required">
+            <Step title="Call OpenRouter" badge="required">
                 <Markdown>
-                    Now, when you use the OpenAI SDK to call LLMs, PostHog automatically captures an `$ai_generation` event.
+                    Now, when you call OpenRouter with the OpenAI SDK, PostHog automatically captures an `$ai_generation` event.
 
-                    You can enrich the event with additional data such as the trace ID, distinct ID, custom properties, groups, and privacy mode options.
+                    You can also capture or modify additional properties with the distinct ID, trace ID, properties, groups, and privacy mode parameters.
                 </Markdown>
 
                 <MdxCodeBlock>
@@ -145,7 +141,7 @@ export const OpenAIInstallation = () => {
                         "python",
                         dedent`
                             response = client.responses.create(
-                                model="gpt-4o-mini",
+                                model="gpt-5-mini",
                                 input=[
                                     {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                 ],
@@ -163,7 +159,7 @@ export const OpenAIInstallation = () => {
                         "ts",
                         dedent`
                             const completion = await openai.responses.create({
-                                model: "gpt-4o-mini",
+                                model: "gpt-5-mini",
                                 input: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
                                 posthogDistinctId: "user_123", // optional
                                 posthogTraceId: "trace_123", // optional
@@ -189,23 +185,31 @@ export const OpenAIInstallation = () => {
                 <Markdown>
                     {dedent`
                         You can expect captured \`$ai_generation\` events to have the following properties:
-
-                        | Property | Description |
-                        |----------|-------------|
-                        | \`$ai_model\` | The specific model, like \`gpt-5-mini\` or \`claude-4-sonnet\` |
-                        | \`$ai_latency\` | The latency of the LLM call in seconds |
-                        | \`$ai_tools\` | Tools and functions available to the LLM |
-                        | \`$ai_input\` | List of messages sent to the LLM |
-                        | \`$ai_input_tokens\` | The number of tokens in the input (often found in response.usage) |
-                        | \`$ai_output_choices\` | List of response choices from the LLM |
-                        | \`$ai_output_tokens\` | The number of tokens in the output (often found in \`response.usage\`) |
-                        | \`$ai_total_cost_usd\` | The total cost in USD (input + output) |
-                        | [[...]](/docs/llm-analytics/generations#event-properties) | See [full list](/docs/llm-analytics/generations#event-properties) of properties |
                     `}
                 </Markdown>
+
+                {NotableGenerationProperties ? (
+                    <NotableGenerationProperties />
+                ) : (
+                    <Markdown>
+                        {dedent`
+                            | Property  | Description |
+                            |---------- | -------------|
+                            | \`$ai_model\` | The specific model, like \`gpt-5-mini\` or \`claude-4-sonnet\` |
+                            | \`$ai_latency\` | The latency of the LLM call in seconds |
+                            | \`$ai_tools\` | Tools and functions available to the LLM |
+                            | \`$ai_input\` | List of messages sent to the LLM |
+                            | \`$ai_input_tokens\` | The number of tokens in the input (often found in response.usage) |
+                            | \`$ai_output_choices\` | List of response choices from the LLM |
+                            | \`$ai_output_tokens\` | The number of tokens in the output (often found in \`response.usage\`) |
+                            | \`$ai_total_cost_usd\` | The total cost in USD (input + output) |
+                            | [[...]](/docs/llm-analytics/generations#event-properties) | See [full list](/docs/llm-analytics/generations#event-properties) of properties|
+                        `}
+                    </Markdown>
+                )}
             </Step>
 
-            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog" docsOnly>
+            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog">
                 <Markdown>
                     Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you should see rows of data appear in the **Traces** and **Generations** tabs.
                 </Markdown>
@@ -224,29 +228,7 @@ export const OpenAIInstallation = () => {
                     Check for LLM events in PostHog
                 </OSButton>
             </Step>
-
-            <Step title="Capture embeddings" badge="optional">
-                <Markdown>
-                    PostHog can also capture embedding generations as `$ai_embedding` events. Just make sure to use the same `posthog.ai.openai` client to do so:
-                </Markdown>
-
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            response = client.embeddings.create(
-                                input="The quick brown fox",
-                                model="text-embedding-3-small",
-                                posthog_distinct_id="user_123", # optional
-                                posthog_trace_id="trace_123",   # optional
-                                posthog_properties={"key": "value"} # optional
-                                posthog_groups={"company": "company_id_in_your_db"}  # optional 
-                                posthog_privacy_mode=False # optional
-                            )
-                        `
-                    )}
-                </MdxCodeBlock>
-            </Step>
         </Steps>
     )
 }
+
