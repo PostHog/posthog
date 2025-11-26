@@ -3,6 +3,7 @@ import ssl
 import enum
 import json
 import uuid
+import socket
 import typing
 import asyncio
 import datetime as dt
@@ -675,7 +676,22 @@ class ClickHouseClient:
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""
-        self.connector = aiohttp.TCPConnector(ssl=self.ssl)
+
+        def socket_factory(addr_info):
+            family, type_, proto, _, _ = addr_info
+            sock = socket.socket(family=family, type=type_, proto=proto)
+            # Enable keepalive in the socket
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
+            # Start sending keepalive probes after 60s
+            # Ensure that any idle timeouts allow at least 60s
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+            # Start sending keepalive probes every 10s
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+            # Give up after 5 failed probes
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+            return sock
+
+        self.connector = aiohttp.TCPConnector(ssl=self.ssl, socket_factory=socket_factory)
         self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout)
         return self
 
