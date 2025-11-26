@@ -195,7 +195,7 @@
          first_exposures.variant AS variant,
          count(first_exposures.entity_id) AS exposed_count
   FROM
-    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), '2024-01-07 12:00:00'), '', events.`$group_0`) AS entity_id,
+    (SELECT events.`$group_0` AS entity_id,
             if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
             toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
      FROM events
