@@ -1,0 +1,43 @@
+[package]
+name = "kafka-sidecar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Common PostHog libraries
+common-kafka = { path = "../common/kafka" }
+health = { path = "../common/health" }
+
+# gRPC and async runtime
+tonic = "0.12.3"
+tokio = { workspace = true }
+tonic-health = "0.12.3"
+prost = "0.13"
+
+# Kafka client
+rdkafka = { workspace = true }
+
+# Metrics
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Configuration
+serde = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }
+futures = { workspace = true }
+
+[build-dependencies]
+tonic-build = "0.12.3"
+anyhow = { workspace = true }
+
+[lints]
+workspace = true

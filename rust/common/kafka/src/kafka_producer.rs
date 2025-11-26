@@ -54,6 +54,34 @@ pub async fn create_kafka_producer(
             config.kafka_producer_queue_messages.to_string(),
         );
 
+    // Apply optional advanced settings if provided
+    if let Some(batch_size) = config.kafka_producer_batch_size {
+        client_config.set("batch.size", batch_size.to_string());
+    }
+
+    if let Some(enable_idempotence) = config.kafka_enable_idempotence {
+        client_config.set("enable.idempotence", enable_idempotence.to_string());
+    }
+
+    if let Some(max_in_flight) = config.kafka_max_in_flight {
+        client_config.set(
+            "max.in.flight.requests.per.connection",
+            max_in_flight.to_string(),
+        );
+    }
+
+    if let Some(retry_backoff_ms) = config.kafka_retry_backoff_ms {
+        client_config.set("retry.backoff.ms", retry_backoff_ms.to_string());
+    }
+
+    if let Some(socket_timeout_ms) = config.kafka_socket_timeout_ms {
+        client_config.set("socket.timeout.ms", socket_timeout_ms.to_string());
+    }
+
+    if let Some(metadata_max_age_ms) = config.kafka_metadata_max_age_ms {
+        client_config.set("metadata.max.age.ms", metadata_max_age_ms.to_string());
+    }
+
     if config.kafka_tls {
         client_config
             .set("security.protocol", "ssl")

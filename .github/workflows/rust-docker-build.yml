@@ -8,6 +8,7 @@ on:
             - '.github/workflows/rust-docker-build.yml'
         branches:
             - 'master'
+            - 'jose-sequeira/kafka-sidecar'
 
 jobs:
     build:
@@ -55,6 +56,9 @@ jobs:
                       dockerfile: ./rust/Dockerfile
                       project: c1bwj4j4qg
                     - image: kafka-deduplicator
+                      dockerfile: ./rust/Dockerfile
+                      project: vznmbshh6q
+                    - image: kafka-sidecar
                       dockerfile: ./rust/Dockerfile
                       project: vznmbshh6q
         runs-on: depot-ubuntu-22.04

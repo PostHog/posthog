@@ -8,7 +8,7 @@ module.exports = {
     },
     plugins: ['@typescript-eslint', 'no-only-tests'],
     extends: ['plugin:@typescript-eslint/recommended', 'plugin:eslint-comments/recommended', 'prettier'],
-    ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
+    ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl', 'src/proto'],
     rules: {
         'no-restricted-syntax': [
             'error',

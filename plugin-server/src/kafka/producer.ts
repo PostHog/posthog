@@ -9,12 +9,13 @@ import {
     MessageKey as RdKafkaMessageKey,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { Counter, Summary } from 'prom-client'
+import { Counter, Histogram, Summary } from 'prom-client'
 
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
 import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
+import { GrpcKafkaProducer, createGrpcKafkaProducer } from './grpc-kafka-client'
 
 // TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -42,6 +43,9 @@ export type TopicMessage = {
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     private producer: HighLevelProducer
+    private grpcProducer?: GrpcKafkaProducer
+    private produceMode: 'node' | 'sidecar' | 'both'
+    private sidecarTopicSuffix: string
 
     static async create(config: PluginsServerConfig, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
@@ -90,11 +94,34 @@ export class KafkaProducerWrapper {
             })
         )
 
-        return new KafkaProducerWrapper(producer)
+        // Initialize gRPC producer if mode requires it
+        let grpcProducer: GrpcKafkaProducer | undefined
+        if (config.PRODUCE_KAFKA_MODE === 'sidecar' || config.PRODUCE_KAFKA_MODE === 'both') {
+            grpcProducer = createGrpcKafkaProducer({ sidecarUrl: config.GRPC_SIDECAR_URL })
+            logger.info('📝', 'gRPC Kafka producer initialized', {
+                mode: config.PRODUCE_KAFKA_MODE,
+                sidecarUrl: config.GRPC_SIDECAR_URL,
+            })
+        }
+
+        return new KafkaProducerWrapper(
+            producer,
+            config.PRODUCE_KAFKA_MODE,
+            config.GRPC_SIDECAR_TOPIC_SUFFIX,
+            grpcProducer
+        )
     }
 
-    constructor(producer: HighLevelProducer) {
+    constructor(
+        producer: HighLevelProducer,
+        produceMode: 'node' | 'sidecar' | 'both',
+        sidecarTopicSuffix: string,
+        grpcProducer?: GrpcKafkaProducer
+    ) {
         this.producer = producer
+        this.produceMode = produceMode
+        this.sidecarTopicSuffix = sidecarTopicSuffix
+        this.grpcProducer = grpcProducer
     }
 
     async produce({
@@ -108,11 +135,36 @@ export class KafkaProducerWrapper {
         topic: string
         headers?: Record<string, string>
     }): Promise<void> {
-        try {
-            const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
-            kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
-            logger.debug('📤', 'Producing message', { topic: topic })
+        const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
+        kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
+        logger.debug('📤', 'Producing message', { topic: topic, mode: this.produceMode })
 
+        if (this.produceMode === 'node') {
+            await this.produceWithNode({ value, key, topic, headers })
+            produceTimer()
+        } else if (this.produceMode === 'sidecar') {
+            await this.produceWithSidecar({ value, key, topic, headers })
+            produceTimer()
+        } else {
+            // 'both' mode: race both producers, return first success
+            await this.produceWithBoth({ value, key, topic, headers })
+            produceTimer()
+        }
+    }
+
+    private async produceWithNode({
+        value,
+        key,
+        topic,
+        headers,
+    }: {
+        value: MessageValue
+        key: MessageKey
+        topic: string
+        headers?: Record<string, string>
+    }): Promise<void> {
+        const startTime = Date.now()
+        try {
             // NOTE: The MessageHeader type is super weird. Essentially you are passing in a record and it expects a string key and a string or buffer value.
             const kafkaHeaders: MessageHeader[] =
                 Object.entries(headers ?? {}).map(([key, value]) => ({
@@ -133,24 +185,127 @@ export class KafkaProducerWrapper {
                 )
             })
 
+            const latency = (Date.now() - startTime) / 1000
+            kafkaProduceLatencyHistogram.labels({ producer: 'node', topic }).observe(latency)
+            kafkaProduceTotalCounter.labels({ producer: 'node', topic, result: 'success' }).inc()
             kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
-            logger.debug('📤', 'Produced message', { topic: topic, offset: result })
-            produceTimer()
+            logger.debug('📤', 'Produced message with node', { topic: topic, offset: result })
         } catch (error) {
+            const latency = (Date.now() - startTime) / 1000
+            kafkaProduceLatencyHistogram.labels({ producer: 'node', topic }).observe(latency)
+            kafkaProduceTotalCounter.labels({ producer: 'node', topic, result: 'error' }).inc()
             kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
+
+            const errorType = (error as LibrdKafkaError).code?.toString() || 'unknown'
+            kafkaProduceErrorsCounter.labels({ producer: 'node', topic, error_type: errorType }).inc()
+
             logger.error('⚠️', 'kafka_produce_error', {
+                producer: 'node',
                 error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
                 topic: topic,
             })
 
             if ((error as LibrdKafkaError).isRetriable) {
-                // If we get a retriable error, bubble that up so that the
-                // caller can retry.
                 throw new DependencyUnavailableError(error.message, 'Kafka', error)
             } else if ((error as LibrdKafkaError).code === 10) {
                 throw new MessageSizeTooLarge(error.message, error)
             }
 
+            throw error
+        }
+    }
+
+    private async produceWithSidecar({
+        value,
+        key,
+        topic,
+        headers,
+    }: {
+        value: MessageValue
+        key: MessageKey
+        topic: string
+        headers?: Record<string, string>
+    }): Promise<void> {
+        if (!this.grpcProducer) {
+            throw new Error('gRPC producer not initialized')
+        }
+
+        const startTime = Date.now()
+        try {
+            const result = await this.grpcProducer.produce({
+                value: value ?? Buffer.from(''),
+                key: key ?? undefined,
+                topic,
+                headers,
+            })
+
+            const latency = (Date.now() - startTime) / 1000
+            kafkaProduceLatencyHistogram.labels({ producer: 'sidecar', topic }).observe(latency)
+            kafkaProduceTotalCounter.labels({ producer: 'sidecar', topic, result: 'success' }).inc()
+            kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
+            logger.debug('📤', 'Produced message with sidecar', { topic: topic, offset: result })
+        } catch (error) {
+            const latency = (Date.now() - startTime) / 1000
+            kafkaProduceLatencyHistogram.labels({ producer: 'sidecar', topic }).observe(latency)
+            kafkaProduceTotalCounter.labels({ producer: 'sidecar', topic, result: 'error' }).inc()
+            kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
+            kafkaProduceErrorsCounter.labels({ producer: 'sidecar', topic, error_type: 'grpc_error' }).inc()
+
+            logger.error('⚠️', 'kafka_produce_error', {
+                producer: 'sidecar',
+                error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
+                topic: topic,
+            })
+
+            throw error
+        }
+    }
+
+    private async produceWithBoth({
+        value,
+        key,
+        topic,
+        headers,
+    }: {
+        value: MessageValue
+        key: MessageKey
+        topic: string
+        headers?: Record<string, string>
+    }): Promise<void> {
+        // Race both producers - whichever succeeds first wins
+        // Sidecar uses a different topic if suffix is configured
+        const sidecarTopic = this.sidecarTopicSuffix ? `${topic}${this.sidecarTopicSuffix}` : topic
+
+        const nodePromise = this.produceWithNode({ value, key, topic, headers }).then(() => 'node' as const)
+        const sidecarPromise = this.produceWithSidecar({ value, key, topic: sidecarTopic, headers }).then(
+            () => 'sidecar' as const
+        )
+
+        try {
+            const winner = await Promise.race([
+                nodePromise.catch((err) => ({ error: err, producer: 'node' as const })),
+                sidecarPromise.catch((err) => ({ error: err, producer: 'sidecar' as const })),
+            ])
+
+            if (typeof winner === 'object' && 'error' in winner) {
+                // First one to complete was an error, wait for the other
+                logger.warn('⚠️', 'kafka_produce_dual_write_partial_failure', {
+                    failedProducer: winner.producer,
+                    error: winner.error.message,
+                    topic,
+                })
+
+                const other = winner.producer === 'node' ? sidecarPromise : nodePromise
+                await other // This will throw if it also fails
+            } else {
+                logger.debug('📤', 'Produced message with dual-write', { topic, winner })
+            }
+        } catch (error) {
+            // Both failed
+            logger.error('⚠️', 'kafka_produce_dual_write_both_failed', {
+                error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
+                topic,
+            })
             throw error
         }
     }
@@ -234,4 +389,23 @@ export const ingestEventKafkaProduceLatency = new Summary({
     help: 'Wait time for individual Kafka produces',
     labelNames: ['topic'],
     percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+export const kafkaProduceLatencyHistogram = new Histogram({
+    name: 'kafka_produce_latency_seconds',
+    help: 'Latency of Kafka produce operations by producer type',
+    labelNames: ['producer', 'topic'],
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+})
+
+export const kafkaProduceTotalCounter = new Counter({
+    name: 'kafka_produce_total',
+    help: 'Total number of Kafka produce attempts by producer type and result',
+    labelNames: ['producer', 'topic', 'result'],
+})
+
+export const kafkaProduceErrorsCounter = new Counter({
+    name: 'kafka_produce_errors_total',
+    help: 'Total number of Kafka produce errors by producer type',
+    labelNames: ['producer', 'topic', 'error_type'],
 })

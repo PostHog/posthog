@@ -16,7 +16,8 @@ ARG BIN
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
-RUN apt-get update && apt-get install build-essential libssl-dev cmake libclang-dev -y
+# protobuf-compiler is required for prost-build (used by kafka-sidecar)
+RUN apt-get update && apt-get install build-essential libssl-dev cmake libclang-dev protobuf-compiler -y
 
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

@@ -22,7 +22,14 @@ pub async fn create_mock_kafka() -> (
         kafka_compression_codec: "none".to_string(),
         kafka_hosts: cluster.bootstrap_servers(),
         kafka_tls: false,
+        kafka_topic_metadata_refresh_interval_ms: Some(30000),
         kafka_producer_queue_messages: 1000,
+        kafka_producer_batch_size: None,
+        kafka_enable_idempotence: None,
+        kafka_max_in_flight: None,
+        kafka_retry_backoff_ms: None,
+        kafka_socket_timeout_ms: None,
+        kafka_metadata_max_age_ms: None,
     };
 
     (

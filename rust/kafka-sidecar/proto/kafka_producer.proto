@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package kafka_producer;
+
+service KafkaProducer {
+  rpc Produce(ProduceRequest) returns (ProduceResponse);
+}
+
+message ProduceRequest {
+  bytes value = 1;
+  optional bytes key = 2;
+  string topic = 3;
+  map<string, string> headers = 4;
+}
+
+message ProduceResponse {
+  int64 offset = 1;
+}
