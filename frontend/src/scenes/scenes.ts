@@ -304,7 +304,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Search',
         iconType: 'search',
         hideProjectNotice: true,
-        layout: 'app-raw',
+        layout: 'app-raw-no-header',
     },
     [Scene.Notebook]: {
         projectBased: true,
