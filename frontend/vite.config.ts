@@ -30,8 +30,11 @@ export default defineConfig(({ mode }) => {
                     // Handle components/* imports
                     if (id.startsWith('components/')) {
                         const componentPath = id.replace('components/', '')
-                        // Map OnboardingDocsContentWrapper to the actual location
-                        if (componentPath === 'Docs/OnboardingContentWrapper') {
+                        // Map OnboardingContentWrapper (old name) or OnboardingDocsContentWrapper to the actual location
+                        if (
+                            componentPath === 'Docs/OnboardingContentWrapper' ||
+                            componentPath === 'Docs/OnboardingDocsContentWrapper'
+                        ) {
                             return resolve(__dirname, 'src/scenes/onboarding/OnboardingDocsContentWrapper.tsx')
                         }
                     }
@@ -104,6 +107,11 @@ export default defineConfig(({ mode }) => {
                 products: resolve(__dirname, '../products'),
                 // Alias for docs/onboarding directory
                 onboarding: resolve(__dirname, '../docs/onboarding'),
+                // Alias for components/Docs/OnboardingContentWrapper (used in docs)
+                'components/Docs/OnboardingContentWrapper': resolve(
+                    __dirname,
+                    'src/scenes/onboarding/OnboardingDocsContentWrapper.tsx'
+                ),
                 // Node.js polyfills for browser compatibility
                 buffer: 'buffer',
             },

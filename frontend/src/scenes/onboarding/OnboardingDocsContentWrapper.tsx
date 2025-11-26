@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import React, { Children, ReactNode, createContext, isValidElement, useContext, useMemo } from 'react'
 
 import { CodeSnippet, getLanguage } from 'lib/components/CodeSnippet'
@@ -6,6 +7,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { apiHostOrigin } from 'lib/utils/apiHost'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface OnboardingComponents {
     Steps: React.ComponentType<{ children: ReactNode }>
@@ -130,12 +133,21 @@ function CodeBlock({
     const context = useContext(OnboardingContext)
     const globalSelectedFile = context?.selectedFile
     const globalSetSelectedFile = context?.setSelectedFile
+    const { currentTeam } = useValues(teamLogic)
+    const host = apiHostOrigin()
+
+    const replacePlaceholders = (codeString: string): string => {
+        return codeString
+            .replace(/<ph_project_api_key>/g, currentTeam?.api_token ?? '<ph_project_api_key>')
+            .replace(/<ph_client_api_host>/g, host)
+            .replace(/<team_id>/g, currentTeam?.id?.toString() ?? '<team_id>')
+    }
 
     // If blocks array is provided, use it
     const codeBlocks: CodeBlockItem[] = blocks
         ? blocks.map((block) => ({
               language: block.language,
-              code: block.code,
+              code: replacePlaceholders(block.code),
               file: block.file,
           }))
         : // Otherwise, use single block props
@@ -143,7 +155,7 @@ function CodeBlock({
           ? [
                 {
                     language,
-                    code,
+                    code: replacePlaceholders(code),
                     file,
                 },
             ]
