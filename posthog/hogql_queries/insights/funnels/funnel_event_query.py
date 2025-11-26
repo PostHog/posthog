@@ -76,7 +76,7 @@ class FunnelEventQuery:
             all_step_cols: list[ast.Expr] = []
             all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
             for index, entity in enumerate(series):
-                step_cols = self._get_step_col(entity, index, for_udf=True)
+                step_cols = self._get_step_col(entity, index)
                 all_step_cols.extend(step_cols)
                 all_exclusions.append([])
 
@@ -89,7 +89,7 @@ class FunnelEventQuery:
                     exclusion_col_expr = self._get_exclusions_col(exclusions, index)
                     all_step_cols.append(exclusion_col_expr)
 
-            breakdown_select_prop = self._get_breakdown_select_prop(for_udf=True)
+            breakdown_select_prop = self._get_breakdown_select_prop()
 
             if breakdown_select_prop:
                 all_step_cols.extend(breakdown_select_prop)
@@ -220,7 +220,6 @@ class FunnelEventQuery:
         entity: EntityNode | ExclusionEntityNode,
         index: int,
         step_prefix: str = "",
-        for_udf: bool = False,
     ) -> list[ast.Expr]:
         # step prefix is used to distinguish actual steps, and exclusion steps
         # without the prefix, we get the same parameter binding for both, which borks things up
@@ -229,15 +228,6 @@ class FunnelEventQuery:
         step_cols.append(
             parse_expr(f"if({{condition}}, 1, 0) as {step_prefix}step_{index}", placeholders={"condition": condition})
         )
-        if not for_udf:
-            step_cols.append(
-                parse_expr(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
-            )
-
-            for field in self._extra_event_fields_and_properties:
-                step_cols.append(
-                    parse_expr(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
-                )
 
         return step_cols
 
@@ -340,7 +330,7 @@ class FunnelEventQuery:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
 
-    def _get_breakdown_select_prop(self, for_udf=False) -> list[ast.Expr]:
+    def _get_breakdown_select_prop(self) -> list[ast.Expr]:
         breakdown, breakdownAttributionType, funnelsFilter = (
             self.context.breakdown,
             self.context.breakdownAttributionType,
@@ -359,7 +349,7 @@ class FunnelEventQuery:
             default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
 
             # Unordered funnels can have any step be the Nth step
-            if for_udf and funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+            if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
                 final_select = parse_expr(f"prop_basic as prop")
             else:
                 # get prop value from each step
@@ -370,34 +360,12 @@ class FunnelEventQuery:
 
                 final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
 
-            if for_udf:
-                return [prop_basic, *select_columns, final_select]
-
-            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
-            return [prop_basic, *select_columns, final_select, prop_window]
+            return [prop_basic, *select_columns, final_select]
         elif breakdownAttributionType in [
             BreakdownAttributionType.FIRST_TOUCH,
             BreakdownAttributionType.LAST_TOUCH,
         ]:
-            prop_conditional = (
-                "notEmpty(arrayFilter(x -> notEmpty(x), prop))"
-                if self._query_has_array_breakdown()
-                else "isNotNull(prop)"
-            )
-
-            aggregate_operation = (
-                "argMinIf" if breakdownAttributionType == BreakdownAttributionType.FIRST_TOUCH else "argMaxIf"
-            )
-
-            breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
-            if for_udf:
-                return [prop_basic, ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"]))]
-            prop_window = parse_expr(f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals")
-            return [
-                prop_basic,
-                ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
-                prop_window,
-            ]
+            return [prop_basic, ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"]))]
         else:
             # all_events
             return [
