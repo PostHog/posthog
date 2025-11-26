@@ -595,7 +595,6 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         super().__init__(cohort_query=cohort_query, cohort=cohort, team=team)
         self.cohort = cohort
 
-# Removed unused get_query_executor method from HogQLRealtimeCohortQuery.
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         """
         Query precalculated_events using conditionHash for realtime behavioral matching.
