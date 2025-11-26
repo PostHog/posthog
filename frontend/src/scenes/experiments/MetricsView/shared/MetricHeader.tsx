@@ -67,10 +67,7 @@ const AddBreakdownButton = ({
                         onChange({ type: 'event', property: value?.toString() || '' })
                         setDropdownOpen(false)
                     }}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        // TaxonomicFilterGroupType.PersonProperties,
-                    ]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                     metadataSource={metadataSource}
                 />
             }
