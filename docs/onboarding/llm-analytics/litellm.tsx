@@ -1,25 +1,17 @@
-import React from "react"
-import { useMDXComponents } from "components/Docs/OnboardingContentWrapper"
+import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
+import React from 'react'
 
 export const LiteLLMInstallation = (): JSX.Element => {
-    const {
-        Steps,
-        Step,
-        CodeBlock,
-        ProductScreenshot,
-        OSButton,
-        Markdown,
-        Blockquote,
-        dedent,
-        snippets,
-    } = useMDXComponents()
-    
+    const { Steps, Step, CodeBlock, ProductScreenshot, OSButton, Markdown, Blockquote, dedent, snippets } =
+        useMDXComponents()
+
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
     return (
         <Steps>
             <Blockquote>
                 <Markdown>
-                    **Note:** LiteLLM can be used as a Python SDK or as a proxy server. PostHog observability requires LiteLLM version 1.77.3 or higher.
+                    **Note:** LiteLLM can be used as a Python SDK or as a proxy server. PostHog observability requires
+                    LiteLLM version 1.77.3 or higher.
                 </Markdown>
             </Blockquote>
 
@@ -52,7 +44,9 @@ export const LiteLLMInstallation = (): JSX.Element => {
 
             <Step title="Configure PostHog observability" badge="required">
                 <Markdown>
-                    Configure PostHog by setting your project API key and host as well as adding `posthog` to your LiteLLM callback handlers. You can find your API key in [your project settings](https://app.posthog.com/settings/project).
+                    Configure PostHog by setting your project API key and host as well as adding `posthog` to your
+                    LiteLLM callback handlers. You can find your API key in [your project
+                    settings](https://app.posthog.com/settings/project).
                 </Markdown>
 
                 <CodeBlock
@@ -98,7 +92,8 @@ export const LiteLLMInstallation = (): JSX.Element => {
 
             <Step title="Call LLMs through LiteLLM" badge="required">
                 <Markdown>
-                    Now, when you use LiteLLM to call various LLM providers, PostHog automatically captures an `$ai_generation` event.
+                    Now, when you use LiteLLM to call various LLM providers, PostHog automatically captures an
+                    `$ai_generation` event.
                 </Markdown>
 
                 <CodeBlock
@@ -152,7 +147,9 @@ export const LiteLLMInstallation = (): JSX.Element => {
                             **Notes:**
                             - This works with streaming responses by setting \`stream=True\`.
                             - To disable logging for specific requests, add \`{"no-log": true}\` to metadata.
-                            - If you want to capture LLM events anonymously, **don't** pass a \`user_id\` in metadata. See our docs on [anonymous vs identified events](/docs/data/anonymous-vs-identified-events) to learn more.
+                            - If you want to capture LLM events anonymously, **don't** pass a \`user_id\` in metadata.
+
+                            See our docs on [anonymous vs identified events](/docs/data/anonymous-vs-identified-events) to learn more.
                         `}
                     </Markdown>
                 </Blockquote>
@@ -184,9 +181,15 @@ export const LiteLLMInstallation = (): JSX.Element => {
                 )}
             </Step>
 
-            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog" docsOnly>
+            <Step
+                checkpoint
+                title="Verify traces and generations"
+                subtitle="Confirm LLM events are being sent to PostHog"
+                docsOnly
+            >
                 <Markdown>
-                    Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you should see rows of data appear in the **Traces** and **Generations** tabs.
+                    Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you
+                    should see rows of data appear in the **Traces** and **Generations** tabs.
                 </Markdown>
 
                 <br />
@@ -199,7 +202,14 @@ export const LiteLLMInstallation = (): JSX.Element => {
                     padding={false}
                 />
 
-                <OSButton variant="secondary" asLink className="my-2" size="sm" to="https://app.posthog.com/llm-analytics/generations" external>
+                <OSButton
+                    variant="secondary"
+                    asLink
+                    className="my-2"
+                    size="sm"
+                    to="https://app.posthog.com/llm-analytics/generations"
+                    external
+                >
                     Check for LLM events in PostHog
                 </OSButton>
             </Step>
@@ -248,4 +258,3 @@ export const LiteLLMInstallation = (): JSX.Element => {
         </Steps>
     )
 }
-

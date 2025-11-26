@@ -1,6 +1,6 @@
 import React, { Children, ReactNode, createContext, isValidElement, useContext, useMemo } from 'react'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CodeSnippet, getLanguage } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -41,7 +41,15 @@ interface OnboardingComponents {
     Markdown: React.ComponentType<{ children: string | ReactNode }>
     Blockquote: React.ComponentType<{ children: ReactNode }>
     dedent: (strings: TemplateStringsArray | string, ...values: any[]) => string
+    Tab: {
+        Group: React.ComponentType<{ tabs: string[]; children: ReactNode }>
+        List: React.ComponentType<{ children: ReactNode }>
+        Panels: React.ComponentType<{ children: ReactNode }>
+        Panel: React.ComponentType<{ children: ReactNode }>
+    } & React.ComponentType<{ children: ReactNode }>
     snippets?: Record<string, React.ComponentType<any>>
+    selectedFile?: string | null
+    setSelectedFile?: (file: string) => void
 }
 
 const OnboardingContext = createContext<OnboardingComponents | null>(null)
@@ -119,14 +127,9 @@ function CodeBlock({
     code?: string
     file?: string
 }): JSX.Element {
-    const langMap: Record<string, Language> = {
-        bash: Language.Bash,
-        python: Language.Python,
-        ts: Language.TypeScript,
-        javascript: Language.JavaScript,
-        js: Language.JavaScript,
-        text: Language.Text,
-    }
+    const context = useContext(OnboardingContext)
+    const globalSelectedFile = context?.selectedFile
+    const globalSetSelectedFile = context?.setSelectedFile
 
     // If blocks array is provided, use it
     const codeBlocks: CodeBlockItem[] = blocks
@@ -146,17 +149,19 @@ function CodeBlock({
             ]
           : []
 
-    // Hooks must be called unconditionally
-    const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
     const uniqueFiles = codeBlocks
         .map((block) => block.file || 'default')
         .filter((file, index, self) => self.indexOf(file) === index)
 
-    React.useEffect(() => {
-        if (!selectedFile && uniqueFiles.length > 0) {
-            setSelectedFile(uniqueFiles[0])
+    // Use global selected file if available and it exists in this block's files
+    const selectedFile =
+        globalSelectedFile && uniqueFiles.includes(globalSelectedFile) ? globalSelectedFile : uniqueFiles[0] || null
+
+    const setSelectedFile = (file: string): void => {
+        if (globalSetSelectedFile) {
+            globalSetSelectedFile(file)
         }
-    }, [selectedFile, uniqueFiles])
+    }
 
     if (codeBlocks.length === 0) {
         return <></>
@@ -164,7 +169,11 @@ function CodeBlock({
 
     if (codeBlocks.length === 1) {
         const block = codeBlocks[0]
-        return <CodeSnippet language={langMap[block.language] || Language.Text}>{block.code}</CodeSnippet>
+        return (
+            <CodeSnippet className="my-4" language={getLanguage(block.language)}>
+                {block.code}
+            </CodeSnippet>
+        )
     }
 
     // Multiple code blocks - use tabs
@@ -186,7 +195,7 @@ function CodeBlock({
                     }))}
                 />
             )}
-            <CodeSnippet language={langMap[selectedBlock.language] || Language.Text}>{selectedBlock.code}</CodeSnippet>
+            <CodeSnippet language={getLanguage(selectedBlock.language)}>{selectedBlock.code}</CodeSnippet>
         </div>
     )
 }
@@ -204,7 +213,7 @@ function CalloutBox({
     const bannerType = type === 'caution' ? 'warning' : type === 'action' ? 'info' : 'info'
 
     return (
-        <LemonBanner type={bannerType} className="[&>*]:font-normal">
+        <LemonBanner type={bannerType} className="my-4 [&>*]:font-normal">
             {title && <strong>{title}</strong>}
             {children}
         </LemonBanner>
@@ -238,25 +247,80 @@ function OSButton(props: any): JSX.Element {
 
 function Markdown({ children }: { children: string | ReactNode }): JSX.Element {
     const content = typeof children === 'string' ? children : String(children)
-    return <LemonMarkdown>{content}</LemonMarkdown>
+
+    return <LemonMarkdown disableDocsRedirect={true}>{content}</LemonMarkdown>
 }
 
 function Blockquote({ children }: { children: ReactNode }): JSX.Element {
     return (
-        <LemonBanner type="info" className="[&>*]:font-normal">
+        <LemonBanner type="info" className="my-4 [&>*]:font-normal">
             {children}
         </LemonBanner>
     )
 }
 
-export function OnboardingContentWrapper({
+const TabContext = createContext<{ activeTab: number; setActiveTab: (index: number) => void } | null>(null)
+
+function TabGroup({ tabs, children }: { tabs: string[]; children: ReactNode }): JSX.Element {
+    const [activeTab, setActiveTab] = React.useState(0)
+
+    return (
+        <TabContext.Provider value={{ activeTab, setActiveTab }}>
+            <div>
+                <LemonTabs
+                    activeKey={String(activeTab)}
+                    onChange={(key) => setActiveTab(Number(key))}
+                    tabs={tabs.map((tab, idx) => ({ key: String(idx), label: tab }))}
+                />
+                {children}
+            </div>
+        </TabContext.Provider>
+    )
+}
+
+function TabList(): JSX.Element {
+    // Tab.List is not rendered, it's just for structure
+    return null
+}
+
+function TabItem(): JSX.Element {
+    // Individual Tab items are not rendered, handled by LemonTabs
+    return null
+}
+
+function TabPanels({ children }: { children: ReactNode }): JSX.Element {
+    const context = useContext(TabContext)
+    if (!context) {
+        throw new Error('Tab.Panels must be used within Tab.Group')
+    }
+    const panels = Children.toArray(children)
+    return <div className="mt-4">{panels[context.activeTab]}</div>
+}
+
+function TabPanel({ children }: { children: ReactNode }): JSX.Element {
+    return <>{children}</>
+}
+
+const Tab = Object.assign(TabItem, {
+    Group: TabGroup,
+    List: TabList,
+    Panels: TabPanels,
+    Panel: TabPanel,
+})
+
+// This is a wrapper to share certain onboarding instructions with the main website repo.
+export function OnboardingDocsContentWrapper({
     children,
     snippets,
+    createSnippets,
 }: {
     children: ReactNode
     snippets?: Record<string, React.ComponentType<any>>
+    createSnippets?: (components: OnboardingComponents) => Record<string, React.ComponentType<any>>
 }): JSX.Element {
-    const components = useMemo<OnboardingComponents>(
+    const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
+
+    const baseComponents = useMemo<Omit<OnboardingComponents, 'snippets'>>(
         () => ({
             Steps,
             Step,
@@ -267,18 +331,40 @@ export function OnboardingContentWrapper({
             Markdown,
             Blockquote,
             dedent,
-            snippets,
+            Tab,
+            selectedFile,
+            setSelectedFile,
         }),
-        [snippets]
+        [selectedFile]
     )
 
-    return <OnboardingContext.Provider value={components}>{children}</OnboardingContext.Provider>
+    const finalSnippets = useMemo(() => {
+        if (createSnippets) {
+            return createSnippets(baseComponents as OnboardingComponents)
+        }
+        return snippets
+    }, [createSnippets, snippets, baseComponents])
+
+    const components = useMemo<OnboardingComponents>(
+        () =>
+            ({
+                ...baseComponents,
+                snippets: finalSnippets,
+            }) as OnboardingComponents,
+        [baseComponents, finalSnippets]
+    )
+
+    return (
+        <OnboardingContext.Provider value={components}>
+            <div className="max-w-screen-md mx-auto">{children}</div>
+        </OnboardingContext.Provider>
+    )
 }
 
 export function useMDXComponents(): OnboardingComponents {
     const context = useContext(OnboardingContext)
     if (!context) {
-        throw new Error('useMDXComponents must be used within OnboardingContentWrapper')
+        throw new Error('useMDXComponents must be used within OnboardingDocsContentWrapper')
     }
     return context
 }

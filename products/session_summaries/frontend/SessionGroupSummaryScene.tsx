@@ -351,7 +351,7 @@ export function SessionGroupSummary(): JSX.Element {
                 }
             })
             .filter((pattern): pattern is EnrichedSessionGroupSummaryPattern => pattern !== null)
-    }, [summary.patterns, debouncedSearchValue, issueTypeFilters])
+    }, [summary.patterns, debouncedSearchValue, issueTypeFilters, matchesIssueTypeFilter])
 
     const sortedPatterns = useMemo(() => {
         const patterns = [...filteredPatterns]

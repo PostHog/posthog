@@ -30,12 +30,9 @@ export default defineConfig(({ mode }) => {
                     // Handle components/* imports
                     if (id.startsWith('components/')) {
                         const componentPath = id.replace('components/', '')
-                        // Map OnboardingContentWrapper to the actual location
+                        // Map OnboardingDocsContentWrapper to the actual location
                         if (componentPath === 'Docs/OnboardingContentWrapper') {
-                            return resolve(
-                                __dirname,
-                                'src/scenes/onboarding/sdks/llm-analytics/OnboardingContentWrapper.tsx'
-                            )
+                            return resolve(__dirname, 'src/scenes/onboarding/OnboardingDocsContentWrapper.tsx')
                         }
                     }
                     return null

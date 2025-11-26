@@ -1,69 +1,88 @@
-import { AnthropicInstallation } from 'onboarding/anthropic'
-import { GoogleInstallation } from 'onboarding/google'
-import { LangChainInstallation } from 'onboarding/langchain'
-import { LiteLLMInstallation } from 'onboarding/litellm'
-import { OpenAIInstallation } from 'onboarding/openai'
-import { OpenRouterInstallation } from 'onboarding/openrouter'
-import { VercelAIInstallation } from 'onboarding/vercel-ai'
+import { EmbeddingEvent } from 'onboarding/llm-analytics/_snippets/embedding-event'
+import { GenerationEvent } from 'onboarding/llm-analytics/_snippets/generation-event'
+import { SpanEvent } from 'onboarding/llm-analytics/_snippets/span-event'
+import { TraceEvent } from 'onboarding/llm-analytics/_snippets/trace-event'
+import { AnthropicInstallation } from 'onboarding/llm-analytics/anthropic'
+import { GoogleInstallation } from 'onboarding/llm-analytics/google'
+import { LangChainInstallation } from 'onboarding/llm-analytics/langchain'
+import { LiteLLMInstallation } from 'onboarding/llm-analytics/litellm'
+import { ManualInstallation } from 'onboarding/llm-analytics/manual'
+import { OpenAIInstallation } from 'onboarding/llm-analytics/openai'
+import { OpenRouterInstallation } from 'onboarding/llm-analytics/openrouter'
+import { VercelAIInstallation } from 'onboarding/llm-analytics/vercel-ai'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { OnboardingContentWrapper } from './OnboardingContentWrapper'
-import { LLMManualCaptureInstructions } from './manual'
+import { OnboardingDocsContentWrapper } from '../../OnboardingDocsContentWrapper'
+
+function LLMManualInstructions(): JSX.Element {
+    const snippets = {
+        GenerationEvent,
+        TraceEvent,
+        SpanEvent,
+        EmbeddingEvent,
+    }
+
+    return (
+        <OnboardingDocsContentWrapper snippets={snippets}>
+            <ManualInstallation />
+        </OnboardingDocsContentWrapper>
+    )
+}
 
 function LLMOpenAIInstructions(): JSX.Element {
     return (
-        <OnboardingContentWrapper>
+        <OnboardingDocsContentWrapper>
             <OpenAIInstallation />
-        </OnboardingContentWrapper>
+        </OnboardingDocsContentWrapper>
     )
 }
 
 function LLMAnthropicInstructions(): JSX.Element {
     return (
-        <OnboardingContentWrapper>
+        <OnboardingDocsContentWrapper>
             <AnthropicInstallation />
-        </OnboardingContentWrapper>
+        </OnboardingDocsContentWrapper>
     )
 }
 
 function LLMGoogleInstructions(): JSX.Element {
     return (
-        <OnboardingContentWrapper>
+        <OnboardingDocsContentWrapper>
             <GoogleInstallation />
-        </OnboardingContentWrapper>
+        </OnboardingDocsContentWrapper>
     )
 }
 
 function LLMOpenRouterInstructions(): JSX.Element {
     return (
-        <OnboardingContentWrapper>
+        <OnboardingDocsContentWrapper>
             <OpenRouterInstallation />
-        </OnboardingContentWrapper>
+        </OnboardingDocsContentWrapper>
     )
 }
 
 function LLMLangChainInstructions(): JSX.Element {
     return (
-        <OnboardingContentWrapper>
+        <OnboardingDocsContentWrapper>
             <LangChainInstallation />
-        </OnboardingContentWrapper>
+        </OnboardingDocsContentWrapper>
     )
 }
 
 function LLMLiteLLMInstructions(): JSX.Element {
     return (
-        <OnboardingContentWrapper>
+        <OnboardingDocsContentWrapper>
             <LiteLLMInstallation />
-        </OnboardingContentWrapper>
+        </OnboardingDocsContentWrapper>
     )
 }
 
 function LLMVercelAIInstructions(): JSX.Element {
     return (
-        <OnboardingContentWrapper>
+        <OnboardingDocsContentWrapper>
             <VercelAIInstallation />
-        </OnboardingContentWrapper>
+        </OnboardingDocsContentWrapper>
     )
 }
 
@@ -75,5 +94,5 @@ export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.LANGCHAIN]: LLMLangChainInstructions,
     [SDKKey.LITELLM]: LLMLiteLLMInstructions,
     [SDKKey.OPENROUTER]: LLMOpenRouterInstructions,
-    [SDKKey.MANUAL_CAPTURE]: LLMManualCaptureInstructions,
+    [SDKKey.MANUAL_CAPTURE]: LLMManualInstructions,
 }

@@ -46,6 +46,12 @@ declare module '*.sql?raw' {
     export default content
 }
 
+// This fixes TS errors when importing an .md file with ?raw suffix
+declare module '*.md?raw' {
+    const content: string
+    export default content
+}
+
 // This fixes a TS error where @tiptap/react/menus cannot be found because of our moduleResolution
 declare module '@tiptap/react/menus' {
     export * from '@tiptap/react/dist/menus/index.d.ts'
