@@ -1,1 +1,1 @@
-export const SDK_DEFAULTS_DATE = '2025-05-24'
+export const SDK_DEFAULTS_DATE = '2025-11-30'

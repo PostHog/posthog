@@ -15,16 +15,12 @@ export function loadPostHogJS(): void {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
-            rageclick: true,
+            defaults: '2025-11-30',
             persistence: 'localStorage+cookie',
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
-            api_transport: 'fetch',
             disable_surveys: window.IMPERSONATED_SESSION,
             __preview_deferred_init_extensions: shouldDefer(),
-            session_recording: {
-                strictMinimumDuration: true,
-            },
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
@@ -116,12 +112,10 @@ export function loadPostHogJS(): void {
             autocapture: {
                 capture_copied_text: true,
             },
-            capture_performance: { web_vitals: true },
             person_profiles: 'always',
             __preview_remote_config: true,
             __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
-            __preview_eager_load_replay: false,
             __preview_disable_xhr_credentials: true,
         })
 

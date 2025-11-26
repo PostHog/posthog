@@ -52,7 +52,7 @@ export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: st
             enabled: !!proxyRecord,
         },
         defaults: {
-            content: '2025-05-24',
+            content: '2025-11-30',
             enabled: true,
         },
         person_profiles: {
