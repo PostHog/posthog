@@ -595,18 +595,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         super().__init__(cohort_query=cohort_query, cohort=cohort, team=team)
         self.cohort = cohort
 
-    def get_query_executor(self) -> HogQLQueryExecutor:
-        settings = HogQLGlobalSettings(allow_experimental_analyzer=None)
-
-        return HogQLQueryExecutor(
-            query_type="HogQLRealtimeCohortQuery",
-            query=self.get_query(),
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
-            team=self.team,
-            limit_context=LimitContext.COHORT_CALCULATION,
-            settings=settings,
-        )
-
+# Removed unused get_query_executor method from HogQLRealtimeCohortQuery.
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         """
         Query precalculated_events using conditionHash for realtime behavioral matching.
