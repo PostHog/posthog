@@ -84,6 +84,8 @@ class TestSessionSummariesAPI(APIBaseTest):
             ]
         )
 
+    @patch("ee.api.session_summaries.capture_session_summary_generated")
+    @patch("ee.api.session_summaries.capture_session_summary_started")
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
@@ -92,6 +94,8 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_execute: Mock,
         mock_find_sessions: Mock,
         mock_feature_enabled: Mock,
+        mock_capture_started: Mock,
+        mock_capture_generated: Mock,
     ) -> None:
         """Test successful creation of session summaries"""
         # Setup mocks
@@ -129,6 +133,23 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
         # Check extra_summary_context separately
         self.assertEqual(mock_execute.call_args[1]["extra_summary_context"].focus_area, "login process")
+        # Verify tracking was called
+        mock_capture_started.assert_called_once()
+        started_kwargs = mock_capture_started.call_args[1]
+        self.assertEqual(started_kwargs["source"], "api")
+        self.assertEqual(started_kwargs["summary_type"], "group")
+        self.assertEqual(started_kwargs["session_ids"], ["session1", "session2"])
+        self.assertFalse(started_kwargs["is_streaming"])
+
+        mock_capture_generated.assert_called_once()
+        generated_kwargs = mock_capture_generated.call_args[1]
+        self.assertEqual(generated_kwargs["source"], "api")
+        self.assertEqual(generated_kwargs["summary_type"], "group")
+        self.assertEqual(generated_kwargs["session_ids"], ["session1", "session2"])
+        self.assertTrue(generated_kwargs["success"])
+        self.assertIsNone(generated_kwargs.get("error_type"))
+        # Tracking IDs should match
+        self.assertEqual(started_kwargs["tracking_id"], generated_kwargs["tracking_id"])
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     def test_create_summaries_missing_session_ids(self, mock_feature_enabled: Mock) -> None:
