@@ -74,7 +74,17 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
     bind_contextvars()
     logger = LOGGER.bind()
 
-    logger.info(f"Starting realtime cohort calculation workflow for range offset={inputs.offset}, limit={inputs.limit}")
+    # Get current attempt number to calculate timeout
+    activity_info = temporalio.activity.info()
+    attempt = activity_info.attempt
+    # Base timeout: 60s, increases by 60s per retry (60s, 120s, 180s, etc.)
+    max_execution_time = 60 * attempt
+
+    logger.info(
+        f"Starting realtime cohort calculation workflow for range offset={inputs.offset}, limit={inputs.limit}",
+        attempt=attempt,
+        max_execution_time=max_execution_time,
+    )
 
     async with Heartbeater(details=(f"Starting to process cohorts (offset={inputs.offset})",)) as heartbeater:
         start_time = time.time()
@@ -118,7 +128,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 # Build query in sync context (HogQLRealtimeCohortQuery accesses team properties)
                 @database_sync_to_async
                 def build_query(cohort_obj):
-                    realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
+                    realtime_query = HogQLRealtimeCohortQuery(
+                        cohort=cohort_obj, team=cohort_obj.team, max_execution_time=max_execution_time
+                    )
                     current_members_query = realtime_query.get_query()
                     hogql_context = HogQLContext(team_id=cohort_obj.team_id, enable_select_queries=True)
                     current_members_sql, _ = prepare_and_print_ast(current_members_query, hogql_context, "clickhouse")
