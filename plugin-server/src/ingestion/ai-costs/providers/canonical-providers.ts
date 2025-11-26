@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-11-24 10:03:32 UTC
+// Generated at: 2025-11-26 20:02:02 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -11,12 +11,14 @@ export type CanonicalProvider =
     | 'amazon-bedrock'
     | 'anthropic'
     | 'atlas-cloud-bf16'
+    | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'avian-bf16'
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
+    | 'byteplus'
     | 'cerebras'
     | 'cerebras-fp16'
     | 'chutes'
@@ -104,6 +106,8 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'siliconflow-fp8'
+    | 'stealth'
+    | 'streamlake-fp16'
     | 'switchpoint'
     | 'together'
     | 'together-fp8'

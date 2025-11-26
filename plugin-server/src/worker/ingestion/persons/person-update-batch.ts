@@ -24,8 +24,6 @@ export interface PersonUpdate {
     original_created_at: DateTime
     /** If true, bypass batch-level filtering for person property updates (set for $identify, $set, etc.) */
     force_update?: boolean
-    /** Internal flag to track which table this person exists in during cutover migration */
-    __useNewTable?: boolean
 }
 
 export interface PersonPropertyUpdate {
@@ -54,7 +52,6 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         original_is_identified: person.is_identified,
         original_created_at: person.created_at,
         force_update: false, // Default to false, can be set to true by $identify/$set events
-        __useNewTable: person.__useNewTable,
     }
 }
 
@@ -83,6 +80,5 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         version: personUpdate.version,
         is_identified: personUpdate.is_identified,
         is_user_id: personUpdate.is_user_id,
-        __useNewTable: personUpdate.__useNewTable,
     }
 }
