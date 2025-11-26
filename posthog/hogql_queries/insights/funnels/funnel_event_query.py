@@ -246,7 +246,7 @@ class FunnelEventQuery:
         if entity_source_mismatch(entity, source_kind):
             return parse_expr(f"0 as step_{index}")
 
-        condition = self._build_step_query(entity, index)
+        condition = self._build_step_query(source_kind, entity, index)
         return parse_expr(f"if({{condition}}, 1, 0) as step_{index}", placeholders={"condition": condition})
 
     def _get_exclusions_col(
@@ -257,13 +257,14 @@ class FunnelEventQuery:
     ) -> ast.Expr:
         if is_data_warehouse_source(source_kind):
             return parse_expr(f"0 as exclusion_{index}")
-        conditions = [self._build_step_query(exclusion, index) for exclusion in exclusions]
+        conditions = [self._build_step_query(source_kind, exclusion, index) for exclusion in exclusions]
         return parse_expr(
             f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)}
         )
 
     def _build_step_query(
         self,
+        source_kind: SourceTableKind,
         entity: EntityNode | ExclusionEntityNode,
         index: int,
     ) -> ast.Expr:
@@ -277,12 +278,12 @@ class FunnelEventQuery:
                 raise ValidationError(f"Action ID {entity.id} does not exist!")
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
+            # TODO: implement
             event_expr = ast.Constant(value=1)
-            # raise ValidationError(
-            #     "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
-            # )
         elif entity.event is None:
             # all events
+            if is_data_warehouse_source(source_kind):
+                event_expr = ast.Constant(value=0)
             event_expr = ast.Constant(value=1)
         else:
             # event
