@@ -29,23 +29,26 @@ from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
 from posthog.types import EntityNode, ExclusionEntityNode
 
-FunnelsNode = EventsNode | ActionsNode | DataWarehouseNode
-
 
 class SourceTableKind(Enum):
     EVENTS = auto()
     DATA_WAREHOUSE = auto()
 
 
-def is_events_entity(entity: EventsNode | ActionsNode | DataWarehouseNode) -> bool:
-    return isinstance(entity, EventsNode) or isinstance(entity, ActionsNode)
+def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> bool:
+    return (
+        isinstance(entity, EventsNode)
+        or isinstance(entity, FunnelExclusionEventsNode)
+        or isinstance(entity, ActionsNode)
+        or isinstance(entity, FunnelExclusionActionsNode)
+    )
 
 
-def is_data_warehouse_entity(entity: EventsNode | ActionsNode | DataWarehouseNode) -> bool:
+def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> bool:
     return isinstance(entity, DataWarehouseNode)
 
 
-def entity_source_mismatch(entity: EventsNode | ActionsNode | DataWarehouseNode, source_kind: SourceTableKind) -> bool:
+def entity_source_mismatch(entity: EntityNode, source_kind: SourceTableKind) -> bool:
     if source_kind == SourceTableKind.EVENTS:
         return not is_events_entity(entity)
     if source_kind == SourceTableKind.DATA_WAREHOUSE:
@@ -80,13 +83,13 @@ class FunnelEventQuery:
         return [*self._extra_event_fields_and_properties, *extra_fields_from_context]
 
     def to_query(self, skip_entity_filter=False, skip_step_filter=False) -> ast.SelectQuery:
-        def _get_table_name(node: FunnelsNode):
+        def _get_table_name(node: EntityNode):
             if isinstance(node, DataWarehouseNode):
                 return node.table_name
             else:
                 return "events"
 
-        tables_to_steps: dict[str, list[tuple[int, FunnelsNode]]] = defaultdict(list)
+        tables_to_steps: dict[str, list[tuple[int, EntityNode]]] = defaultdict(list)
 
         for step_index, node in enumerate(self.context.query.series):
             table_name = _get_table_name(node)
@@ -198,13 +201,11 @@ class FunnelEventQuery:
             ),
         )
 
-    def _get_funnel_cols(
-        self, source_kind: SourceTableKind
-    ) -> tuple[list[ast.Expr], list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]]]:
+    def _get_funnel_cols(self, source_kind: SourceTableKind) -> tuple[list[ast.Expr], list[list[ExclusionEntityNode]]]:
         series, funnelsFilter = self.context.query.series, self.context.funnelsFilter
 
         all_step_cols: list[ast.Expr] = []
-        all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
+        all_exclusions: list[list[ExclusionEntityNode]] = []
 
         # step cols
         for index, entity in enumerate(series):
