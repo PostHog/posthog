@@ -24,8 +24,8 @@ interfaces = []
 
 # Two-tier layer system for products only:
 # Layers listed from highest to lowest
-# - products: NEW products (highest - strictly isolated, can only import from non_isolated)
-# - non_isolated: Existing products (lower - can import from each other)
+# - products: NEW products (isolated from each other, can import from non_isolated and core)
+# - non_isolated: Existing products (can import from each other)
 # Note: core (posthog/ee/<root>) is NOT in a layer - uses explicit depends_on
 # This allows core to be bidirectionally coupled with products (legacy mess)
 layers = [
@@ -77,6 +77,7 @@ depends_on = [
     "products.data_warehouse",
     "products.error_tracking",
     "products.experiments",
+    "products.feature_flags",
     "products.llm_analytics",
     "products.notebooks",
     "products.replay",
@@ -90,6 +91,7 @@ path = "posthog"
 depends_on = [
     "<root>",
     "ee",
+    "products.batch_exports",
     "products.customer_analytics",
     "products.data_warehouse",
     "products.desktop_recordings",
@@ -109,6 +111,14 @@ depends_on = [
     "products.workflows",
 ]
 # layer intentionally omitted - core is coupled to everything
+
+[[modules]]
+path = "products.batch_exports"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
 
 [[modules]]
 path = "products.cdp"
@@ -176,6 +186,14 @@ layer = "non_isolated"
 
 [[modules]]
 path = "products.experiments"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.feature_flags"
 depends_on = [
     "ee",
     "posthog",
@@ -284,6 +302,14 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.web_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.workflows"
 depends_on = [
     "ee",
@@ -296,16 +322,18 @@ layer = "non_isolated"
 # ============================================================================
 # When creating a new product that should be isolated from existing products,
 # add it with the "products" layer. This prevents it from importing from
-# non_isolated products or other products in the same layer.
+# other products in the same layer, while allowing imports from non_isolated
+# products and core infrastructure.
 #
 # Example:
 # [[modules]]
 # path = "products.new_feature"
 # depends_on = ["posthog"]  # Can only depend on core infrastructure
-# layer = "products"        # Isolated from all other products
+# layer = "products"        # Isolated from other new products
 #
 # This enables:
 # - ✅ Import from posthog/ee (core infrastructure)
-# - ❌ Import from other products (enforced isolation)
+# - ✅ Import from non_isolated products (existing legacy products)
+# - ❌ Import from other "products" layer modules (enforced isolation)
 # - ✅ Isolated testing with 'tach test' (only runs affected tests)
 # ============================================================================
