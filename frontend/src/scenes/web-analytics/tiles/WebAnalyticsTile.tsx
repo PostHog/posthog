@@ -23,7 +23,6 @@ import {
     countryCodeToFlag,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -212,7 +211,6 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { value, query } = props
     const { source } = query
     const { featureFlags } = useValues(featureFlagLogic)
-    const appContext = getAppContext()
 
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
@@ -313,7 +311,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                     return (
                         <div className="flex items-center gap-2">
                             <img
-                                src={`${appContext?.cdn_url}/static/favicons/${value}.png`}
+                                src={`/static/favicons/${value}.png`}
                                 width={24}
                                 height={24}
                                 onError={(e) => (e.currentTarget.style.display = 'none')}

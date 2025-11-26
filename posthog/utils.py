@@ -425,7 +425,6 @@ def get_context_for_template(
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "commit_sha": context["git_rev"],
             "livestream_host": settings.LIVESTREAM_HOST,
-            "cdn_url": settings.CDN_URL,
             **posthog_app_context,
         }
 
