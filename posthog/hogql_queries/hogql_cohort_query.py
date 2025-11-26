@@ -591,16 +591,12 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         cohort_query: Optional[CohortQuery] = None,
         cohort: Optional[Cohort] = None,
         team: Optional[Team] = None,
-        max_execution_time: Optional[int] = None,
     ):
         super().__init__(cohort_query=cohort_query, cohort=cohort, team=team)
         self.cohort = cohort
-        self.max_execution_time = max_execution_time
 
     def get_query_executor(self) -> HogQLQueryExecutor:
         settings = HogQLGlobalSettings(allow_experimental_analyzer=None)
-        if self.max_execution_time is not None:
-            settings.max_execution_time = self.max_execution_time
 
         return HogQLQueryExecutor(
             query_type="HogQLRealtimeCohortQuery",
