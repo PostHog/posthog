@@ -136,10 +136,13 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             // Step 3: Process each team's events with their realtime supported filters
             for (const [teamId, teamEvents] of Array.from(eventsByTeam.entries())) {
                 try {
-                    const filters = filtersByTeam[String(teamId)] || []
+                    const allFilters = filtersByTeam[String(teamId)] || []
+
+                    // Only process behavioral filters (event-based)
+                    const filters = allFilters.filter((f) => f.filter_type === 'behavioral')
 
                     if (filters.length === 0) {
-                        // Skip teams with no realtime supported filters
+                        // Skip teams with no behavioral filters
                         continue
                     }
 
