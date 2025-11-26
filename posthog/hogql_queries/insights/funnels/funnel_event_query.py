@@ -174,6 +174,8 @@ class FunnelEventQuery:
                 *all_step_cols,
             ]
 
+            select_from = ast.JoinExpr(table=ast.Field(chain=[table_name]), alias=self.EVENT_TABLE_ALIAS)
+
             date_range = self._date_range()
             where_exprs: list[ast.Expr] = [
                 ast.CompareOperation(
@@ -186,6 +188,7 @@ class FunnelEventQuery:
                     left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field]),
                     right=ast.Constant(value=date_range.date_to()),
                 ),
+                # TODO: add filter for steps here
             ]
 
             aggregation_target_filter = self._aggregation_target_filter()
@@ -196,7 +199,7 @@ class FunnelEventQuery:
 
             return ast.SelectQuery(
                 select=select,
-                select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]), alias=self.EVENT_TABLE_ALIAS),
+                select_from=select_from,
                 where=where,
             )
 
