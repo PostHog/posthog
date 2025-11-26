@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 
 import { isEmptyObject } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -11,8 +12,9 @@ import { FilterType, InsightType } from '~/types'
 import { customerAnalyticsConfigLogic } from 'products/customer_analytics/frontend/customerAnalyticsConfigLogic'
 
 import { EventSelectorProps } from './CustomerAnalyticsDashboardEvents'
+import type { customerAnalyticsDashboardEventsLogicType } from './customerAnalyticsDashboardEventsLogicType'
 
-export const customerAnalyticsDashboardEventsLogic = kea([
+export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashboardEventsLogicType>([
     path(['products', 'customerAnalytics', 'components', 'insights', 'eventConfigModal']),
     connect(() => ({
         values: [
@@ -275,6 +277,15 @@ export const customerAnalyticsDashboardEventsLogic = kea([
                 events['subscription_event'] = subscriptionEvents[0]
             }
             actions.updateEvents(events)
+        },
+    })),
+
+    urlToAction(({ actions }) => ({
+        '*': () => {
+            // Clear highlights when navigating away from configuration page
+            if (!window.location.pathname.includes('/customer_analytics/configuration')) {
+                actions.clearEventsToHighlight()
+            }
         },
     })),
 ])

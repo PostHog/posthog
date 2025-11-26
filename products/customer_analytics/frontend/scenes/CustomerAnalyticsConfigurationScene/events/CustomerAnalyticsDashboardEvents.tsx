@@ -105,7 +105,12 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
                 <LemonButton type="secondary" onClick={handleClear}>
                     Clear changes
                 </LemonButton>
-                <LemonButton type="primary" onClick={handleSave} disabledReason={hasChanges ? null : 'No changes'}>
+                <LemonButton
+                    data-attr="save-customer-analytics-dashboard-events"
+                    type="primary"
+                    onClick={handleSave}
+                    disabledReason={hasChanges ? null : 'No changes'}
+                >
                     Save events
                 </LemonButton>
             </div>
