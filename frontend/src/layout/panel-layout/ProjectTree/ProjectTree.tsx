@@ -15,6 +15,7 @@ import {
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
+import { DndHandler, createProjectTreeDescriptor, dndLogic } from 'lib/dndLogic'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -56,26 +57,30 @@ let counter = 0
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
 
-const attachNativeDragPayload = (items: TreeDataItem[]): TreeDataItem[] =>
+const attachNativeDragPayload = (items: TreeDataItem[], logicKey?: string): TreeDataItem[] =>
     items.map((item) => {
-        const nativeDragPayload =
-            (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
-                ? {
-                      kind: 'project-tree',
-                      id: item.id,
-                      name: item.name,
-                      path: item.record.path,
-                      href: item.record.href,
-                      ref: item.record.ref,
-                      type: item.record.type,
-                      protocol: item.record.protocol,
-                  }
+        const record = item.record as FileSystemEntry | undefined
+        const descriptor =
+            (item.id.startsWith('project/') || item.id.startsWith('project://')) && record?.path && record?.type
+                ? createProjectTreeDescriptor(record, item.name, logicKey)
                 : undefined
 
         return {
             ...item,
-            nativeDragPayload,
-            children: item.children ? attachNativeDragPayload(item.children) : undefined,
+            nativeDragPayload: descriptor
+                ? {
+                      kind: 'project-tree',
+                      id: item.id,
+                      name: item.name,
+                      path: record?.path,
+                      href: record?.href,
+                      ref: record?.ref,
+                      type: record?.type,
+                      protocol: record?.protocol,
+                      dnd: descriptor,
+                  }
+                : undefined,
+            children: item.children ? attachNativeDragPayload(item.children, logicKey) : undefined,
         }
     })
 
@@ -126,6 +131,7 @@ export function ProjectTree({
         setSelectMode,
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
+    const { handleDrop } = useActions(dndLogic)
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
@@ -195,7 +201,7 @@ export function ProjectTree({
         }
     }
 
-    const treeDataWithPayload = attachNativeDragPayload(treeData)
+    const treeDataWithPayload = attachNativeDragPayload(treeData, logicKey ?? uniqueKey)
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -327,14 +333,38 @@ export function ProjectTree({
                       ? String(newId).substring(10)
                       : ''
 
-                if (checkedItems[oldId]) {
-                    moveCheckedItems(folder)
-                } else {
-                    const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
-                    if (isValidMove) {
-                        moveItem(oldItem, newPath, false, logicKey ?? uniqueKey)
-                    }
-                }
+                const sourceDescriptor = createProjectTreeDescriptor(oldItem, oldItem.name, logicKey ?? uniqueKey)
+                const targetDescriptor = newItem
+                    ? createProjectTreeDescriptor(newItem, newItem.name, logicKey ?? uniqueKey)
+                    : folder
+                      ? { type: 'project-tree/folder', ref: folder, path: folder }
+                      : null
+
+                const localHandlers: DndHandler[] = [
+                    {
+                        id: 'project-tree/local-drop',
+                        priority: 200,
+                        onDrop: () => {
+                            if (!folder) {
+                                return
+                            }
+
+                            if (checkedItems[oldId]) {
+                                moveCheckedItems(folder)
+                                return false
+                            }
+
+                            const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
+                            if (isValidMove) {
+                                moveItem(oldItem, newPath, false, logicKey ?? uniqueKey)
+                            }
+
+                            return false
+                        },
+                    },
+                ]
+
+                handleDrop({ source: sourceDescriptor, target: targetDescriptor, localHandlers })
             }}
             isItemDraggable={(item) => {
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path

@@ -12,6 +12,7 @@ import { TreeDataItem } from './LemonTree'
 
 export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center relative'
 export const NATIVE_DRAG_DATA_MIME = 'application/x-posthog-native-drag'
+export const UNIVERSAL_DND_MIME = 'application/x-posthog-dnd'
 
 type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
@@ -185,12 +186,13 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
 
         if (props.nativeDragPayload) {
             try {
-                event.dataTransfer?.setData(NATIVE_DRAG_DATA_MIME, JSON.stringify(props.nativeDragPayload))
+                const payload = JSON.stringify(props.nativeDragPayload)
+                event.dataTransfer?.setData(NATIVE_DRAG_DATA_MIME, payload)
+                event.dataTransfer?.setData(UNIVERSAL_DND_MIME, payload)
             } catch (error) {
-                event.dataTransfer?.setData(
-                    NATIVE_DRAG_DATA_MIME,
-                    JSON.stringify({ error: String(error), fallback: props.nativeDragPayload })
-                )
+                const fallbackPayload = JSON.stringify({ error: String(error), fallback: props.nativeDragPayload })
+                event.dataTransfer?.setData(NATIVE_DRAG_DATA_MIME, fallbackPayload)
+                event.dataTransfer?.setData(UNIVERSAL_DND_MIME, fallbackPayload)
             }
 
             const fallbackText =

@@ -1,10 +1,11 @@
 import { DndContext, useDroppable } from '@dnd-kit/core'
 import clsx from 'clsx'
+import { useActions } from 'kea'
 import { useState } from 'react'
 
+import { DndDescriptor, dndLogic, extractDndDescriptorsFromEvent } from 'lib/dndLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { NATIVE_DRAG_DATA_MIME } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -12,7 +13,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 type DroppedItem = {
     id: string
-    source: 'url' | 'project-tree' | 'unknown'
+    source: string
     label: string
     href?: string
     path?: string
@@ -25,65 +26,56 @@ export function DebugDnd(): JSX.Element {
     const [items, setItems] = useState<DroppedItem[]>([])
     const [isDragging, setIsDragging] = useState(false)
     const { isOver, setNodeRef } = useDroppable({ id: 'debug-dnd-dropzone' })
+    const { handleDrop: dispatchDrop } = useActions(dndLogic)
 
-    const handleDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    const descriptorToDroppedItem = (descriptor: DndDescriptor): DroppedItem => ({
+        id: descriptor.ref || crypto.randomUUID(),
+        source: descriptor.type || 'unknown',
+        label: descriptor.name || descriptor.path || descriptor.href || descriptor.ref || 'Unknown drop',
+        href: descriptor.href,
+        path: descriptor.path,
+        ref: descriptor.ref,
+        metadata: descriptor.data || {},
+        dataTransferTypes: descriptor.data?.dataTransferTypes || [],
+    })
+
+    const handleDropEvent = (event: React.DragEvent<HTMLDivElement>): void => {
         event.preventDefault()
         event.stopPropagation()
         setIsDragging(false)
 
-        const dropped: DroppedItem[] = []
-        const types = Array.from(event.dataTransfer?.types || [])
-        const treeData = event.dataTransfer.getData(NATIVE_DRAG_DATA_MIME)
-        const uriList = event.dataTransfer.getData('text/uri-list')
-        const text = event.dataTransfer.getData('text/plain')
+        const target: DndDescriptor = { type: 'debug/dropzone', ref: 'debug-dnd', name: 'Debug dropzone' }
+        const nativeEvent = event.nativeEvent as DragEvent
+        const descriptors = nativeEvent ? extractDndDescriptorsFromEvent(nativeEvent) : []
 
-        if (treeData) {
-            try {
-                const payload = JSON.parse(treeData)
-                dropped.push({
-                    id: payload.id || crypto.randomUUID(),
-                    source: 'project-tree',
-                    label: payload.name || payload.path || payload.id || 'Project tree item',
-                    href: payload.href,
-                    path: payload.path,
-                    ref: payload.ref,
-                    metadata: payload,
-                    dataTransferTypes: types,
-                })
-            } catch (error) {
-                dropped.push({
-                    id: crypto.randomUUID(),
-                    source: 'project-tree',
-                    label: 'Project tree item',
-                    metadata: { error: String(error), raw: treeData },
-                    dataTransferTypes: types,
-                })
-            }
-        }
+        const payloads = descriptors.length
+            ? descriptors
+            : [
+                  {
+                      type: 'unknown',
+                      ref: crypto.randomUUID(),
+                      name: 'Unknown drop',
+                      data: {},
+                  },
+              ]
 
-        const url = uriList || (text?.startsWith('http') ? text : undefined)
-        if (url) {
-            dropped.push({
-                id: crypto.randomUUID(),
-                source: 'url',
-                label: url,
-                href: url,
-                metadata: { uriList: uriList || null, text: text || null },
-                dataTransferTypes: types,
+        payloads.forEach((descriptor) => {
+            dispatchDrop({
+                source: descriptor,
+                target,
+                nativeEvent,
+                localHandlers: [
+                    {
+                        id: `debug-dnd-record-${descriptor.ref}`,
+                        priority: 1000,
+                        onDrop: () => {
+                            setItems((current) => [descriptorToDroppedItem(descriptor), ...current])
+                            return false
+                        },
+                    },
+                ],
             })
-        }
-
-        if (!dropped.length) {
-            dropped.push({
-                id: crypto.randomUUID(),
-                source: 'unknown',
-                label: text || 'Unknown drop',
-                metadata: { text, uriList },
-                dataTransferTypes: types,
-            })
-        }
-
-        setItems((current) => [...dropped, ...current])
+        })
     }
 
     return (
@@ -94,7 +86,7 @@ export function DebugDnd(): JSX.Element {
                 <div className="space-y-4">
                     <div
                         ref={setNodeRef}
-                        onDrop={handleDrop}
+                        onDrop={handleDropEvent}
                         onDragOver={(event) => {
                             event.preventDefault()
                             setIsDragging(true)
@@ -105,7 +97,7 @@ export function DebugDnd(): JSX.Element {
                             (isOver || isDragging) && 'border-primary bg-primary-highlight text-primary'
                         )}
                     >
-                        Drop a URL or project tree item here
+                        Drop URLs, project tree items, or anything else here
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -120,7 +112,7 @@ export function DebugDnd(): JSX.Element {
                                 title: 'Source',
                                 dataIndex: 'source',
                                 render: (_, item) =>
-                                    item.source === 'project-tree' ? 'Project tree' : item.source.toUpperCase(),
+                                    item.source.startsWith('project-tree') ? 'Project tree' : item.source,
                             },
                             {
                                 title: 'Label',
