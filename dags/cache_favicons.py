@@ -1,4 +1,5 @@
 import asyncio
+from typing import Optional
 
 from django.conf import settings
 
@@ -12,7 +13,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 logger = dagster.get_dagster_logger()
 
 
-async def download_favicon(domain: str, client: httpx.AsyncClient) -> tuple[str, bytes, str]:
+async def download_favicon(domain: str, client: httpx.AsyncClient) -> tuple[str, Optional[bytes], Optional[str]]:
     logger.info(f"Attempting to download favicon for domain '{domain}'")
     urls = [
         f"https://www.google.com/s2/favicons?sz=32&domain=https://{domain}",
