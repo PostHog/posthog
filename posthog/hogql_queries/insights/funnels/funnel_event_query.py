@@ -122,7 +122,7 @@ class FunnelEventQuery:
             tables_to_steps[table_name].append((step_index, node))
 
         def _build_events_table_query(steps: list[tuple[int, EventsNode | ActionsNode]]) -> ast.SelectQuery:
-            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.EVENTS)
+            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.EVENTS, table_name)
 
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
