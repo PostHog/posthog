@@ -99,8 +99,14 @@ function getRetentionFollowUps(query: RetentionQuery): FollowUpSuggestion[] {
     if (retentionPeriod === RetentionPeriod.Month) {
         interval = 'week'
         intervalDescription = 'weeks per month'
+    } else if (retentionPeriod === RetentionPeriod.Week) {
+        interval = 'day'
+        intervalDescription = 'days per week'
+    } else if (retentionPeriod === RetentionPeriod.Hour) {
+        interval = 'hour'
+        intervalDescription = 'hours per day'
     } else {
-        // For Day and Week retention periods, use day interval
+        // Default to day for RetentionPeriod.Day
         interval = 'day'
         intervalDescription = 'days per week'
     }
