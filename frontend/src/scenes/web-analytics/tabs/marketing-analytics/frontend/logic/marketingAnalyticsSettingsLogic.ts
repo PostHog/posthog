@@ -4,7 +4,12 @@ import { loaders } from 'kea-loaders'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AttributionMode, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
-import { ConversionGoalFilter, MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
+import {
+    CampaignFieldPreference,
+    ConversionGoalFilter,
+    MarketingAnalyticsConfig,
+    SourceMap,
+} from '~/queries/schema/schema-general'
 
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, generateUniqueName } from './utils'
@@ -16,6 +21,7 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     attribution_mode: AttributionMode.LastTouch,
     campaign_name_mappings: {},
     custom_source_mappings: {},
+    campaign_field_preferences: {},
 })
 
 export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLogicType>([
@@ -54,6 +60,9 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         }),
         updateCustomSourceMappings: (customSourceMappings: Record<string, string[]>) => ({
             customSourceMappings,
+        }),
+        updateCampaignFieldPreferences: (campaignFieldPreferences: Record<string, CampaignFieldPreference>) => ({
+            campaignFieldPreferences,
         }),
     }),
     reducers(({ values }) => ({
@@ -158,6 +167,15 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, custom_source_mappings: customSourceMappings }
                 },
+                updateCampaignFieldPreferences: (
+                    state: MarketingAnalyticsConfig | null,
+                    { campaignFieldPreferences }
+                ) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), campaign_field_preferences: campaignFieldPreferences }
+                    }
+                    return { ...state, campaign_field_preferences: campaignFieldPreferences }
+                },
             },
         ],
         savedMarketingAnalyticsConfig: [
@@ -210,6 +228,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateAttributionMode: updateCurrentTeam,
             updateCampaignNameMappings: updateCurrentTeam,
             updateCustomSourceMappings: updateCurrentTeam,
+            updateCampaignFieldPreferences: updateCurrentTeam,
         }
     }),
     loaders(({ values }) => ({
