@@ -314,6 +314,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                                 src={`/static/favicons/${value}.png`}
                                 width={24}
                                 height={24}
+                                alt={`Favicon for ${value}`}
                                 onError={(e) => (e.currentTarget.style.display = 'none')}
                             />
                             {value}
@@ -321,6 +322,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                     )
                 }
             }
+            break
     }
 
     if (typeof value === 'string') {
