@@ -159,7 +159,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     # Override payload to allow writing (parent uses SerializerMethodField which is read-only)
-    payload = serializers.JSONField(required=False, allow_null=False, default=dict)
+    payload = serializers.JSONField(required=False, allow_null=False, default=dict)  # type: ignore
 
     class Meta:
         model = EarlyAccessFeature
