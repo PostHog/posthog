@@ -64,6 +64,13 @@ def entity_source_mismatch(entity: EntityNode, source_kind: SourceTableKind) -> 
     raise ValueError(f"Unknown SourceTableKind: {source_kind}")
 
 
+def get_table_name(entity: EntityNode):
+    if is_data_warehouse_entity(entity):
+        return entity.table_name
+    else:
+        return "events"
+
+
 class FunnelEventQuery:
     context: FunnelQueryContext
     _extra_event_fields_and_properties: list[ColumnName | PropertyName]
@@ -91,16 +98,10 @@ class FunnelEventQuery:
         return [*self._extra_event_fields_and_properties, *extra_fields_from_context]
 
     def to_query(self, skip_entity_filter=False, skip_step_filter=False) -> ast.SelectQuery:
-        def _get_table_name(node: EntityNode):
-            if isinstance(node, DataWarehouseNode):
-                return node.table_name
-            else:
-                return "events"
-
         tables_to_steps: dict[str, list[tuple[int, EntityNode]]] = defaultdict(list)
 
         for step_index, node in enumerate(self.context.query.series):
-            table_name = _get_table_name(node)
+            table_name = get_table_name(node)
             tables_to_steps[table_name].append((step_index, node))
 
         def _build_events_table_query(steps: list[tuple[int, EventsNode | ActionsNode]]) -> ast.SelectQuery:
@@ -278,7 +279,8 @@ class FunnelEventQuery:
                 raise ValidationError(f"Action ID {entity.id} does not exist!")
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
-            # TODO: implement
+            # TODO: implement: if table name matches, then yes
+            # if(equals(event, 'payment_succeeded'), 1, 0) AS step_1
             event_expr = ast.Constant(value=1)
         elif entity.event is None:
             # all events
