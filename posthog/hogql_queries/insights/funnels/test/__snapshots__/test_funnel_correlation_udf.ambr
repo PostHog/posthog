@@ -6,12 +6,12 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM events AS event
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
   JOIN
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -23,7 +23,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -48,13 +48,13 @@
                   if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -77,7 +77,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -102,13 +102,13 @@
                   if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -145,7 +145,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -170,13 +170,13 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -212,7 +212,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -237,13 +237,13 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -281,7 +281,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -306,12 +306,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -322,7 +322,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -384,7 +384,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -409,12 +409,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -425,7 +425,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -487,7 +487,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -512,12 +512,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -528,7 +528,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -590,7 +590,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -615,12 +615,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -631,7 +631,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -692,7 +692,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -717,13 +717,13 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -759,7 +759,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -784,13 +784,13 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
@@ -828,7 +828,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -853,12 +853,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -869,7 +869,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -931,7 +931,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -956,12 +956,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -972,7 +972,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Positive'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -1034,7 +1034,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1059,12 +1059,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -1075,7 +1075,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -1137,7 +1137,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1162,12 +1162,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -1178,7 +1178,7 @@
                                                                 WHERE equals(person.team_id, 99999)
                                                                 GROUP BY person.id
                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
@@ -1241,7 +1241,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1290,7 +1290,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1353,7 +1353,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1402,7 +1402,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1460,7 +1460,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1507,7 +1507,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1568,7 +1568,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1636,7 +1636,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1704,7 +1704,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1772,7 +1772,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1837,7 +1837,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1862,7 +1862,7 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1892,7 +1892,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -1917,7 +1917,7 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1961,7 +1961,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2029,7 +2029,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2094,7 +2094,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2141,7 +2141,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2202,7 +2202,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2270,7 +2270,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2338,7 +2338,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2406,7 +2406,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2471,7 +2471,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2496,7 +2496,7 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -2526,7 +2526,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2551,7 +2551,7 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -2595,7 +2595,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2663,7 +2663,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2731,7 +2731,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2764,7 +2764,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -2790,7 +2790,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2850,7 +2850,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2875,7 +2875,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -2925,7 +2925,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -2950,7 +2950,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3000,7 +3000,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3025,7 +3025,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3075,7 +3075,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3100,7 +3100,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3151,7 +3151,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3184,7 +3184,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -3210,7 +3210,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3271,7 +3271,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3304,7 +3304,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -3330,7 +3330,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3390,7 +3390,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3415,7 +3415,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3465,7 +3465,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3490,7 +3490,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3540,7 +3540,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3565,7 +3565,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3615,7 +3615,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3640,7 +3640,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3691,7 +3691,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3724,7 +3724,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -3750,7 +3750,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3811,7 +3811,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3844,7 +3844,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -3870,7 +3870,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3930,7 +3930,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -3955,7 +3955,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4005,7 +4005,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4030,7 +4030,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4080,7 +4080,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4105,7 +4105,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4155,7 +4155,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4180,7 +4180,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4231,7 +4231,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4264,7 +4264,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4290,7 +4290,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4351,7 +4351,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4384,7 +4384,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4410,7 +4410,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4470,7 +4470,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4495,7 +4495,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4545,7 +4545,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4570,7 +4570,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4620,7 +4620,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4645,7 +4645,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4695,7 +4695,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4720,7 +4720,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4771,7 +4771,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4804,7 +4804,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4830,7 +4830,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4891,7 +4891,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -4924,7 +4924,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4950,7 +4950,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -5010,7 +5010,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -5035,7 +5035,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5085,7 +5085,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -5110,7 +5110,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5160,7 +5160,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -5185,7 +5185,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5235,7 +5235,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -5260,7 +5260,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5311,7 +5311,7 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                               and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                               and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                              and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
@@ -5344,7 +5344,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -5370,7 +5370,7 @@
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                [''] AS prop,
-               arrayJoin(aggregate_funnel_v8(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+               arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)

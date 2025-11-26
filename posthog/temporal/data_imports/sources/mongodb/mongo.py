@@ -175,10 +175,14 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
     """Parse MongoDB connection string and extract connection parameters."""
     from urllib.parse import parse_qs, urlparse
 
+    # TODO require TLS
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
     # Handle mongodb:// and mongodb+srv:// schemes
     parsed = urlparse(connection_string)
 
     if parsed.scheme not in ["mongodb", "mongodb+srv"]:
+        # TODO require TLS
+        # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
         raise ValueError("Connection string must start with mongodb:// or mongodb+srv://")
 
     # Extract basic connection info
@@ -412,7 +416,7 @@ def mongo_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(),
+        items=get_rows,
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,

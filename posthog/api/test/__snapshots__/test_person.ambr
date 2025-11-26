@@ -1,4 +1,12 @@
 # serializer version: 1
+# name: TestPerson.test_delete_person
+  '''
+  DELETE
+  FROM posthog_person
+  WHERE team_id = 99999
+    AND id = 99999
+  '''
+# ---
 # name: TestPerson.test_filter_person_email
   '''
   /* user_id:0 request:_snapshot_ */
@@ -147,18 +155,20 @@
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
-         count(value)
+         uniq(id) - uniqIf(id, is_deleted != 0) as c
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value,
+            is_deleted,
+            id
      FROM person
      WHERE team_id = 99999
-       AND is_deleted = 0
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') IS NOT NULL
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') != ''
+       AND value IS NOT NULL
+       AND value != ''
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value
-  ORDER BY count(value) DESC
+  HAVING c > 0
+  ORDER BY c DESC
   LIMIT 20
   '''
 # ---
@@ -166,17 +176,19 @@
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
-         count(value)
+         uniq(id) - uniqIf(id, is_deleted != 0) as c
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value,
+            is_deleted,
+            id
      FROM person
      WHERE team_id = 99999
-       AND is_deleted = 0
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
+       AND value ILIKE '%qw%'
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value
-  ORDER BY count(value) DESC
+  HAVING c > 0
+  ORDER BY c DESC
   LIMIT 20
   '''
 # ---
@@ -184,18 +196,20 @@
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
-         count(value)
+         uniq(id) - uniqIf(id, is_deleted != 0) as c
   FROM
-    (SELECT "pmat_random_prop" as value
+    (SELECT "pmat_random_prop" as value,
+            is_deleted,
+            id
      FROM person
      WHERE team_id = 99999
-       AND is_deleted = 0
-       AND "pmat_random_prop" IS NOT NULL
-       AND "pmat_random_prop" != ''
+       AND value IS NOT NULL
+       AND value != ''
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value
-  ORDER BY count(value) DESC
+  HAVING c > 0
+  ORDER BY c DESC
   LIMIT 20
   '''
 # ---
@@ -203,17 +217,19 @@
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
-         count(value)
+         uniq(id) - uniqIf(id, is_deleted != 0) as c
   FROM
-    (SELECT "pmat_random_prop" as value
+    (SELECT "pmat_random_prop" as value,
+            is_deleted,
+            id
      FROM person
      WHERE team_id = 99999
-       AND is_deleted = 0
-       AND "pmat_random_prop" ILIKE '%qw%'
+       AND value ILIKE '%qw%'
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value
-  ORDER BY count(value) DESC
+  HAVING c > 0
+  ORDER BY c DESC
   LIMIT 20
   '''
 # ---
@@ -531,6 +547,14 @@
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
+# name: TestPersonFromClickhouse.test_delete_person
+  '''
+  DELETE
+  FROM posthog_person
+  WHERE team_id = 99999
+    AND id = 99999
+  '''
+# ---
 # name: TestPersonFromClickhouse.test_filter_person_email
   '''
   /* user_id:0 request:_snapshot_ */
@@ -679,18 +703,20 @@
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
-         count(value)
+         uniq(id) - uniqIf(id, is_deleted != 0) as c
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value,
+            is_deleted,
+            id
      FROM person
      WHERE team_id = 99999
-       AND is_deleted = 0
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') IS NOT NULL
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') != ''
+       AND value IS NOT NULL
+       AND value != ''
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value
-  ORDER BY count(value) DESC
+  HAVING c > 0
+  ORDER BY c DESC
   LIMIT 20
   '''
 # ---
@@ -698,17 +724,19 @@
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
-         count(value)
+         uniq(id) - uniqIf(id, is_deleted != 0) as c
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') as value,
+            is_deleted,
+            id
      FROM person
      WHERE team_id = 99999
-       AND is_deleted = 0
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
+       AND value ILIKE '%qw%'
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value
-  ORDER BY count(value) DESC
+  HAVING c > 0
+  ORDER BY c DESC
   LIMIT 20
   '''
 # ---
@@ -716,18 +744,20 @@
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
-         count(value)
+         uniq(id) - uniqIf(id, is_deleted != 0) as c
   FROM
-    (SELECT "pmat_random_prop" as value
+    (SELECT "pmat_random_prop" as value,
+            is_deleted,
+            id
      FROM person
      WHERE team_id = 99999
-       AND is_deleted = 0
-       AND "pmat_random_prop" IS NOT NULL
-       AND "pmat_random_prop" != ''
+       AND value IS NOT NULL
+       AND value != ''
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value
-  ORDER BY count(value) DESC
+  HAVING c > 0
+  ORDER BY c DESC
   LIMIT 20
   '''
 # ---
@@ -735,17 +765,19 @@
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT value,
-         count(value)
+         uniq(id) - uniqIf(id, is_deleted != 0) as c
   FROM
-    (SELECT "pmat_random_prop" as value
+    (SELECT "pmat_random_prop" as value,
+            is_deleted,
+            id
      FROM person
      WHERE team_id = 99999
-       AND is_deleted = 0
-       AND "pmat_random_prop" ILIKE '%qw%'
+       AND value ILIKE '%qw%'
      ORDER BY id DESC
      LIMIT 100000)
   GROUP BY value
-  ORDER BY count(value) DESC
+  HAVING c > 0
+  ORDER BY c DESC
   LIMIT 20
   '''
 # ---

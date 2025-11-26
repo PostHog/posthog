@@ -21,6 +21,8 @@ from posthog.hogql_queries.experiments.experiment_query_runner import Experiment
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.experiment import Experiment, ExperimentMetricResult
 
+from products.experiments.stats.shared.statistics import StatisticError
+
 from dags.common import JobOwners
 from dags.experiments import (
     _parse_partition_key,
@@ -97,19 +99,20 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
     else:
         raise dagster.Failure(f"Unknown metric type: {metric_type}")
 
+    # Validate experiment start date upfront
+    if not experiment.start_date:
+        raise dagster.Failure(
+            f"Experiment {experiment_id} has no start_date - only launched experiments should be processed"
+        )
+
+    query_from_utc = experiment.start_date
+    query_to_utc = datetime.now(ZoneInfo("UTC"))
+
     try:
         experiment_query = ExperimentQuery(
             experiment_id=experiment_id,
             metric=metric_obj,
         )
-
-        # Cumulative calculation: from experiment start to current time
-        if not experiment.start_date:
-            raise dagster.Failure(
-                f"Experiment {experiment_id} has no start_date - only launched experiments should be processed"
-            )
-        query_from_utc = experiment.start_date
-        query_to_utc = datetime.now(ZoneInfo("UTC"))
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team, user_facing=False)
         result = query_runner._calculate()
@@ -118,7 +121,7 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
 
         completed_at = datetime.now(ZoneInfo("UTC"))
 
-        experiment_metric_result, created = ExperimentMetricResult.objects.update_or_create(
+        experiment_metric_result, _ = ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
             fingerprint=fingerprint,
@@ -133,7 +136,6 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
             },
         )
 
-        # Add metadata for Dagster UI display
         context.add_output_metadata(
             metadata={
                 "experiment_id": experiment_id,
@@ -150,7 +152,6 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
                 else None,
                 "query_from": query_from_utc.isoformat(),
                 "query_to": query_to_utc.isoformat(),
-                "results_status": "success",
             }
         )
         return {
@@ -164,14 +165,52 @@ def experiment_saved_metrics_timeseries(context: dagster.AssetExecutionContext) 
             "result": result.model_dump(),
         }
 
-    except Exception as e:
-        if not experiment.start_date:
-            raise dagster.Failure(
-                f"Experiment {experiment_id} has no start_date - only launched experiments should be processed"
-            )
-        query_from_utc = experiment.start_date
-        query_to_utc = datetime.now(ZoneInfo("UTC"))
+    except (StatisticError, ZeroDivisionError) as e:
+        # Insufficient data - do not fail so that real failures are visible
+        ExperimentMetricResult.objects.update_or_create(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            fingerprint=fingerprint,
+            query_to=query_to_utc,
+            defaults={
+                "query_from": query_from_utc,
+                "status": ExperimentMetricResult.Status.FAILED,
+                "result": None,
+                "query_id": None,
+                "completed_at": None,
+                "error_message": str(e),
+            },
+        )
 
+        context.add_output_metadata(
+            metadata={
+                "experiment_id": experiment_id,
+                "saved_metric_id": saved_metric.id,
+                "saved_metric_uuid": saved_metric.query.get("uuid"),
+                "saved_metric_name": saved_metric.name,
+                "fingerprint": fingerprint,
+                "metric_type": metric_type,
+                "experiment_name": experiment.name,
+                "query_from": query_from_utc.isoformat(),
+                "query_to": query_to_utc.isoformat(),
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
+
+        return {
+            "experiment_id": experiment_id,
+            "saved_metric_id": saved_metric.id,
+            "saved_metric_uuid": saved_metric.query.get("uuid"),
+            "saved_metric_name": saved_metric.name,
+            "fingerprint": fingerprint,
+            "query_from": query_from_utc.isoformat(),
+            "query_to": query_to_utc.isoformat(),
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }
+
+    except Exception as e:
         ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,

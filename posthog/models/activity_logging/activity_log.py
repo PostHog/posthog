@@ -72,6 +72,7 @@ ActivityScope = Literal[
     "AlertSubscription",
     "ExternalDataSource",
     "ExternalDataSchema",
+    "LLMTrace",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
@@ -819,19 +820,25 @@ def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500
         return []
 
     def _do_bulk_create():
-        return ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
+        created_logs = ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
 
-    result = _handle_activity_log_transaction(
-        _do_bulk_create,
-        {
-            "count": len(activity_logs),
-            "scope": "bulk_log_activity",
-            "activity": "bulk_create",
-            "log_entries": log_entries,
-        },
+        for log in created_logs:
+            post_save.send(sender=ActivityLog, instance=log, created=True)
+
+        return created_logs
+
+    return (
+        _handle_activity_log_transaction(
+            _do_bulk_create,
+            {
+                "count": len(activity_logs),
+                "scope": "bulk_log_activity",
+                "activity": "bulk_create",
+                "log_entries": log_entries,
+            },
+        )
+        or []
     )
-
-    return result or []
 
 
 @dataclasses.dataclass(frozen=True)

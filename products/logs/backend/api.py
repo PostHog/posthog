@@ -6,13 +6,12 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, LogsQuery
+from posthog.schema import DateRange, LogsQuery, OrderBy3
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
@@ -22,7 +21,7 @@ from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
 
-    @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", None)
         if query_data is None:
@@ -58,36 +57,58 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             limit = logs_query_params["limit"]
 
             def runner_slice(
-                runner: LogsQueryRunner, slice_length: dt.timedelta
+                runner: LogsQueryRunner, slice_length: dt.timedelta, orderBy: OrderBy3 | None
             ) -> tuple[LogsQueryRunner, LogsQueryRunner]:
                 """
                 Slices a LogsQueryRunner into two query runners
                 The first one returns just the `slice_length` most recent logs
                 The second one returns the rest of the logs
                 """
-                slice_query = LogsQuery(
-                    **{
-                        **query.model_dump(),
-                        "dateRange": DateRange(
-                            date_from=(runner.query_date_range.date_to() - slice_length).isoformat(),
-                            date_to=runner.query_date_range.date_to().isoformat(),
-                        ),
-                    }
-                )
-                remainder_query = LogsQuery(
-                    **{
-                        **query.model_dump(),
-                        "dateRange": DateRange(
-                            date_from=runner.query_date_range.date_from().isoformat(),
-                            date_to=(runner.query_date_range.date_to() - slice_length).isoformat(),
-                        ),
-                    }
-                )
+                if orderBy == OrderBy3.LATEST or orderBy is None:
+                    slice_query = LogsQuery(
+                        **{
+                            **query.model_dump(),
+                            "dateRange": DateRange(
+                                date_from=(runner.query_date_range.date_to() - slice_length).isoformat(),
+                                date_to=runner.query_date_range.date_to().isoformat(),
+                            ),
+                        }
+                    )
+                    remainder_query = LogsQuery(
+                        **{
+                            **query.model_dump(),
+                            "dateRange": DateRange(
+                                date_from=runner.query_date_range.date_from().isoformat(),
+                                date_to=(runner.query_date_range.date_to() - slice_length).isoformat(),
+                            ),
+                        }
+                    )
+                else:
+                    # invert the logic as we're looking at earliest logs not latest
+                    slice_query = LogsQuery(
+                        **{
+                            **query.model_dump(),
+                            "dateRange": DateRange(
+                                date_from=runner.query_date_range.date_from().isoformat(),
+                                date_to=(runner.query_date_range.date_from() + slice_length).isoformat(),
+                            ),
+                        }
+                    )
+                    remainder_query = LogsQuery(
+                        **{
+                            **query.model_dump(),
+                            "dateRange": DateRange(
+                                date_to=runner.query_date_range.date_to().isoformat(),
+                                date_from=(runner.query_date_range.date_from() + slice_length).isoformat(),
+                            ),
+                        }
+                    )
+
                 return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
 
-            # if we're searching more than 30 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
-            if date_range_length > dt.timedelta(minutes=30):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3))
+            # if we're searching more than 20 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
+            if date_range_length > dt.timedelta(minutes=20):
+                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3), query.orderBy)
                 response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 limit -= len(response.results)
                 yield from response.results
@@ -97,7 +118,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             # otherwise if we're searching more than 4 hours search the next hour
             if date_range_length > dt.timedelta(hours=4):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=60))
+                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=60), query.orderBy)
                 response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 limit -= len(response.results)
                 yield from response.results
@@ -107,7 +128,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             # otherwise if we're searching more than 24 hours search the next 6 hours
             if date_range_length > dt.timedelta(hours=24):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(hours=6))
+                recent_runner, runner = runner_slice(runner, dt.timedelta(hours=6), query.orderBy)
                 response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 limit -= len(response.results)
                 yield from response.results
@@ -118,14 +139,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             yield from response.results
 
-        try:
-            results = list(itertools.islice(results_generator(query, logs_query_params), logs_query_params["limit"]))
-        except Exception as e:
-            capture_exception(e)
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        results = list(itertools.islice(results_generator(query, logs_query_params), logs_query_params["limit"]))
         return Response({"query": query, "results": results}, status=200)
 
-    @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", {})
 
@@ -138,15 +155,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
-        try:
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        except Exception as e:
-            capture_exception(e)
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response(response.results, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("search", "")
 
@@ -183,7 +196,7 @@ FROM (
                 r.append(entry)
         return Response(r, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("value", "")
         key = request.GET.get("key", "")

@@ -567,6 +567,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconLive />,
                                   to: urls.logs(),
                                   tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/logs',
                               }
                             : null,
                         {

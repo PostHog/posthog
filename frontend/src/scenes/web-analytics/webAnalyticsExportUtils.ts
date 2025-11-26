@@ -149,7 +149,8 @@ class WebAnalyticsTableAdapter implements ExportAdapter {
 
     private getWebAnalyticsTableData(
         columns: string[],
-        source: WebStatsTableQuery | WebGoalsQuery | WebExternalClicksTableQuery
+        source: WebStatsTableQuery | WebGoalsQuery | WebExternalClicksTableQuery,
+        keptIndices: number[]
     ): string[][] {
         if (!this.response.results || this.response.results.length === 0 || !columns.length) {
             return []
@@ -159,7 +160,7 @@ class WebAnalyticsTableAdapter implements ExportAdapter {
         const breakdownBy = isWebStatsTableQuery(source) ? source.breakdownBy : undefined
 
         const firstRow = this.response.results[0] as any[]
-        const columnHasComparison = columns.map((_, colIndex) => Array.isArray(firstRow[colIndex]))
+        const columnHasComparison = columns.map((_, colIndex) => Array.isArray(firstRow[keptIndices[colIndex]]))
 
         const displayHeaders = hasComparison
             ? columns.flatMap((col, colIndex) => {
@@ -174,7 +175,7 @@ class WebAnalyticsTableAdapter implements ExportAdapter {
         const dataRows = this.response.results.map((result) => {
             const row = result as any[]
             return columns.flatMap((_, colIndex) => {
-                const value = row[colIndex]
+                const value = row[keptIndices[colIndex]]
                 if (hasComparison && Array.isArray(value)) {
                     return [value[0] != null ? String(value[0]) : '', value[1] != null ? String(value[1]) : '']
                 }
@@ -191,8 +192,17 @@ class WebAnalyticsTableAdapter implements ExportAdapter {
         }
         const dataTableQuery = this.query as DataTableNode
         const source = dataTableQuery.source as WebStatsTableQuery | WebGoalsQuery | WebExternalClicksTableQuery
-        const columns = (this.response.columns as string[]) || []
-        return this.getWebAnalyticsTableData(columns, source)
+        const allColumns = (this.response.columns as string[]) || []
+
+        // Filter out internal UI state columns that shouldn't be exported
+        const columnsToKeep = allColumns
+            .map((col, index) => ({ col, index }))
+            .filter(({ col }) => !col.includes('ui_fill_fraction') && !col.includes('cross_sell'))
+
+        const filteredColumns = columnsToKeep.map(({ col }) => col)
+        const keptIndices = columnsToKeep.map(({ index }) => index)
+
+        return this.getWebAnalyticsTableData(filteredColumns, source, keptIndices)
     }
 
     canHandle(): boolean {

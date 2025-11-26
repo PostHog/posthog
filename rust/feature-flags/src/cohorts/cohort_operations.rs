@@ -11,20 +11,20 @@ use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
 use common_database::PostgresReader;
-use common_types::ProjectId;
+use common_types::TeamId;
 
 impl Cohort {
     /// Returns all cohorts for a given team
     pub async fn list_from_pg(
         client: PostgresReader,
-        project_id: ProjectId,
+        team_id: TeamId,
     ) -> Result<Vec<Cohort>, FlagError> {
         let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_cohorts")
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get database connection for project {}: {}",
-                    project_id,
+                    "Failed to get database connection for team {}: {}",
+                    team_id,
                     e
                 );
                 FlagError::DatabaseUnavailable
@@ -48,17 +48,17 @@ impl Cohort {
                   c.created_by_id
               FROM posthog_cohort AS c
               JOIN posthog_team AS t ON (c.team_id = t.id)
-            WHERE t.project_id = $1
+            WHERE t.id = $1
             AND c.deleted = false
         "#;
         let cohorts = sqlx::query_as::<_, Cohort>(query)
-            .bind(project_id)
+            .bind(team_id)
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to fetch cohorts from database for project {}: {}",
-                    project_id,
+                    "Failed to fetch cohorts from database for team {}: {}",
+                    team_id,
                     e
                 );
                 FlagError::Internal(format!("Database query error: {e}"))
@@ -232,7 +232,8 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check
-                    if apply_cohort_membership_logic(&[filter.clone()], cohort_matches)? {
+                    if apply_cohort_membership_logic(std::slice::from_ref(filter), cohort_matches)?
+                    {
                         return Ok(true);
                     }
                 } else {
@@ -248,8 +249,10 @@ fn evaluate_cohort_values(
             for filter in &values.values {
                 if filter.is_cohort() {
                     // Handle cohort membership check with negation
-                    let cohort_result =
-                        apply_cohort_membership_logic(&[filter.clone()], cohort_matches)?;
+                    let cohort_result = apply_cohort_membership_logic(
+                        std::slice::from_ref(filter),
+                        cohort_matches,
+                    )?;
                     // Apply negation if specified
                     if cohort_result == filter.negation.unwrap_or(false) {
                         return Ok(false);
@@ -436,7 +439,7 @@ mod tests {
             .await
             .expect("Failed to insert cohort2");
 
-        let cohorts = Cohort::list_from_pg(context.non_persons_reader, team.project_id())
+        let cohorts = Cohort::list_from_pg(context.non_persons_reader, team.id)
             .await
             .expect("Failed to list cohorts");
 
@@ -511,7 +514,7 @@ mod tests {
             .await
             .expect("Failed to insert main_cohort");
 
-        let cohorts = Cohort::list_from_pg(context.non_persons_reader.clone(), team.project_id())
+        let cohorts = Cohort::list_from_pg(context.non_persons_reader.clone(), team.id)
             .await
             .expect("Failed to fetch cohorts");
 

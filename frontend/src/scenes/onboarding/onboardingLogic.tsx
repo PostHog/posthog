@@ -13,7 +13,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, OnboardingStepKey, ProductKey, SidePanelTab } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
@@ -24,14 +25,21 @@ export interface OnboardingLogicProps {
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
 
+const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
+    [OnboardingStepKey.AI_CONSENT]: 'Activate PostHog AI',
+}
+
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
-    return (
-        stepKey &&
-        stepKey
-            .split('_')
-            .map((part, i) => (i == 0 ? part[0].toUpperCase() + part.substring(1) : part))
-            .join(' ')
-    )
+    if (!stepKey) {
+        return undefined
+    }
+    if (STEP_KEY_TITLE_OVERRIDES[stepKey]) {
+        return STEP_KEY_TITLE_OVERRIDES[stepKey]
+    }
+    return stepKey
+        .split('_')
+        .map((part, i) => (i == 0 ? part[0].toUpperCase() + part.substring(1) : part))
+        .join(' ')
 }
 
 // These types have to be set like this, so that kea typegen is happy

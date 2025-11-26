@@ -16,7 +16,27 @@ from posthog import settings
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
-from dags.backups import Backup, BackupConfig, get_latest_backup, non_sharded_backup, prepare_run_config, sharded_backup
+from dags.backups import (
+    Backup,
+    BackupConfig,
+    BackupStatus,
+    get_latest_backups,
+    get_latest_successful_backup,
+    non_sharded_backup,
+    prepare_run_config,
+    sharded_backup,
+)
+
+
+def test_get_latest_backup_empty():
+    mock_s3 = MagicMock()
+    mock_s3.get_client().list_objects_v2.return_value = {}
+
+    config = BackupConfig(database="posthog", table="dummy")
+    context = dagster.build_op_context()
+    result = get_latest_backups(context=context, config=config, s3=mock_s3)
+
+    assert result == []
 
 
 @pytest.mark.parametrize("table", ["", "test"])
@@ -31,15 +51,84 @@ def test_get_latest_backup(table: str):
     }
 
     config = BackupConfig(database="posthog", table=table)
-    result = get_latest_backup(config=config, s3=mock_s3)
+    context = dagster.build_op_context()
+    result = get_latest_backups(context=context, config=config, s3=mock_s3)
 
-    assert isinstance(result, Backup)
-    assert result.database == "posthog"
-    assert result.date == "2024-03-01T07:54:04Z"
-    assert result.base_backup is None
+    assert isinstance(result, list)
+    assert result[0].database == "posthog"
+    assert result[0].date == "2024-03-01T07:54:04Z"
+    assert result[0].base_backup is None
+
+    assert result[1].database == "posthog"
+    assert result[1].date == "2024-02-01T07:54:04Z"
+    assert result[1].base_backup is None
+
+    assert result[2].database == "posthog"
+    assert result[2].date == "2024-01-01T07:54:04Z"
+    assert result[2].base_backup is None
 
     expected_table = table if table else None
-    assert result.table == expected_table
+    assert result[0].table == expected_table
+    assert result[1].table == expected_table
+    assert result[2].table == expected_table
+
+
+def test_get_latest_successful_backup_returns_latest_backup():
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
+    backup1.is_done = MagicMock(return_value=True)  # type: ignore
+    backup1.status = MagicMock(  # type: ignore
+        return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
+    )
+
+    backup2 = Backup(database="posthog", date="2024-01-01T07:54:04Z", table="test")
+    backup2.is_done = MagicMock(return_value=True)  # type: ignore
+    backup2.status = MagicMock(  # type: ignore
+        return_value=BackupStatus(hostname="test", status="BACKUP_CREATED", event_time_microseconds=datetime.now())
+    )
+
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        mock_client = MagicMock()
+        mock_result.result.return_value = {"host1": fn(mock_client)}
+        return mock_result
+
+    cluster = MagicMock()
+    cluster.map_hosts_by_role.side_effect = mock_map_hosts
+
+    result = get_latest_successful_backup(
+        context=dagster.build_op_context(),
+        config=config,
+        latest_backups=[backup1, backup2],
+        cluster=cluster,
+    )
+
+    assert result == backup2
+
+
+def test_get_latest_successful_backup_fails():
+    config = BackupConfig(database="posthog", table="test", incremental=True)
+    backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
+    backup1.status = MagicMock(  # type: ignore
+        return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
+    )
+
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        mock_client = MagicMock()
+        mock_result.result.return_value = {"host1": fn(mock_client)}
+        return mock_result
+
+    cluster = MagicMock()
+    cluster.map_hosts_by_role.side_effect = mock_map_hosts
+
+    with pytest.raises(dagster.Failure):
+        get_latest_successful_backup(
+            context=dagster.build_op_context(),
+            config=config,
+            latest_backups=[backup1],
+            cluster=cluster,
+        )
 
 
 def run_backup_test(
@@ -144,7 +233,6 @@ def run_backup_test(
 def test_full_non_sharded_backup(cluster: ClickhouseCluster):
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=False,
         workload=Workload.ONLINE,
@@ -161,7 +249,6 @@ def test_full_non_sharded_backup(cluster: ClickhouseCluster):
 def test_full_sharded_backup(cluster: ClickhouseCluster):
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=False,
         workload=Workload.ONLINE,
@@ -178,7 +265,6 @@ def test_full_sharded_backup(cluster: ClickhouseCluster):
 def test_incremental_non_sharded_backup(cluster: ClickhouseCluster):
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=True,
         workload=Workload.ONLINE,
@@ -195,7 +281,6 @@ def test_incremental_non_sharded_backup(cluster: ClickhouseCluster):
 def test_incremental_sharded_backup(cluster: ClickhouseCluster):
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=True,
         workload=Workload.ONLINE,

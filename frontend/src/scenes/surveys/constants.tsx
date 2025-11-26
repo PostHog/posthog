@@ -12,6 +12,7 @@ import {
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveySchedule,
+    SurveyTabPosition,
     SurveyType,
     SurveyWidgetType,
 } from '~/types'
@@ -62,6 +63,7 @@ export const defaultSurveyAppearance = {
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
     position: SurveyPosition.Right,
+    tabPosition: SurveyTabPosition.Right,
     widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',
@@ -630,6 +632,7 @@ export enum SURVEY_CREATED_SOURCE {
     SURVEY_FORM = 'survey_form',
     SURVEY_EMPTY_STATE = 'survey_empty_state',
     EXPERIMENTS = 'experiments',
+    INSIGHT_CROSS_SELL = 'insight_cross_sell',
 }
 
 export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {

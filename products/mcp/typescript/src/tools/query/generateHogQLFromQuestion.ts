@@ -1,12 +1,13 @@
+import type { z } from 'zod'
+
 import { InsightGenerateHogQLFromQuestionSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
-import type { z } from 'zod'
 
 const schema = InsightGenerateHogQLFromQuestionSchema
 
 type Params = z.infer<typeof schema>
 
-export const generateHogQLHandler = async (context: Context, params: Params) => {
+export const generateHogQLHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
     const { question } = params
     const projectId = await context.stateManager.getProjectId()
 
@@ -26,7 +27,7 @@ export const generateHogQLHandler = async (context: Context, params: Params) => 
             ],
         }
     }
-    return { content: [{ type: 'text', text: JSON.stringify(result.data) }] }
+    return result.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

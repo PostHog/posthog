@@ -7,8 +7,8 @@ from braintrust import EvalCase
 
 from posthog.schema import HumanMessage, VisualizationMessage
 
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 

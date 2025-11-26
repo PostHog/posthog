@@ -255,7 +255,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     )
                 ) AS trace_name,
                 countIf(
-                    isNotNull(properties.$ai_error) OR properties.$ai_is_error = true
+                    isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true'
                 ) AS error_count
             FROM events
             WHERE event IN (

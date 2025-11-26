@@ -447,7 +447,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         old_saved_query_id = old_saved_query.id
 
         # Mock the sync workflow to avoid triggering actual workflow
-        with patch("products.data_warehouse.backend.api.saved_query.sync_saved_query_workflow"):
+        with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
             # Update query (which should create new version and transfer materialization)
             new_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp > now() - INTERVAL 1 DAY"}
             response = self.client.put(

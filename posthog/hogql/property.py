@@ -1,5 +1,5 @@
 import re
-from typing import Literal, Optional, cast
+from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
 from django.db.models import Q
@@ -156,6 +156,17 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise QueryError(f"{operator} operator requires a two-element array [min, max]")
+    try:
+        if float(value[0]) > float(value[1]):
+            raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
+    except (ValueError, TypeError):
+        raise QueryError(f"{operator} operator requires numeric values")
+    return True
+
+
 def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
@@ -239,10 +250,28 @@ def _expr_to_compare_op(
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.LTE:
+    elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.GTE:
+    elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
         return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.BETWEEN:
+        _validate_between_values(value, operator)
+        assert isinstance(value, list)
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
+                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value[1])),
+            ]
+        )
+    elif operator == PropertyOperator.NOT_BETWEEN:
+        _validate_between_values(value, operator)
+        assert isinstance(value, list)
+        return ast.Or(
+            exprs=[
+                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
+                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
+            ]
+        )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -518,7 +547,7 @@ def property_to_expr(
                 ],
             )
 
-        if isinstance(value, list):
+        if isinstance(value, list) and operator not in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
             if len(value) == 0:
                 return ast.Constant(value=1)
             elif len(value) == 1:

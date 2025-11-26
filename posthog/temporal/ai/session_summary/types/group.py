@@ -10,16 +10,7 @@ class SessionSummaryStreamUpdate(Enum):
     """Types of updates that can be streamed during session group summarization."""
 
     UI_STATUS = "ui_status"  # Status messages for UI progress display
-    NOTEBOOK_UPDATE = "notebook_update"  # Intermediate state for notebook display
     FINAL_RESULT = "final_result"  # Final summarization result
-
-
-class SessionSummaryStep(Enum):
-    """Steps in the session group summarization process."""
-
-    WATCHING_SESSIONS = "watching_sessions"
-    FINDING_PATTERNS = "finding_patterns"
-    GENERATING_REPORT = "generating_report"
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -30,6 +21,7 @@ class SessionGroupSummaryInputs:
     user_id: int
     team_id: int
     redis_key_base: str
+    summary_title: str | None
     # Timestamps required to avoid reading too many days from ClickHouse
     min_timestamp_str: str
     max_timestamp_str: str
@@ -54,6 +46,7 @@ class SessionGroupSummaryOfSummariesInputs:
     single_session_summaries_inputs: list[SingleSessionSummaryInputs]
     user_id: int
     team_id: int
+    summary_title: str | None
     redis_key_base: str
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None

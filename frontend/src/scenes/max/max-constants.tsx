@@ -1,12 +1,13 @@
-import { IconAtSign, IconBook, IconCompass, IconCreditCard, IconMemory, IconSearch } from '@posthog/icons'
+import { IconAtSign, IconBook, IconCreditCard, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
 
 import { EnhancedToolCall } from './Thread'
+import { isAgentMode } from './maxTypes'
 
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
@@ -37,6 +38,8 @@ export interface ToolDefinition<N extends string = string> {
     product?: Scene
     /** If the tool is only available if a feature flag is enabled, you can specify it here. */
     flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+    /** If the tool is in beta, set this to true to display a beta badge */
+    beta?: boolean
 }
 
 /** Active instance of a tool. */
@@ -49,6 +52,16 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
      */
     /** Contextual data to be included for use by the LLM */
     context?: Record<string, any>
+    /**
+     * Optional: Describes what kind of context information is being provided
+     * This metadata is shown to users in the context topbar to indicate what contextual values are available
+     */
+    contextDescription?: {
+        /** The type or category of context (e.g., "Current insight", "Active filters") */
+        text: string
+        /** Icon to display for the context type */
+        icon: JSX.Element
+    }
     /**
      * Optional: If this tool is the main one of the page, you can override the default intro headline and description when it's mounted.
      *
@@ -66,12 +79,18 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
 }
 
+/** Static mode definition for display purposes. */
+export interface ModeDefinition {
+    name: string
+}
+
 export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, ToolDefinition> = {
     session_summarization: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
         flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
+        beta: true,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized sessions'
@@ -151,24 +170,28 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             },
         },
     },
-    navigate: {
-        name: 'Navigate',
-        description: 'Navigate to other places in PostHog',
-        icon: <IconCompass />,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Navigated to a different page'
-            }
-            return 'Navigating to a different page...'
-        },
-    },
     create_and_query_insight: {
         name: 'Edit the insight',
         description: "Edit the insight you're viewing",
         icon: iconForType('product_analytics'),
         product: Scene.Insight,
         displayFormatter: (toolCall, { registeredToolMap }) => {
-            const isEditing = registeredToolMap.create_and_query_insight
+            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
+            if (isEditing) {
+                return toolCall.status === 'completed'
+                    ? 'Edited the insight you are viewing'
+                    : 'Editing the insight you are viewing...'
+            }
+            return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
+        },
+    },
+    create_insight: {
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
+        icon: iconForType('product_analytics'),
+        product: Scene.Insight,
+        displayFormatter: (toolCall, { registeredToolMap }) => {
+            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
             if (isEditing) {
                 return toolCall.status === 'completed'
                     ? 'Edited the insight you are viewing'
@@ -275,6 +298,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Finding impactful issues...'
         },
     },
+    error_tracking_explain_issue: {
+        name: 'Explain an issue',
+        description: 'Explain an issue by analyzing its stack trace',
+        product: Scene.ErrorTracking,
+        icon: iconForType('error_tracking'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Issue explained'
+            }
+            return 'Analyzing issue...'
+        },
+    },
     experiment_results_summary: {
         name: 'Summarize experiment results',
         description: 'Summarize experiment results for a comprehensive rundown',
@@ -346,6 +381,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Filtering revenue analytics...'
         },
     },
+    filter_web_analytics: {
+        name: 'Filter web analytics',
+        description: 'Filter web analytics to analyze traffic patterns and user behavior',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Filtered web analytics'
+            }
+            return 'Filtering web analytics...'
+        },
+    },
     edit_current_dashboard: {
         name: 'Add an insight to the dashboard',
         description: "Add an insight to the dashboard you're viewing",
@@ -370,14 +417,78 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Creating feature flag...'
         },
     },
+    create_experiment: {
+        name: 'Create an experiment',
+        description: 'Create an experiment in seconds',
+        product: Scene.Experiments,
+        icon: iconForType('experiment'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created experiment'
+            }
+            return 'Creating experiment...'
+        },
+    },
+    switch_mode: {
+        name: 'Switch agent mode',
+        description: 'Switch agent mode to a specialized agent',
+        icon: <IconShuffle />,
+        displayFormatter: (toolCall) => {
+            const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null
+            const modeText = modeName ? ` to the ${modeName} mode` : 'mode'
+
+            if (toolCall.status === 'completed') {
+                return `Switched agent ${modeText}`
+            }
+
+            return `Switching agent ${modeText}...`
+        },
+    },
+    execute_sql: {
+        name: 'Write and tweak SQL',
+        description: 'Write and tweak SQL right there',
+        product: Scene.SQLEditor,
+        icon: iconForType('insight/hog'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Executed SQL'
+            }
+            return 'Writing an SQL query...'
+        },
+    },
+    summarize_sessions: {
+        name: 'Summarize sessions',
+        description: 'Summarize sessions to analyze real user behavior',
+        flag: 'max-session-summarization',
+        icon: iconForType('session_replay'),
+        beta: true,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Summarized sessions'
+            }
+            return 'Summarizing sessions...'
+        },
+    },
 }
 
-export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
+export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
+    [AgentMode.ProductAnalytics]: {
+        name: 'product analytics',
+    },
+    [AgentMode.SQL]: {
+        name: 'SQL',
+    },
+    [AgentMode.SessionReplay]: {
+        name: 'session replay',
+    },
+}
+
+export const AI_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
     { icon: <IconAtSign />, description: 'Analyze and use attached context' },
     { icon: <IconMemory />, description: 'Remember project-level information' },
 ]
 
-export const MAX_GENERALLY_CANNOT: string[] = [
+export const AI_GENERALLY_CANNOT: string[] = [
     'Access your source code or third‑party tools',
     'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',

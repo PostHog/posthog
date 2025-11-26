@@ -1,8 +1,9 @@
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import pagination, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 from posthog.models.insight_variable import InsightVariable
 
 
@@ -43,6 +44,15 @@ class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = InsightVariablePagination
     serializer_class = InsightVariableSerializer
     filter_backends = [DjangoFilterBackend]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+
+        if isinstance(
+            request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
+            raise PermissionDenied("Insight variables cannot be accessed via sharing authentication")
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariable]) -> dict:

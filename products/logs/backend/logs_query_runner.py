@@ -198,20 +198,29 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             )
 
         if self.query.searchTerm:
-            exprs.append(
-                parse_expr(
-                    "body LIKE {searchTerm}",
-                    placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
+            # negative search match if first character of search string is !
+            if self.query.searchTerm.startswith("!") and len(self.query.searchTerm) > 1:
+                exprs.append(
+                    parse_expr(
+                        "body NOT LIKE {searchTerm}",
+                        placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm[1:]}%")},
+                    )
                 )
-            )
-            # ip addresses are particularly bad at full text searches with our ngram 3 index
-            # match them separately against a materialized column of ip addresses
-            exprs.append(
-                parse_expr(
-                    "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
-                    placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
+            else:
+                exprs.append(
+                    parse_expr(
+                        "body LIKE {searchTerm}",
+                        placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
+                    )
                 )
-            )
+                # ip addresses are particularly bad at full text searches with our ngram 3 index
+                # match them separately against a materialized column of ip addresses
+                exprs.append(
+                    parse_expr(
+                        "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
+                        placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
+                    )
+                )
 
         if self.query.filterGroup:
             exprs.append(property_to_expr(self.query.filterGroup, team=self.team))

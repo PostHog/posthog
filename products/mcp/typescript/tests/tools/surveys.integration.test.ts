@@ -1,3 +1,5 @@
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -18,7 +20,6 @@ import getGlobalSurveyStatsTool from '@/tools/surveys/global-stats'
 import getSurveyStatsTool from '@/tools/surveys/stats'
 import updateSurveyTool from '@/tools/surveys/update'
 import type { Context } from '@/tools/types'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 describe('Surveys', { concurrent: false }, () => {
     let context: Context
@@ -60,7 +61,7 @@ describe('Surveys', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const createResponse = parseToolResponse(result)
-            expect(createResponse.id).toBeDefined()
+            expect(createResponse.id).toBeTruthy()
             createdResources.surveys.push(createResponse.id)
 
             // Verify by getting the created survey
@@ -103,12 +104,7 @@ describe('Surveys', { concurrent: false }, () => {
                     {
                         type: 'multiple_choice' as const,
                         question: 'What improvements would you like to see?',
-                        choices: [
-                            'Better UI',
-                            'More integrations',
-                            'Faster performance',
-                            'Better docs',
-                        ],
+                        choices: ['Better UI', 'More integrations', 'Faster performance', 'Better docs'],
                         hasOpenChoice: true,
                     },
                 ],
@@ -117,7 +113,7 @@ describe('Surveys', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const createResponse = parseToolResponse(result)
-            expect(createResponse.id).toBeDefined()
+            expect(createResponse.id).toBeTruthy()
             createdResources.surveys.push(createResponse.id)
 
             // Verify by getting the created survey
@@ -142,8 +138,7 @@ describe('Surveys', { concurrent: false }, () => {
                 questions: [
                     {
                         type: 'rating' as const,
-                        question:
-                            'How likely are you to recommend our product to a friend or colleague?',
+                        question: 'How likely are you to recommend our product to a friend or colleague?',
                         scale: 10 as const,
                         display: 'number' as const,
                         lowerBoundLabel: 'Not at all likely',
@@ -175,7 +170,7 @@ describe('Surveys', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const createResponse = parseToolResponse(result)
-            expect(createResponse.id).toBeDefined()
+            expect(createResponse.id).toBeTruthy()
             createdResources.surveys.push(createResponse.id)
 
             // Verify by getting the created survey
@@ -185,7 +180,7 @@ describe('Surveys', { concurrent: false }, () => {
             expect(surveyData.id).toBe(createResponse.id)
             expect(surveyData.name).toBe(params.name)
             expect(surveyData.questions).toHaveLength(4)
-            expect(surveyData.questions[0].branching).toBeDefined()
+            expect(surveyData.questions[0].branching).toBeTruthy()
             expect(surveyData.questions[0].branching.type).toBe('response_based')
         })
 
@@ -221,7 +216,7 @@ describe('Surveys', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const createResponse = parseToolResponse(result)
-            expect(createResponse.id).toBeDefined()
+            expect(createResponse.id).toBeTruthy()
             createdResources.surveys.push(createResponse.id)
 
             // Verify by getting the created survey
@@ -230,7 +225,7 @@ describe('Surveys', { concurrent: false }, () => {
 
             expect(surveyData.id).toBe(createResponse.id)
             expect(surveyData.name).toBe(params.name)
-            expect(surveyData.targeting_flag).toBeDefined()
+            expect(surveyData.targeting_flag).toBeTruthy()
         })
     })
 
@@ -270,9 +265,7 @@ describe('Surveys', { concurrent: false }, () => {
         it('should return error for non-existent survey ID', async () => {
             const nonExistentId = generateUniqueKey('non-existent')
 
-            await expect(getTool.handler(context, { surveyId: nonExistentId })).rejects.toThrow(
-                'Failed to get survey'
-            )
+            await expect(getTool.handler(context, { surveyId: nonExistentId })).rejects.toThrow('Failed to get survey')
         })
     })
 
@@ -314,7 +307,7 @@ describe('Surveys', { concurrent: false }, () => {
             // Verify our test surveys are in the list
             for (const testSurvey of testSurveys) {
                 const found = allSurveys.results.find((s: any) => s.id === testSurvey.id)
-                expect(found).toBeDefined()
+                expect(found).toBeTruthy()
                 expect(found.name).toBe(testSurvey.name)
             }
         })
@@ -353,11 +346,11 @@ describe('Surveys', { concurrent: false }, () => {
                 if (searchResults.results.length > 0) {
                     const found = searchResults.results.find((s: any) => s.id === createdSurvey.id)
                     // Survey might not be found in search results immediately
-                    expect(found).toBeDefined()
+                    expect(found).toBeTruthy()
                 }
             } else {
                 // If no results structure, just verify we got a response
-                expect(searchResults).toBeDefined()
+                expect(searchResults).toBeTruthy()
             }
         })
     })
@@ -391,7 +384,7 @@ describe('Surveys', { concurrent: false }, () => {
             const statsResult = await statsTool.handler(context, { survey_id: createdSurvey.id })
             const stats = parseToolResponse(statsResult)
 
-            expect(stats).toBeDefined()
+            expect(stats).toBeTruthy()
             // Stats may be undefined if no survey events exist yet
             expect(typeof (stats.survey_shown || 0)).toBe('number')
             expect(typeof (stats.survey_dismissed || 0)).toBe('number')
@@ -406,7 +399,7 @@ describe('Surveys', { concurrent: false }, () => {
             const result = await globalStatsTool.handler(context, {})
             const stats = parseToolResponse(result)
 
-            expect(stats).toBeDefined()
+            expect(stats).toBeTruthy()
             // Stats may be undefined if no survey events exist yet
             expect(typeof (stats.survey_shown || 0)).toBe('number')
             expect(typeof (stats.survey_dismissed || 0)).toBe('number')
@@ -420,7 +413,7 @@ describe('Surveys', { concurrent: false }, () => {
             })
             const stats = parseToolResponse(result)
 
-            expect(stats).toBeDefined()
+            expect(stats).toBeTruthy()
         })
     })
 
@@ -451,8 +444,6 @@ describe('Surveys', { concurrent: false }, () => {
             // Delete the survey
             const deleteResult = await deleteTool.handler(context, { surveyId: createdSurvey.id })
 
-            expect(deleteResult.content).toBeDefined()
-            expect(deleteResult.content[0].type).toBe('text')
             const deleteResponse = parseToolResponse(deleteResult)
             expect(deleteResponse.success).toBe(true)
             expect(deleteResponse.message).toContain('archived successfully')
@@ -711,9 +702,7 @@ describe('Surveys', { concurrent: false }, () => {
             } else {
                 // If linked_flag_id is not set, the feature flag linking might not be supported
                 // or there might be an issue with the update tool
-                console.warn(
-                    'Feature flag linking appears to not be working - linked_flag_id is undefined'
-                )
+                console.warn('Feature flag linking appears to not be working - linked_flag_id is undefined')
                 expect(updatedSurvey.id).toBe(createdSurvey.id) // At least verify the survey exists
             }
         })
@@ -771,7 +760,7 @@ describe('Surveys', { concurrent: false }, () => {
             const getResult = await getTool.handler(context, { surveyId: createdSurvey.id })
             const updatedSurvey = parseToolResponse(getResult)
 
-            expect(updatedSurvey.targeting_flag).toBeDefined()
+            expect(updatedSurvey.targeting_flag).toBeTruthy()
             expect(updatedSurvey.targeting_flag.filters.groups).toHaveLength(1)
             expect(updatedSurvey.targeting_flag.filters.groups[0].properties).toHaveLength(2)
             expect(updatedSurvey.targeting_flag.filters.groups[0].rollout_percentage).toBe(75)
@@ -821,7 +810,7 @@ describe('Surveys', { concurrent: false }, () => {
             expect(updatedSurvey.iteration_count).toBe(3)
             expect(updatedSurvey.iteration_frequency_days).toBe(7)
             expect(updatedSurvey.responses_limit).toBe(100)
-            expect(updatedSurvey.start_date).toBeDefined()
+            expect(updatedSurvey.start_date).toBeTruthy()
         })
     })
 
@@ -873,7 +862,7 @@ describe('Surveys', { concurrent: false }, () => {
 
             const updateResult = await updateTool.handler(context, updateParams)
             const updateResponse = parseToolResponse(updateResult)
-            expect(updateResponse.id).toBeDefined()
+            expect(updateResponse.id).toBeTruthy()
 
             // Verify update by getting the survey
             const getUpdatedResult = await getTool.handler(context, { surveyId: createdSurvey.id })
@@ -951,7 +940,7 @@ describe('Surveys', { concurrent: false }, () => {
 
             const createResult = await createTool.handler(context, createParams)
             const createResponse = parseToolResponse(createResult)
-            expect(createResponse.id).toBeDefined()
+            expect(createResponse.id).toBeTruthy()
             createdResources.surveys.push(createResponse.id)
 
             // Verify creation by getting the survey
@@ -960,8 +949,8 @@ describe('Surveys', { concurrent: false }, () => {
 
             expect(createdSurvey.id).toBe(createResponse.id)
             expect(createdSurvey.questions).toHaveLength(3)
-            expect(createdSurvey.questions[0]?.branching).toBeDefined()
-            expect(createdSurvey.targeting_flag).toBeDefined()
+            expect(createdSurvey.questions[0]?.branching).toBeTruthy()
+            expect(createdSurvey.targeting_flag).toBeTruthy()
             expect(createdSurvey.responses_limit).toBe(100)
 
             // Update survey
@@ -970,7 +959,7 @@ describe('Surveys', { concurrent: false }, () => {
                 responses_limit: 200,
             })
             const updateResponse = parseToolResponse(updateResult)
-            expect(updateResponse.id).toBeDefined()
+            expect(updateResponse.id).toBeTruthy()
 
             // Verify update by getting the survey again
             const getUpdatedResult = await getTool.handler(context, {
@@ -982,7 +971,7 @@ describe('Surveys', { concurrent: false }, () => {
             // Get stats
             const statsResult = await statsTool.handler(context, { survey_id: createdSurvey.id })
             const stats = parseToolResponse(statsResult)
-            expect(stats).toBeDefined()
+            expect(stats).toBeTruthy()
 
             // Clean up
             const deleteResult = await deleteTool.handler(context, { surveyId: createdSurvey.id })

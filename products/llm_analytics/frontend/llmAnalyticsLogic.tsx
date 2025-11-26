@@ -11,7 +11,6 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,7 +18,15 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { isAnyPropertyFilters } from '~/queries/schema-guards'
-import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    LLMTrace,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    TraceQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
@@ -29,12 +36,12 @@ import {
     EventDefinitionType,
     HogQLMathType,
     InsightShortId,
-    ProductKey,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
 } from '~/types'
 
+import errorsQueryTemplate from '../backend/queries/errors.sql?raw'
 import type { llmAnalyticsLogicType } from './llmAnalyticsLogicType'
 
 export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
@@ -50,7 +57,7 @@ export function getDefaultGenerationsColumns(showInputOutput: boolean): string[]
         ...(showInputOutput ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices'] : []),
         'person',
         "f'{properties.$ai_model}' -- Model",
-        "if(notEmpty(properties.$ai_error) OR properties.$ai_is_error = 'true', '❌', '') -- Error",
+        "if(properties.$ai_is_error = 'true', '❌', '') -- Error",
         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
         "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
         "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Cost",
@@ -109,6 +116,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         setTracesQuery: (query: DataTableNode) => ({ query }),
         setSessionsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         setUsersSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
+        setErrorsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         setGenerationsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         refreshAllDashboardItems: true,
         setRefreshStatus: (tileId: string, loading?: boolean) => ({ tileId, loading }),
@@ -201,6 +209,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             { column: 'last_seen', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
             {
                 setUsersSort: (_, { column, direction }) => ({ column, direction }),
+            },
+        ],
+
+        errorsSort: [
+            { column: 'traces', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
+            {
+                setErrorsSort: (_, { column, direction }) => ({ column, direction }),
             },
         ],
 
@@ -541,6 +556,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'traces'
                 } else if (sceneKey === 'llmAnalyticsUsers') {
                     return 'users'
+                } else if (sceneKey === 'llmAnalyticsErrors') {
+                    return 'errors'
                 } else if (sceneKey === 'llmAnalyticsSessions') {
                     return 'sessions'
                 } else if (sceneKey === 'llmAnalyticsPlayground') {
@@ -1141,6 +1158,70 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 allowSorting: true,
             }),
         ],
+        errorsQuery: [
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                s.errorsSort,
+                groupsModel.selectors.groupsTaxonomicTypes,
+            ],
+            (
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[],
+                errorsSort: { column: string; direction: 'ASC' | 'DESC' },
+                groupsTaxonomicTypes: TaxonomicFilterGroupType[]
+            ): DataTableNode => {
+                // Use the shared query template
+                // Simple placeholder replacement - no escaping needed
+                const query = errorsQueryTemplate
+                    .replace('__ORDER_BY__', errorsSort.column)
+                    .replace('__ORDER_DIRECTION__', errorsSort.direction)
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query,
+                        filters: {
+                            dateRange: {
+                                date_from: dateFilter.dateFrom || null,
+                                date_to: dateFilter.dateTo || null,
+                            },
+                            filterTestAccounts: shouldFilterTestAccounts,
+                            properties: propertyFilters,
+                        },
+                    },
+                    columns: [
+                        'error',
+                        'traces',
+                        'generations',
+                        'spans',
+                        'embeddings',
+                        'sessions',
+                        'users',
+                        'days_seen',
+                        'first_seen',
+                        'last_seen',
+                    ],
+                    showDateRange: true,
+                    showReload: true,
+                    showSearch: true,
+                    showPropertyFilter: [
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        ...groupsTaxonomicTypes,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                    ],
+                    showTestAccountFilters: true,
+                    showExport: true,
+                    showColumnConfigurator: true,
+                    allowSorting: true,
+                }
+            },
+        ],
         sessionsQuery: [
             (s) => [
                 s.dateFilter,
@@ -1150,11 +1231,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 groupsModel.selectors.groupsTaxonomicTypes,
             ],
             (
-                dateFilter,
-                shouldFilterTestAccounts,
-                propertyFilters,
-                sessionsSort,
-                groupsTaxonomicTypes
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[],
+                sessionsSort: { column: string; direction: 'ASC' | 'DESC' },
+                groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -1166,7 +1247,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     countIf(event = '$ai_span') as spans,
                     countIf(event = '$ai_generation') as generations,
                     countIf(event = '$ai_embedding') as embeddings,
-                    countIf(isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true') as errors,
+                    countIf(properties.$ai_is_error = 'true') as errors,
                     round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
                     round(sum(toFloat(properties.$ai_latency)), 2) as total_latency,
                     min(timestamp) as first_seen,
@@ -1219,7 +1300,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         ],
         isRefreshing: [
             (s) => [s.refreshStatus],
-            (refreshStatus) => Object.values(refreshStatus).some((status) => status.loading),
+            (refreshStatus: Record<string, { loading?: boolean; timer?: Date }>) =>
+                Object.values(refreshStatus).some((status) => status.loading),
         ],
         breadcrumbs: [
             () => [],
@@ -1266,6 +1348,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }

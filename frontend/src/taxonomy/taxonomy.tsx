@@ -159,6 +159,13 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
         '$csp_user_agent',
     ],
     $set: ['$set', '$set_once'],
+    $exception: [
+        '$exception_issue_id',
+        '$exception_functions',
+        '$exception_sources',
+        '$exception_types',
+        '$exception_values',
+    ],
 }
 export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
 
@@ -170,16 +177,6 @@ export function isPostHogProperty(propertyKey: string, isCloudOrDev: boolean | u
 
 export const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
     {
-        key: UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
-        label: 'UTM Campaign Name',
-        type: 'string',
-    },
-    {
-        key: UTM_SOURCE_NAME_SCHEMA_FIELD,
-        label: 'UTM Source Name',
-        type: 'string',
-    },
-    {
         key: 'timestamp_field',
         label: 'Timestamp Field',
         allowHogQL: true,
@@ -188,5 +185,17 @@ export const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
         key: 'distinct_id_field',
         label: 'Distinct ID Field',
         allowHogQL: true,
+    },
+    {
+        key: UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
+        label: 'UTM Campaign Name',
+        type: 'string',
+        optional: true,
+    },
+    {
+        key: UTM_SOURCE_NAME_SCHEMA_FIELD,
+        label: 'UTM Source Name',
+        type: 'string',
+        optional: true,
     },
 ]

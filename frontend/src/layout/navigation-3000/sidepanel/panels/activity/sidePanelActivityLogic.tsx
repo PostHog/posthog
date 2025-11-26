@@ -42,7 +42,6 @@ export enum SidePanelActivityTab {
     Unread = 'unread',
     All = 'all',
     Metalytics = 'metalytics',
-    Subscriptions = 'subscriptions',
 }
 
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([

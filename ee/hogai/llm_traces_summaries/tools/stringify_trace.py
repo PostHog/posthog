@@ -85,18 +85,6 @@ class LLMTracesSummarizerStringifier:
         return f"ai: {message_content}"
 
     @staticmethod
-    def _stringify_tool_message(message: dict[str, Any]) -> str | None:
-        # Keep navigation messages
-        if (
-            message.get("ui_payload")
-            and isinstance(message["ui_payload"], dict)
-            and message["ui_payload"].get("navigate")
-        ):
-            return f"ai/navigation: *{message['content']}*"
-        # TODO: Decide how to catch errors as they aren't marked as errors in the trace
-        return None
-
-    @staticmethod
     def _stringify_human_message(message: dict[str, Any]) -> str | None:
         message_content = message["content"]
         if not message_content:
@@ -121,8 +109,8 @@ class LLMTracesSummarizerStringifier:
                 return self._stringify_human_message(message)
             if message_type == "context":  # Skip context messages
                 return None
-            if message_type == "tool":  # Decide if to keep tool messages
-                return self._stringify_tool_message(message)
+            if message_type == "tool":
+                return None
             # Ignore other message types
             # TODO: Decide if there's a need for other message types
             return None

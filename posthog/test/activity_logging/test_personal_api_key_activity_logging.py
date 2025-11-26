@@ -276,6 +276,31 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertEqual(context["team_name"], self.team.name)
         self.assertEqual(context["scopes"], ["*"])
 
+    def test_org_level_api_key_broadcasts_to_subscribed_teams(self):
+        """Test that org-level PersonalAPIKey logs are broadcast to teams with receive_org_level_activity_logs=True."""
+        team_subscribed = Team.objects.create(
+            organization=self.organization,
+            name="Subscribed Team",
+            receive_org_level_activity_logs=True,
+        )
+        team_not_subscribed = Team.objects.create(
+            organization=self.organization,
+            name="Not Subscribed Team",
+            receive_org_level_activity_logs=False,
+        )
+
+        with patch("posthog.tasks.activity_log.produce_internal_event") as mock_produce:
+            self.create_personal_api_key(label="Org Level Key", scoped_organizations=[str(self.organization.id)])
+
+            self.assertEqual(mock_produce.call_count, 1)
+            call_team_ids = [call.kwargs["team_id"] for call in mock_produce.call_args_list]
+            self.assertIn(team_subscribed.id, call_team_ids)
+            self.assertNotIn(team_not_subscribed.id, call_team_ids)
+            self.assertNotIn(self.team.id, call_team_ids)
+
+            for call in mock_produce.call_args_list:
+                self.assertEqual(call.kwargs["event"].event, "$activity_log_entry_created")
+
 
 class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
     def _create_api_key(self, scoped_teams=None, scoped_organizations=None, label="Test Key"):

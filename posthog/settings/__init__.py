@@ -33,7 +33,6 @@ from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
-from posthog.settings.workflows import *
 from posthog.settings.metrics import *
 from posthog.settings.schedules import *
 from posthog.settings.shell_plus import *

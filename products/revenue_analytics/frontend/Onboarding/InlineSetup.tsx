@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -8,13 +8,14 @@ import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetCard'
 import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
+import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
 
 import { EventConfigurationModal } from '../settings/EventConfigurationModal'
@@ -28,7 +29,7 @@ interface RevenueSource {
 }
 
 interface InlineSetupProps {
-    closeOnboarding: () => void
+    completeOnboarding: () => void
     initialSetupView?: InlineSetupView // NOTE: This should NOT be used except for testing purposes (storybook)
 }
 
@@ -39,10 +40,13 @@ export type InlineSetupView = 'overview' | 'add-source'
 const REVENUE_SOURCE_TYPES: ExternalDataSourceType[] = ['Stripe', 'Chargebee', 'Polar', 'RevenueCat']
 const AVAILABLE_REVENUE_SOURCE_TYPES: Set<ExternalDataSourceType> = new Set(['Stripe'])
 
-export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupProps): JSX.Element {
+export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetupProps): JSX.Element {
     const { events, enabledDataWarehouseSources, dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { reportRevenueAnalyticsDataSourceConnected, reportRevenueAnalyticsOnboardingCompleted } =
+        useActions(eventUsageLogic)
+    const { addProductIntent } = useActions(teamLogic)
 
     const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
     const isViewsetEnabled = currentTeam?.managed_viewsets?.['revenue_analytics'] ?? false
@@ -83,6 +87,14 @@ export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupPr
     const handleFormSuccess = (): void => {
         setCurrentView('overview')
         setSelectedSource(null)
+        if (selectedSource) {
+            reportRevenueAnalyticsDataSourceConnected(selectedSource)
+            addProductIntent({
+                product_type: ProductKey.REVENUE_ANALYTICS,
+                intent_context: ProductIntentContext.REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED,
+                metadata: { source_type: selectedSource },
+            })
+        }
     }
 
     const handleEventModalClose = (): void => {
@@ -240,7 +252,16 @@ export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupPr
                                     <LemonButton
                                         type="primary"
                                         size="small"
-                                        onClick={closeOnboarding}
+                                        onClick={() => {
+                                            reportRevenueAnalyticsOnboardingCompleted(hasEvents, hasSources)
+                                            addProductIntent({
+                                                product_type: ProductKey.REVENUE_ANALYTICS,
+                                                intent_context:
+                                                    ProductIntentContext.REVENUE_ANALYTICS_ONBOARDING_COMPLETED,
+                                                metadata: { has_events: hasEvents, has_sources: hasSources },
+                                            })
+                                            completeOnboarding()
+                                        }}
                                         icon={<IconCheckCircle />}
                                         className="ml-auto"
                                     >
@@ -294,6 +315,7 @@ export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupPr
                                             {source.isConnected && (
                                                 <span
                                                     className="text-xs text-white p-1 rounded-full"
+                                                    // eslint-disable-next-line react/forbid-dom-props
                                                     style={{ backgroundColor: 'var(--primary-3000)' }}
                                                 >
                                                     Connected

@@ -1,7 +1,7 @@
 import gc
 import sys
 import time
-from typing import Any, Literal
+from typing import Any, Generic, Literal
 
 from django.db.models import F
 
@@ -13,9 +13,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
@@ -25,13 +26,13 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     normalize_column_name,
     normalize_table_column_names,
     setup_partitioning,
-    table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
@@ -40,7 +41,7 @@ from products.data_warehouse.backend.models.external_data_schema import process_
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
-class PipelineNonDLT:
+class PipelineNonDLT(Generic[ResumableData]):
     _resource: SourceResponse
     _resource_name: str
     _job: ExternalDataJob
@@ -49,10 +50,10 @@ class PipelineNonDLT:
     _is_incremental: bool
     _reset_pipeline: bool
     _delta_table_helper: DeltaTableHelper
+    _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema = HogQLSchema()
+    _batcher: Batcher
     _load_id: int
-    _chunk_size: int = 5000
-    _chunk_size_bytes: int = 200 * 1024 * 1024  # 200 MiB
 
     def __init__(
         self,
@@ -61,6 +62,7 @@ class PipelineNonDLT:
         job_id: str,
         reset_pipeline: bool,
         shutdown_monitor: ShutdownMonitor,
+        resumable_source_manager: ResumableSourceManager[ResumableData] | None,
     ) -> None:
         self._resource = source
         self._resource_name = source.name
@@ -76,6 +78,8 @@ class PipelineNonDLT:
         self._is_incremental = schema.is_incremental
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
+        self._resumable_source_manager = resumable_source_manager
+        self._batcher = Batcher(self._logger)
         self._internal_schema = HogQLSchema()
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
@@ -86,12 +90,18 @@ class PipelineNonDLT:
     def run(self):
         pa_memory_pool = pa.default_memory_pool()
 
+        should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        source_is_resumable = self._resumable_source_manager is not None
+        if should_resume:
+            self._logger.info("Resumable source detected - attempting to resume previous import")
+
         try:
             # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
             if (
                 self._job.rows_synced is not None
                 and self._job.rows_synced != 0
                 and (not self._is_incremental or self._reset_pipeline is True)
+                and not should_resume
             ):
                 self._job.rows_synced = 0
                 self._job.save()
@@ -112,17 +122,15 @@ class PipelineNonDLT:
                         f"Your account will hit your Data Warehouse billing limits syncing {self._resource.name} with {self._resource.rows_to_sync} rows"
                     )
 
-            buffer: list[Any] = []
-            buffer_size_bytes = 0
             py_table = None
             row_count = 0
             chunk_index = 0
 
-            if self._reset_pipeline:
+            if self._reset_pipeline and not should_resume:
                 self._logger.debug("Deleting existing table due to reset_pipeline being set")
                 self._delta_table_helper.reset_table()
                 self._schema.update_sync_type_config_for_reset_pipeline()
-            elif self._schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+            elif self._schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
                 # Avoid schema mismatches from existing data about to be overwritten
                 self._logger.debug("Deleting existing table due to sync being full refresh")
                 self._delta_table_helper.reset_table()
@@ -131,50 +139,23 @@ class PipelineNonDLT:
             # If the schema has no DWH table, it's a first ever sync
             is_first_ever_sync: bool = self._schema.table is None
 
-            for item in self._resource.items:
+            for item in self._resource.items():
                 py_table = None
 
-                if isinstance(item, list):
-                    if len(buffer) > 0:
-                        buffer.extend(item)
-                        buffer_size_bytes += _estimate_size(item)
-                        if buffer_size_bytes >= self._chunk_size_bytes or len(buffer) >= self._chunk_size:
-                            self._logger.debug(f"Processing pipeline buffer (list). Length of buffer = {len(buffer)}")
+                self._batcher.batch(item)
+                if not self._batcher.should_yield():
+                    continue
 
-                            py_table = table_from_py_list(buffer)
-                            buffer = []
-                            buffer_size_bytes = 0
-                        else:
-                            continue
-                    else:
-                        buffer_size_bytes += _estimate_size(item)
-                        if buffer_size_bytes >= self._chunk_size_bytes or len(item) >= self._chunk_size:
-                            self._logger.debug(f"Processing pipeline item (list). Length of item = {len(item)}")
-                            py_table = table_from_py_list(item)
-                            buffer_size_bytes = 0
-                        else:
-                            buffer.extend(item)
-                            continue
-                elif isinstance(item, dict):
-                    buffer.append(item)
-                    buffer_size_bytes += _estimate_size(item)
-                    if buffer_size_bytes < self._chunk_size_bytes and len(buffer) < self._chunk_size:
-                        continue
+                py_table = self._batcher.get_table()
 
-                    self._logger.debug(f"Processing pipeline buffer (dict). Length of buffer = {len(buffer)}")
-                    py_table = table_from_py_list(buffer)
-                    buffer = []
-                    buffer_size_bytes = 0
-                elif isinstance(item, pa.Table):
-                    py_table = item
-                else:
-                    raise Exception(f"Unhandled item type: {item.__class__.__name__}")
-
-                assert py_table is not None
                 row_count += py_table.num_rows
 
                 self._process_pa_table(
-                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_ever_sync=is_first_ever_sync
+                    pa_table=py_table,
+                    index=chunk_index,
+                    resuming_sync=should_resume,
+                    row_count=row_count,
+                    is_first_ever_sync=is_first_ever_sync,
                 )
 
                 chunk_index += 1
@@ -186,20 +167,27 @@ class PipelineNonDLT:
                 gc.collect()
 
                 # Only raise if we're not running in descending order, otherwise we'll often not
-                # complete the job before the incremental value can be updated
+                # complete the job before the incremental value can be updated. Or if the source is
+                # resumable
                 # TODO: raise when we're within `x` time of the worker being forced to shutdown
-                if (
+                # Raising during a full reset will reset our progress back to 0 rows
+                incremental_sync_raise_during_shutdown = (
                     self._schema.should_use_incremental_field
                     and self._resource.sort_mode != "desc"
-                    and not self._reset_pipeline  # Raising during a full reset will reset our progress back to 0 rows
-                ):
+                    and not self._reset_pipeline
+                )
+                if incremental_sync_raise_during_shutdown or source_is_resumable:
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
-            if len(buffer) > 0:
-                py_table = table_from_py_list(buffer)
+            if self._batcher.should_yield(include_incomplete_chunk=True):
+                py_table = self._batcher.get_table()
                 row_count += py_table.num_rows
                 self._process_pa_table(
-                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_ever_sync=is_first_ever_sync
+                    pa_table=py_table,
+                    index=chunk_index,
+                    resuming_sync=should_resume,
+                    row_count=row_count,
+                    is_first_ever_sync=is_first_ever_sync,
                 )
 
             self._post_run_operations(row_count=row_count)
@@ -214,15 +202,15 @@ class PipelineNonDLT:
             del self._resource
             del self._delta_table_helper
 
-            if "buffer" in locals() and buffer is not None:
-                del buffer
             if "py_table" in locals() and py_table is not None:
                 del py_table
 
             pa_memory_pool.release_unused()
             gc.collect()
 
-    def _process_pa_table(self, pa_table: pa.Table, index: int, row_count: int, is_first_ever_sync: bool):
+    def _process_pa_table(
+        self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
+    ):
         delta_table = self._delta_table_helper.get_delta_table()
         previous_file_uris = delta_table.file_uris() if delta_table else []
 
@@ -240,8 +228,13 @@ class PipelineNonDLT:
         elif self._schema.is_append:
             write_type = "append"
 
+        should_overwrite_table = index == 0 and not resuming_sync
+
         delta_table = self._delta_table_helper.write_to_deltalake(
-            pa_table, write_type, index, self._resource.primary_keys
+            pa_table,
+            write_type,
+            should_overwrite_table=should_overwrite_table,
+            primary_keys=self._resource.primary_keys,
         )
 
         self._internal_schema.add_pyarrow_table(pa_table)

@@ -272,6 +272,208 @@ class TestCreateFeatureFlagTool(APIBaseTest):
             exists = await FeatureFlag.objects.filter(key="invalid-group", team=self.team).aexists()
             assert not exists
 
+    async def test_create_flag_key_validation(self):
+        """Test that feature flag keys follow the required regex pattern: ^[a-zA-Z0-9_-]+$"""
+        import re
+
+        tool = self._create_tool()
+
+        # Test valid keys
+        valid_keys = [
+            "simple-flag",
+            "flag_with_underscores",
+            "Flag-With-Mixed-CASE-123",
+            "123-numeric-start",
+            "a",
+            "flag-123_test",
+        ]
+
+        for key in valid_keys:
+            mock_schema = FeatureFlagCreationSchema(
+                key=key,
+                name=f"Test Flag {key}",
+            )
+
+            with patch.object(tool, "_create_flag_from_instructions", new=AsyncMock(return_value=mock_schema)):
+                result, artifact = await tool._arun_impl(instructions=f"Create a flag called {key}")
+
+                assert "Successfully created" in result, f"Valid key '{key}' should be accepted"
+                assert artifact["flag_key"] == key
+                assert re.match(r"^[a-zA-Z0-9_-]+$", artifact["flag_key"]), f"Key '{key}' should match regex pattern"
+
+                # Clean up for next iteration
+                await FeatureFlag.objects.filter(key=key, team=self.team).adelete()
+
+        # Test invalid keys that should be rejected
+        invalid_keys = [
+            "flag with spaces",
+            "flag@special",
+            "flag#chars",
+            "flag.dot",
+            "flag!exclamation",
+            "flag$dollar",
+            "flag%percent",
+            "flag&ampersand",
+            "flag(paren",
+            "flag+plus",
+        ]
+
+        for key in invalid_keys:
+            mock_schema = FeatureFlagCreationSchema(
+                key=key,
+                name=f"Test Flag {key}",
+            )
+
+            with patch.object(tool, "_create_flag_from_instructions", new=AsyncMock(return_value=mock_schema)):
+                result, artifact = await tool._arun_impl(instructions=f"Create a flag called {key}")
+
+                # Either the key should be rejected with an error, or it should be sanitized
+                if artifact.get("error"):
+                    assert (
+                        "invalid" in result.lower() or "key" in result.lower()
+                    ), f"Invalid key '{key}' should produce an error message"
+                else:
+                    # If not rejected, the key must be sanitized to match the regex
+                    assert re.match(
+                        r"^[a-zA-Z0-9_-]+$", artifact["flag_key"]
+                    ), f"Invalid key '{key}' should be sanitized to match regex pattern, got '{artifact['flag_key']}'"
+
+                # Clean up if flag was created
+                if not artifact.get("error"):
+                    await FeatureFlag.objects.filter(key=artifact["flag_key"], team=self.team).adelete()
+
+    async def test_create_multivariate_flag(self):
+        """Test creating a multivariate A/B test flag."""
+        from products.feature_flags.backend.max_tools import MultivariateVariant
+
+        tool = self._create_tool()
+
+        mock_schema = FeatureFlagCreationSchema(
+            key="ab-test-flag",
+            name="A/B Test Flag",
+            variants=[
+                MultivariateVariant(key="control", name="Control", rollout_percentage=50),
+                MultivariateVariant(key="test", name="Test Variant", rollout_percentage=50),
+            ],
+        )
+
+        with patch.object(tool, "_create_flag_from_instructions", new=AsyncMock(return_value=mock_schema)):
+            result, artifact = await tool._arun_impl(instructions="Create an A/B test flag")
+
+            assert "Successfully created" in result
+            assert "A/B test with 2 variants" in result
+            assert artifact["flag_key"] == "ab-test-flag"
+
+            flag = await FeatureFlag.objects.aget(key="ab-test-flag", team=self.team)
+            assert "multivariate" in flag.filters
+            assert len(flag.filters["multivariate"]["variants"]) == 2
+            assert flag.filters["multivariate"]["variants"][0]["key"] == "control"
+            assert flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+            assert flag.filters["multivariate"]["variants"][1]["key"] == "test"
+            assert flag.filters["multivariate"]["variants"][1]["rollout_percentage"] == 50
+
+    async def test_create_multivariate_flag_three_variants(self):
+        """Test creating a multivariate flag with 3 variants."""
+        from products.feature_flags.backend.max_tools import MultivariateVariant
+
+        tool = self._create_tool()
+
+        mock_schema = FeatureFlagCreationSchema(
+            key="abc-test",
+            name="A/B/C Test",
+            variants=[
+                MultivariateVariant(key="control", name="Control", rollout_percentage=33),
+                MultivariateVariant(key="variant_a", name="Variant A", rollout_percentage=33),
+                MultivariateVariant(key="variant_b", name="Variant B", rollout_percentage=34),
+            ],
+        )
+
+        with patch.object(tool, "_create_flag_from_instructions", new=AsyncMock(return_value=mock_schema)):
+            result, artifact = await tool._arun_impl(instructions="Create an A/B/C test")
+
+            assert "Successfully created" in result
+            assert "multivariate with 3 variants" in result
+
+            flag = await FeatureFlag.objects.aget(key="abc-test", team=self.team)
+            assert len(flag.filters["multivariate"]["variants"]) == 3
+
+    async def test_create_multivariate_flag_invalid_percentages(self):
+        """Test error when variant percentages don't sum to 100."""
+        from products.feature_flags.backend.max_tools import MultivariateVariant
+
+        tool = self._create_tool()
+
+        mock_schema = FeatureFlagCreationSchema(
+            key="invalid-variants",
+            name="Invalid Variants",
+            variants=[
+                MultivariateVariant(key="control", name="Control", rollout_percentage=50),
+                MultivariateVariant(key="test", name="Test", rollout_percentage=40),  # Only sums to 90!
+            ],
+        )
+
+        with patch.object(tool, "_create_flag_from_instructions", new=AsyncMock(return_value=mock_schema)):
+            result, artifact = await tool._arun_impl(instructions="Create invalid flag")
+
+            assert "must sum to 100" in result
+            assert artifact.get("error") == "invalid_variant_percentages"
+
+            # Ensure flag was not created
+            exists = await FeatureFlag.objects.filter(key="invalid-variants", team=self.team).aexists()
+            assert not exists
+
+    async def test_create_multivariate_with_property_filters(self):
+        """Test creating a multivariate flag with property filters (targeted A/B test)."""
+        from products.feature_flags.backend.max_tools import MultivariateVariant
+
+        # Setup: Create a group type mapping
+        await GroupTypeMapping.objects.acreate(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            name_plural="Organizations",
+        )
+
+        tool = self._create_tool()
+
+        mock_schema = FeatureFlagCreationSchema(
+            key="targeted-ab-test",
+            name="Targeted A/B Test",
+            group_type="organization",
+            variants=[
+                MultivariateVariant(key="control", name="Control", rollout_percentage=50),
+                MultivariateVariant(key="test", name="Test", rollout_percentage=50),
+            ],
+            groups=[
+                FeatureFlagGroupType(
+                    properties=[
+                        GroupPropertyFilter(
+                            key="plan",
+                            value="enterprise",
+                            operator=PropertyOperator.EXACT,
+                            group_type_index=0,
+                        )
+                    ],
+                    rollout_percentage=None,
+                )
+            ],
+        )
+
+        with patch.object(tool, "_create_flag_from_instructions", new=AsyncMock(return_value=mock_schema)):
+            result, artifact = await tool._arun_impl(instructions="Create an A/B test for enterprise organizations")
+
+            assert "Successfully created" in result
+            assert "A/B test with 2 variants" in result
+            assert "1 property filter(s)" in result
+            assert "Organizations" in result or "organization" in result
+
+            flag = await FeatureFlag.objects.aget(key="targeted-ab-test", team=self.team)
+            assert "multivariate" in flag.filters
+            assert len(flag.filters["multivariate"]["variants"]) == 2
+            assert flag.filters["aggregation_group_type_index"] == 0
+            assert len(flag.filters["groups"][0]["properties"]) == 1
+
     @staticmethod
     async def _get_tag_names(flag: FeatureFlag) -> list[str]:
         """Helper to get tag names for a flag."""

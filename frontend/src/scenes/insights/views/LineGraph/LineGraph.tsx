@@ -666,7 +666,7 @@ export function LineGraph_({
                             label: {
                                 content: annotation.label,
                                 display: annotation.displayLabel ?? true,
-                                position: 'end',
+                                position: annotation.position ?? 'end',
                             },
                             borderWidth: 1,
                             borderDash: [5, 8],

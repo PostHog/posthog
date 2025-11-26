@@ -25,7 +25,7 @@ from posthog.models.alert import (
     Threshold,
     are_alerts_supported_for_insight,
 )
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.utils import relative_date_parse
 
 
@@ -346,7 +346,7 @@ class AlertSubscriptionContext(AlertConfigurationContext):
     subscriber_email: Optional[str] = None
 
 
-@receiver(model_activity_signal, sender=AlertConfiguration)
+@mutable_receiver(model_activity_signal, sender=AlertConfiguration)
 def handle_alert_configuration_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -370,7 +370,7 @@ def handle_alert_configuration_change(
     )
 
 
-@receiver(model_activity_signal, sender=Threshold)
+@mutable_receiver(model_activity_signal, sender=Threshold)
 def handle_threshold_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
@@ -400,7 +400,7 @@ def handle_threshold_change(
         )
 
 
-@receiver(model_activity_signal, sender=AlertSubscription)
+@mutable_receiver(model_activity_signal, sender=AlertSubscription)
 def handle_alert_subscription_change(before_update, after_update, activity, user, was_impersonated=False, **kwargs):
     alert_config = after_update.alert_configuration
 

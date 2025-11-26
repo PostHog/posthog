@@ -188,7 +188,7 @@ export function getAdditionalProperties(
 ): Record<string, unknown> {
     return Object.fromEntries(
         Object.entries(properties).filter(([key]) => {
-            return !isPostHogProperty(key, isCloudOrDev)
+            return key === 'version' || !isPostHogProperty(key, isCloudOrDev)
         })
     )
 }
@@ -242,4 +242,10 @@ export function formatType(exception: Pick<ErrorTrackingException, 'module' | 't
     const hasJavaFrames = exception.stacktrace?.frames?.some((frame) => frame.lang === 'java')
 
     return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
+}
+
+export function formatExceptionDisplay(
+    exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace' | 'value'>
+): string {
+    return `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
 }

@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -39,8 +39,8 @@ import {
 } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import type { FileSystemIconType } from '~/queries/schema/schema-general'
-import { AccessControlLevel, OnboardingStepKey, ProductKey } from '~/types'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, OnboardingStepKey } from '~/types'
 
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
@@ -270,6 +270,7 @@ const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WARE
 
 const pathPrefixesOnboardingNotRequiredFor = [
     urls.onboarding(''),
+    urls.useCaseSelection(),
     urls.products(),
     '/settings',
     urls.organizationBilling(),
@@ -429,8 +430,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         pathname: addProjectIdIfMissing(pathname),
                         search,
                         hash,
-                        title: 'New tab',
-                        iconType: 'blank',
+                        title: 'Search',
+                        iconType: 'search',
                         pinned: false,
                     }
                     return sortTabsPinnedFirst([...baseTabs, newTab])
@@ -453,8 +454,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             pathname: '/new',
                             search: '',
                             hash: '',
-                            title: 'New tab',
-                            iconType: 'blank',
+                            title: 'Search',
+                            iconType: 'search',
                             pinned: false,
                         })
                     }
@@ -654,9 +655,6 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.sceneId],
             (sceneId: Scene): SceneConfig | null => {
                 const config = sceneConfigurations[sceneId] || null
-                if (sceneId === Scene.SQLEditor) {
-                    return { ...config, layout: 'app-raw' }
-                }
                 return config
             },
             { resultEqualityCheck: equal },
@@ -811,6 +809,12 @@ export const sceneLogic = kea<sceneLogicType>([
             ],
             (titleAndIcon) => titleAndIcon as { title: string; iconType: FileSystemIconType | 'loading' | 'blank' },
             { resultEqualityCheck: equal },
+        ],
+        firstTabIsActive: [
+            (s) => [s.activeTabId, s.tabs],
+            (activeTabId, tabs): boolean => {
+                return activeTabId === tabs[0]?.id
+            },
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
@@ -1115,13 +1119,22 @@ export const sceneLogic = kea<sceneLogicType>([
                                 ) &&
                                 !teamLogic.values.currentTeam?.ingested_event
                             ) {
-                                console.warn('No onboarding completed, redirecting to /products')
-
                                 const nextUrl =
                                     getRelativeNextPath(params.searchParams.next, location) ??
                                     removeProjectIdIfPresent(location.pathname)
 
-                                router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                // Default to false (products page) if feature flags haven't loaded yet
+                                const useUseCaseSelection =
+                                    values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
+
+                                if (useUseCaseSelection) {
+                                    router.actions.replace(
+                                        urls.useCaseSelection(),
+                                        nextUrl ? { next: nextUrl } : undefined
+                                    )
+                                } else {
+                                    router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
+                                }
                                 return
                             }
 
@@ -1535,29 +1548,5 @@ export const sceneLogic = kea<sceneLogicType>([
             window.addEventListener('storage', onStorage)
             return () => window.removeEventListener('storage', onStorage)
         }, 'pinnedTabsStorageListener')
-    }),
-    afterMount(({ actions, cache, values }) => {
-        cache.disposables.add(() => {
-            const onKeyDown = (event: KeyboardEvent): void => {
-                if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
-                    const element = event.target as HTMLElement
-                    if (element?.closest('.NotebookEditor')) {
-                        return
-                    }
-
-                    event.preventDefault()
-                    event.stopPropagation()
-                    if (event.shiftKey) {
-                        if (values.activeTab) {
-                            actions.removeTab(values.activeTab)
-                        }
-                    } else {
-                        actions.newTab()
-                    }
-                }
-            }
-            window.addEventListener('keydown', onKeyDown)
-            return () => window.removeEventListener('keydown', onKeyDown)
-        }, 'keydownListener')
     }),
 ])

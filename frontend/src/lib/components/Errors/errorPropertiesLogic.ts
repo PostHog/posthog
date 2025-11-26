@@ -4,6 +4,7 @@ import {
     ErrorEventId,
     ErrorEventProperties,
     ErrorTrackingException,
+    ErrorTrackingStackFrame,
     FingerprintRecordPart,
 } from 'lib/components/Errors/types'
 import {
@@ -81,7 +82,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         frames: [
             (s) => [s.exceptionList],
             (exceptionList: ErrorTrackingException[]) => {
-                return exceptionList.flatMap((e) => e.stacktrace?.frames ?? [])
+                return exceptionList.flatMap((e) => e.stacktrace?.frames ?? []) as ErrorTrackingStackFrame[]
             },
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],

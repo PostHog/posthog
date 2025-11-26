@@ -113,7 +113,7 @@ export function ProjectHomepage(): JSX.Element {
     // Negative margin to counter-act the scene configs default padding
     return (
         <div className="-m-4">
-            <NewTabScene source="homepage" />
+            <NewTabScene />
         </div>
     )
 }

@@ -162,6 +162,11 @@ function createEntry(entry) {
                     test: /monaco-editor\/.*\.m?js/,
                     loader: 'babel-loader',
                 },
+                {
+                    // Apply rule for .sql files
+                    test: /\.sql$/,
+                    type: 'asset/source',
+                },
             ],
         },
         // add devServer config only to 'main' entry

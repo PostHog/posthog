@@ -92,6 +92,7 @@ const renderVariableSpecificFields = (
                         mode="multiple"
                         allowCustomValues={true}
                         options={[]}
+                        sortable={true}
                     />
                 </LemonField.Pure>
                 <LemonField.Pure label="Default value" className="gap-1">

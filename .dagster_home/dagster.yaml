@@ -1,1 +1,10 @@
 # Local dev only, see dags/README.md for more info
+
+concurrency:
+    runs:
+        tag_concurrency_limits:
+            # See dags/sessions.py
+            - key: 'sessions_backfill_concurrency'
+              limit: 3
+              value:
+                  applyLimitPerUniqueValue: true

@@ -1,8 +1,7 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 
 import { splitProtocolPath } from '~/layout/panel-layout/ProjectTree/utils'
 
@@ -11,7 +10,6 @@ import type { pinnedFolderLogicType } from './pinnedFolderLogicType'
 export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
     path(['layout', 'panel-layout', 'PinnedFolder', 'pinnedFolderLogic']),
     actions({
-        setPinnedFolder: (id: string) => ({ id }),
         setSelectedFolder: (id: string) => ({ id }),
     }),
     lazyLoaders(() => ({
@@ -26,29 +24,22 @@ export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
                     }
                     return 'products://'
                 },
+                setPinnedFolder: async (id: string) => {
+                    const [protocol, path] = splitProtocolPath(id)
+                    await api.persistedFolder.create({ protocol, path, type: 'pinned' })
+
+                    return id
+                },
             },
         ],
     })),
     reducers(() => ({
-        pinnedFolderSource: [
-            'loading://',
-            { persist: true, prefix: `${getCurrentTeamIdOrNone()}__${getCurrentUserIdOrNone()}__` },
-            {
-                setPinnedFolder: (_, { id }) => id,
-            },
-        ],
         selectedFolder: [
             'products://',
             {
                 setSelectedFolder: (_, { id }) => id,
             },
         ],
-    })),
-    listeners(() => ({
-        setPinnedFolder: async ({ id }) => {
-            const [protocol, path] = splitProtocolPath(id)
-            await api.persistedFolder.create({ protocol, path, type: 'pinned' })
-        },
     })),
     afterMount(({ actions, values }) => {
         if (values.selectedFolder !== values.pinnedFolder) {

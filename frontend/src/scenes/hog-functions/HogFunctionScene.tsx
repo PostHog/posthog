@@ -247,14 +247,12 @@ function HogFunctionHeader(): JSX.Element {
                 resourceType={{
                     type: 'data_pipeline',
                     forceIcon: (
-                        <span className="flex">
-                            <HogFunctionIconEditable
-                                logicKey={logicProps.id ?? 'new'}
-                                src={configuration.icon_url}
-                                onChange={(val) => setConfigurationValue('icon_url', val)}
-                                size="small"
-                            />
-                        </span>
+                        <HogFunctionIconEditable
+                            logicKey={logicProps.id ?? 'new'}
+                            src={configuration.icon_url}
+                            onChange={(val) => setConfigurationValue('icon_url', val)}
+                            size="small"
+                        />
                     ),
                 }}
                 isLoading={loading}

@@ -1117,3 +1117,103 @@ def test_creating_http_batch_export_only_allows_events_model(
 
     if expected_error:
         assert response.json()["detail"] == expected_error
+
+
+@pytest.mark.parametrize(
+    "type,filters,config,expected_status,expected_error",
+    [
+        (
+            "BigQuery",
+            {"filters": {"filter_something": 123}},
+            {
+                "project_id": "test",
+                "dataset_id": "test",
+                "private_key": "pkey",
+                "private_key_id": "pkey_id",
+                "token_uri": "token",
+                "client_email": "email",
+            },
+            status.HTTP_400_BAD_REQUEST,
+            "should be an array",
+        ),
+        (
+            "BigQuery",
+            None,
+            {
+                "project_id": "test",
+                "dataset_id": "test",
+                "private_key": "pkey",
+                "private_key_id": "pkey_id",
+                "token_uri": "token",
+                "client_email": "email",
+            },
+            status.HTTP_201_CREATED,
+            None,
+        ),
+        (
+            "BigQuery",
+            [],
+            {
+                "project_id": "test",
+                "dataset_id": "test",
+                "private_key": "pkey",
+                "private_key_id": "pkey_id",
+                "token_uri": "token",
+                "client_email": "email",
+            },
+            status.HTTP_201_CREATED,
+            None,
+        ),
+        (
+            "S3",
+            [{"data_interval_start": "2025-01-01"}],
+            {
+                "bucket_name": "my-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "aws_access_key_id": "abc123",
+                "aws_secret_access_key": "secret",
+            },
+            status.HTTP_400_BAD_REQUEST,
+            "not 'filters'. Trigger a backfill",
+        ),
+    ],
+)
+def test_creating_batch_export_with_filters(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    type,
+    filters,
+    config,
+    expected_status,
+    expected_error,
+):
+    """Test validation of the filters field when creating a batch export."""
+
+    destination_data = {
+        "type": type,
+        "config": config,
+    }
+
+    batch_export_data = {
+        "name": "my-destination",
+        "destination": destination_data,
+        "interval": "hour",
+        "model": "events",
+        "filters": filters,
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == expected_status, response.json()
+
+    if expected_error:
+        assert expected_error in response.json()["detail"]
