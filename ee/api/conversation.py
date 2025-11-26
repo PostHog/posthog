@@ -290,3 +290,32 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             ConversationFeedbackSerializer(feedback).data,
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=True, methods=["PATCH"], url_path="feedback/(?P<feedback_id>[^/.]+)")
+    def update_feedback(self, request: Request, feedback_id: str, *args, **kwargs):
+        conversation = self.get_object()
+
+        if conversation.user != request.user:
+            return Response(
+                {"error": "Cannot update feedback for other users' conversations"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            feedback = ConversationFeedback.objects.get(id=feedback_id, conversation=conversation)
+        except ConversationFeedback.DoesNotExist:
+            return Response(
+                {"error": "Feedback not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Only allow updating support_ticket_id
+        support_ticket_id = request.data.get("support_ticket_id")
+        if support_ticket_id:
+            feedback.support_ticket_id = support_ticket_id
+            feedback.save(update_fields=["support_ticket_id"])
+
+        return Response(
+            ConversationFeedbackSerializer(feedback).data,
+            status=status.HTTP_200_OK,
+        )

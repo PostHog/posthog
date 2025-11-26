@@ -691,3 +691,116 @@ class TestConversation(APIBaseTest):
 
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 mock_is_team_limited.assert_called_once()
+
+    def test_submit_feedback_success(self):
+        """Test that user can submit feedback for their own conversation."""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="My conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/feedback/",
+            {
+                "rating": "good",
+                "feedback_text": "Great experience!",
+                "trigger_type": "manual",
+                "trace_id": str(uuid.uuid4()),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["rating"], "good")
+        self.assertEqual(data["feedback_text"], "Great experience!")
+        self.assertEqual(data["trigger_type"], "manual")
+        self.assertIn("id", data)
+
+    def test_cannot_submit_feedback_for_other_users_conversation(self):
+        """Test that user cannot submit feedback for another user's conversation."""
+        conversation = Conversation.objects.create(
+            user=self.other_user, team=self.team, title="Other user conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/feedback/",
+            {
+                "rating": "bad",
+                "feedback_text": "Not good",
+                "trigger_type": "manual",
+                "trace_id": str(uuid.uuid4()),
+            },
+        )
+
+        # Returns 404 because queryset is filtered by user (doesn't reveal conversation existence)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_feedback_with_support_ticket_id(self):
+        """Test that user can update their feedback with a support ticket ID."""
+        from ee.models.assistant import ConversationFeedback
+
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="My conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        feedback = ConversationFeedback.objects.create(
+            conversation=conversation,
+            user=self.user,
+            team=self.team,
+            rating="bad",
+            feedback_text="Issue description",
+            trigger_type="manual",
+            trace_id=str(uuid.uuid4()),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/feedback/{feedback.id}/",
+            {"support_ticket_id": "zendesk-12345"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["support_ticket_id"], "zendesk-12345")
+
+        # Verify in database
+        feedback.refresh_from_db()
+        self.assertEqual(feedback.support_ticket_id, "zendesk-12345")
+
+    def test_cannot_update_feedback_for_other_users_conversation(self):
+        """Test that user cannot update feedback for another user's conversation."""
+        from ee.models.assistant import ConversationFeedback
+
+        conversation = Conversation.objects.create(
+            user=self.other_user, team=self.team, title="Other conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        feedback = ConversationFeedback.objects.create(
+            conversation=conversation,
+            user=self.other_user,
+            team=self.team,
+            rating="bad",
+            feedback_text="Issue",
+            trigger_type="manual",
+            trace_id=str(uuid.uuid4()),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/feedback/{feedback.id}/",
+            {"support_ticket_id": "zendesk-12345"},
+        )
+
+        # Returns 404 because queryset is filtered by user (doesn't reveal conversation existence)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_nonexistent_feedback_returns_404(self):
+        """Test that updating non-existent feedback returns 404."""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="My conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        fake_feedback_id = str(uuid.uuid4())
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/feedback/{fake_feedback_id}/",
+            {"support_ticket_id": "zendesk-12345"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

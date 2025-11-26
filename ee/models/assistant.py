@@ -259,6 +259,10 @@ class ConversationFeedback(UUIDModel):
 
     trigger_type = models.CharField(max_length=50, choices=TriggerType.choices)
 
+    support_ticket_id = models.CharField(
+        max_length=255, blank=True, null=True, help_text="Support ticket ID if a ticket was opened"
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

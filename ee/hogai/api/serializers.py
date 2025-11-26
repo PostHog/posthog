@@ -112,7 +112,7 @@ class ConversationSerializer(ConversationMinimalSerializer):
 class ConversationFeedbackSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConversationFeedback
-        fields = ["id", "rating", "feedback_text", "trigger_type", "trace_id", "created_at"]
+        fields = ["id", "rating", "feedback_text", "trigger_type", "trace_id", "support_ticket_id", "created_at"]
         read_only_fields = ["id", "created_at"]
 
     def validate_rating(self, value: str) -> str:

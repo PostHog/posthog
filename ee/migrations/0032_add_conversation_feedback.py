@@ -54,6 +54,12 @@ class Migration(migrations.Migration):
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
+                    "support_ticket_id",
+                    models.CharField(
+                        blank=True, help_text="Support ticket ID if a ticket was opened", max_length=255, null=True
+                    ),
+                ),
+                (
                     "conversation",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE, related_name="feedback", to="ee.conversation"
