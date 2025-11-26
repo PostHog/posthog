@@ -347,32 +347,7 @@ export class PostgresPersonRepository
                 'version',
             ]
             const columns = forcedId ? ['id', ...baseColumns] : baseColumns
-
-<<<<<<< HEAD
-            // When cutover is enabled and no forcedId, we need to explicitly call nextval() for id
-            // because partitioned tables don't automatically apply DEFAULT values when the column is omitted
-            const useDefaultId = !forcedId
-
-            let columns: string[]
-            let valuePlaceholders: string
-
-            if (useDefaultId) {
-                // Include 'id' in columns but use nextval() to explicitly get next sequence value
-                // We need this for partitioned tables which don't properly inherit DEFAULT constraints
-                columns = ['id', ...baseColumns]
-                valuePlaceholders = `nextval('posthog_person_id_seq'), ${baseColumns.map((_, i) => `$${i + 1}`).join(', ')}`
-            } else if (forcedId) {
-                // Include 'id' in columns and use $1 for its value
-                columns = ['id', ...baseColumns]
-                valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
-            } else {
-                // Don't include 'id' - let the table's DEFAULT handle it
-                columns = baseColumns
-                valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
-            }
-=======
             const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
->>>>>>> 3f4006623e (Revert "refactor: add person table cutover migration (#41415)")
 
             // Sanitize and measure JSON field sizes
             const sanitizedProperties = sanitizeJsonbValue(properties)
