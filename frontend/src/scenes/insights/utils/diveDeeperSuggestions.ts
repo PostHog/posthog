@@ -1,3 +1,5 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
 import {
     ActionsNode,
     EventsNode,
@@ -8,6 +10,7 @@ import {
     RetentionQuery,
     StickinessQuery,
 } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { EntityTypes, IntervalType, RetentionPeriod } from '~/types'
 
 export type FollowUpSuggestion = {
@@ -50,7 +53,13 @@ function getRetentionFollowUps(query: RetentionQuery): FollowUpSuggestion[] {
 
     if (returningEntity.type === EntityTypes.EVENTS || returningEntity.kind === NodeKind.EventsNode) {
         const eventName = returningEntity.id || returningEntity.name || 'event'
-        entityDisplayName = typeof eventName === 'string' ? eventName : 'event'
+
+        if (typeof eventName === 'string') {
+            const coreDefinition = getCoreFilterDefinition(eventName, TaxonomicFilterGroupType.Events)
+            entityDisplayName = coreDefinition?.label || eventName
+        } else {
+            entityDisplayName = 'event'
+        }
 
         series = [
             {
