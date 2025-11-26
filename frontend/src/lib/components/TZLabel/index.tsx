@@ -160,7 +160,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         return formatDate || formatTime
             ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime, { showNow, showToday })
             : parsedTime.fromNow()
-    }, [formatDate, formatTime, parsedTime])
+    }, [formatDate, formatTime, parsedTime, showNow, showToday])
 
     const [formattedContent, setFormattedContent] = useState(format())
 
