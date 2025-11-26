@@ -1240,8 +1240,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         cte_query = processor.generate_cte_query(additional_conditions)
         response = execute_hogql_query(query=cte_query, team=self.team)
 
-        # If it succeeds, check results - result format: [campaign_name, source_name, conversion_count]
-        total_conversions = sum(row[2] for row in response.results)
+        # If it succeeds, check results - result format: [campaign_name, campaign_id, source_name, conversion_count]
+        total_conversions = sum(row[3] for row in response.results)
         assert (
             total_conversions == 3
         ), f"Expected 3 total conversions (all events) with empty event name, got {total_conversions}"
@@ -1426,8 +1426,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             len(response.results) == 2
         ), f"Expected 2 events with Unicode property mapping, got {len(response.results)}"
 
-        # Check that both events are counted correctly - result format: [campaign_name, source_name, conversion_count]
-        total_conversions = sum(row[2] for row in response.results)  # row[2] is conversion_count
+        # Check that both events are counted correctly - result format: [campaign_name, campaign_id, source_name, conversion_count]
+        total_conversions = sum(row[3] for row in response.results)  # row[3] is conversion_count
         assert (
             total_conversions == 2
         ), f"Expected total of 2 conversions with Unicode properties, got {total_conversions}. Unicode property names should not affect conversion counting."
@@ -4964,7 +4964,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert len(response_dau.results) == 1, f"Expected 1 result for DAU, got {len(response_dau.results)}"
 
         # Validation: DAU should count unique users (3 unique users)
-        campaign_name_dau, source_name_dau, conversion_count_dau = response_dau.results[0]
+        campaign_name_dau, campaign_id_dau, source_name_dau, conversion_count_dau = response_dau.results[0]
         assert conversion_count_dau == 3, f"Expected 3 unique users for DAU, got {conversion_count_dau}"
 
     def test_actions_multiple_events_with_property_filters(self):
@@ -5283,8 +5283,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert len(events_response.results) == 1
         assert len(actions_response.results) == 1
 
-        events_campaign, events_source, events_count = events_response.results[0]
-        actions_campaign, actions_source, actions_count = actions_response.results[0]
+        events_campaign, events_campaign_id, events_source, events_count = events_response.results[0]
+        actions_campaign, actions_campaign_id, actions_source, actions_count = actions_response.results[0]
 
         # Both should attribute to same UTM source
         assert events_campaign == actions_campaign == "summer_launch"
