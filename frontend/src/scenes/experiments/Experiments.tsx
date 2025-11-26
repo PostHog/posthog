@@ -10,6 +10,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,11 +19,14 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
+import { QuickSurveyModal } from 'scenes/surveys/quick-create/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -55,23 +59,56 @@ export const scene: SceneExport = {
 export const EXPERIMENTS_PRODUCT_DESCRIPTION =
     'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
 
-// Component for the survey button using MaxTool
-const ExperimentSurveyButton = ({ experiment }: { experiment: Experiment }): JSX.Element => {
+export function useExperimentSurvey(
+    experiment: Experiment,
+    onOpenModal?: () => void
+): {
+    handleClick: () => void
+    isDisabled: boolean
+    hasFeatureFlag: boolean
+} {
     const { user } = useValues(userLogic)
     const { openMax } = useMaxTool(createMaxToolExperimentSurveyConfig(experiment, user))
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const shouldUseQuickCreate = featureFlags[FEATURE_FLAGS.SURVEYS_EXPERIMENTS_BUTTON_EXPERIMENT] === 'test'
+
+    const handleClick = (): void => {
+        if (shouldUseQuickCreate) {
+            onOpenModal?.()
+        } else {
+            openMax?.()
+        }
+    }
+
+    return {
+        handleClick,
+        isDisabled: !shouldUseQuickCreate && !openMax,
+        hasFeatureFlag: !!experiment.feature_flag,
+    }
+}
+
+const ExperimentSurveyButton = ({
+    experiment,
+    onOpenModal,
+}: {
+    experiment: Experiment
+    onOpenModal: () => void
+}): JSX.Element | null => {
+    const { handleClick, isDisabled, hasFeatureFlag } = useExperimentSurvey(experiment, onOpenModal)
 
     // Don't show the button if there's no feature flag associated with the experiment
-    if (!experiment.feature_flag) {
-        return <></>
+    if (!hasFeatureFlag) {
+        return null
     }
 
     return (
         <LemonButton
-            onClick={openMax || undefined}
+            onClick={handleClick}
             size="small"
             fullWidth
             data-attr="create-survey"
-            disabled={!openMax}
+            disabledReason={isDisabled ? 'PostHog AI not available' : undefined}
         >
             Create survey
         </LemonButton>
@@ -158,8 +195,10 @@ const ExperimentsTableFilters = ({
 
 const ExperimentsTable = ({
     openDuplicateModal,
+    openSurveyModal,
 }: {
     openDuplicateModal: (experiment: Experiment) => void
+    openSurveyModal: (experiment: Experiment) => void
 }): JSX.Element => {
     const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
         useValues(experimentsLogic)
@@ -255,7 +294,10 @@ const ExperimentsTable = ({
                                 <LemonButton onClick={() => openDuplicateModal(experiment)} size="small" fullWidth>
                                     Duplicate
                                 </LemonButton>
-                                <ExperimentSurveyButton experiment={experiment} />
+                                <ExperimentSurveyButton
+                                    experiment={experiment}
+                                    onOpenModal={() => openSurveyModal(experiment)}
+                                />
                                 {!experiment.archived &&
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
@@ -425,6 +467,7 @@ export function Experiments(): JSX.Element {
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
+    const [surveyModalExperiment, setSurveyModalExperiment] = useState<Experiment | null>(null)
 
     // Register feature flag creation tool so that it's always available on experiments page
     useMaxTool({
@@ -497,12 +540,22 @@ export function Experiments(): JSX.Element {
                     {
                         key: ExperimentsTabs.All,
                         label: 'All experiments',
-                        content: <ExperimentsTable openDuplicateModal={setDuplicateModalExperiment} />,
+                        content: (
+                            <ExperimentsTable
+                                openDuplicateModal={setDuplicateModalExperiment}
+                                openSurveyModal={setSurveyModalExperiment}
+                            />
+                        ),
                     },
                     {
                         key: ExperimentsTabs.Archived,
                         label: 'Archived experiments',
-                        content: <ExperimentsTable openDuplicateModal={setDuplicateModalExperiment} />,
+                        content: (
+                            <ExperimentsTable
+                                openDuplicateModal={setDuplicateModalExperiment}
+                                openSurveyModal={setSurveyModalExperiment}
+                            />
+                        ),
                     },
                     {
                         key: ExperimentsTabs.SharedMetrics,
@@ -527,6 +580,13 @@ export function Experiments(): JSX.Element {
                     isOpen={true}
                     onClose={() => setDuplicateModalExperiment(null)}
                     experiment={duplicateModalExperiment}
+                />
+            )}
+            {surveyModalExperiment && (
+                <QuickSurveyModal
+                    context={{ type: QuickSurveyType.EXPERIMENT, experiment: surveyModalExperiment }}
+                    isOpen={true}
+                    onCancel={() => setSurveyModalExperiment(null)}
                 />
             )}
         </SceneContent>

@@ -29,12 +29,12 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { QuickSurveyModal } from 'scenes/surveys/quick-create/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
@@ -65,6 +65,7 @@ import {
 } from '~/types'
 
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
+import { useExperimentSurvey } from '../Experiments'
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor } from '../experimentsLogic'
@@ -421,11 +422,14 @@ export function PageHeaderCustom(): JSX.Element {
         setHogfettiTrigger,
     } = useActions(experimentLogic)
     const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
-    const { user } = useValues(userLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
+    const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
-    // Initialize MaxTool hook for experiment survey creation
-    const { openMax } = useMaxTool(createMaxToolExperimentSurveyConfig(experiment, user))
+    const {
+        handleClick: handleSurveyClick,
+        isDisabled: isSurveyDisabled,
+        hasFeatureFlag: surveyHasFeatureFlag,
+    } = useExperimentSurvey(experiment, () => setSurveyModalOpen(true))
     const { trigger, HogfettiComponent } = useHogfetti()
 
     useOnMountEffect(() => {
@@ -578,12 +582,12 @@ export function PageHeaderCustom(): JSX.Element {
                             <IconPlusSmall /> Create dashboard
                         </ButtonPrimitive>
 
-                        {experiment.feature_flag && (
+                        {surveyHasFeatureFlag && (
                             <ButtonPrimitive
                                 menuItem
-                                onClick={openMax || undefined}
+                                onClick={handleSurveyClick}
                                 disabledReasons={{
-                                    'PostHog AI not available': !openMax,
+                                    'PostHog AI not available': isSurveyDisabled,
                                 }}
                             >
                                 <IconPlusSmall /> Create survey
@@ -607,6 +611,11 @@ export function PageHeaderCustom(): JSX.Element {
                     </ScenePanelActionsSection>
                 </ScenePanel>
             )}
+            <QuickSurveyModal
+                context={{ type: QuickSurveyType.EXPERIMENT, experiment }}
+                isOpen={surveyModalOpen}
+                onCancel={() => setSurveyModalOpen(false)}
+            />
         </>
     )
 }
