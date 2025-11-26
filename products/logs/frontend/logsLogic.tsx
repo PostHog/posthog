@@ -2,13 +2,16 @@ import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import api from 'lib/api'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
@@ -23,12 +26,16 @@ import { ParsedLogMessage } from './types'
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
+const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
+const DEFAULT_WRAP_BODY = true
+const DEFAULT_PRETTIFY_JSON = true
+const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
-
-    urlToAction(({ actions, values }) => {
+    tabAwareScene(),
+    tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
                 actions.setDateRange(params.dateRange)
@@ -45,8 +52,20 @@ export const logsLogic = kea<logsLogicType>([
             if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
                 actions.setServiceNames(params.serviceNames)
             }
+            if (params.highlightedLogId !== undefined && params.highlightedLogId !== values.highlightedLogId) {
+                actions.setHighlightedLogId(params.highlightedLogId)
+            }
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
+            }
+            if (params.wrapBody !== undefined && params.wrapBody !== values.wrapBody) {
+                actions.setWrapBody(params.wrapBody)
+            }
+            if (params.prettifyJson !== undefined && params.prettifyJson !== values.prettifyJson) {
+                actions.setPrettifyJson(params.prettifyJson)
+            }
+            if (params.timestampFormat && params.timestampFormat !== values.timestampFormat) {
+                actions.setTimestampFormat(params.timestampFormat)
             }
         }
         return {
@@ -54,7 +73,7 @@ export const logsLogic = kea<logsLogicType>([
         }
     }),
 
-    actionToUrl(({ actions, values }) => {
+    tabAwareActionToUrl(({ actions, values }) => {
         const buildURL = (): [
             string,
             Params,
@@ -69,8 +88,39 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
+                updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                 actions.runQuery()
+                return params
+            })
+        }
+
+        const updateHighlightURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
+                return params
+            })
+        }
+
+        const updateUrlWithDisplayPreferences = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'wrapBody', values.wrapBody, DEFAULT_WRAP_BODY)
+                updateSearchParams(params, 'prettifyJson', values.prettifyJson, DEFAULT_PRETTIFY_JSON)
+                updateSearchParams(params, 'timestampFormat', values.timestampFormat, DEFAULT_TIMESTAMP_FORMAT)
                 return params
             })
         }
@@ -81,7 +131,11 @@ export const logsLogic = kea<logsLogicType>([
             setSearchTerm: () => buildURL(),
             setSeverityLevels: () => buildURL(),
             setServiceNames: () => buildURL(),
+            setHighlightedLogId: () => updateHighlightURL(),
             setOrderBy: () => buildURL(),
+            setWrapBody: () => updateUrlWithDisplayPreferences(),
+            setPrettifyJson: () => updateUrlWithDisplayPreferences(),
+            setTimestampFormat: () => updateUrlWithDisplayPreferences(),
         }
     }),
 
@@ -117,67 +171,60 @@ export const logsLogic = kea<logsLogicType>([
         togglePinLog: (logId: string) => ({ logId }),
         pinLog: (log: LogMessage) => ({ log }),
         unpinLog: (logId: string) => ({ logId }),
+        setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
     }),
 
     reducers({
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
         orderBy: [
             DEFAULT_ORDER_BY,
-            { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
         searchTerm: [
             '' as LogsQuery['searchTerm'],
-            { persist: true },
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
         severityLevels: [
             DEFAULT_SEVERITY_LEVELS,
-            { persist: true },
             {
                 setSeverityLevels: (_, { severityLevels }) => severityLevels,
             },
         ],
         serviceNames: [
             DEFAULT_SERVICE_NAMES,
-            { persist: true },
             {
                 setServiceNames: (_, { serviceNames }) => serviceNames,
             },
         ],
         filterGroup: [
             DEFAULT_UNIVERSAL_GROUP_FILTER,
-            { persist: false },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
         ],
         wrapBody: [
-            true as boolean,
+            DEFAULT_WRAP_BODY as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
             },
         ],
         prettifyJson: [
-            true as boolean,
-            { persist: true },
+            DEFAULT_PRETTIFY_JSON as boolean,
             {
                 setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
         timestampFormat: [
-            'absolute' as 'absolute' | 'relative',
-            { persist: true },
+            DEFAULT_TIMESTAMP_FORMAT as 'absolute' | 'relative',
             {
                 setTimestampFormat: (_, { timestampFormat }) => timestampFormat,
             },
@@ -235,6 +282,12 @@ export const logsLogic = kea<logsLogicType>([
             {
                 pinLog: (state, { log }) => [...state, log],
                 unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
+            },
+        ],
+        highlightedLogId: [
+            DEFAULT_HIGHLIGHTED_LOG_ID,
+            {
+                setHighlightedLogId: (_, { highlightedLogId }) => highlightedLogId,
             },
         ],
     }),
@@ -344,6 +397,32 @@ export const logsLogic = kea<logsLogicType>([
         isPinned: [
             (s) => [s.pinnedLogs],
             (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
+        ],
+        visibleLogsTimeRange: [
+            (s) => [s.parsedLogs, s.orderBy],
+            (
+                parsedLogs: ParsedLogMessage[],
+                orderBy: LogsQuery['orderBy']
+            ): { date_from: string; date_to: string } | null => {
+                if (parsedLogs.length === 0) {
+                    return null
+                }
+                const firstTimestamp = parsedLogs[0].timestamp
+                const lastTimestamp = parsedLogs[parsedLogs.length - 1].timestamp
+
+                // When orderBy is 'latest', first log is newest, last log is oldest
+                // When orderBy is 'earliest', first log is oldest, last log is newest
+                if (orderBy === 'latest') {
+                    return {
+                        date_from: dayjs(lastTimestamp).toISOString(),
+                        date_to: dayjs(firstTimestamp).toISOString(),
+                    }
+                }
+                return {
+                    date_from: dayjs(firstTimestamp).toISOString(),
+                    date_to: dayjs(lastTimestamp).toISOString(),
+                }
+            },
         ],
         sparklineData: [
             (s) => [s.sparkline],

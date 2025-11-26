@@ -81,16 +81,32 @@ export function StartupProgram(): JSX.Element {
         },
     })
 
-    if (isCurrentlyOnStartupPlan || wasPreviouslyOnStartupPlan) {
+    if (isCurrentlyOnStartupPlan) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="info">
-                    <h2 className="mb-2">
-                        You {wasPreviouslyOnStartupPlan ? 'were' : 'are'} already in the {programName}
-                    </h2>
+                    <h2 className="mb-2">You are already in the {programName}</h2>
                     <p>
-                        It looks like your organization {wasPreviouslyOnStartupPlan ? 'was' : 'is'} already part of our{' '}
-                        {programName}. If you have any questions, please contact our support team.
+                        It looks like your organization is already part of our {programName}. If you have any questions,
+                        please contact our support team.
+                    </p>
+                    <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
+                        Return to PostHog
+                    </LemonButton>
+                </LemonBanner>
+            </div>
+        )
+    }
+
+    // YC customers can re-apply
+    if (wasPreviouslyOnStartupPlan && !isYC) {
+        return (
+            <div className="mx-auto max-w-200 mt-6 px-4">
+                <LemonBanner type="info">
+                    <h2 className="mb-2">You were already in the Startup Program</h2>
+                    <p>
+                        It looks like your organization was already part of our Startup Program. If you have any
+                        questions, please contact our support team.
                     </p>
                     <LemonButton type="primary" to={urls.projectRoot()} className="mt-2">
                         Return to PostHog
@@ -152,8 +168,8 @@ export function StartupProgram(): JSX.Element {
                                 You've found our secret Y Combinator offer!
                             </h1>
                             <p className="text-sm sm:text-base text-muted">
-                                Get $50,000 in credits (plus extras you'll actually use) to help you get to
-                                product-market fit.
+                                Get $50,000 in credits <span className="font-semibold">every. year. forever.</span>{' '}
+                                (plus extras you'll actually use) to help you get to product-market fit.
                             </p>
                         </div>
                     </div>
@@ -196,10 +212,20 @@ export function StartupProgram(): JSX.Element {
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">
-                                    $50,000 in PostHog credit
-                                    {isYC && <span className="text-[0.66em] align-super text-muted"> 1</span>}
+                                    $50,000 in PostHog credit{}
+                                    {isYC && (
+                                        <>
+                                            {' '}
+                                            every. year. forever.
+                                            <span className="text-[0.66em] align-super text-muted"> 1</span>
+                                        </>
+                                    )}
                                 </h4>
-                                <p className="text-muted text-sm">Valid for 1 year to use across all products</p>
+                                <p className="text-muted text-sm">
+                                    {isYC
+                                        ? 'Valid to use across all products'
+                                        : 'Valid for 1 year to use across all products'}
+                                </p>
                             </div>
                         </div>
                         <div className="flex items-start">
@@ -269,8 +295,8 @@ export function StartupProgram(): JSX.Element {
                             <div className="text-xs text-muted space-y-1">
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">1</span>
-                                    Applies to current and previous 4 batches. Earlier batches get $25,000 for 12
-                                    months.
+                                    Credits renew automatically each year. If you've previously been in the program and
+                                    your credits expired, you can reapply and continue getting $50,000 annually.
                                 </div>
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">2</span>
@@ -322,6 +348,16 @@ export function StartupProgram(): JSX.Element {
                         <div className="flex items-center justify-between mb-4">
                             <h2 className="text-xl m-0">Step 2: Submit application</h2>
                         </div>
+
+                        {/* Show reapplication banner for YC users who were previously in a program */}
+                        {wasPreviouslyOnStartupPlan && isYC && (
+                            <LemonBanner type="info" className="mb-4">
+                                <p>
+                                    You can reapply for the YC Program and receive $50,000 in credits annually, renewed
+                                    each year.
+                                </p>
+                            </LemonBanner>
+                        )}
 
                         {formSubmitted ? (
                             <div className="space-y-4">

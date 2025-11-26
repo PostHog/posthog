@@ -12,3 +12,9 @@ packages:
     - products/*
     - products/mcp/typescript
     - rust/cyclotron-node
+
+# posthog-js needs to be excluded because we only update our CDN
+# once a newer posthog-js version is merged onto this repo
+minimumReleaseAge: 4320
+minimumReleaseAgeExclude:
+    - posthog-js

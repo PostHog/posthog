@@ -25,6 +25,9 @@ export function loadPostHogJS(): void {
             session_recording: {
                 strictMinimumDuration: true,
             },
+            error_tracking: {
+                __capturePostHogExceptions: true,
+            },
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

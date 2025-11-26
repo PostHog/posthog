@@ -121,8 +121,7 @@ fi
 # Install top-level Node dependencies - This also sets up pre-commit hooks via Husky
 echo -e "  \033[1;34m📦 Node packages\033[0m"
 echo -e "    \033[1;33m📦 Installing Node dependencies and pre-commits hooks...\033[0m"
-# TEMPORARILY DISABLED DUE TO SUPPLY CHAIN ATTACK
-# pnpm install --silent
+pnpm install --silent
 echo -e "    \033[32m✅ Node dependencies installed\033[0m"
 
 # Add required entries to /etc/hosts if not present
