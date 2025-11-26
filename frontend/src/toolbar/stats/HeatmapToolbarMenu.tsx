@@ -91,6 +91,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         heatmapFixedPositionMode,
         heatmapColorPalette,
         samplingFactor,
+        elementsLoading,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -261,7 +262,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             </div>
 
                             <div className="my-2">
-                                Found: {countedElements.length} elements / {clickCount} clicks!
+                                Found: {countedElements.length} elements / {clickCount} clicks
+                                {elementsLoading ? ' (processing...)' : '!'}
                             </div>
                             <div className="flex flex-col w-full h-full">
                                 {countedElements.length ? (
