@@ -18,7 +18,7 @@ export const getHandler: ToolBase<typeof schema>['handler'] = async (context: Co
         throw new Error(`Failed to get experiment: ${result.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(result.data) }] }
+    return result.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

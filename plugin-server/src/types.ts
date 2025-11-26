@@ -1012,6 +1012,8 @@ export interface RawPerson extends BasePerson {
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+    /** Internal flag to track which table this person exists in during cutover migration */
+    __useNewTable?: boolean
 }
 
 /** Mutable fields that can be updated on a Person via updatePerson. */

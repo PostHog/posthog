@@ -60,6 +60,7 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_MV,
     QUERY_LOG_ARCHIVE_NEW_MV_SQL,
     QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
@@ -213,6 +214,12 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query = re.sub(r"(\"?) = \d+", r"\1 = 99999", query)
         query = re.sub(r"(\"?) (in|IN) \(\d+(, ?\d+)*\)", r"\1 \2 (1, 2, 3, 4, 5 /* ... */)", query)
         query = re.sub(r"(\"?) (in|IN) \[\d+(, ?\d+)*\]", r"\1 \2 [1, 2, 3, 4, 5 /* ... */]", query)
+        # Handle nested tuples: IN ((1, 2), (3, 4)) -> IN ((1, 2) /* ... */)
+        query = re.sub(
+            r"(in|IN) \(\(\d+(, ?\d+)*\)(, ?\(\d+(, ?\d+)*\))*\)",
+            r"\1 ((1, 2) /* ... */)",
+            query,
+        )
         # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
         query = re.sub(
             r"\"uuid\" (in|IN) \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
@@ -1338,7 +1345,9 @@ def reset_clickhouse_database() -> None:
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+                table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW()
+            ),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
         ]

@@ -53,6 +53,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.document_embeddings import DocumentEmbeddingsTable, RawDocumentEmbeddingsTable
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
@@ -81,6 +82,7 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
+from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -173,6 +175,8 @@ class Database(BaseModel):
             "session_replay_events": TableNode(name="session_replay_events", table=SessionReplayEventsTable()),
             "cohort_people": TableNode(name="cohort_people", table=CohortPeople()),
             "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
+            "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable()),
+            "precalculated_events": TableNode(name="precalculated_events", table=PrecalculatedEventsTable()),
             "log_entries": TableNode(name="log_entries", table=LogEntriesTable()),
             "query_log": TableNode(name="query_log", table=QueryLogArchiveTable()),
             "app_metrics": TableNode(name="app_metrics", table=AppMetrics2Table()),

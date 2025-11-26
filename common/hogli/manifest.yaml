@@ -8,6 +8,8 @@ metadata:
           title: Verify infrastructure readiness
         - key: migrations
           title: Database migrations
+        - key: db
+          title: Database operations
         - key: tests
           title: Run tests
         - key: quality
@@ -92,6 +94,23 @@ core:
         services:
             - postgresql
             - clickhouse
+    dev:sync-flags:
+        cmd: python manage.py sync_feature_flags
+        description: Sync feature flags from configuration
+        services:
+            - postgresql
+    dev:sync-user-settings:
+        cmd: python manage.py sync_user_settings
+        description: Sync your user settings from PostHog cloud to local dev environment. Requires API key.
+        services:
+            - postgresql
+    dev:shell-plus:
+        cmd: python manage.py shell_plus
+        description: Launch Django shell with auto-imported models and utilities
+        services:
+            - postgresql
+            - clickhouse
+            - django
     dev:reset:
         steps:
             - docker:services:remove
@@ -100,8 +119,9 @@ core:
             - check:clickhouse
             - migrations:run
             - dev:demo-data
-            - migrations:sync-flags
+            - dev:sync-flags
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
+        destructive: true
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -209,6 +229,7 @@ deploy:
         bin_script: upgrade-hobby
         description: Upgrade existing hobby deployment with data loss warnings and volume
             checks
+        destructive: true
     deploy:migrate-recordings:
         bin_script: migrate-session-recordings-hobby
         description: Migrate session recordings from MinIO to SeaweedFS for hobby deployments
@@ -220,9 +241,11 @@ deploy:
             \  --mode sync     Bidirectional sync\n\nExamples:\n  hogli deploy:migrate-storage\
             \ --service query-cache --mode sync --dry-run\n  hogli deploy:migrate-storage\
             \ --service media-uploads --mode migrate"
+        destructive: true
     deploy:migrate-storage-hobby:
         bin_script: migrate-storage-hobby
         description: "Hobby: Migrate or sync ALL services between MinIO and SeaweedFS via docker-compose\n\nExamples:\n  hogli deploy:migrate-storage-hobby               # Sync all services\n  hogli deploy:migrate-storage-hobby --mode migrate # One-way migrate all (MinIO → SeaweedFS)\n  hogli deploy:migrate-storage-hobby exports -n     # Dry run exports only"
+        destructive: true
 build:
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
@@ -250,6 +273,9 @@ build:
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)
+    build:products:
+        cmd: pnpm --filter=@posthog/frontend run build:products
+        description: Build products manifest from TypeScript/JSX files
 docker:
     docker:services:up:
         cmd: docker compose -f docker-compose.dev.yml up -d
@@ -271,6 +297,7 @@ docker:
         description: Stop Docker infrastructure services and remove all volumes (complete wipe)
         services:
             - docker
+        destructive: true
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
@@ -336,11 +363,51 @@ migrations:
     migrations:kafka:
         bin_script: migrate_kafka_data.py
         description: Migrate data between Kafka clusters/topics with consumer group tracking
-    migrations:sync-flags:
-        cmd: python manage.py sync_feature_flags
-        description: Sync feature flags from configuration
+db:
+    db:upgrade:
+        bin_script: upgrade-postgres
+        description: Upgrade PostgreSQL from version 12 to 15 (interactive migration tool)
         services:
             - postgresql
+            - docker
+    db:dump:
+        cmd: |
+            mkdir -p .postgres-backups
+            BACKUP_FILE="${1:-.postgres-backups/posthog_backup_$(date +%Y%m%d_%H%M%S).sql.gz}"
+            docker compose exec -T db pg_dumpall --clean -U posthog | gzip > "$BACKUP_FILE"
+            echo "✅ Backup saved to: $BACKUP_FILE"
+        description: Dump all PostgreSQL databases to compressed backup file
+        services:
+            - postgresql
+            - docker
+    db:restore:
+        cmd: |
+            set -e
+            set -o pipefail
+            if [ -z "$1" ]; then
+                LATEST=$(ls -t .postgres-backups/*.sql.gz 2>/dev/null | head -1)
+                if [ -z "$LATEST" ]; then
+                    echo "❌ Error: No backup file specified and no backups found in .postgres-backups/"
+                    echo "Usage: hogli db:restore [backup-file]"
+                    exit 1
+                fi
+                echo "Using latest backup: $LATEST"
+                BACKUP_FILE="$LATEST"
+            else
+                BACKUP_FILE="$1"
+            fi
+            if [ ! -f "$BACKUP_FILE" ]; then
+                echo "❌ Error: Backup file not found: $BACKUP_FILE"
+                exit 1
+            fi
+            gunzip -c "$BACKUP_FILE" | docker compose exec -T db psql -q -U posthog > /dev/null 2>&1
+            echo "🔐 Upgrading password to SCRAM-SHA-256..."
+            docker compose exec -T db psql -U posthog -c "ALTER USER posthog WITH PASSWORD 'posthog';" > /dev/null 2>&1
+            echo "✅ Restored from: $BACKUP_FILE"
+        description: Restore PostgreSQL databases from backup file (defaults to latest)
+        services:
+            - postgresql
+            - docker
 tests:
     test:python:
         cmd: pytest
@@ -365,14 +432,14 @@ quality:
         cmd: pnpm prettier --write
         description: Format JSON, YAML files
     format:css:
-        cmd: pnpm stylelint --fix --allow-empty-input && pnpm prettier --write
+        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm prettier --write "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet && pnpm prettier --write
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm prettier --write "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:plugin-server:
-        cmd: pnpm --dir plugin-server exec eslint --fix && pnpm --dir plugin-server exec
-            prettier --write
+        cmd: pnpm --dir plugin-server exec eslint --fix "$@" && pnpm --dir plugin-server exec
+            prettier --write "$@"
         description: Format plugin-server JavaScript files
     format:rust:
         cmd: rustfmt
@@ -439,6 +506,10 @@ tools:
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
+        hidden: true
+    tool:check_ducklake_up:
+        bin_script: check_ducklake_up
+        description: Healthcheck for Ducklake with self-healing
         hidden: true
 utilities:
     utilities:posthog-worktree:

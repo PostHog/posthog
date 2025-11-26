@@ -35,14 +35,7 @@ export const getResultsHandler: ToolBase<typeof schema>['handler'] = async (cont
         exposures,
     })
 
-    return {
-        content: [
-            {
-                type: 'text',
-                text: JSON.stringify(parsedExperiment, null, 2),
-            },
-        ],
-    }
+    return parsedExperiment
 }
 
 const tool = (): ToolBase<typeof schema> => ({

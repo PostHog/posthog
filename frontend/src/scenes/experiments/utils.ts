@@ -6,6 +6,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import {
     AnyEntityNode,
+    CachedNewExperimentQueryResponse,
     EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
@@ -854,4 +855,74 @@ export function initializeMetricOrdering(experiment: Experiment): Experiment {
     }
 
     return newExperiment
+}
+
+/**
+ * Maps metrics to their results and errors in the correct display order
+ * This handles the complex logic of:
+ * 1. Mapping results by index to original metrics array (including shared metrics)
+ * 2. Enriching shared metrics with metadata
+ * 3. Reordering everything according to the ordered UUIDs
+ */
+export function getOrderedMetricsWithResults(
+    experiment: Experiment,
+    primaryMetricsResults: CachedNewExperimentQueryResponse[],
+    primaryMetricsResultsErrors: any[],
+    secondaryMetricsResults: CachedNewExperimentQueryResponse[],
+    secondaryMetricsResultsErrors: any[],
+    isSecondary: boolean
+): Array<{
+    metric: ExperimentMetric
+    result: any
+    error: any
+    displayIndex: number
+}> {
+    const metricType = isSecondary ? 'secondary' : 'primary'
+    const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
+    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
+
+    // Build enriched metrics in original order (same order as results arrays)
+    const regularMetrics = isSecondary
+        ? ((experiment.metrics_secondary || []) as ExperimentMetric[])
+        : ((experiment.metrics || []) as ExperimentMetric[])
+
+    const enrichedSharedMetrics = (experiment.saved_metrics || [])
+        .filter((sharedMetric) => sharedMetric.metadata?.type === metricType)
+        .map((sharedMetric) => ({
+            ...sharedMetric.query,
+            name: sharedMetric.name,
+            sharedMetricId: sharedMetric.saved_metric,
+            isSharedMetric: true,
+        })) as ExperimentMetric[]
+
+    const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]
+
+    // Create UUID maps in one pass
+    const resultsMap = new Map()
+    const errorsMap = new Map()
+    const metricsMap = new Map()
+
+    allMetrics.forEach((metric: any, index) => {
+        const uuid = metric.uuid || metric.query?.uuid
+        if (uuid) {
+            resultsMap.set(uuid, results[index])
+            errorsMap.set(uuid, errors[index])
+            metricsMap.set(uuid, metric)
+        }
+    })
+
+    // Get display order and map to final result
+    const orderedUuids = isSecondary
+        ? experiment.secondary_metrics_ordered_uuids || []
+        : experiment.primary_metrics_ordered_uuids || []
+
+    return orderedUuids
+        .map((uuid) => metricsMap.get(uuid))
+        .filter(Boolean)
+        .map((metric: ExperimentMetric, index: number) => ({
+            metric,
+            result: resultsMap.get(metric.uuid),
+            error: errorsMap.get(metric.uuid),
+            displayIndex: index,
+        }))
 }

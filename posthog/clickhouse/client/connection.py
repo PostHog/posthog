@@ -28,6 +28,8 @@ class Workload(StrEnum):
     OFFLINE = "OFFLINE"
     # Logs queries
     LOGS = "LOGS"
+    # Endpoints (the product) queries
+    ENDPOINTS = "ENDPOINTS"
 
 
 class NodeRole(StrEnum):
@@ -40,6 +42,7 @@ class NodeRole(StrEnum):
     INGESTION_SMALL = "small"
     INGESTION_MEDIUM = "medium"
     SHUFFLEHOG = "shufflehog"
+    ENDPOINTS = "endpoints"
 
 
 _default_workload = Workload.ONLINE
@@ -190,6 +193,9 @@ def get_kwargs_for_client(
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
     ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
         return {**base_kwargs, "host": settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, "verify": False}
+
+    if workload == Workload.ENDPOINTS:
+        return {**base_kwargs, "host": settings.CLICKHOUSE_ENDPOINTS_HOST}
 
     return base_kwargs
 

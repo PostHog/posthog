@@ -46,6 +46,8 @@ def prepare_version(force=False):
     base_xml = ET.parse(ACTIVE_XML_CONFIG)
 
     if os.path.exists(LAST_VERSION_STR):
+        # this function only parses trusted input
+        # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
         last_version_xml = ET.parse(os.path.join(LAST_VERSION_STR, CLICKHOUSE_XML_FILENAME))
     else:
         last_version_xml = ET.parse(ACTIVE_XML_CONFIG)

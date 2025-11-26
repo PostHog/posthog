@@ -6,8 +6,8 @@ from braintrust import EvalCase
 
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -205,6 +205,17 @@ async def eval_root(call_root, pytestconfig):
                         "query_description": "Daily active users for the past month",
                     },
                     id="call_dau_past_month",
+                ),
+            ),
+            # Some models already know about PostHog's events, but they must not rely on this knowledge and use the read_taxonomy tool instead.
+            EvalCase(
+                input="create a pageview trends broken down by countries",
+                expected=AssistantToolCall(
+                    name="read_taxonomy",
+                    args={
+                        "query": {"kind": "events"},
+                    },
+                    id="call_read_events",
                 ),
             ),
         ],

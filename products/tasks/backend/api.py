@@ -1,6 +1,10 @@
+import os
+import uuid
 import logging
 import traceback
 from typing import cast
+
+from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -14,12 +18,17 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.storage import object_storage
 
 from .models import Task, TaskRun
 from .serializers import (
     ErrorResponseSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
+    TaskRunArtifactPresignRequestSerializer,
+    TaskRunArtifactPresignResponseSerializer,
+    TaskRunArtifactsUploadRequestSerializer,
+    TaskRunArtifactsUploadResponseSerializer,
     TaskRunDetailSerializer,
     TaskSerializer,
     TaskUpdatePositionRequestSerializer,
@@ -297,3 +306,124 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run.append_log(entries)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactsUploadRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactsUploadResponseSerializer,
+                description="Run with updated artifact manifest",
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid artifact payload"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Upload artifacts for a task run",
+        description="Persist task artifacts to S3 and attach them to the run manifest.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts", required_scopes=["task:write"])
+    def artifacts(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        artifacts = request.validated_data["artifacts"]
+
+        prefix = task_run.get_artifact_s3_prefix()
+        manifest = list(task_run.artifacts or [])
+
+        for artifact in artifacts:
+            safe_name = os.path.basename(artifact["name"]).strip() or "artifact"
+            suffix = uuid.uuid4().hex[:8]
+            storage_path = f"{prefix}/{suffix}_{safe_name}"
+
+            content_bytes = artifact["content"].encode("utf-8")
+            extras: dict[str, str] = {}
+            content_type = artifact.get("content_type")
+            if content_type:
+                extras["ContentType"] = content_type
+
+            object_storage.write(storage_path, content_bytes, extras or None)
+            try:
+                object_storage.tag(
+                    storage_path,
+                    {
+                        "ttl_days": "30",
+                        "team_id": str(task_run.team_id),
+                    },
+                )
+            except Exception as exc:
+                logger.warning(
+                    "task_run.artifact_tag_failed",
+                    extra={
+                        "task_run_id": str(task_run.id),
+                        "storage_path": storage_path,
+                        "error": str(exc),
+                    },
+                )
+
+            uploaded_at = timezone.now().isoformat()
+
+            manifest.append(
+                {
+                    "name": safe_name,
+                    "type": artifact["type"],
+                    "size": len(content_bytes),
+                    "content_type": content_type or "",
+                    "storage_path": storage_path,
+                    "uploaded_at": uploaded_at,
+                }
+            )
+
+            logger.info(
+                "task_run.artifact_uploaded",
+                extra={
+                    "task_run_id": str(task_run.id),
+                    "storage_path": storage_path,
+                    "artifact_type": artifact["type"],
+                    "size": len(content_bytes),
+                },
+            )
+
+        task_run.artifacts = manifest
+        task_run.save(update_fields=["artifacts", "updated_at"])
+
+        serializer = TaskRunArtifactsUploadResponseSerializer(
+            {"artifacts": manifest},
+            context=self.get_serializer_context(),
+        )
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunArtifactPresignRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunArtifactPresignResponseSerializer,
+                description="Presigned URL for the requested artifact",
+            ),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid request"),
+            404: OpenApiResponse(description="Artifact not found"),
+        },
+        summary="Generate presigned URL for an artifact",
+        description="Returns a temporary, signed URL that can be used to download a specific artifact.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts/presign", required_scopes=["task:read"])
+    def artifacts_presign(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        storage_path = request.validated_data["storage_path"]
+        artifacts = task_run.artifacts or []
+
+        if not any(artifact.get("storage_path") == storage_path for artifact in artifacts):
+            return Response(
+                ErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        url = object_storage.get_presigned_url(storage_path)
+        if not url:
+            return Response(
+                ErrorResponseSerializer({"error": "Unable to generate download URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        expires_in = 3600
+        serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
+        return Response(serializer.data)

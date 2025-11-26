@@ -339,7 +339,8 @@ async function processAllSnapshotsAsync(
         const sourceKey = keyForSource(source)
 
         if (sourceKey in processingCache) {
-            for (const snapshot of processingCache[sourceKey]) {
+            const cachedSnapshots = processingCache[sourceKey]
+            for (const snapshot of cachedSnapshots) {
                 context.result.push(snapshot)
             }
             continue
@@ -388,6 +389,7 @@ async function processAllSnapshotsAsync(
     }
 
     context.result.sort((a, b) => a.timestamp - b.timestamp)
+
     return context.result
 }
 
@@ -417,7 +419,8 @@ function processAllSnapshotsSync(
         const sourceKey = keyForSource(source)
 
         if (sourceKey in processingCache) {
-            for (const snapshot of processingCache[sourceKey]) {
+            const cachedSnapshots = processingCache[sourceKey]
+            for (const snapshot of cachedSnapshots) {
                 context.result.push(snapshot)
             }
             continue
@@ -458,6 +461,7 @@ function processAllSnapshotsSync(
     }
 
     context.result.sort((a, b) => a.timestamp - b.timestamp)
+
     return context.result
 }
 
@@ -528,10 +532,11 @@ const lengthPrefixedSnappyDecompress = async (
     posthogInstance?: PostHog
 ): Promise<string> => {
     const workerManager = getDecompressionWorkerManager(mode, posthogInstance)
-    const decompressedParts: string[] = []
+
+    // Phase 1: Parse and collect all compressed blocks
+    const compressedBlocks: Uint8Array[] = []
     let offset = 0
 
-    // Parse length-prefixed blocks: [4 bytes length][compressed block][4 bytes length][compressed block]...
     while (offset < uint8Data.byteLength) {
         // Read 4-byte length prefix (big-endian unsigned int)
         if (offset + 4 > uint8Data.byteLength) {
@@ -555,16 +560,22 @@ const lengthPrefixedSnappyDecompress = async (
             break
         }
 
-        const compressedBlock = uint8Data.subarray(offset, offset + length)
+        // Create a copy of the block to avoid ArrayBuffer detachment issues
+        // when transferring to workers in parallel
+        const compressedBlock = uint8Data.slice(offset, offset + length)
+        compressedBlocks.push(compressedBlock)
         offset += length
-
-        const decompressedData = await workerManager.decompress(compressedBlock)
-
-        // Convert bytes to string
-        const textDecoder = new TextDecoder('utf-8')
-        const decompressedText = textDecoder.decode(decompressedData)
-        decompressedParts.push(decompressedText)
     }
+
+    // Phase 2: Decompress all blocks in parallel
+    const isParallel = compressedBlocks.length > 1
+    const decompressedBlocks = await Promise.all(
+        compressedBlocks.map((block) => workerManager.decompress(block, { isParallel }))
+    )
+
+    // Phase 3: Decode all blocks to strings
+    const textDecoder = new TextDecoder('utf-8')
+    const decompressedParts = decompressedBlocks.map((data) => textDecoder.decode(data))
 
     return decompressedParts.join('\n')
 }
@@ -576,19 +587,40 @@ const rawSnappyDecompress = async (
 ): Promise<string> => {
     const workerManager = getDecompressionWorkerManager(mode, posthogInstance)
 
-    const decompressedData = await workerManager.decompress(uint8Data)
+    const decompressedData = await workerManager.decompress(uint8Data, { isParallel: false })
 
     const textDecoder = new TextDecoder('utf-8')
     return textDecoder.decode(decompressedData)
+}
+
+function reportParseStats(
+    posthogInstance: PostHog | undefined,
+    snapshotCount: number,
+    parseDuration: number,
+    lineCount: number,
+    compressionType: 'length_prefixed_snappy' | 'raw_snappy'
+): void {
+    if (!posthogInstance) {
+        return
+    }
+
+    posthogInstance.capture('replay_parse_timing', {
+        snapshot_count: snapshotCount,
+        parse_duration_ms: parseDuration,
+        line_count: lineCount,
+        compression_type: compressionType,
+    })
 }
 
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string,
     decompressionMode?: DecompressionMode,
-    posthogInstance?: PostHog,
-    enableYielding: boolean = false
+    posthogInstance?: PostHog
 ): Promise<RecordingSnapshot[]> => {
+    const startTime = performance.now()
+    const enableYielding = decompressionMode === 'yielding' || decompressionMode === 'worker_and_yielding'
+
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
     }
@@ -600,9 +632,17 @@ export const parseEncodedSnapshots = async (
         if (isLengthPrefixedSnappy(uint8Data)) {
             try {
                 const combinedText = await lengthPrefixedSnappyDecompress(uint8Data, decompressionMode, posthogInstance)
-
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance, enableYielding)
+                const snapshots = await parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance)
+                const parseDuration = performance.now() - startTime
+                reportParseStats(
+                    posthogInstance,
+                    snapshots.length,
+                    parseDuration,
+                    lines.length,
+                    'length_prefixed_snappy'
+                )
+                return snapshots
             } catch (error) {
                 console.error('Length-prefixed Snappy decompression failed:', error)
                 posthog.captureException(new Error('Failed to decompress length-prefixed snapshot data'), {
@@ -616,16 +656,18 @@ export const parseEncodedSnapshots = async (
 
         try {
             const combinedText = await rawSnappyDecompress(uint8Data, decompressionMode, posthogInstance)
-
             const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-            return parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance, enableYielding)
+            const snapshots = await parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance)
+            const parseDuration = performance.now() - startTime
+            reportParseStats(posthogInstance, snapshots.length, parseDuration, lines.length, 'raw_snappy')
+            return snapshots
         } catch (error) {
             try {
                 const textDecoder = new TextDecoder('utf-8')
                 const combinedText = textDecoder.decode(uint8Data)
 
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance, enableYielding)
+                return parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance)
             } catch (decodeError) {
                 console.error('Failed to decompress or decode binary data:', error, decodeError)
                 posthog.captureException(new Error('Failed to process snapshot data'), {
@@ -656,6 +698,7 @@ export const parseEncodedSnapshots = async (
             if (typeof l === 'string') {
                 // is loaded from blob v1 storage
                 snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
+
                 if (Array.isArray(snapshotLine)) {
                     snapshotLine = {
                         windowId: snapshotLine[0],
@@ -666,6 +709,7 @@ export const parseEncodedSnapshots = async (
                 // is loaded from file export
                 snapshotLine = l
             }
+
             let snapshotData: ({ windowId: string } | EncodedRecordingSnapshot)[]
             if (isRecordingSnapshot(snapshotLine)) {
                 // is loaded from file export
@@ -685,6 +729,7 @@ export const parseEncodedSnapshots = async (
 
                 // Apply chunking to the snapshot if needed
                 const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
+
                 parsedLines.push(...chunkedSnapshots)
             }
         } catch {
