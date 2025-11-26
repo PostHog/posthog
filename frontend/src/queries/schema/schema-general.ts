@@ -4485,7 +4485,14 @@ export const externalDataSources = [
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
-export const VALID_NATIVE_MARKETING_SOURCES = ['GoogleAds', 'LinkedinAds', 'MetaAds', 'TikTokAds', 'RedditAds'] as const
+export const VALID_NATIVE_MARKETING_SOURCES = [
+    'GoogleAds',
+    'LinkedinAds',
+    'MetaAds',
+    'TikTokAds',
+    'RedditAds',
+    'BingAds',
+] as const
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
 
 export const MARKETING_INTEGRATION_CONFIGS = {
@@ -4565,6 +4572,17 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         defaultSources: ['reddit'] as const,
         primarySource: 'reddit',
     },
+    BingAds: {
+        sourceType: 'BingAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_performance_report',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['performance'] as const,
+        defaultSources: ['bing', 'microsoft'] as const,
+        primarySource: 'bing',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
@@ -4574,12 +4592,14 @@ export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['
 export type MetaAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['defaultSources'][number]
 export type TikTokAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['defaultSources'][number]
 export type RedditAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['defaultSources'][number]
+export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['defaultSources'][number]
 
 export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
 export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
 export type MetaAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableKeywords'][number]
 export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableKeywords'][number]
 export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
+export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
 
 export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
 export type LinkedinAdsTableExclusions =
@@ -4587,6 +4607,7 @@ export type LinkedinAdsTableExclusions =
 export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableExclusions'][number]
 export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
 export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
+export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
 
 export const MARKETING_INTEGRATION_FIELD_MAP = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [

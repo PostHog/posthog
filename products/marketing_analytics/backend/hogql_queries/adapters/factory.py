@@ -338,7 +338,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[BingAdsConfig]:
         """Create Bing Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["BingAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.BING_ADS]
         campaign_table = None
         campaign_stats_table = None
 

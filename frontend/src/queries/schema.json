@@ -2355,6 +2355,18 @@
                 }
             ]
         },
+        "BingAdsDefaultSources": {
+            "enum": ["bing", "microsoft"],
+            "type": "string"
+        },
+        "BingAdsTableExclusions": {
+            "enum": ["performance"],
+            "type": "string"
+        },
+        "BingAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "Breakdown": {
             "additionalProperties": false,
             "properties": {
@@ -18556,13 +18568,85 @@
                         "primarySource"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "bing",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "microsoft",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "bing",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "BingAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_performance_report",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "performance",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
                 }
-            ],
-            "description": "Type for a single integration config"
+            ]
         },
         "MarketingIntegrationConfigType": {
             "additionalProperties": false,
-            "description": "Interface for integration config - generated to Python",
             "properties": {
                 "campaignTableName": {
                     "type": "string"
@@ -19440,7 +19524,7 @@
             "type": "string"
         },
         "NativeMarketingSource": {
-            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds"],
+            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {

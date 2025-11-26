@@ -15,8 +15,7 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
 
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
-        """Bing Ads campaigns typically use 'bing' as the UTM source"""
-        return {"bing": ["bing"]}
+        return {"bing": ["bing", "microsoft"]}
 
     def get_source_type(self) -> str:
         return "BingAds"

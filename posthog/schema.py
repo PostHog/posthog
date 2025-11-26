@@ -20,7 +20,6 @@ class AIEventType(StrEnum):
     FIELD_AI_TRACE = "$ai_trace"
     FIELD_AI_METRIC = "$ai_metric"
     FIELD_AI_FEEDBACK = "$ai_feedback"
-    FIELD_AI_EVALUATION = "$ai_evaluation"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -507,6 +506,19 @@ class BillingUsageResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
     MULTIPLE = "multiple"
+
+
+class BingAdsDefaultSources(StrEnum):
+    BING = "bing"
+    MICROSOFT = "microsoft"
+
+
+class BingAdsTableExclusions(StrEnum):
+    PERFORMANCE = "performance"
+
+
+class BingAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
 
 
 class BreakdownAttributionType(StrEnum):
@@ -1576,6 +1588,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
+    FEED = "feed"
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
@@ -2097,6 +2110,21 @@ class MarketingIntegrationConfig5(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class MarketingIntegrationConfig6(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["bing"] = "bing"
+    sourceType: Literal["BingAds"] = "BingAds"
+    statsTableName: Literal["campaign_performance_report"] = "campaign_performance_report"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
 class MarketingIntegrationConfig(
     RootModel[
         Union[
@@ -2105,6 +2133,7 @@ class MarketingIntegrationConfig(
             MarketingIntegrationConfig3,
             MarketingIntegrationConfig4,
             MarketingIntegrationConfig5,
+            MarketingIntegrationConfig6,
         ]
     ]
 ):
@@ -2114,7 +2143,8 @@ class MarketingIntegrationConfig(
         MarketingIntegrationConfig3,
         MarketingIntegrationConfig4,
         MarketingIntegrationConfig5,
-    ] = Field(..., description="Type for a single integration config")
+        MarketingIntegrationConfig6,
+    ]
 
 
 class MatchedRecordingEvent(BaseModel):
@@ -2307,6 +2337,7 @@ class NativeMarketingSource(StrEnum):
     META_ADS = "MetaAds"
     TIK_TOK_ADS = "TikTokAds"
     REDDIT_ADS = "RedditAds"
+    BING_ADS = "BingAds"
 
 
 class NodeKind(StrEnum):
