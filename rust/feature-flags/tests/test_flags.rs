@@ -103,13 +103,7 @@ async fn it_gets_legacy_response_for_v1_or_invalid_version(
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -175,13 +169,7 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -263,13 +251,7 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -537,7 +519,7 @@ async fn it_handles_disable_flags_without_distinct_id() -> Result<()> {
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    insert_flags_for_team_in_redis(client.clone(), team.id, team.project_id(), None)
+    insert_flags_for_team_in_redis(client.clone(), team.id, None)
         .await
         .unwrap();
 
@@ -693,13 +675,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -770,13 +746,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -870,13 +840,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -995,13 +959,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        redis_client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1104,13 +1062,8 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     ]);
 
     // Insert the feature flags into Redis
-    insert_flags_for_team_in_redis(
-        redis_client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flags_json.to_string()))
+        .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1240,13 +1193,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1339,13 +1286,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1499,13 +1440,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        redis_client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1626,13 +1561,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        redis_client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1719,13 +1648,7 @@ async fn test_flag_matches_with_no_person_profile() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1839,13 +1762,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -1905,13 +1822,7 @@ async fn test_config_basic_fields() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -2239,13 +2150,7 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3255,13 +3160,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3326,13 +3225,7 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3396,13 +3289,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3468,13 +3355,7 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3555,13 +3436,7 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3642,13 +3517,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3730,13 +3599,8 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        redis_client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flags_json.to_string()))
+        .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -3908,13 +3772,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4126,13 +3984,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4244,13 +4096,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4437,13 +4283,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4546,13 +4386,7 @@ async fn test_group_key_property_matching() -> Result<()> {
         },
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4727,13 +4561,7 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -4962,13 +4790,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -5150,14 +4972,9 @@ async fn test_flag_keys_to_evaluate_parameter() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flags.to_string()),
-    )
-    .await
-    .unwrap();
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flags.to_string()))
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -5493,13 +5310,7 @@ async fn test_nested_cohort_targeting_with_days_since_paid_plan() -> Result<()> 
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -5755,13 +5566,7 @@ async fn test_empty_distinct_id_flag_matching() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flags_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -6009,13 +5814,7 @@ async fn test_cohort_with_and_negated_cohort_condition() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -6213,14 +6012,9 @@ async fn test_date_string_property_matching_with_is_date_after() -> Result<()> {
         }
     }]);
 
-    insert_flags_for_team_in_redis(
-        redis_client.clone(),
-        team.id,
-        team.project_id(),
-        Some(flag_json.to_string()),
-    )
-    .await
-    .unwrap();
+    insert_flags_for_team_in_redis(redis_client.clone(), team.id, Some(flag_json.to_string()))
+        .await
+        .unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
