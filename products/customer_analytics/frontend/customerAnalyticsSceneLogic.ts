@@ -30,6 +30,8 @@ import {
 import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 
+export type BusinessType = 'b2c' | 'b2b'
+
 export interface CustomerAnalyticsSceneLogicProps {
     tabId: string
 }
@@ -90,7 +92,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setBusinessType: (businessType: string) => ({ businessType }),
+        setBusinessType: (businessType: BusinessType) => ({ businessType }),
         setSelectedGroupType: (selectedGroupType: number) => ({ selectedGroupType }),
     }),
     reducers(() => ({
@@ -106,7 +108,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             },
         ],
         businessType: [
-            'b2c' as string,
+            'b2c' as BusinessType,
             persistConfig,
             {
                 setBusinessType: (_, { businessType }) => businessType,
@@ -136,6 +138,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         customerLabel: [
             (s) => [s.aggregationLabel, s.businessType, s.selectedGroupType],
             (aggregationLabel, businessType, selectedGroupType) => {
+                if (!aggregationLabel || typeof aggregationLabel !== 'function') {
+                    return { singular: 'user', plural: 'users' }
+                }
                 if (businessType === 'b2c') {
                     return aggregationLabel(undefined, true)
                 }
@@ -162,7 +167,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             (s) => [s.activityEvent, s.businessType, s.selectedGroupType],
             (
                 activityEvent: EventsNode | ActionsNode | null,
-                businessType: string,
+                businessType: BusinessType,
                 selectedGroupType: GroupTypeIndex
             ): AnyEntityNode | null => {
                 if (!activityEvent) {
@@ -185,45 +190,51 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             (s) => [s.activityEvent, s.businessType, s.selectedGroupType],
             (
                 activityEvent: EventsNode | ActionsNode | null,
-                businessType: string,
+                businessType: BusinessType,
                 selectedGroupType: GroupTypeIndex
             ): AnyEntityNode | null => {
                 if (!activityEvent) {
                     return null
                 }
-                const series = {
+                if (businessType === 'b2b') {
+                    return {
+                        ...activityEvent,
+                        math: BaseMathType.WeeklyActiveUsers,
+                        math_group_type_index: selectedGroupType,
+                    }
+                }
+                return {
                     ...activityEvent,
                     math: BaseMathType.WeeklyActiveUsers,
                 }
-                if (businessType === 'b2b') {
-                    series['math_group_type_index'] = selectedGroupType
-                }
-                return series
             },
         ],
         mauSeries: [
             (s) => [s.activityEvent, s.businessType, s.selectedGroupType],
             (
                 activityEvent: EventsNode | ActionsNode | null,
-                businessType: string,
+                businessType: BusinessType,
                 selectedGroupType: GroupTypeIndex
             ): AnyEntityNode | null => {
                 if (!activityEvent) {
                     return null
                 }
-                const series = {
+                if (businessType === 'b2b') {
+                    return {
+                        ...activityEvent,
+                        math: BaseMathType.MonthlyActiveUsers,
+                        math_group_type_index: selectedGroupType,
+                    }
+                }
+                return {
                     ...activityEvent,
                     math: BaseMathType.MonthlyActiveUsers,
                 }
-                if (businessType === 'b2b') {
-                    series['math_group_type_index'] = selectedGroupType
-                }
-                return series
             },
         ],
         signupSeries: [
             (s) => [s.businessType, s.selectedGroupType, s.signupEvent],
-            (businessType: string, selectedGroupType: GroupTypeIndex, signupEvent): AnyEntityNode | null => {
+            (businessType: BusinessType, selectedGroupType: GroupTypeIndex, signupEvent): AnyEntityNode | null => {
                 if (Object.keys(signupEvent).length === 0) {
                     return null
                 }
@@ -242,7 +253,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         signupPageviewSeries: [
             (s) => [s.businessType, s.selectedGroupType, s.signupPageviewEvent],
-            (businessType: string, selectedGroupType: GroupTypeIndex, signupPageviewEvent): AnyEntityNode | null => {
+            (
+                businessType: BusinessType,
+                selectedGroupType: GroupTypeIndex,
+                signupPageviewEvent
+            ): AnyEntityNode | null => {
                 if (Object.keys(signupPageviewEvent).length === 0) {
                     return null
                 }
@@ -261,7 +276,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         subscriptionSeries: [
             (s) => [s.businessType, s.selectedGroupType, s.subscriptionEvent],
-            (businessType: string, selectedGroupType: GroupTypeIndex, subscriptionEvent): AnyEntityNode | null => {
+            (
+                businessType: BusinessType,
+                selectedGroupType: GroupTypeIndex,
+                subscriptionEvent
+            ): AnyEntityNode | null => {
                 if (Object.keys(subscriptionEvent).length === 0) {
                     return null
                 }
@@ -280,7 +299,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         paymentSeries: [
             (s) => [s.businessType, s.selectedGroupType, s.paymentEvent],
-            (businessType: string, selectedGroupType: GroupTypeIndex, paymentEvent): AnyEntityNode | null => {
+            (businessType: BusinessType, selectedGroupType: GroupTypeIndex, paymentEvent): AnyEntityNode | null => {
                 if (Object.keys(paymentEvent).length === 0) {
                     return null
                 }
