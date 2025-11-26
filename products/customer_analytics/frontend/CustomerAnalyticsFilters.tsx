@@ -107,11 +107,6 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                     {businessType === 'b2b' && (
                         <LemonSelect
                             size="small"
-                            // options={[
-                            //     { label: 'Group 0', value: 0 },
-                            //     { label: 'Group 1', value: 1 },
-                            //     { label: 'Group 2', value: 2 },
-                            // ]}
                             options={groupOptions}
                             value={selectedGroupType}
                             onChange={setSelectedGroupType}
