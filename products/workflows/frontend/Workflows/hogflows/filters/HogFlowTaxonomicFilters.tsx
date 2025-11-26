@@ -29,7 +29,7 @@ export const HogFlowTaxonomicFilters = ({
                     fullWidth
                     onClick={() =>
                         onChange(`variables.${variable.key}`, {
-                            key: variable.key,
+                            key: `variables.${variable.key}`,
                             name: variable.key,
                             propertyFilterType: PropertyFilterType.WorkflowVariable,
                             taxonomicFilterGroup: TaxonomicFilterGroupType.WorkflowVariables,
