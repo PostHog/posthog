@@ -6,13 +6,13 @@ import { useEffect } from 'react'
 import { useRef } from 'react'
 
 import { IconFilter, IconList, IconSearch } from '@posthog/icons'
-import { LemonCollapse, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconRobot } from 'lib/lemon-ui/icons'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     TabsPrimitive,
     TabsPrimitiveContent,
@@ -66,33 +66,36 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         <ErrorTrackingSetupPrompt>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
                 {issue && (
-                    <div className="px-4">
-                        <SceneTitleSection
-                            canEdit
-                            name={issue.name}
-                            onNameChange={updateName}
-                            description={null}
-                            resourceType={{ type: 'error_tracking' }}
-                            actions={
-                                <div className="flex items-center gap-1">
-                                    <IssueAssigneeSelect
-                                        assignee={issue.assignee}
-                                        onChange={updateAssignee}
-                                        disabled={issue.status != 'active'}
-                                    />
-                                    <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-                                </div>
-                            }
-                        />
-
+                    <>
+                        <div className="px-4">
+                            <SceneTitleSection
+                                canEdit
+                                name={issue.name}
+                                onNameChange={updateName}
+                                description={null}
+                                resourceType={{ type: 'error_tracking' }}
+                                actions={
+                                    <div className="flex items-center gap-1">
+                                        <IssueAssigneeSelect
+                                            assignee={issue.assignee}
+                                            onChange={updateAssignee}
+                                            disabled={issue.status != 'active'}
+                                        />
+                                        <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+                                    </div>
+                                }
+                            />
+                        </div>
                         <ErrorTrackingIssueScenePanel issue={issue} />
-                    </div>
-                )}
 
-                <div className="ErrorTrackingIssue flex h-[calc(100vh-var(--scene-layout-header-height)-50px)]">
-                    <LeftHandColumn />
-                    <RightHandColumn />
-                </div>
+                        <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
+                            <div className="flex flex-1 h-full">
+                                <LeftHandColumn />
+                                <RightHandColumn />
+                            </div>
+                        </div>
+                    </>
+                )}
             </BindLogic>
         </ErrorTrackingSetupPrompt>
     )
@@ -103,7 +106,7 @@ const RightHandColumn = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="flex flex-1 gap-y-1 px-4 py-3 overflow-y-auto min-w-[375px]">
+        <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px] bg-[var(--gray-1)] bg-surface-secondary bg-surface-tertiary">
             <PostHogSDKIssueBanner event={selectedEvent} />
 
             <ExceptionCard
@@ -139,7 +142,7 @@ const LeftHandColumn = (): JSX.Element => {
                 width: desiredSize ?? '30%',
                 minWidth: 320,
             }}
-            className="flex flex-col relative bg-bg-light"
+            className="flex flex-col relative bg-surface-primary"
         >
             <TabsPrimitive
                 value={category}
@@ -147,28 +150,54 @@ const LeftHandColumn = (): JSX.Element => {
                 className="flex flex-col min-h-0"
             >
                 <div>
-                    <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
-                        <TabsPrimitiveList className="flex justify-between space-x-2">
-                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
-                                <IconList className="mr-1" />
-                                <span className="text-nowrap">Exceptions</span>
+                    <TabsPrimitiveList className="flex justify-center space-x-0.5">
+                        <TabsPrimitiveTrigger value="exceptions">
+                            <ButtonPrimitive
+                                tooltip="Exceptions"
+                                iconOnly
+                                className="my-1"
+                                size="sm"
+                                active={category === 'exceptions'}
+                            >
+                                <IconList />
+                            </ButtonPrimitive>
+                        </TabsPrimitiveTrigger>
+                        <TabsPrimitiveTrigger value="breakdowns">
+                            <ButtonPrimitive
+                                tooltip="Breakdowns"
+                                iconOnly
+                                className="my-1"
+                                size="sm"
+                                active={category === 'breakdowns'}
+                            >
+                                <IconFilter />
+                            </ButtonPrimitive>
+                        </TabsPrimitiveTrigger>
+                        {hasTasks && (
+                            <TabsPrimitiveTrigger value="autofix">
+                                <ButtonPrimitive
+                                    tooltip="Autofix"
+                                    iconOnly
+                                    className="my-1"
+                                    size="sm"
+                                    active={category === 'autofix'}
+                                >
+                                    <IconRobot />
+                                </ButtonPrimitive>
                             </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="breakdowns">
-                                <IconFilter className="mr-1" />
-                                <span className="text-nowrap">Breakdowns</span>
-                            </TabsPrimitiveTrigger>
-                            {hasTasks && (
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="autofix">
-                                    <IconRobot className="mr-1" />
-                                    <span className="text-nowrap">Autofix</span>
-                                </TabsPrimitiveTrigger>
-                            )}
-                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
-                                <IconSearch className="mr-1" />
-                                <span className="text-nowrap">Similar issues</span>
-                            </TabsPrimitiveTrigger>
-                        </TabsPrimitiveList>
-                    </ScrollableShadows>
+                        )}
+                        <TabsPrimitiveTrigger value="similar_issues">
+                            <ButtonPrimitive
+                                tooltip="Similar issues"
+                                iconOnly
+                                className="my-1"
+                                size="sm"
+                                active={category === 'similar_issues'}
+                            >
+                                <IconSearch />
+                            </ButtonPrimitive>
+                        </TabsPrimitiveTrigger>
+                    </TabsPrimitiveList>
                 </div>
                 <TabsPrimitiveContent value="exceptions" className="h-full min-h-0">
                     <ExceptionsTab />
@@ -200,24 +229,15 @@ const ExceptionsTab = (): JSX.Element => {
 
     return (
         <div className="flex flex-col h-full">
-            <LemonCollapse
-                embedded
-                panels={[
-                    {
-                        key: 'filters',
-                        header: 'Add filters',
-                        content: (
-                            <ErrorFilters.Root>
-                                <div className="flex gap-2 justify-between flex-wrap">
-                                    <ErrorFilters.DateRange />
-                                    <ErrorFilters.InternalAccounts />
-                                </div>
-                                <ErrorFilters.FilterGroup />
-                            </ErrorFilters.Root>
-                        ),
-                    },
-                ]}
-            />
+            <div className="px-2 py-3">
+                <ErrorFilters.Root>
+                    <div className="flex gap-2 justify-between flex-wrap">
+                        <ErrorFilters.DateRange />
+                        <ErrorFilters.InternalAccounts />
+                    </div>
+                    <ErrorFilters.FilterGroup />
+                </ErrorFilters.Root>
+            </div>
             <LemonDivider className="my-0" />
             <Metadata className="flex flex-col overflow-y-auto">
                 <EventsTable

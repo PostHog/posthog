@@ -10,7 +10,8 @@ export interface DataSourceTableProps<T extends Record<string, any>> {
     dataSource: BuiltLogic<DataSourceLogic<T>>
     className?: string
     children?: React.ReactNode
-    embedded?: boolean
+    embedded?: LemonTableProps<T>['embedded']
+    stealth?: LemonTableProps<T>['stealth']
     expandable?: LemonTableProps<T>['expandable']
     onRowClick?: (item: T, evt: MouseEvent) => void
     rowRibbonColor?: LemonTableProps<T>['rowRibbonColor']
@@ -20,6 +21,7 @@ export function DataSourceTable<T extends Record<string, any>>({
     dataSource,
     className,
     embedded = false,
+    stealth = false,
     onRowClick,
     rowRibbonColor,
     expandable,
@@ -62,6 +64,7 @@ export function DataSourceTable<T extends Record<string, any>>({
             columns={columns}
             loading={itemsLoading}
             embedded={embedded}
+            stealth={stealth}
             onRow={onRow}
             className={className}
             footer={<DataSourceTableFooter dataSource={dataSource} />}

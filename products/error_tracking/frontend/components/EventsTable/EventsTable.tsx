@@ -78,6 +78,7 @@ export function EventsTable({ query, queryKey, onEventSelect }: EventsTableProps
         <DataSourceTable<ErrorEventType>
             dataSource={dataSource}
             embedded
+            stealth
             onRowClick={undefined}
             className="overflow-auto"
         >
