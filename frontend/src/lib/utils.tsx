@@ -702,7 +702,7 @@ export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A',
-    options = {}
+    options: { showNow?: boolean; showToday?: boolean } = {}
 ): string {
     const defaultOptions = {
         showNow: true,
