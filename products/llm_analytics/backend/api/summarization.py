@@ -8,6 +8,7 @@ Endpoint:
 - POST /api/projects/:id/llm_analytics/summarize/ - Summarize trace or event
 """
 
+import time
 from typing import cast
 
 from django.conf import settings
@@ -339,12 +340,15 @@ The response includes the summary text and optional metadata.
 
             text_repr = self._generate_text_repr(summarize_type, entity_data)
 
+            start_time = time.time()
             summary = async_to_sync(summarize)(
                 text_repr=text_repr,
                 team_id=self.team_id,
                 trace_id=entity_id,
                 mode=mode,
             )
+
+            duration_seconds = time.time() - start_time
 
             result = self._build_summary_response(summary, text_repr, summarize_type)
 
@@ -368,6 +372,7 @@ The response includes the summary text and optional metadata.
                     "mode": mode,
                     "text_repr_length": len(text_repr),
                     "force_refresh": force_refresh,
+                    "duration_seconds": duration_seconds,
                 },
                 self.team,
             )
