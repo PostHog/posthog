@@ -52,6 +52,11 @@ Follow this checklist to exercise the DuckLake copy workflow on a local checkout
 1. **Start the dev stack**  
    Run `hogli start` (or `bin/start`) so Postgres, MinIO, Temporal, and all DuckLake defaults are up.
 
+   ```bash
+   export DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED=true
+   hogli start
+   ```
+
 2. **Trigger a model materialization from the app**  
    In the PostHog UI, open Data Warehouse → Views, pick (or create) a view, open the Materialization section, enable it if needed, and click **Sync now**. This schedules the `data-modeling-run` workflow for that team/view.
 
