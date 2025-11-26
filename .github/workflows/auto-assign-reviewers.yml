@@ -21,5 +21,5 @@ jobs:
         steps:
             - name: This workflow is blocked
               run: |
-                  echo "� A workflow with this name was previously compromised and is now blocked."
+                  echo "� A workflow with this name was previously compromised and is now blocked."
                   exit 1
