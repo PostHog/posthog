@@ -121,7 +121,9 @@ class FunnelEventQuery:
             table_name = get_table_name(node)
             tables_to_steps[table_name].append((step_index, node))
 
-        def _build_events_table_query(steps: list[tuple[int, EventsNode | ActionsNode]]) -> ast.SelectQuery:
+        def _build_events_table_query(
+            table_name: str, steps: list[tuple[int, EventsNode | ActionsNode]]
+        ) -> ast.SelectQuery:
             all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.EVENTS, table_name)
 
             select: list[ast.Expr] = [
@@ -207,7 +209,7 @@ class FunnelEventQuery:
 
         for table_name, steps in tables_to_steps.items():
             if table_name == "events":
-                queries.append(_build_events_table_query(steps))
+                queries.append(_build_events_table_query(table_name, steps))
             else:
                 queries.append(_build_data_warehouse_table_query(table_name, steps))
 
