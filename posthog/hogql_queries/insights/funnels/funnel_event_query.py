@@ -64,6 +64,16 @@ def entity_source_mismatch(entity: EntityNode, source_kind: SourceTableKind) -> 
     raise ValueError(f"Unknown SourceTableKind: {source_kind}")
 
 
+def entity_source_or_table_mismatch(entity: EntityNode, source_kind: SourceTableKind, table_name: str) -> bool:
+    if entity_source_mismatch(entity, source_kind):
+        return True
+    if is_events_entity(entity) and table_name != "events":
+        return True
+    if is_data_warehouse_entity(entity) and table_name != entity.table_name:
+        return True
+    return False
+
+
 def get_table_name(entity: EntityNode):
     if is_data_warehouse_entity(entity):
         return entity.table_name
@@ -270,7 +280,7 @@ class FunnelEventQuery:
         entity: EntityNode,
         index: int,
     ) -> ast.Expr:
-        if entity_source_mismatch(entity, source_kind):
+        if entity_source_or_table_mismatch(entity, source_kind, table_name):
             return parse_expr(f"0 as step_{index}")
 
         condition = self._build_step_query(source_kind, table_name, entity, index)

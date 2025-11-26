@@ -150,7 +150,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    toUUID(e.user_id) AS aggregation_target,
                    0 AS step_0,
                    if(and(1, equals(some_prop, 'some_value')), 1, 0) AS step_1,
-                   if(and(0, equals(another_prop, 'another_value')), 1, 0) AS step_2,
+                   0 AS step_2,
                    if(and(1, equals(other_prop, 'other_value')), 1, 0) AS step_3
             FROM table_one AS e
             WHERE and(and(greaterOrEquals(e.created_at, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.created_at, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_1, 1), equals(step_3, 1)))
@@ -160,11 +160,11 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_3 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[1].select_query)
         expected_3 = dedent("""
             SELECT e.ts AS timestamp,
-                toUUID(e.some_user_id) AS aggregation_target,
-                0 AS step_0,
-                if(and(0, equals(some_prop, 'some_value')), 1, 0) AS step_1,
-                if(and(1, equals(another_prop, 'another_value')), 1, 0) AS step_2,
-                if(and(0, equals(other_prop, 'other_value')), 1, 0) AS step_3
+                   toUUID(e.some_user_id) AS aggregation_target,
+                   0 AS step_0,
+                   0 AS step_1,
+                   if(and(1, equals(another_prop, 'another_value')), 1, 0) AS step_2,
+                   0 AS step_3
             FROM table_two AS e
             WHERE and(and(greaterOrEquals(e.ts, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.ts, toDateTime('2025-11-12 23:59:59.999999'))), equals(step_2, 1))
         """).strip()
