@@ -11,7 +11,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 
 
 async def download_google_favicon_async(domain: str, client: httpx.AsyncClient):
-    url = f"https://www.google.com/s2/favicons?sz=64&domain={domain}"
+    url = f"https://www.google.com/s2/favicons?sz=32&domain={domain}"
     try:
         resp = await client.get(url, timeout=10)
         if resp.status_code == 200 and resp.content:
@@ -26,7 +26,7 @@ async def download_ddg_favicon_async(domain: str, client: httpx.AsyncClient):
     try:
         resp = await client.get(url, timeout=10)
         if resp.status_code == 200 and resp.content:
-            content_type = resp.headers.get("content-type", "image/x-icon")
+            content_type = resp.headers.get("content-type")
             return domain, resp.content, content_type
         return domain, None, None
     except Exception:
@@ -76,7 +76,7 @@ def cache_favicons(s3: S3Resource, cluster: dagster.ResourceParam[ClickhouseClus
             AND referrer is not null and referrer != ''
         GROUP BY referrer
         HAVING count(*) > 1000
-        LIMIT 600
+        LIMIT 5000
     """
 
     result, _ = query_with_columns(top_referrer_query)
@@ -90,7 +90,7 @@ def cache_favicons(s3: S3Resource, cluster: dagster.ResourceParam[ClickhouseClus
     for domain, data, content_type in items:
         if data is None:
             continue
-        key = f"favicons/{domain}.png"
+        key = f"/favicons/{domain}.png"
         upload_if_missing(
             s3_client,
             settings.DAGSTER_FAVICONS_S3_BUCKET,

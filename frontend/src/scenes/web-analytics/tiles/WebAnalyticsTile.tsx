@@ -23,6 +23,7 @@ import {
     countryCodeToFlag,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -73,26 +74,6 @@ export const toUtcOffsetFormat = (value: number): string => {
 
     // E.g. UTC-3, UTC, UTC+5:30, UTC+11:45
     return `UTC${sign}${integerPart}${formattedMinutes}`
-}
-
-const getDomainFromValue = (value: string): string | null => {
-    try {
-        if (value === '$direct' || value.trim() === '') {
-            return null
-        }
-
-        const url = new URL(value.startsWith('http://') || value.startsWith('https://') ? value : `https://${value}`)
-
-        let domain = url.hostname
-
-        if (domain.startsWith('www.')) {
-            domain = domain.slice(4)
-        }
-
-        return domain
-    } catch {
-        return null
-    }
 }
 
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }
@@ -231,6 +212,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { value, query } = props
     const { source } = query
     const { featureFlags } = useValues(featureFlagLogic)
+    const appContext = getAppContext()
 
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
@@ -328,12 +310,14 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.InitialReferringDomain:
             if (featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]) {
                 if (typeof value === 'string') {
-                    let domain = getDomainFromValue(value)
-
                     return (
                         <div className="flex items-center gap-2">
-                            {' '}
-                            {domain && <img src={`https://icon.horse/icon/${domain}`} width={24} height={24} />}
+                            <img
+                                src={`${appContext?.cdn_url}/static/favicons/${value}.png`}
+                                width={24}
+                                height={24}
+                                onError={(e) => (e.currentTarget.style.display = 'none')}
+                            />
                             {value}
                         </div>
                     )

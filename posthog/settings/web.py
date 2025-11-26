@@ -488,6 +488,12 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")
 
 ####
+# CDN
+
+# Passes to the frontend for the web app to know where to fetch favicon assets from
+CDN_URL = get_from_env("CDN_URL", "")
+
+####
 # Local dev
 
 # disables frontend side navigation hooks to make hot-reload work seamlessly
