@@ -14,6 +14,7 @@ use crate::invocation_context::context;
 enum Language {
     TypeScript,
     Golang,
+    Python,
 }
 
 impl Language {
@@ -22,6 +23,7 @@ impl Language {
         match self {
             Language::TypeScript => "typescript",
             Language::Golang => "golang",
+            Language::Python => "python",
         }
     }
 
@@ -30,6 +32,7 @@ impl Language {
         match self {
             Language::TypeScript => "TypeScript",
             Language::Golang => "Go",
+            Language::Python => "Python",
         }
     }
 
@@ -38,6 +41,7 @@ impl Language {
         match self {
             Language::TypeScript => "posthog-typed.ts",
             Language::Golang => "posthog-typed.go",
+            Language::Python => "posthog-typed.py",
         }
     }
 
@@ -71,14 +75,32 @@ You can add optional properties through the option functions:
     cap := typed.EventNameCapture("user_id", required,
        typed.EventNameWithOptionalProp("value"))
 "#,
-                output_path.trim_end_matches(".go")
+                output_path
+            ),
+            Language::Python => format!(
+                r#"
+1. Save the generated file in your project (if not generated there already):
+   mv {0} <your-project>/posthog_typed.py
+
+2. Import `capture` from the typed module in files where you track events:
+   from posthog_typed import capture
+
+   capture("event_name", "user_123", {{"property": "value"}})
+
+Type checkers (mypy, pyright) will validate event names and properties.
+
+To bypass type checking for a specific call, use capture_raw:
+   from posthog_typed import capture_raw
+   capture_raw("dynamic_event", "user_123", {{"anything": "goes"}})
+"#,
+                output_path
             ),
         }
     }
 
     /// Get all available languages
     fn all() -> Vec<Language> {
-        vec![Language::TypeScript, Language::Golang]
+        vec![Language::TypeScript, Language::Golang, Language::Python]
     }
 
     /// Parse a language from a string identifier
@@ -86,6 +108,7 @@ You can add optional properties through the option functions:
         match s {
             "typescript" => Some(Language::TypeScript),
             "golang" => Some(Language::Golang),
+            "python" => Some(Language::Python),
             _ => None,
         }
     }
