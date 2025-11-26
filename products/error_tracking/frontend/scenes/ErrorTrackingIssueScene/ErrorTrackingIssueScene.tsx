@@ -106,7 +106,7 @@ const RightHandColumn = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px] bg-[var(--gray-1)] bg-surface-secondary bg-surface-tertiary">
+        <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px]">
             <PostHogSDKIssueBanner event={selectedEvent} />
 
             <ExceptionCard
@@ -142,7 +142,7 @@ const LeftHandColumn = (): JSX.Element => {
                 width: desiredSize ?? '30%',
                 minWidth: 320,
             }}
-            className="flex flex-col relative bg-surface-primary"
+            className="flex flex-col relative"
         >
             <TabsPrimitive
                 value={category}
