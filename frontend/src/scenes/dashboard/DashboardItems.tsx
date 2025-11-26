@@ -62,7 +62,14 @@ export function DashboardItems(): JSX.Element {
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
-        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
+        : getBestSurveyOpportunityFunnel(
+              tiles || [],
+              surveyLinkedInsights,
+              // TODO: this can be removed when these PRs are merged to enable wider surface area:
+              // - https://github.com/PostHog/posthog-js/pull/2661
+              // - https://github.com/PostHog/posthog/pull/42327
+              featureFlags[FEATURE_FLAGS.SURVEYS_INSIGHT_BUTTON_EXPERIMENT] === 'test'
+          )
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 

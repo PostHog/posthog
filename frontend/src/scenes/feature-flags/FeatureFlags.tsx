@@ -29,7 +29,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyModal } from 'scenes/surveys/quick-create/QuickSurveyModal'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -241,9 +241,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                 }
             />
             <QuickSurveyModal
-                flag={featureFlag}
+                context={{ type: 'feature_flag', flag: featureFlag }}
                 isOpen={isQuickSurveyModalOpen}
-                onClose={() => setIsQuickSurveyModalOpen(false)}
+                onCancel={() => setIsQuickSurveyModalOpen(false)}
             />
         </>
     )

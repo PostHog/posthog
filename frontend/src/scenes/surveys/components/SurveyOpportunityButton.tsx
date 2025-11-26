@@ -1,10 +1,13 @@
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatPercentage } from 'lib/utils'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -14,6 +17,8 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { QueryBasedInsightModel } from '~/types'
 
 import { SURVEY_CREATED_SOURCE } from '../constants'
+import { QuickSurveyModal } from '../quick-create/QuickSurveyModal'
+import { QuickSurveyType } from '../quick-create/types'
 import { captureMaxAISurveyCreationException } from '../utils'
 import { extractFunnelContext } from '../utils/opportunityDetection'
 
@@ -26,6 +31,11 @@ export function SurveyOpportunityButton({
     insight,
     disableAutoPromptSubmit,
 }: SurveyOpportunityButtonProps): JSX.Element | null {
+    const [modalOpen, setModalOpen] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const shouldUseQuickCreate = featureFlags[FEATURE_FLAGS.SURVEYS_INSIGHT_BUTTON_EXPERIMENT] === 'test'
+
     const funnelContext = extractFunnelContext(insight)
     const initialMaxPrompt = funnelContext
         ? `${disableAutoPromptSubmit ? '' : '!'}Create a survey to help me identify and fix the root ` +
@@ -35,11 +45,15 @@ export function SurveyOpportunityButton({
         : ''
 
     useEffect(() => {
+        if (!funnelContext) {
+            return
+        }
+
         posthog.capture('survey opportunity displayed', {
             linked_insight_id: insight.id,
-            conversionRate: funnelContext?.conversionRate, // oxlint-disable-line react-hooks/exhaustive-deps
+            conversionRate: funnelContext.conversionRate,
         })
-    }, [insight.id])
+    }, [insight.id, funnelContext])
 
     const { openMax } = useMaxTool({
         identifier: 'create_survey',
@@ -73,12 +87,25 @@ export function SurveyOpportunityButton({
             linked_insight_id: insight.id,
             conversionRate: funnelContext?.conversionRate,
         })
-        openMax?.()
+        shouldUseQuickCreate ? setModalOpen(true) : openMax?.()
+    }
+
+    if (!funnelContext) {
+        return null
     }
 
     return (
-        <LemonButton size="xsmall" type="primary" sideIcon={<IconMessage />} onClick={handleClick}>
-            Ask users why
-        </LemonButton>
+        <>
+            <LemonButton size="xsmall" type="primary" sideIcon={<IconMessage />} onClick={handleClick}>
+                Ask users why
+            </LemonButton>
+            {shouldUseQuickCreate && (
+                <QuickSurveyModal
+                    context={{ type: QuickSurveyType.FUNNEL, funnel: funnelContext }}
+                    isOpen={modalOpen}
+                    onCancel={() => setModalOpen(false)}
+                />
+            )}
+        </>
     )
 }

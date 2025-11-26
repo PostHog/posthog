@@ -1,10 +1,12 @@
-import { FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
+import { PropertyMatchType } from 'posthog-js'
+
+import { AnyEntityNode, EventsNode, FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 export interface FunnelContext {
     insightName: string
     conversionRate: number
-    steps: string[]
+    steps: AnyEntityNode[]
 }
 
 /**
@@ -14,14 +16,24 @@ export interface FunnelContext {
  *
  * @param tiles list of dashboard tiles
  * @param linkedInsightIds list of surveys with linked insights
+ * @param eventsOnly only search for funnels where all steps are events (no actions)
  * @returns
  */
 export function getBestSurveyOpportunityFunnel(
     tiles: DashboardTile<QueryBasedInsightModel>[],
-    linkedInsightIds: Set<number> = new Set()
+    linkedInsightIds: Set<number> = new Set(),
+    eventsOnly: boolean = false
 ): DashboardTile<QueryBasedInsightModel> | null {
     return getBestSurveyOpportunityFromDashboard(
-        tiles.filter((tile) => isFunnelInsight(tile.insight?.query)),
+        tiles.filter((tile) => {
+            if (!isFunnelInsight(tile.insight?.query)) {
+                return false
+            }
+            if (eventsOnly && !hasOnlyEventSteps(tile.insight?.result)) {
+                return false
+            }
+            return true
+        }),
         linkedInsightIds
     )
 }
@@ -38,17 +50,16 @@ export function extractFunnelContext(insight: Partial<QueryBasedInsightModel>): 
     }
 
     const result = insight.result
-    if (!result || !Array.isArray(result) || result.length === 0) {
+    if (!isValidFunnelResult(result)) {
         return null
     }
 
     const conversionRate = conversionRateFromInsight(result)
-    const steps = result.map((step: any) => step.name || 'Unknown step')
 
     return {
         insightName: insight.name || 'Funnel',
         conversionRate,
-        steps,
+        steps: insight.query.source.series,
     }
 }
 
@@ -95,4 +106,37 @@ function conversionRateFromInsight(result: QueryBasedInsightModel['result']): nu
 
 function isFunnelInsight(query: any): query is InsightVizNode<FunnelsQuery> {
     return query?.kind === 'InsightVizNode' && query?.source?.kind === 'FunnelsQuery'
+}
+
+function isValidFunnelResult(result: QueryBasedInsightModel['result']): result is any[] {
+    return Array.isArray(result) && result.length > 0
+}
+
+function hasOnlyEventSteps(result: QueryBasedInsightModel['result']): boolean {
+    return isValidFunnelResult(result) && result.every((step: any) => step.type === 'events')
+}
+
+export function toSurveyPropertyFilters(
+    step: EventsNode
+): Record<string, { values: string[]; operator: PropertyMatchType }> {
+    const properties = (step as any).properties || []
+    return Object.fromEntries(
+        properties.map((p: any) => [
+            p.key,
+            {
+                values: Array.isArray(p.value) ? p.value.map(String) : [],
+                operator: p.operator,
+            },
+        ])
+    )
+}
+
+export function toSurveyEvent(step: EventsNode): {
+    name: string
+    propertyFilters: ReturnType<typeof toSurveyPropertyFilters>
+} {
+    return {
+        name: step.name || '',
+        propertyFilters: toSurveyPropertyFilters(step),
+    }
 }
