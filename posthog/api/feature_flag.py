@@ -14,7 +14,7 @@ from django.db.models import Prefetch, Q, QuerySet, deletion
 import requests
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, inline_serializer
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, inline_serializer
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
@@ -1081,9 +1081,17 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             return []
 
 
-class MyFlagsResponseSerializer(serializers.Serializer):
-    feature_flag = MinimalFeatureFlagSerializer()
+class EvaluationReasonSerializer(serializers.Serializer):
+    reason = serializers.CharField(help_text="The reason for the evaluation result")
+    condition_index = serializers.IntegerField(
+        allow_null=True, help_text="The index of the condition that matched, if applicable"
+    )
+
+
+class FlagEvaluationResultSerializer(serializers.Serializer):
     value = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
+    evaluation = EvaluationReasonSerializer()
+
 
 def _proxy_to_flags_service(
     token: str,
@@ -1170,6 +1178,7 @@ def _evaluate_flags_with_fallback(
         logger.warning(f"Failed to proxy to flags service, falling back to Python: {e}")
 
         return get_all_feature_flags(team, distinct_id, groups)
+
 
 class FeatureFlagViewSet(
     TeamAndOrgViewSetMixin,
@@ -1697,12 +1706,13 @@ class FeatureFlagViewSet(
         authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
         permission_classes=[ProjectSecretAPITokenPermission],
     )
-    def local_evaluation(self, request: request.Request, **kwargs) -> Response:
+    def local_evaluation(self, request: request.Request, validated_data, **kwargs) -> Response:
         # **kwargs is required because DRF passes parent_lookup_project_id from nested router
         start_time = time.time()
         logger = logging.getLogger(__name__)
 
-        include_cohorts = "send_cohorts" in request.GET
+        # Use validated boolean value from serializer
+        include_cohorts = validated_data.get("send_cohorts", False)
 
         # Track send_cohorts parameter usage
         LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
@@ -1814,25 +1824,49 @@ class FeatureFlagViewSet(
                         )
                         continue
 
-    @validated_request(
-        query_serializer=EvaluationReasonsQuerySerializer,
+    @extend_schema(
+        parameters=[EvaluationReasonsQuerySerializer],
         responses={
             200: OpenApiResponse(
-                response=inline_serializer(
-                    name="EvaluationReasonsResponse",
-                    fields={
-                        "value": serializers.JSONField(),
-                        "evaluation": inline_serializer(
-                            name="EvaluationReason",
-                            fields={
-                                "reason": serializers.CharField(),
-                                "condition_index": serializers.IntegerField(allow_null=True),
-                            },
-                        ),
-                    },
+                response=serializers.DictField(
+                    child=FlagEvaluationResultSerializer(),
+                    help_text="Dictionary mapping feature flag keys to their evaluation results",
                 )
             ),
         },
+        examples=[
+            OpenApiExample(
+                "Evaluation Reasons Response",
+                description="Example response showing evaluation results for multiple feature flags",
+                response_only=True,
+                value={
+                    "new-signup-flow": {
+                        "value": True,
+                        "evaluation": {
+                            "reason": "condition_match",
+                            "condition_index": 0,
+                        },
+                    },
+                    "dark-mode": {
+                        "value": "variant-a",
+                        "evaluation": {
+                            "reason": "condition_match",
+                            "condition_index": 1,
+                        },
+                    },
+                    "beta-features": {
+                        "value": False,
+                        "evaluation": {
+                            "reason": "no_condition_match",
+                            "condition_index": None,
+                        },
+                    },
+                },
+            )
+        ],
+    )
+    @validated_request(
+        query_serializer=EvaluationReasonsQuerySerializer,
     )
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
