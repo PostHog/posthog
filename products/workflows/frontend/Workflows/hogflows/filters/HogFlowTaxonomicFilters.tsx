@@ -29,14 +29,14 @@ export const HogFlowTaxonomicFilters = ({
                     fullWidth
                     onClick={() =>
                         onChange(`variables.${variable.key}`, {
-                            key: `variables.${variable.key}`,
+                            key: variable.key,
                             name: variable.key,
                             propertyFilterType: PropertyFilterType.WorkflowVariable,
                             taxonomicFilterGroup: TaxonomicFilterGroupType.WorkflowVariables,
                         })
                     }
                 >
-                    {variable.name || variable.key}
+                    {variable.key}
                 </LemonButton>
             ))}
         </div>
