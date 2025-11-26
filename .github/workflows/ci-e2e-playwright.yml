@@ -130,7 +130,6 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-                  fetch-depth: 50 # Need enough history for flap detection to find last human commit
                   clean: false
             - name: Clean up data directories with container permissions
               run: |

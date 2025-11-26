@@ -12,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AttributionSettings } from './AttributionSettings'
 import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
+import { CustomSourceMappingsConfiguration } from './CustomSourceMappingsConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 
 export function MarketingAnalyticsSettings({
@@ -52,7 +53,13 @@ export function MarketingAnalyticsSettings({
                             {
                                 key: 'advanced-marketing-settings',
                                 header: 'Advanced marketing settings',
-                                content: <CampaignNameMappingsConfiguration />,
+                                content: (
+                                    <div className="space-y-8">
+                                        <CampaignNameMappingsConfiguration />
+                                        <SceneDivider />
+                                        <CustomSourceMappingsConfiguration />
+                                    </div>
+                                ),
                             },
                         ]}
                     />

@@ -1362,8 +1362,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 4.14.0
-        version: 4.14.0
+        specifier: 5.10.4
+        version: 5.10.4
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -6491,6 +6491,9 @@ packages:
 
   '@poppinss/exception@1.2.2':
     resolution: {integrity: sha512-m7bpKCD4QMlFCjA/nKTs23fuvoVFoA83brRKmObCUNmi/9tVu8Ve3w4YQAnJu4q3Tjf5fr685HYIC/IA2zHRSg==}
+
+  '@posthog/core@1.4.0':
+    resolution: {integrity: sha512-jmW8/I//YOHAfjzokqas+Qtc2T57Ux8d2uIJu7FLcMGxywckHsl6od59CD18jtUzKToQdjQhV6Y3429qj+KeNw==}
 
   '@posthog/core@1.5.3':
     resolution: {integrity: sha512-1cHCMR2uS/rAdBIFlBPJ4rPYaw1O42VkFy/LwQLtoy2hMQb2DdhCoSHfgA66R9TvcOybZsSANlbuihmGEZUKVQ==}
@@ -16515,13 +16518,13 @@ packages:
   posthog-js@1.297.0:
     resolution: {integrity: sha512-+kHHe3oTRLPBokks5E2pojDfx0yAzkXLeN8BCfVY9kZ7eaaHuezpFb4DQ7i4hzI5nMFDe5qWotsUO73/GR6lmw==}
 
-  posthog-node@4.14.0:
-    resolution: {integrity: sha512-PitSiuxGiVFl0ItuhIfi3Sq1tcaMU4vlbPu1wv0qufTJGDjWthOOr4vYfFIs1xkbJFOQcfGczMXkr44kX5TDDg==}
-    engines: {node: '>=15.0.0'}
-
   posthog-node@4.18.0:
     resolution: {integrity: sha512-XROs1h+DNatgKh/AlIlCtDxWzwrKdYDb2mOs58n4yN8BkGN9ewqeQwG5ApS4/IzwCb7HPttUkOVulkYatd2PIw==}
     engines: {node: '>=15.0.0'}
+
+  posthog-node@5.10.4:
+    resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
+    engines: {node: '>=20'}
 
   posthtml-parser@0.11.0:
     resolution: {integrity: sha512-QecJtfLekJbWVo/dMAA+OSwY79wpRmbqS5TeXvXSX+f0c6pW4/SE6inzZ2qkU7oAMCPqIDkZDvd/bQsSFUnKyw==}
@@ -25674,6 +25677,8 @@ snapshots:
       supports-color: 10.2.2
 
   '@poppinss/exception@1.2.2': {}
+
+  '@posthog/core@1.4.0': {}
 
   '@posthog/core@1.5.3':
     dependencies:
@@ -38290,17 +38295,15 @@ snapshots:
       preact: 10.27.2
       web-vitals: 4.2.4
 
-  posthog-node@4.14.0:
-    dependencies:
-      axios: 1.9.0
-    transitivePeerDependencies:
-      - debug
-
   posthog-node@4.18.0:
     dependencies:
       axios: 1.9.0
     transitivePeerDependencies:
       - debug
+
+  posthog-node@5.10.4:
+    dependencies:
+      '@posthog/core': 1.4.0
 
   posthtml-parser@0.11.0:
     dependencies:
