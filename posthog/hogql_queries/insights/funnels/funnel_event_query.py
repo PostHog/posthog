@@ -71,29 +71,9 @@ class FunnelEventQuery:
             tables_to_steps[table_name].append((step_index, node))
 
         def _build_events_table_query(steps: list[tuple[int, EventsNode | ActionsNode]]) -> ast.SelectQuery:
-            series, funnelsFilter = self.context.query.series, self.context.funnelsFilter
+            all_step_cols, all_exclusions = self._get_funnel_cols()
 
-            all_step_cols: list[ast.Expr] = []
-            all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
-            for index, entity in enumerate(series):
-                step_cols = self._get_step_col(entity, index)
-                all_step_cols.extend(step_cols)
-                all_exclusions.append([])
-
-            if funnelsFilter.exclusions:
-                for excluded_entity in funnelsFilter.exclusions:
-                    for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
-                        all_exclusions[i].append(excluded_entity)
-
-                for index, exclusions in enumerate(all_exclusions):
-                    exclusion_col_expr = self._get_exclusions_col(exclusions, index)
-                    all_step_cols.append(exclusion_col_expr)
-
-            breakdown_select_prop = self._get_breakdown_select_prop()
-
-            if breakdown_select_prop:
-                all_step_cols.extend(breakdown_select_prop)
-
+            # TODO: move into _get_funnel_cols?
             _extra_fields: list[ast.Expr] = [
                 ast.Alias(alias=field, expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, field]))
                 for field in self.extra_fields
@@ -121,7 +101,7 @@ class FunnelEventQuery:
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
             if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions(all_exclusions, length=len(series))
+                steps_conditions = self._get_steps_conditions(all_exclusions)
                 where = ast.And(exprs=[where, steps_conditions])
 
             stmt = ast.SelectQuery(
@@ -202,6 +182,34 @@ class FunnelEventQuery:
                 alias=self.EVENT_TABLE_ALIAS,
             ),
         )
+
+    def _get_funnel_cols(
+        self,
+    ) -> tuple[list[ast.Expr], list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]]]:
+        series, funnelsFilter = self.context.query.series, self.context.funnelsFilter
+
+        all_step_cols: list[ast.Expr] = []
+        all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
+        for index, entity in enumerate(series):
+            step_cols = self._get_step_col(entity, index)
+            all_step_cols.extend(step_cols)
+            all_exclusions.append([])
+
+        if funnelsFilter.exclusions:
+            for excluded_entity in funnelsFilter.exclusions:
+                for i in range(excluded_entity.funnelFromStep + 1, excluded_entity.funnelToStep + 1):
+                    all_exclusions[i].append(excluded_entity)
+
+            for index, exclusions in enumerate(all_exclusions):
+                exclusion_col_expr = self._get_exclusions_col(exclusions, index)
+                all_step_cols.append(exclusion_col_expr)
+
+        breakdown_select_prop = self._get_breakdown_select_prop()
+
+        if breakdown_select_prop:
+            all_step_cols.extend(breakdown_select_prop)
+
+        return all_step_cols, all_exclusions
 
     def _get_exclusions_col(
         self,
@@ -284,10 +292,10 @@ class FunnelEventQuery:
             return ast.And(exprs=filters)
         return filters[0]
 
-    def _get_steps_conditions(self, exclusions, length: int) -> ast.Expr:
+    def _get_steps_conditions(self, exclusions) -> ast.Expr:
         step_conditions: list[ast.Expr] = []
 
-        for index in range(length):
+        for index in range(len(self.context.query.series)):
             step_conditions.append(parse_expr(f"step_{index} = 1"))
             if exclusions[index]:
                 step_conditions.append(parse_expr(f"exclusion_{index} = 1"))
