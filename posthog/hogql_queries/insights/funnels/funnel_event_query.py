@@ -35,6 +35,14 @@ class SourceTableKind(Enum):
     DATA_WAREHOUSE = auto()
 
 
+def is_events_source(source_kind: SourceTableKind) -> bool:
+    return source_kind is SourceTableKind.EVENTS
+
+
+def is_data_warehouse_source(source_kind: SourceTableKind) -> bool:
+    return source_kind is SourceTableKind.DATA_WAREHOUSE
+
+
 def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> bool:
     return (
         isinstance(entity, EventsNode)
@@ -49,9 +57,9 @@ def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> bool:
 
 
 def entity_source_mismatch(entity: EntityNode, source_kind: SourceTableKind) -> bool:
-    if source_kind == SourceTableKind.EVENTS:
+    if source_kind is SourceTableKind.EVENTS:
         return not is_events_entity(entity)
-    if source_kind == SourceTableKind.DATA_WAREHOUSE:
+    if source_kind is SourceTableKind.DATA_WAREHOUSE:
         return not is_data_warehouse_entity(entity)
     raise ValueError(f"Unknown SourceTableKind: {source_kind}")
 
@@ -96,7 +104,7 @@ class FunnelEventQuery:
             tables_to_steps[table_name].append((step_index, node))
 
         def _build_events_table_query(steps: list[tuple[int, EventsNode | ActionsNode]]) -> ast.SelectQuery:
-            all_step_cols, all_exclusions = self._get_funnel_cols(source_kind=SourceTableKind.EVENTS)
+            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.EVENTS)
 
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
@@ -132,18 +140,16 @@ class FunnelEventQuery:
         def _build_data_warehouse_table_query(
             table_name: str, steps: list[tuple[int, DataWarehouseNode]]
         ) -> ast.SelectQuery:
-            # TODO: Add step columns and step where conditions here
+            # TODO: Implement where conditions for data warehouse sources
+            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE)
+
             table_alias = self.EVENT_TABLE_ALIAS
             node = steps[0][1]
-
-            _extra_fields: list[ast.Expr] = [
-                ast.Alias(alias=field, expr=ast.Constant(value=None)) for field in self.extra_fields
-            ]
 
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[table_alias, node.timestamp_field])),
                 ast.Alias(alias="aggregation_target", expr=ast.Field(chain=[table_alias, node.distinct_id_field])),
-                *_extra_fields,
+                *all_step_cols,
             ]
 
             date_range = self._date_range()
@@ -227,18 +233,18 @@ class FunnelEventQuery:
         all_step_cols.extend(self._get_breakdown_select_prop())
 
         # extra fields
-        all_step_cols.extend(self._get_extra_fields())
+        all_step_cols.extend(self._get_extra_fields(source_kind))
 
         return all_step_cols, all_exclusions
 
     def _get_step_col(
         self,
         source_kind: SourceTableKind,
-        entity: EntityNode | ExclusionEntityNode,
+        entity: EntityNode,
         index: int,
     ) -> ast.Expr:
         if entity_source_mismatch(entity, source_kind):
-            parse_expr(f"0 as step_{index}")
+            return parse_expr(f"0 as step_{index}")
 
         condition = self._build_step_query(entity, index)
         return parse_expr(f"if({{condition}}, 1, 0) as step_{index}", placeholders={"condition": condition})
@@ -396,11 +402,13 @@ class FunnelEventQuery:
                 ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
             ]
 
-    def _get_extra_fields(self) -> list[ast.Expr]:
-        extra_fields: list[ast.Expr] = [
-            ast.Alias(alias=field, expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])) for field in self.extra_fields
-        ]
-        return extra_fields
+    def _get_extra_fields(self, source_kind: SourceTableKind) -> list[ast.Expr]:
+        def _expr_for(field: str) -> ast.Expr:
+            if is_data_warehouse_source(source_kind):
+                return ast.Constant(value=None)
+            return ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])
+
+        return [ast.Alias(alias=field, expr=_expr_for(field)) for field in self.extra_fields]
 
     def _aggregation_target_expr(self) -> ast.Expr:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
