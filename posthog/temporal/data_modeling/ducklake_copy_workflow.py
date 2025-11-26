@@ -204,7 +204,6 @@ def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
     if endpoint:
         normalized_endpoint, use_ssl = _normalize_object_storage_endpoint(endpoint)
     secret_parts = ["TYPE S3"]
-    secret_parts = ["TYPE S3"]
     if access_key:
         secret_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
     if secret_key:
