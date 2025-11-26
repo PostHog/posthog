@@ -1,6 +1,7 @@
 import FuseClass from 'fuse.js'
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -9,7 +10,10 @@ import { Breadcrumb, EarlyAccessFeatureType } from '~/types'
 
 import type { earlyAccessFeaturesLogicType } from './earlyAccessFeaturesLogicType'
 
-export interface EarlyAccessFeaturesFuse extends FuseClass<EarlyAccessFeatureType> {}
+export const earlyAccessFeaturesFuse = new FuseClass<EarlyAccessFeatureType>([], {
+    keys: ['name', 'description', 'stage'],
+    threshold: 0.3,
+})
 
 export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
     path(['products', 'earlyAccessFeatures', 'frontend', 'earlyAccessFeaturesLogic']),
@@ -50,31 +54,23 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
             ],
         ],
 
-        featuresFuse: [
-            (s) => [s.earlyAccessFeatures],
-            (earlyAccessFeatures: EarlyAccessFeatureType[]): EarlyAccessFeaturesFuse => {
-                return new FuseClass(earlyAccessFeatures || [], {
-                    keys: ['name', 'description', 'stage'],
-                    threshold: 0.3,
-                })
-            },
-        ],
-
         filteredEarlyAccessFeatures: [
-            (s) => [s.earlyAccessFeatures, s.searchTerm, s.featuresFuse],
-            (
-                earlyAccessFeatures: EarlyAccessFeatureType[],
-                searchTerm: string,
-                featuresFuse: EarlyAccessFeaturesFuse
-            ): EarlyAccessFeatureType[] => {
+            (s) => [s.earlyAccessFeatures, s.searchTerm],
+            (earlyAccessFeatures: EarlyAccessFeatureType[], searchTerm: string): EarlyAccessFeatureType[] => {
                 if (!searchTerm.trim()) {
                     return earlyAccessFeatures
                 }
 
-                const results = featuresFuse.search(searchTerm)
+                const results = earlyAccessFeaturesFuse.search(searchTerm)
                 return results.map((result) => result.item)
             },
         ],
+    }),
+
+    subscriptions({
+        earlyAccessFeatures: (earlyAccessFeatures: EarlyAccessFeatureType[]) => {
+            earlyAccessFeaturesFuse.setCollection(earlyAccessFeatures || [])
+        },
     }),
 
     afterMount(({ actions }) => {
