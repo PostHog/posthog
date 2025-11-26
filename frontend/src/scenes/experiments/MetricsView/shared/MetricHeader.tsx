@@ -69,7 +69,7 @@ const AddBreakdownButton = ({
                     }}
                     taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
+                        // TaxonomicFilterGroupType.PersonProperties,
                     ]}
                     metadataSource={metadataSource}
                 />
