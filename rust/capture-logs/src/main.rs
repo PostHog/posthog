@@ -12,9 +12,9 @@ use std::net::SocketAddr;
 
 use health::HealthRegistry;
 use tokio::signal;
+use tower_http::decompression::RequestDecompressionLayer;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
-use tower_http::decompression::RequestDecompressionLayer;
 
 use limiters::token_dropper::TokenDropper;
 
