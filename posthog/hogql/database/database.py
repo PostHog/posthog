@@ -1110,7 +1110,7 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
     """
     group_mappings = {
         mapping.group_type_index: mapping
-        for mapping in GroupTypeMapping.objects.using("persons_db_writer").filter(team=team)
+        for mapping in GroupTypeMapping.objects.using("persons_db_reader").filter(team=team)
     }
     table = database.get_table("events")
 
