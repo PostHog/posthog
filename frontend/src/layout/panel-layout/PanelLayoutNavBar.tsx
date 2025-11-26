@@ -59,7 +59,6 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
-import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
@@ -100,7 +99,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { user } = useValues(userLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
@@ -648,7 +646,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             className={cn('top-[var(--scene-layout-header-height)] right-[-1px]', {
                                 // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
                                 'top-[calc(var(--scene-layout-header-height)+10px)]': !firstTabIsActive,
-                                'top-0': isLayoutPanelVisible || sceneLayoutConfig?.layout === 'app-raw-no-header',
+                                'top-0': isLayoutPanelVisible,
                             })}
                             offset={0}
                         />
