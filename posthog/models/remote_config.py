@@ -203,7 +203,7 @@ class RemoteConfig(UUIDTModel):
 
             rrweb_script_config = None
 
-            recorder_script = team.sdk_config.get("recorder_script") if team.sdk_config else None
+            recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
             if recorder_script:
                 rrweb_script_config = {
                     "script": recorder_script,

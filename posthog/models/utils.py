@@ -20,8 +20,6 @@ from django.db.models import Q, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
-import pydantic
-
 from posthog.hogql import ast
 
 from posthog.constants import MAX_SLUG_LENGTH

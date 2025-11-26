@@ -626,7 +626,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 True,
             ],
             [
-                "sdk_config overrides global setting",
+                "extra_settings overrides global setting",
                 "new-recorder",
                 ["*"],
                 {"scriptConfig": {"script": "team-recorder"}},
@@ -634,12 +634,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 {"recorder_script": "team-recorder"},
             ],
             [
-                "sdk_config bypasses allowlist",
+                "extra_settings bypasses allowlist",
                 "new-recorder",
                 [],
                 {"scriptConfig": {"script": "team-recorder"}},
                 False,
                 {"recorder_script": "team-recorder"},
+            ],
+            [
+                "extra_settings ignores additional keys",
+                "new-recorder",
+                [],
+                {"scriptConfig": None},
+                False,
+                {"something": "not-the-team-recorder"},
             ],
         ]
     )
@@ -650,7 +658,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         team_allow_list: list[str] | None,
         expected: dict,
         include_team_in_allowlist: bool,
-        sdk_config: dict | None = None,
+        extra_settings: dict | None = None,
     ) -> None:
         from django.core.cache import cache
 
@@ -659,7 +667,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team(
             {
                 "session_recording_opt_in": True,
-                "sdk_config": sdk_config,
+                "extra_settings": extra_settings,
             }
         )
 

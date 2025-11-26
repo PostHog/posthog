@@ -47,7 +47,7 @@ pub fn session_recording_config_response(
     );
 
     let rrweb_script_config = team
-        .sdk_config
+        .extra_settings
         .as_ref()
         .and_then(|cfg| cfg.get("recorder_script"))
         .and_then(|v| v.as_str())

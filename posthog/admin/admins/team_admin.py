@@ -114,7 +114,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "web_analytics_pre_aggregated_tables_enabled",
                     "web_analytics_pre_aggregated_tables_version",
                     "extra_settings",
-                    "sdk_config",
                     "modifiers",
                     "drop_events_older_than",
                 ],
