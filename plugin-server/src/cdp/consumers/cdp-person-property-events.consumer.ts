@@ -128,10 +128,13 @@ export class CdpPersonPropertyEventsConsumer extends CdpConsumerBase {
             // Step 3: Process each team's persons with their realtime supported filters
             for (const [teamId, teamPersons] of Array.from(personsByTeam.entries())) {
                 try {
-                    const filters = filtersByTeam[String(teamId)] || []
+                    const allFilters = filtersByTeam[String(teamId)] || []
+
+                    // Only process person property filters
+                    const filters = allFilters.filter((f) => f.filter_type === 'person_property')
 
                     if (filters.length === 0) {
-                        // Skip teams with no realtime supported filters
+                        // Skip teams with no person property filters
                         continue
                     }
 
