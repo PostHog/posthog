@@ -1,11 +1,14 @@
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 
+export type FilterType = 'behavioral' | 'person_property'
+
 export interface RealtimeSupportedFilter {
     conditionHash: string // The 16-char SHA256 hash from the filter
     bytecode: any // HogQL bytecode for execution
     team_id: number
     cohort_id: number // For tracking which cohort this filter belongs to
+    filter_type: FilterType // 'behavioral' for event filters, 'person_property' for person filters
 }
 
 interface CohortRow {
@@ -108,10 +111,20 @@ export class RealtimeSupportedFilterManagerCDP {
                 return
             }
 
-            // Only accept event filters - skip person and cohort filters
-            // Note: 'behavioral' filters are event-related and should pass through
-            if (node.type === 'person' || node.type === 'cohort') {
+            // Skip cohort filters (recursive cohort references)
+            if (node.type === 'cohort') {
                 return
+            }
+
+            // Determine filter type based on node type
+            let filterType: FilterType
+            if (node.type === 'person') {
+                filterType = 'person_property'
+            } else if (node.type === 'behavioral') {
+                filterType = 'behavioral'
+            } else {
+                // Default to behavioral for event-based filters
+                filterType = 'behavioral'
             }
 
             const conditionHash = node.conditionHash as string
@@ -125,6 +138,7 @@ export class RealtimeSupportedFilterManagerCDP {
                 bytecode: node.bytecode,
                 team_id: cohortRow.team_id,
                 cohort_id: cohortRow.cohort_id,
+                filter_type: filterType,
             })
         }
 
