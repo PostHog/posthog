@@ -1200,9 +1200,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentAiSummaryRequested: ({ experiment }) => {
             posthog.capture('experiment ai summary requested', {
-                experiment_id: experiment.id,
-                experiment_name: experiment.name,
-                experiment_description: experiment.description,
+                ...getEventPropertiesForExperiment(experiment),
             })
         },
         reportPropertyGroupFilterAdded: () => {
