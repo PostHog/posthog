@@ -162,7 +162,7 @@ export function InsightMeta({
     const surveyOpportunityButton =
         surveyOpportunity && featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] ? (
             <div className="flex">
-                <SurveyOpportunityButton insight={insight} />
+                <SurveyOpportunityButton insight={insight} disableAutoPromptSubmit={true} />
             </div>
         ) : null
 
