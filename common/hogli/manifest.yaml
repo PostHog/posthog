@@ -432,14 +432,14 @@ quality:
         cmd: pnpm prettier --write
         description: Format JSON, YAML files
     format:css:
-        cmd: pnpm stylelint --fix --allow-empty-input && pnpm prettier --write
+        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm prettier --write "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet && pnpm prettier --write
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm prettier --write "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:plugin-server:
-        cmd: pnpm --dir plugin-server exec eslint --fix && pnpm --dir plugin-server exec
-            prettier --write
+        cmd: pnpm --dir plugin-server exec eslint --fix "$@" && pnpm --dir plugin-server exec
+            prettier --write "$@"
         description: Format plugin-server JavaScript files
     format:rust:
         cmd: rustfmt
