@@ -69,21 +69,17 @@ export const feedLogic = kea<feedLogicType>([
         ],
     })),
     selectors({
-        fuse: [
-            (s) => [s.feedItems],
-            (items): Fuse<FeedItem> => {
-                return new Fuse<FeedItem>(items, {
-                    keys: ['name', 'created_by', 'description'],
-                    threshold: 0.3,
-                    ignoreLocation: true,
-                })
-            },
-        ],
         groupedFeedItems: [
-            (s) => [s.feedItems, s.searchQuery, s.selectedTypes, s.fuse],
-            (items, searchQuery, selectedTypes, fuse): Record<string, Record<string, FeedItem[]>> => {
+            (s) => [s.feedItems, s.searchQuery, s.selectedTypes],
+            (items, searchQuery, selectedTypes): Record<string, Record<string, FeedItem[]>> => {
                 let filteredItems = searchQuery
-                    ? fuse.search(searchQuery).map((result: Fuse.FuseResult<FeedItem>) => result.item)
+                    ? new Fuse<FeedItem>(items, {
+                          keys: ['name', 'created_by', 'description'],
+                          threshold: 0.3,
+                          ignoreLocation: true,
+                      })
+                          .search(searchQuery)
+                          .map((result) => result.item)
                     : items
 
                 // Filter by selected types (if not "all")
