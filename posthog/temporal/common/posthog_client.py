@@ -60,7 +60,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             await _add_inputs_to_capture_kwargs(capture_kwargs, input)
             if api_key:
                 try:
-                    capture_exception(e, **capture_kwargs)
+                    capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
                 except Exception as capture_error:
                     await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise
@@ -96,7 +96,7 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
                     try:
-                        capture_exception(e, **capture_kwargs)
+                        capture_exception(e, **capture_kwargs)  # type: ignore[arg-type]
                     except Exception as capture_error:
                         await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise
