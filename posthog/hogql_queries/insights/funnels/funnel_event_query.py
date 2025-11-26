@@ -192,8 +192,8 @@ class FunnelEventQuery:
 
         # step cols
         for index, entity in enumerate(series):
-            step_cols = self._get_step_col(source_kind, entity, index)
-            all_step_cols.extend(step_cols)
+            step_col = self._get_step_col(source_kind, entity, index)
+            all_step_cols.append(step_col)
             all_exclusions.append([])
 
         # exclusion cols
@@ -214,6 +214,15 @@ class FunnelEventQuery:
 
         return all_step_cols, all_exclusions
 
+    def _get_step_col(
+        self,
+        source_kind: SourceTableKind,
+        entity: EntityNode | ExclusionEntityNode,
+        index: int,
+    ) -> ast.Expr:
+        condition = self._build_step_query(entity, index)
+        return parse_expr(f"if({{condition}}, 1, 0) as step_{index}", placeholders={"condition": condition})
+
     def _get_exclusions_col(
         self,
         exclusions: list[ExclusionEntityNode],
@@ -225,18 +234,6 @@ class FunnelEventQuery:
         return parse_expr(
             f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)}
         )
-
-    def _get_step_col(
-        self,
-        source_kind: SourceTableKind,
-        entity: EntityNode | ExclusionEntityNode,
-        index: int,
-    ) -> list[ast.Expr]:
-        step_cols: list[ast.Expr] = []
-        condition = self._build_step_query(entity, index)
-        step_cols.append(parse_expr(f"if({{condition}}, 1, 0) as step_{index}", placeholders={"condition": condition}))
-
-        return step_cols
 
     def _build_step_query(
         self,
