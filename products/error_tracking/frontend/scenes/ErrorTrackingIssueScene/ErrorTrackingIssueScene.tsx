@@ -10,9 +10,9 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconRobot } from 'lib/lemon-ui/icons'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     TabsPrimitive,
     TabsPrimitiveContent,
@@ -150,54 +150,28 @@ const LeftHandColumn = (): JSX.Element => {
                 className="flex flex-col min-h-0"
             >
                 <div>
-                    <TabsPrimitiveList className="flex justify-center space-x-0.5">
-                        <TabsPrimitiveTrigger value="exceptions">
-                            <ButtonPrimitive
-                                tooltip="Exceptions"
-                                iconOnly
-                                className="my-1"
-                                size="sm"
-                                active={category === 'exceptions'}
-                            >
-                                <IconList />
-                            </ButtonPrimitive>
-                        </TabsPrimitiveTrigger>
-                        <TabsPrimitiveTrigger value="breakdowns">
-                            <ButtonPrimitive
-                                tooltip="Breakdowns"
-                                iconOnly
-                                className="my-1"
-                                size="sm"
-                                active={category === 'breakdowns'}
-                            >
-                                <IconFilter />
-                            </ButtonPrimitive>
-                        </TabsPrimitiveTrigger>
-                        {hasTasks && (
-                            <TabsPrimitiveTrigger value="autofix">
-                                <ButtonPrimitive
-                                    tooltip="Autofix"
-                                    iconOnly
-                                    className="my-1"
-                                    size="sm"
-                                    active={category === 'autofix'}
-                                >
-                                    <IconRobot />
-                                </ButtonPrimitive>
+                    <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
+                        <TabsPrimitiveList className="flex justify-between space-x-0.5">
+                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
+                                <IconList className="mr-1" />
+                                <span className="text-nowrap">Exceptions</span>
                             </TabsPrimitiveTrigger>
-                        )}
-                        <TabsPrimitiveTrigger value="similar_issues">
-                            <ButtonPrimitive
-                                tooltip="Similar issues"
-                                iconOnly
-                                className="my-1"
-                                size="sm"
-                                active={category === 'similar_issues'}
-                            >
-                                <IconSearch />
-                            </ButtonPrimitive>
-                        </TabsPrimitiveTrigger>
-                    </TabsPrimitiveList>
+                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="breakdowns">
+                                <IconFilter className="mr-1" />
+                                <span className="text-nowrap">Breakdowns</span>
+                            </TabsPrimitiveTrigger>
+                            {hasTasks && (
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="autofix">
+                                    <IconRobot className="mr-1" />
+                                    <span className="text-nowrap">Autofix</span>
+                                </TabsPrimitiveTrigger>
+                            )}
+                            <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
+                                <IconSearch className="mr-1" />
+                                <span className="text-nowrap">Similar issues</span>
+                            </TabsPrimitiveTrigger>
+                        </TabsPrimitiveList>
+                    </ScrollableShadows>
                 </div>
                 <TabsPrimitiveContent value="exceptions" className="h-full min-h-0">
                     <ExceptionsTab />
