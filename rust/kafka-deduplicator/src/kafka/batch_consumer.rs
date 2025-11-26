@@ -367,9 +367,10 @@ where
                         Some(Err(e)) => {
                             kafka_error_count += 1;
                             if let Some(ke) = Self::handle_kafka_error(e, kafka_error_count).await {
-                                if ke == KafkaError::Canceled {
-                                    break;
-                                }
+                                // only fatal, unhandleable, or retriable errors that have
+                                // exhausted attempts will be returned, which breaks the
+                                // consume loop and ends processing, causing pod to reset
+                                return Err(ke);
                             }
                         }
                         None => {
@@ -377,6 +378,7 @@ where
                             break;
                         }
                     }
+
                     // if the batch is now at size, bail out and return it
                     if batch.message_count() >= batch_size {
                         break;
