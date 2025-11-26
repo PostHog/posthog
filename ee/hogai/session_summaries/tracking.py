@@ -36,7 +36,8 @@ def capture_session_summary_started(
             "session_count": len(session_ids),
             "video_validation_enabled": video_validation_enabled,
         },
-        groups=groups(user.current_organization, team),
+        # The org id will be fetched from the team without need to pull the organization from the user (annoying in async context)
+        groups=groups(team),
     )
 
 
@@ -75,7 +76,7 @@ def capture_session_summary_generated(
         distinct_id=user.distinct_id,
         event="session summary generated",
         properties=properties,
-        groups=groups(user.current_organization, team),
+        groups=groups(team),
     )
 
 
