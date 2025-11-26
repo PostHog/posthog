@@ -41,6 +41,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
+    CustomerAnalyticsConfiguration: () =>
+        import(
+            '../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'
+        ),
     DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
@@ -97,6 +101,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
+    '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
@@ -203,6 +208,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
     },
+    CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     DataWarehouse: {
         name: 'Data warehouse',
         projectBased: true,
@@ -408,6 +414,7 @@ export const productUrls = {
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
     customerAnalytics: (): string => '/customer_analytics',
+    customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -910,7 +917,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['alpha'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics'],
+        sceneKeys: ['CustomerAnalytics', 'CustomerAnalyticsConfiguration'],
     },
     {
         path: 'Dashboards',
