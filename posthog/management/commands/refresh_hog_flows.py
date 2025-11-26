@@ -74,7 +74,8 @@ class Command(BaseCommand):
 
                     # Create a mock request context for the serializer
                     request = RequestFactory().post("/")
-                    request.user = hog_flow.created_by or None
+                    if hog_flow.created_by:
+                        request.user = hog_flow.created_by
 
                     def get_team_func(flow=hog_flow):
                         return flow.team
