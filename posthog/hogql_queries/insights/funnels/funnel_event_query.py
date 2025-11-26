@@ -71,6 +71,23 @@ def get_table_name(entity: EntityNode):
         return "events"
 
 
+# collect all field and alias names from a select expression list, to return a list of aliases
+def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[ast.Alias]:
+    result: list[ast.Alias] = []
+    for col in columns:
+        if isinstance(col, ast.Alias):
+            result.append(ast.Alias(alias=col.alias, expr=ast.Field(chain=[table_alias, col.alias])))
+        elif isinstance(col, ast.Field):
+            # assumes the last chain part is the column name
+            column_name = col.chain[-1]
+            if not isinstance(column_name, str):
+                raise ValueError(f"Cannot alias field with chain {col.chain!r}")
+            result.append(ast.Alias(alias=column_name, expr=ast.Field(chain=[table_alias, col.alias])))
+        else:
+            raise ValueError(f"Unexpected select expression {col!r}")
+    return result
+
+
 class FunnelEventQuery:
     context: FunnelQueryContext
     _extra_event_fields_and_properties: list[ColumnName | PropertyName]
@@ -190,18 +207,10 @@ class FunnelEventQuery:
         if len(queries) == 1:
             return queries[0]
 
-        union_selects: list[ast.Expr] = [
-            ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
-            ast.Alias(alias="aggregation_target", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "aggregation_target"])),
-        ]
-
-        for field in self.extra_fields:
-            union_selects.append(
-                ast.Alias(alias=field, expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])),
-            )
-
         return ast.SelectQuery(
-            select=union_selects,
+            # Take the field and alias names from the first query. UNION enforces identical column sets
+            # across all selects, which makes this reliable.
+            select=alias_columns_in_select(queries[0].select, self.EVENT_TABLE_ALIAS),
             select_from=ast.JoinExpr(
                 table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL"),
                 alias=self.EVENT_TABLE_ALIAS,
