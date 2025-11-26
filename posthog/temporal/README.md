@@ -491,4 +491,4 @@ As you run workflows, you will be able to see the logs in the worker's logs, and
 
 - All of batch exports is built in Temporal, see [example workflows in batch exports](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/temporal/destinations).
 - [Examples on unit testing Temporal workflows](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/tests/temporal) are available in the batch exports tests.
-- DuckLake data modeling writes leverage Temporal too; follow the [DuckLake copy workflow configuration guide](../ducklake/TEMPORAL.md) to see how we configure environment variables, bucket layouts, and IAM perms for the copy workflow.
+- DuckLake data modeling writes leverage Temporal too; follow the [DuckLake copy workflow configuration guide](../ducklake/README.md) to see how we configure environment variables, bucket layouts, and IAM perms for the copy workflow.
