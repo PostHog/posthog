@@ -453,7 +453,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [storybook-chromatic, visual-regression, changes]
+        needs: [visual-regression, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
             needs.changes.outputs.frontend == 'true' && (
