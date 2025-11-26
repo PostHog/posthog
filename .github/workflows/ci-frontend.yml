@@ -94,7 +94,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend prettier:check
 
             - name: Lint with Stylelint
-              run: pnpm --filter=@posthog/frontend lint:css
+              run: pnpm run lint:css
 
             - name: Lint with Oxlint
               run: pnpm --filter=@posthog/frontend lint:js -f github

@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 
 use health::HealthRegistry;
 use tokio::signal;
+use tower_http::decompression::RequestDecompressionLayer;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -101,7 +102,8 @@ async fn main() {
         .route("/v1/logs", post(export_logs_http))
         .route("/i/v1/logs", post(export_logs_http))
         .with_state(logs_service)
-        .layer(axum::middleware::from_fn(track_metrics));
+        .layer(axum::middleware::from_fn(track_metrics))
+        .layer(RequestDecompressionLayer::new());
 
     let http_server = tokio::spawn(async move {
         if let Err(e) = axum::serve(

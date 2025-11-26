@@ -60,6 +60,7 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_MV,
     QUERY_LOG_ARCHIVE_NEW_MV_SQL,
     QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
@@ -309,7 +310,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
     # replace all dates where the date is
-    if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
+    if (
+        "equals(argMax(person_distinct_id_overrides.is_deleted" in query
+        or "equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted" in query
+        or "INSERT INTO cohortpeople" in query
+    ):
         # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
         query = re.sub(
             r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d.\d+', 6, '(.+?)'\)",
@@ -1344,7 +1349,9 @@ def reset_clickhouse_database() -> None:
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+                table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW()
+            ),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
         ]

@@ -103,6 +103,6 @@ class UsageNode(AssistantNode):
             state
         )
         if memory_onboarding_should_run == "memory_onboarding":
-            send_list.append(Send(AssistantNodeName.MEMORY_ONBOARDING, state))
+            send_list = [Send(AssistantNodeName.MEMORY_ONBOARDING, state)]
 
         return send_list

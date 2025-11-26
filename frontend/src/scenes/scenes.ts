@@ -51,12 +51,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'annotation',
     },
     [Scene.BillingAuthorizationStatus]: {
-        hideProjectNotice: true,
         organizationBased: true,
         defaultDocsPath: '/pricing',
     },
     [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
-    [Scene.Billing]: { hideProjectNotice: true, organizationBased: true, defaultDocsPath: '/pricing' },
+    [Scene.Billing]: { organizationBased: true, defaultDocsPath: '/pricing' },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
@@ -425,14 +424,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Revenue analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/revenue-analytics',
-    },
-    [Scene.SQLEditor]: {
-        projectBased: true,
-        name: 'SQL editor',
-        defaultDocsPath: '/docs/cdp/sources',
-        layout: 'app-raw-no-header',
-        hideProjectNotice: true,
-        description: 'Write and execute SQL queries against your data warehouse',
     },
     [Scene.SavedInsights]: {
         projectBased: true,

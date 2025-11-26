@@ -185,14 +185,7 @@ class SyncColleaguesProductsResult:
     status: Literal["success", "failed", "error"]
 
 
-@dagster.op(
-    retry_policy=dagster.RetryPolicy(
-        max_retries=3,
-        delay=1,
-        backoff=dagster.Backoff.EXPONENTIAL,
-        jitter=dagster.Jitter.PLUS_MINUS,
-    )
-)
+@dagster.op
 def sync_colleagues_products_for_team_op(
     context: dagster.OpExecutionContext,
     team_ids: list[int],
@@ -322,4 +315,141 @@ sync_colleagues_products_monthly_schedule = dagster.ScheduleDefinition(
     cron_schedule="0 5 15 * *",  # 15th day of every month at 5am UTC
     execution_timezone="UTC",
     name="sync_colleagues_products_monthly_schedule",
+)
+
+
+@dataclass(kw_only=True)
+class SyncCrossSellProductsResult:
+    team_id: int
+    users_processed: int
+    products_created: int
+    status: Literal["success", "failed", "error"]
+
+
+@dagster.op
+def sync_cross_sell_products_for_team_op(
+    context: dagster.OpExecutionContext,
+    team_ids: list[int],
+) -> list[SyncCrossSellProductsResult]:
+    """Sync cross-sell products for all users in a batch of teams."""
+    results = []
+
+    for team_id in team_ids:
+        try:
+            team = Team.objects.get(id=team_id)
+            users_processed = 0
+            products_created = 0
+
+            for user in team.all_users_with_access().iterator():
+                if user.allow_sidebar_suggestions is False:
+                    continue
+
+                created_items = UserProductList.sync_cross_sell_products(user=user, team=team)
+                users_processed += 1
+                products_created += len(created_items)
+
+            context.log.info(
+                f"Team {team_id}: processed {users_processed} users, created {products_created} cross-sell product entries"
+            )
+
+            results.append(
+                SyncCrossSellProductsResult(
+                    team_id=team_id,
+                    users_processed=users_processed,
+                    products_created=products_created,
+                    status="success",
+                )
+            )
+        except Team.DoesNotExist:
+            context.log.warning(f"Team {team_id} not found")
+            results.append(
+                SyncCrossSellProductsResult(
+                    team_id=team_id,
+                    users_processed=0,
+                    products_created=0,
+                    status="failed",
+                )
+            )
+        except Exception as e:
+            context.log.exception(f"Failed to process team {team_id}")
+            capture_exception(e, {"team_id": team_id, "team": "team-growth"})
+            results.append(
+                SyncCrossSellProductsResult(
+                    team_id=team_id,
+                    users_processed=0,
+                    products_created=0,
+                    status="error",
+                )
+            )
+
+    success_results = [r for r in results if r.status == "success"]
+    failed_results = [r for r in results if r.status in ("failed", "error")]
+
+    context.add_output_metadata(
+        {
+            "batch_size": dagster.MetadataValue.int(len(team_ids)),
+            "processed": dagster.MetadataValue.int(len(results)),
+            "success_count": dagster.MetadataValue.int(len(success_results)),
+            "failed_count": dagster.MetadataValue.int(len(failed_results)),
+            "total_users_processed": dagster.MetadataValue.int(sum(r.users_processed for r in results)),
+            "total_products_created": dagster.MetadataValue.int(sum(r.products_created for r in results)),
+        }
+    )
+
+    return results
+
+
+@dagster.op
+def aggregate_cross_sell_sync_results_op(
+    context: dagster.OpExecutionContext, results: list[list[SyncCrossSellProductsResult]]
+) -> None:
+    """Aggregate results from all team processing ops."""
+    flat_results = [r for batch in results for r in batch]
+
+    total_teams = len(flat_results)
+    success_count = sum(1 for r in flat_results if r.status == "success")
+    failed_count = sum(1 for r in flat_results if r.status in ("failed", "error"))
+    total_users_processed = sum(r.users_processed for r in flat_results)
+    total_products_created = sum(r.products_created for r in flat_results)
+
+    context.log.info(
+        f"Completed processing {total_teams} teams: {success_count} succeeded, {failed_count} failed. "
+        f"Processed {total_users_processed} users, created {total_products_created} cross-sell product entries"
+    )
+
+    context.add_output_metadata(
+        {
+            "total_teams": dagster.MetadataValue.int(total_teams),
+            "success_count": dagster.MetadataValue.int(success_count),
+            "failed_count": dagster.MetadataValue.int(failed_count),
+            "total_users_processed": dagster.MetadataValue.int(total_users_processed),
+            "total_products_created": dagster.MetadataValue.int(total_products_created),
+        }
+    )
+
+    if failed_count > 0:
+        failed_team_ids = [r.team_id for r in flat_results if r.status in ("failed", "error")]
+        context.log.warning(f"Failed to sync cross-sell products for {failed_count} teams: {failed_team_ids}")
+
+
+@dagster.job(
+    description="Syncs cross-sell products from the same category to users' product lists for all teams",
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 10}),
+    tags={"owner": JobOwners.TEAM_GROWTH.value},
+)
+def sync_cross_sell_products_monthly_job():
+    """
+    Monthly job that syncs cross-sell products to each user's product list.
+    For each user, finds products in the same category as their enabled products and suggests them.
+    """
+    team_ids = get_all_team_ids_op()
+    results = team_ids.map(sync_cross_sell_products_for_team_op)
+    aggregate_cross_sell_sync_results_op(results.collect())
+
+
+sync_cross_sell_products_monthly_schedule = dagster.ScheduleDefinition(
+    job=sync_cross_sell_products_monthly_job,
+    cron_schedule="0 5 1 * *",  # 1st day of every month at 5am UTC
+    execution_timezone="UTC",
+    name="sync_cross_sell_products_monthly_schedule",
 )
