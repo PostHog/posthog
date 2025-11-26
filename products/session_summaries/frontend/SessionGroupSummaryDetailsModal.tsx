@@ -4,12 +4,14 @@ import { useEffect } from 'react'
 import { IconShare, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
+import { colonDelimitedDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { SessionGroupSummaryDetailsMetadata } from './SessionGroupSummaryDetailsMetadata'
 import { PatternAssignedEventSegmentContext } from './types'
+import { getIssueTags } from './utils'
 
 interface SessionDetailsModalProps {
     isOpen: boolean
@@ -58,8 +60,16 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                     {/* Header */}
                     <header className="flex items-center justify-between p-4 border-b">
                         <div>
-                            <h2 className="text-lg font-semibold mb-1">{event.target_event.description}</h2>
-                            <SessionGroupSummaryDetailsMetadata event={event} />
+                            <h2 className="text-lg font-semibold mb-1">
+                                {event.target_event.description}
+                                <span className="text-muted font-normal ml-2">
+                                    @ {colonDelimitedDuration(event.target_event.milliseconds_since_start / 1000)}
+                                </span>
+                            </h2>
+                            <SessionGroupSummaryDetailsMetadata
+                                event={event}
+                                issueTags={getIssueTags(event.target_event)}
+                            />
                         </div>
                         <div className="flex items-center gap-2">
                             {/* TODO: Enable thumbs up/down for feedback */}
@@ -100,7 +110,20 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                             <div className="space-y-4">
                                 <div>
                                     <h4 className="text-sm font-medium text-muted mb-1">What confirmed the pattern</h4>
-                                    <p className="text-sm mb-0">{event.target_event.description}</p>
+                                    <p className="text-sm mb-0">
+                                        {event.target_event.description}
+                                        {event.target_event.event && (
+                                            <>
+                                                {' ('}
+                                                <code className="text-xs text-muted bg-fill-secondary px-1 py-0.5 rounded">
+                                                    {event.target_event.event}
+                                                    {event.target_event.event_type &&
+                                                        ` (${event.target_event.event_type})`}
+                                                </code>
+                                                )
+                                            </>
+                                        )}
+                                    </p>
                                 </div>
                                 <div>
                                     <h4 className="text-sm font-medium text-muted mb-1">Where it happened</h4>

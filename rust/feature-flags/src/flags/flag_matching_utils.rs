@@ -11,7 +11,7 @@ use crate::database::{
     get_connection_with_metrics, get_writer_connection_with_metrics, PostgresRouter,
 };
 use common_database::PostgresReader;
-use common_types::{Person, PersonId, ProjectId, TeamId};
+use common_types::{Person, PersonId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
@@ -643,7 +643,6 @@ pub async fn set_feature_flag_hash_key_overrides(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_ids: Vec<String>,
-    project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
     let retry_strategy = ExponentialBackoff::from_millis(100)
@@ -657,7 +656,6 @@ pub async fn set_feature_flag_hash_key_overrides(
             router,
             team_id,
             &distinct_ids,
-            project_id,
             &hash_key_override,
         )
         .await;
@@ -703,7 +701,6 @@ async fn try_set_feature_flag_hash_key_overrides(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_ids: &[String],
-    project_id: ProjectId,
     hash_key_override: &str,
 ) -> Result<bool, FlagError> {
     // Get connection from persons writer for the transaction
@@ -737,7 +734,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             SELECT flag.key
             FROM posthog_featureflag flag
             JOIN posthog_team team ON flag.team_id = team.id
-            WHERE team.project_id = $1
+            WHERE team.id = $1
                 AND flag.ensure_experience_continuity = TRUE
                 AND flag.active = TRUE
                 AND flag.deleted = FALSE
@@ -842,7 +839,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
         let flag_rows = sqlx::query(flags_query)
-            .bind(project_id)
+            .bind(team_id)
             .fetch_all(&mut *non_persons_conn)
             .await
             .map_err(FlagError::from)?;
@@ -852,7 +849,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         if flags_query_duration.as_millis() > 200 {
             warn!(
                 duration_ms = flags_query_duration.as_millis(),
-                project_id = project_id,
+                team_id = team_id,
                 sql_summary =
                     "SELECT active feature flags with ensure_experience_continuity = true",
                 "Slow active flags query detected in set_hash_key_overrides"
@@ -860,7 +857,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         } else {
             info!(
                 duration_ms = flags_query_duration.as_millis(),
-                project_id = project_id,
+                team_id = team_id,
                 "Active flags query completed in set_hash_key_overrides"
             );
         }
@@ -963,7 +960,6 @@ pub async fn should_write_hash_key_override(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_id: String,
-    project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
     let retry_strategy = ExponentialBackoff::from_millis(100)
@@ -975,8 +971,7 @@ pub async fn should_write_hash_key_override(
 
     // Use tokio-retry to automatically retry on transient failures
     Retry::spawn(retry_strategy, || async {
-        let result =
-            try_should_write_hash_key_override(router, team_id, &distinct_ids, project_id).await;
+        let result = try_should_write_hash_key_override(router, team_id, &distinct_ids).await;
 
         match &result {
             Err(e) => {
@@ -1016,7 +1011,6 @@ async fn try_should_write_hash_key_override(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_ids: &[String],
-    project_id: ProjectId,
 ) -> Result<bool, FlagError> {
     // Query 1: Get person_ids and existing overrides from person pool in one shot
     let person_data_query = r#"
@@ -1038,7 +1032,7 @@ async fn try_should_write_hash_key_override(
     let flags_query = r#"
         SELECT key FROM posthog_featureflag flag
         JOIN posthog_team team ON flag.team_id = team.id
-        WHERE team.project_id = $1
+        WHERE team.id = $1
             AND flag.ensure_experience_continuity = TRUE
             AND flag.active = TRUE
             AND flag.deleted = FALSE
@@ -1205,7 +1199,7 @@ async fn try_should_write_hash_key_override(
         let flags_query_timer =
             common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
         let rows = sqlx::query(flags_query)
-            .bind(project_id)
+            .bind(team_id)
             .fetch_all(&mut *non_persons_conn)
             .await
             .map_err(|e| {
@@ -1348,7 +1342,6 @@ mod tests {
             &router,
             team.id,
             vec![distinct_id.clone()],
-            team.project_id(),
             "hash_key_2".to_string(),
         )
         .await
@@ -1461,7 +1454,6 @@ mod tests {
             &router,
             team.id,
             distinct_ids.clone(),
-            team.project_id(),
             hash_key.clone(),
         )
         .await
@@ -1597,7 +1589,6 @@ mod tests {
             &router,
             team.id,
             distinct_ids.clone(),
-            team.project_id(),
             new_hash.clone(),
         )
         .await
@@ -1744,7 +1735,6 @@ mod tests {
             &router,
             team.id,
             vec!["filter_test_user".to_string()],
-            team.project_id(),
             "filter_hash".to_string(),
         )
         .await
@@ -1823,7 +1813,6 @@ mod tests {
             &router,
             team.id,
             "should_write_user".to_string(),
-            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1837,7 +1826,6 @@ mod tests {
             &router,
             team.id,
             vec!["should_write_user".to_string()],
-            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1849,7 +1837,6 @@ mod tests {
             &router,
             team.id,
             "should_write_user".to_string(),
-            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1866,7 +1853,6 @@ mod tests {
             &router,
             team.id,
             "non_existent_user".to_string(),
-            team.project_id(),
             "hash_key_2".to_string(),
         )
         .await
@@ -1911,7 +1897,6 @@ mod tests {
                 "nonexistent_user1".to_string(),
                 "nonexistent_user2".to_string(),
             ],
-            team.project_id(),
             "some_hash".to_string(),
         )
         .await
