@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 
 import api from 'lib/api'
@@ -8,9 +8,11 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import {
     AlertCalculationInterval,
     AlertConditionType,
+    ForecastAlertConfig,
     GoalLine,
     InsightThresholdType,
     InsightsThresholdBounds,
+    TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
@@ -37,6 +39,10 @@ export type AlertFormType = Pick<
 }
 
 export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+    // Forecast alerts don't support ongoing interval checking
+    if (alert?.condition.type === AlertConditionType.FORECAST_DEVIATION) {
+        return false
+    }
     return (
         (alert?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
             alert?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
@@ -75,6 +81,16 @@ export const alertFormLogic = kea<alertFormLogicType>([
         deleteAlert: true,
         snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
         clearSnooze: true,
+        setGenerateHistoricalForecasts: (value: boolean) => ({ value }),
+    }),
+
+    reducers({
+        generateHistoricalForecasts: [
+            true, // Default to true for new forecast alerts
+            {
+                setGenerateHistoricalForecasts: (_, { value }) => value,
+            },
+        ],
     }),
 
     forms(({ props, values }) => ({
@@ -91,7 +107,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         type: 'TrendsAlertConfig',
                         series_index: 0,
                         check_ongoing_interval: false,
-                    },
+                        confidence_level: 0.95,
+                    } as TrendsAlertConfig & { confidence_level?: number },
                     threshold: {
                         configuration: {
                             type: InsightThresholdType.ABSOLUTE,
@@ -111,6 +128,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 name: !name ? 'You need to give your alert a name' : undefined,
             }),
             submit: async (alert) => {
+                const isForecastAlert = alert.condition.type === AlertConditionType.FORECAST_DEVIATION
+
+                // Build the appropriate config based on alert type
+                const config = isForecastAlert
+                    ? ({
+                          type: 'ForecastAlertConfig',
+                          series_index: alert.config.series_index,
+                          confidence_level: (alert.config as ForecastAlertConfig).confidence_level ?? 0.95,
+                      } as ForecastAlertConfig)
+                    : ({
+                          type: 'TrendsAlertConfig',
+                          series_index: alert.config.series_index,
+                          check_ongoing_interval:
+                              canCheckOngoingInterval(alert) &&
+                              (alert.config as TrendsAlertConfig).check_ongoing_interval,
+                      } as TrendsAlertConfig)
+
                 const payload: AlertTypeWrite = {
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
@@ -120,11 +154,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         (alert.calculation_interval === AlertCalculationInterval.DAILY ||
                             alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
                         alert.skip_weekend,
-                    // can only check ongoing interval for absolute value/increase alerts with upper threshold
-                    config: {
-                        ...alert.config,
-                        check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
-                    },
+                    config,
                 }
 
                 // absolute value alert can only have absolute threshold
@@ -133,19 +163,26 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
 
                 try {
+                    let updatedAlert: AlertType
                     if (alert.id === undefined) {
-                        const updatedAlert: AlertType = await api.alerts.create(payload)
-
+                        updatedAlert = await api.alerts.create(payload)
                         lemonToast.success(`Alert created.`)
-                        props.onEditSuccess(updatedAlert.id)
-
-                        return updatedAlert
+                    } else {
+                        updatedAlert = await api.alerts.update(alert.id, payload)
+                        lemonToast.success(`Alert saved.`)
                     }
 
-                    const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
-
-                    lemonToast.success(`Alert saved.`)
                     props.onEditSuccess(updatedAlert.id)
+
+                    // Trigger backfill if this is a forecast alert and the checkbox is checked
+                    if (isForecastAlert && values.generateHistoricalForecasts && updatedAlert.id) {
+                        try {
+                            await api.alerts.backfill(updatedAlert.id)
+                            lemonToast.info('Generating historical forecasts in the background...')
+                        } catch (backfillError) {
+                            console.error('Failed to trigger backfill:', backfillError)
+                        }
+                    }
 
                     return updatedAlert
                 } catch (error: any) {
@@ -197,7 +234,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 refreshParentAlerts()
                 props.onEditSuccess(values.alertForm.id)
             },
-            submitAlertFormSuccess: async () => {
+            submitAlertFormSuccess: () => {
                 refreshParentAlerts()
             },
         }

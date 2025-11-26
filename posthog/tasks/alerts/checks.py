@@ -4,10 +4,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q
 
 import structlog
+import posthoganalytics
 from celery import shared_task
 from celery.canvas import chain
 from dateutil.relativedelta import relativedelta
@@ -21,6 +23,8 @@ from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.constants import ALERTS_FORECASTS_FEATURE_FLAG
+from posthog.tasks.alerts.forecast import check_forecast_alert
 from posthog.tasks.alerts.trends import check_trends_alert
 from posthog.tasks.alerts.utils import (
     WRAPPER_NODE_KINDS,
@@ -374,6 +378,29 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
         match kind:
             case "TrendsQuery":
                 query = TrendsQuery.model_validate(query)
+                # Route to forecast alert checker if config type is ForecastAlertConfig
+                if alert.config and alert.config.get("type") == "ForecastAlertConfig":
+                    # Check feature flag before using forecast alerts
+                    user = alert.created_by
+                    flag_enabled = (
+                        posthoganalytics.feature_enabled(
+                            ALERTS_FORECASTS_FEATURE_FLAG,
+                            str(user.distinct_id),
+                            groups={"organization": str(alert.team.organization_id)},
+                        )
+                        if user
+                        else None
+                    )
+                    # Default to True in DEBUG mode (flag_enabled is None when SDK is disabled)
+                    if flag_enabled is None:
+                        flag_enabled = settings.DEBUG
+                    if flag_enabled:
+                        return check_forecast_alert(alert, insight, query)
+                    # Fall back to trends alert if feature flag is disabled
+                    logger.warning(
+                        "Forecast alert feature flag disabled, falling back to trends alert",
+                        alert_id=alert.id,
+                    )
                 return check_trends_alert(alert, insight, query)
             case _:
                 raise NotImplementedError(f"AlertCheckError: Alerts for {query.kind} are not supported yet")

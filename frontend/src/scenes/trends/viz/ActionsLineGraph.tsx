@@ -2,7 +2,7 @@ import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
 
 import { Chart, ChartType, LegendOptions, defaults } from 'lib/Chart'
-import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { ForecastBand, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ciRanges, movingAverage } from 'lib/statistics'
@@ -55,7 +55,7 @@ export function ActionsLineGraph({
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
-    const { alertThresholdLines } = useValues(
+    const { alertThresholdLines, forecastBands } = useValues(
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
     )
 
@@ -89,6 +89,92 @@ export function ActionsLineGraph({
         !(indexedResults && indexedResults[0]?.data && indexedResults.filter((result) => result.count !== 0).length > 0)
     ) {
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+    }
+
+    // Helper to create forecast band datasets from ForecastBand
+    const createForecastBandDatasets = (
+        forecastBand: ForecastBand,
+        seriesIndex: number,
+        seriesLabel: string,
+        seriesColor: string
+    ): {
+        lower: Record<string, unknown>
+        upper: Record<string, unknown>
+        predicted: Record<string, unknown>
+    } | null => {
+        // Map forecast timestamps to label indices
+        const forecastDataLower: (number | null)[] = new Array(labels.length).fill(null)
+        const forecastDataUpper: (number | null)[] = new Array(labels.length).fill(null)
+        const forecastDataPredicted: (number | null)[] = new Array(labels.length).fill(null)
+
+        for (let i = 0; i < forecastBand.timestamps.length; i++) {
+            const timestamp = forecastBand.timestamps[i]
+            // Find the matching label index
+            const labelIndex = labels.findIndex((label) => {
+                // Normalize both dates to ISO strings for comparison
+                // This handles timezone differences and various input formats
+                const normalizeToISO = (dateStr: string): string => {
+                    // Handle date-only strings (YYYY-MM-DD) by treating them as UTC
+                    // JS Date() parses these as local time, but backend stores as UTC
+                    let normalized = dateStr
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+                        normalized = `${dateStr}T00:00:00Z`
+                    }
+                    const d = new Date(normalized)
+                    // Return ISO string without milliseconds for consistent comparison
+                    return d.toISOString().split('.')[0]
+                }
+                return normalizeToISO(label) === normalizeToISO(timestamp)
+            })
+
+            if (labelIndex !== -1) {
+                forecastDataLower[labelIndex] = forecastBand.lowerBounds[i]
+                forecastDataUpper[labelIndex] = forecastBand.upperBounds[i]
+                forecastDataPredicted[labelIndex] = forecastBand.predictedValues[i]
+            }
+        }
+
+        // Only add if we have some forecast data that maps to labels
+        if (forecastDataLower.every((v) => v === null)) {
+            return null
+        }
+
+        const yAxisID = showMultipleYAxes && seriesIndex > 0 ? `y${seriesIndex}` : 'y'
+
+        return {
+            lower: {
+                label: `${seriesLabel} - lower bound`,
+                data: forecastDataLower,
+                borderColor: seriesColor,
+                backgroundColor: 'transparent',
+                pointRadius: 0,
+                borderWidth: 0,
+                hideTooltip: false,
+                yAxisID,
+            },
+            upper: {
+                label: `${seriesLabel} - upper bound`,
+                data: forecastDataUpper,
+                borderColor: seriesColor,
+                backgroundColor: hexToRGBA(seriesColor, 0.1),
+                pointRadius: 0,
+                borderWidth: 0,
+                fill: '-1',
+                hideTooltip: false,
+                yAxisID,
+            },
+            predicted: {
+                label: `${seriesLabel} - predicted`,
+                data: forecastDataPredicted,
+                borderColor: seriesColor,
+                backgroundColor: 'transparent',
+                pointRadius: 0,
+                borderWidth: 2,
+                borderDash: [5, 5],
+                hideTooltip: false,
+                yAxisID,
+            },
+        }
     }
 
     const finalDatasets = indexedResults.flatMap((originalDataset, index) => {
@@ -154,6 +240,19 @@ export function ActionsLineGraph({
             }
             datasets.push(movingAverageDataset)
         }
+
+        // Add forecast bands for this series
+        if (forecastBands && forecastBands.length > 0) {
+            const seriesLabel = originalDataset.label || `Series ${index}`
+            for (const band of forecastBands) {
+                const bandDatasets = createForecastBandDatasets(band, index, seriesLabel, color)
+                if (bandDatasets) {
+                    // Cast to any as these are synthetic datasets for visualization only
+                    datasets.push(bandDatasets.lower as any, bandDatasets.upper as any, bandDatasets.predicted as any)
+                }
+            }
+        }
+
         return datasets
     })
 

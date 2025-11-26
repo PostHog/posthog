@@ -2,12 +2,13 @@ import {
     AlertCalculationInterval,
     AlertCondition,
     AlertState,
+    ForecastAlertConfig,
     InsightThreshold,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
-export type AlertConfig = TrendsAlertConfig
+export type AlertConfig = TrendsAlertConfig | ForecastAlertConfig
 
 export interface AlertTypeBase {
     name: string
@@ -31,6 +32,7 @@ export interface AlertCheck {
     calculated_value: number
     state: AlertState
     targets_notified: boolean
+    is_backfill: boolean
 }
 
 export interface AlertType extends AlertTypeBase {
@@ -45,4 +47,18 @@ export interface AlertType extends AlertTypeBase {
     checks: AlertCheck[]
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
+}
+
+export interface ForecastResult {
+    id: string
+    alert_configuration: string
+    series_index: number
+    breakdown_value: string | null
+    forecast_timestamp: string
+    predicted_value: number
+    lower_bound: number
+    upper_bound: number
+    confidence_level: number
+    computed_at: string
+    model_version: string
 }

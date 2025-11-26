@@ -376,7 +376,7 @@
             "type": "object"
         },
         "AlertConditionType": {
-            "enum": ["absolute_value", "relative_increase", "relative_decrease"],
+            "enum": ["absolute_value", "relative_increase", "relative_decrease", "forecast_deviation"],
             "type": "string"
         },
         "AlertState": {
@@ -14458,6 +14458,29 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "ForecastAlertConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence_level": {
+                    "type": "number"
+                },
+                "forecast_horizon": {
+                    "$ref": "#/definitions/integer"
+                },
+                "min_historical_points": {
+                    "$ref": "#/definitions/integer"
+                },
+                "series_index": {
+                    "$ref": "#/definitions/integer"
+                },
+                "type": {
+                    "const": "ForecastAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "series_index"],
+            "type": "object"
+        },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -28378,6 +28401,10 @@
                         }
                     ],
                     "description": "Customizations for the appearance of result datasets."
+                },
+                "showAlertForecastIntervals": {
+                    "default": false,
+                    "type": "boolean"
                 },
                 "showAlertThresholdLines": {
                     "default": false,

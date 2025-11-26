@@ -1202,6 +1202,8 @@ export type TrendsFilter = {
     showLegend?: TrendsFilterLegacy['show_legend']
     /** @default false */
     showAlertThresholdLines?: boolean
+    /** @default false */
+    showAlertForecastIntervals?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
@@ -3526,6 +3528,7 @@ export enum AlertConditionType {
     ABSOLUTE_VALUE = 'absolute_value', // default alert, checks absolute value of current interval
     RELATIVE_INCREASE = 'relative_increase', // checks increase in value during current interval compared to previous interval
     RELATIVE_DECREASE = 'relative_decrease', // checks decrease in value during current interval compared to previous interval
+    FORECAST_DEVIATION = 'forecast_deviation', // alert when actual value deviates from forecast confidence interval
 }
 
 export interface AlertCondition {
@@ -3552,6 +3555,15 @@ export interface TrendsAlertConfig {
     type: 'TrendsAlertConfig'
     series_index: integer
     check_ongoing_interval?: boolean
+}
+
+export interface ForecastAlertConfig {
+    type: 'ForecastAlertConfig'
+    series_index: integer
+    confidence_level?: number // 0.90, 0.95, or 0.99 - defaults to 0.95
+    forecast_horizon?: integer // Number of intervals ahead to forecast - defaults to 1
+    lookback_window?: integer // Maximum historical data points to use - defaults to 180
+    min_historical_points?: integer // Minimum data points needed - defaults to 14
 }
 
 export interface HogCompileResponse {

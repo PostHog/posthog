@@ -245,6 +245,7 @@ export const FEATURE_FLAGS = {
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
+    ALERTS_FORECASTS: 'alerts-forecasts', // owner: #team-product-analytics
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
     AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai

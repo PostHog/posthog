@@ -2,11 +2,14 @@ import dataclasses
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from rest_framework import serializers, viewsets
+import posthoganalytics
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -22,10 +25,12 @@ from posthog.models.alert import (
     AlertCheck,
     AlertConfiguration,
     AlertSubscription,
+    ForecastResult,
     Threshold,
     are_alerts_supported_for_insight,
 )
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.tasks.alerts.constants import ALERTS_FORECASTS_FEATURE_FLAG
 from posthog.utils import relative_date_parse
 
 
@@ -60,6 +65,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "calculated_value",
             "state",
             "targets_notified",
+            "is_backfill",
         ]
         read_only_fields = fields
 
@@ -256,6 +262,21 @@ class AlertSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
+        # Check feature flag for forecast alerts
+        config = attrs.get("config")
+        if config and config.get("type") == "ForecastAlertConfig":
+            user = self.context["request"].user
+            flag_enabled = posthoganalytics.feature_enabled(
+                ALERTS_FORECASTS_FEATURE_FLAG,
+                str(user.distinct_id),
+                groups={"organization": str(user.organization.id)} if user.organization else {},
+            )
+            # Default to True in DEBUG mode (flag_enabled is None when SDK is disabled)
+            if flag_enabled is None:
+                flag_enabled = settings.DEBUG
+            if not flag_enabled:
+                raise ValidationError({"config": ["Forecast-based alerts are not enabled for your organization."]})
+
         # only validate alert count when creating a new alert
         if self.context["request"].method != "POST":
             return attrs
@@ -316,6 +337,80 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=["post"])
+    def backfill(self, request, *args, **kwargs):
+        """
+        Trigger a backfill of historical forecast evaluations for a forecast alert.
+
+        This runs asynchronously via Temporal and will populate the alert history with
+        retrospective checks showing what the model would have predicted.
+        """
+        import uuid
+        import asyncio
+
+        from temporalio.common import RetryPolicy
+
+        from posthog.schema import ForecastAlertConfig
+
+        from posthog.temporal.common.client import sync_connect
+        from posthog.temporal.forecast.inputs import DEFAULT_LOOKBACK_WINDOW, BackfillForecastWorkflowInputs
+
+        instance = self.get_object()
+
+        # Validate this is a forecast alert
+        config = instance.config or {}
+        if config.get("type") != "ForecastAlertConfig":
+            return Response(
+                {"error": "Backfill is only available for forecast alerts"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not instance.insight:
+            return Response(
+                {"error": "Alert has no associated insight"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        max_forecasts = request.data.get("max_forecasts", DEFAULT_LOOKBACK_WINDOW)
+        min_context = request.data.get("min_context", 14)
+
+        # Parse config for workflow inputs
+        parsed_config = ForecastAlertConfig.model_validate(config)
+
+        workflow_id = f"forecast-backfill:{instance.id}:{uuid.uuid4()}"
+        inputs = BackfillForecastWorkflowInputs(
+            team_id=instance.team_id,
+            alert_id=str(instance.id),
+            insight_id=instance.insight.id,
+            series_index=parsed_config.series_index,
+            confidence_level=parsed_config.confidence_level or 0.95,
+            max_forecasts=max_forecasts,
+            min_context=min_context,
+            lookback_window=parsed_config.lookback_window or DEFAULT_LOOKBACK_WINDOW,
+        )
+
+        try:
+            client = sync_connect()
+            asyncio.run(
+                client.start_workflow(
+                    "forecast-backfill",
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.FORECAST_INFERENCE_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            )
+
+            return Response(
+                {"status": "Backfill started", "alert_id": str(instance.id), "workflow_id": workflow_id},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to start backfill workflow: {e!s}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
 
 class ThresholdWithAlertSerializer(ThresholdSerializer):
     alerts = AlertSerializer(many=True, read_only=True, source="alertconfiguration_set")
@@ -329,6 +424,39 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "INTERNAL"
     queryset = Threshold.objects.all()
     serializer_class = ThresholdWithAlertSerializer
+
+
+class ForecastResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ForecastResult
+        fields = [
+            "id",
+            "alert_configuration",
+            "series_index",
+            "breakdown_value",
+            "forecast_timestamp",
+            "predicted_value",
+            "lower_bound",
+            "upper_bound",
+            "confidence_level",
+            "computed_at",
+            "model_version",
+        ]
+        read_only_fields = fields
+
+
+class ForecastResultViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ForecastResult.objects.all().order_by("-forecast_timestamp")
+    serializer_class = ForecastResultSerializer
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        filters = self.request.query_params
+        if "insight_id" in filters:
+            queryset = queryset.filter(alert_configuration__insight_id=filters["insight_id"])
+        if "alert_id" in filters:
+            queryset = queryset.filter(alert_configuration_id=filters["alert_id"])
+        return queryset
 
 
 @dataclasses.dataclass(frozen=True)

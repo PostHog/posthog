@@ -10,7 +10,16 @@ import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
-import { AlertType } from './types'
+import { AlertType, ForecastResult } from './types'
+
+export interface ForecastBand {
+    label: string
+    timestamps: string[]
+    lowerBounds: number[]
+    upperBounds: number[]
+    predictedValues: number[]
+    confidenceLevel: number
+}
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -33,7 +42,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
         values: [
             insightVizDataLogic(props.insightLogicProps),
-            ['showAlertThresholdLines'],
+            ['showAlertThresholdLines', 'showAlertForecastIntervals'],
             insightLogic(props.insightLogicProps),
             ['insight'],
         ],
@@ -44,6 +53,13 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             __default: [] as AlertType[],
             loadAlerts: async () => {
                 const response = await api.alerts.list(props.insightId)
+                return response.results
+            },
+        },
+        forecastResults: {
+            __default: [] as ForecastResult[],
+            loadForecastResults: async () => {
+                const response = await api.forecastResults.list(props.insightId)
                 return response.results
             },
         },
@@ -94,6 +110,52 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                 return result
             },
         ],
+        forecastBands: [
+            (s) => [s.forecastResults, s.showAlertForecastIntervals, s.alerts],
+            (
+                forecastResults: ForecastResult[],
+                showAlertForecastIntervals: boolean,
+                alerts: AlertType[]
+            ): ForecastBand[] => {
+                if (!showAlertForecastIntervals || forecastResults.length === 0) {
+                    return []
+                }
+
+                // Group forecast results by alert_configuration and series_index
+                const groupedResults = new Map<string, ForecastResult[]>()
+                for (const result of forecastResults) {
+                    const key = `${result.alert_configuration}-${result.series_index}-${result.breakdown_value || ''}`
+                    if (!groupedResults.has(key)) {
+                        groupedResults.set(key, [])
+                    }
+                    groupedResults.get(key)!.push(result)
+                }
+
+                const bands: ForecastBand[] = []
+                for (const [key, results] of groupedResults) {
+                    // Sort by timestamp
+                    const sorted = results.sort(
+                        (a, b) => new Date(a.forecast_timestamp).getTime() - new Date(b.forecast_timestamp).getTime()
+                    )
+
+                    // Find alert name for this configuration
+                    const alertId = sorted[0].alert_configuration
+                    const alert = alerts.find((a) => a.id === alertId)
+                    const label = alert ? `${alert.name} Forecast` : `Forecast ${key}`
+
+                    bands.push({
+                        label,
+                        timestamps: sorted.map((r) => r.forecast_timestamp),
+                        lowerBounds: sorted.map((r) => r.lower_bound),
+                        upperBounds: sorted.map((r) => r.upper_bound),
+                        predictedValues: sorted.map((r) => r.predicted_value),
+                        confidenceLevel: sorted[0].confidence_level,
+                    })
+                }
+
+                return bands
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -114,5 +176,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             // No alerts property means we need to fetch from API (e.g., when viewing insight in isolation)
             actions.loadAlerts()
         }
+
+        // Load forecast results for the insight
+        actions.loadForecastResults()
     }),
 ])

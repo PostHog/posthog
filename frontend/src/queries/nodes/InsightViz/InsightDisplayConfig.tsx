@@ -20,6 +20,7 @@ import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/Lifecycle
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
+import { ShowAlertForecastIntervalsFilter } from 'scenes/insights/EditorFilters/ShowAlertForecastIntervalsFilter'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
@@ -110,6 +111,9 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                           ...(showAlertThresholdLinesConfig
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
+                              : []),
+                          ...(showAlertThresholdLinesConfig
+                              ? [{ label: () => <ShowAlertForecastIntervalsFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                           ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),

@@ -197,7 +197,7 @@ import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflow
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertType, AlertTypeWrite } from './components/Alerts/types'
+import { AlertType, AlertTypeWrite, ForecastResult } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -1325,6 +1325,18 @@ export class ApiRequest {
 
     public alert(alertId: AlertType['id']): ApiRequest {
         return this.alerts(alertId)
+    }
+
+    // # Forecast Results
+    public forecastResults(
+        insightId?: InsightModel['id'],
+        alertId?: AlertType['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('forecast_results').withQueryString({
+            insight_id: insightId,
+            alert_id: alertId,
+        })
     }
 
     // Resource Access Permissions
@@ -4292,6 +4304,21 @@ const api = {
         },
         async delete(alertId: AlertType['id']): Promise<void> {
             return await new ApiRequest().alert(alertId).delete()
+        },
+        async backfill(
+            alertId: AlertType['id'],
+            options?: { max_forecasts?: number; min_context?: number }
+        ): Promise<{ status: string; alert_id: string }> {
+            return await new ApiRequest().alert(alertId).withAction('backfill').create({ data: options })
+        },
+    },
+
+    forecastResults: {
+        async list(
+            insightId?: InsightModel['id'],
+            alertId?: AlertType['id']
+        ): Promise<PaginatedResponse<ForecastResult>> {
+            return await new ApiRequest().forecastResults(insightId, alertId).get()
         },
     },
 

@@ -49,6 +49,13 @@ from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
 )
+
+# Forecast queue: Heavy deps (torch, chronos) are lazy-loaded only when activities execute.
+# Deploy a separate worker with `pip install 'posthog[forecast]'` for this queue.
+from posthog.temporal.forecast import (
+    ACTIVITIES as FORECAST_ACTIVITIES,
+    WORKFLOWS as FORECAST_WORKFLOWS,
+)
 from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
@@ -180,6 +187,11 @@ _task_queue_specs = [
         settings.WEEKLY_DIGEST_TASK_QUEUE,
         WEEKLY_DIGEST_WORKFLOWS,
         WEEKLY_DIGEST_ACTIVITIES,
+    ),
+    (
+        settings.FORECAST_INFERENCE_TASK_QUEUE,
+        FORECAST_WORKFLOWS,
+        FORECAST_ACTIVITIES,
     ),
 ]
 

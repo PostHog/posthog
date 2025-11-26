@@ -861,6 +861,13 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
+register_grandfathered_environment_nested_viewset(
+    r"forecast_results",
+    alert.ForecastResultViewSet,
+    "environment_forecast_results",
+    ["team_id"],
+)
+
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
 
 register_grandfathered_environment_nested_viewset(

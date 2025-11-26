@@ -56,6 +56,7 @@ class AlertConditionType(StrEnum):
     ABSOLUTE_VALUE = "absolute_value"
     RELATIVE_INCREASE = "relative_increase"
     RELATIVE_DECREASE = "relative_decrease"
+    FORECAST_DEVIATION = "forecast_deviation"
 
 
 class AlertState(StrEnum):
@@ -4390,6 +4391,18 @@ class FileSystemImport(BaseModel):
     visualOrder: Optional[float] = Field(default=None, description="Order of object in tree")
 
 
+class ForecastAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_level: Optional[float] = None
+    forecast_horizon: Optional[int] = None
+    lookback_window: Optional[int] = None
+    min_historical_points: Optional[int] = None
+    series_index: int
+    type: Literal["ForecastAlertConfig"] = "ForecastAlertConfig"
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5702,6 +5715,7 @@ class TrendsFilter(BaseModel):
     resultCustomizations: Optional[
         Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
     ] = Field(default=None, description="Customizations for the appearance of result datasets.")
+    showAlertForecastIntervals: Optional[bool] = False
     showAlertThresholdLines: Optional[bool] = False
     showConfidenceIntervals: Optional[bool] = None
     showLabelsOnSeries: Optional[bool] = None
