@@ -13,6 +13,7 @@ import {
     DataWarehouseNode,
     DatabaseSchemaQuery,
     DateRange,
+    EntityGroupNode,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsNode,
@@ -95,6 +96,10 @@ export function isNodeWithSource(node?: Record<string, any> | null): node is Dat
 
 export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
+}
+
+export function isEntityGroupNode(node?: Record<string, any> | null): node is EntityGroupNode {
+    return node?.kind === NodeKind.EntityGroupNode
 }
 
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {

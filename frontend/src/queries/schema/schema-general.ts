@@ -76,6 +76,7 @@ export { ChartDisplayCategory }
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
+    EntityGroupNode = 'EntityGroupNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
@@ -705,6 +706,17 @@ export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     /** The event or `null` for all events. */
     event?: string | null
+    limit?: integer
+    /** Columns to order by */
+    orderBy?: string[]
+}
+
+export interface EntityGroupNode extends EntityNode {
+    kind: NodeKind.EntityGroupNode
+    /** Group of entities combined with AND/OR operator */
+    operator: FilterLogicalOperator
+    /** Entities to combine in this group */
+    values: AnyEntityNode[]
     limit?: integer
     /** Columns to order by */
     orderBy?: string[]
