@@ -221,7 +221,7 @@ class FunnelEventQuery:
     ) -> ast.Expr:
         if not exclusions:
             return parse_expr(f"0 as exclusion_{index}")
-        conditions = [self._build_step_query(exclusion, index, "") for exclusion in exclusions]
+        conditions = [self._build_step_query(exclusion, index) for exclusion in exclusions]
         return parse_expr(
             f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)}
         )
@@ -231,15 +231,10 @@ class FunnelEventQuery:
         source_kind: SourceTableKind,
         entity: EntityNode | ExclusionEntityNode,
         index: int,
-        step_prefix: str = "",
     ) -> list[ast.Expr]:
-        # step prefix is used to distinguish actual steps, and exclusion steps
-        # without the prefix, we get the same parameter binding for both, which borks things up
         step_cols: list[ast.Expr] = []
-        condition = self._build_step_query(entity, index, step_prefix)
-        step_cols.append(
-            parse_expr(f"if({{condition}}, 1, 0) as {step_prefix}step_{index}", placeholders={"condition": condition})
-        )
+        condition = self._build_step_query(entity, index)
+        step_cols.append(parse_expr(f"if({{condition}}, 1, 0) as step_{index}", placeholders={"condition": condition}))
 
         return step_cols
 
@@ -247,7 +242,6 @@ class FunnelEventQuery:
         self,
         entity: EntityNode | ExclusionEntityNode,
         index: int,
-        step_prefix: str,
     ) -> ast.Expr:
         filters: list[ast.Expr] = []
 
