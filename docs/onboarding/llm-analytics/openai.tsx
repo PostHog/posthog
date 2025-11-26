@@ -33,7 +33,10 @@ export const OpenAIInstallation = (): JSX.Element => {
             </Step>
 
             <Step title="Install the OpenAI SDK" badge="required">
-                <Markdown>Install the OpenAI SDK:</Markdown>
+                <Markdown>
+                    Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI client. The
+                    PostHog SDK **does not** proxy your calls.
+                </Markdown>
 
                 <CodeBlock
                     blocks={[

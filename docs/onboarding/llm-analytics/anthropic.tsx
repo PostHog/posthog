@@ -35,7 +35,10 @@ export const AnthropicInstallation = (): JSX.Element => {
             </Step>
 
             <Step title="Install the Anthropic SDK" badge="required">
-                <Markdown>Install the Anthropic SDK:</Markdown>
+                <Markdown>
+                    Install the Anthropic SDK. The PostHog SDK instruments your LLM calls by wrapping the Anthropic client.
+                    The PostHog SDK **does not** proxy your calls.
+                </Markdown>
 
                 <CodeBlock
                     blocks={[

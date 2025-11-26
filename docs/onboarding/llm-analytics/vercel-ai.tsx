@@ -32,7 +32,10 @@ export const VercelAIInstallation = (): JSX.Element => {
             </Step>
 
             <Step title="Install the Vercel AI SDK" badge="required">
-                <Markdown>Install the Vercel AI SDK:</Markdown>
+                <Markdown>
+                    Install the Vercel AI SDK. The PostHog SDK instruments your LLM calls by wrapping the Vercel AI client.
+                    The PostHog SDK **does not** proxy your calls.
+                </Markdown>
 
                 <CodeBlock
                     language="bash"

@@ -44,7 +44,10 @@ export const LangChainInstallation = (): JSX.Element => {
             </Step>
 
             <Step title="Install LangChain and OpenAI SDKs" badge="required">
-                <Markdown>Install the LangChain and OpenAI Python SDKs:</Markdown>
+                <Markdown>
+                    Install LangChain. The PostHog SDK instruments your LLM calls by wrapping LangChain. The PostHog SDK
+                    **does not** proxy your calls.
+                </Markdown>
 
                 <CodeBlock
                     blocks={[

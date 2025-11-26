@@ -44,7 +44,10 @@ export const GoogleInstallation = (): JSX.Element => {
             </Step>
 
             <Step title="Install the Google Gen AI SDK" badge="required">
-                <Markdown>Install the Google Gen AI SDK:</Markdown>
+                <Markdown>
+                    Install the Google Gen AI SDK. The PostHog SDK instruments your LLM calls by wrapping the Google Gen
+                    AI client. The PostHog SDK **does not** proxy your calls.
+                </Markdown>
 
                 <CodeBlock
                     blocks={[

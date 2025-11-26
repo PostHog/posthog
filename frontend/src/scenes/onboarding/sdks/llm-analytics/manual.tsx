@@ -1,258 +1,297 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+export const ManualInstallation = (): JSX.Element => {
+    const { Markdown, Tab, CodeBlock, snippets, dedent } = useMDXComponents()
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Link } from 'lib/lemon-ui/Link'
-import { apiHostOrigin } from 'lib/utils/apiHost'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { SDKKey } from '~/types'
-
-import { DocumentationLink } from './DocumentationLink'
-
-function PropertiesInfoBanner(): JSX.Element {
-    return (
-        <LemonBanner type="info">
-            <div>
-                The <code>$ai_generation</code> event captures LLM call metadata including input/output, tokens,
-                latency, and model information.{' '}
-                <Link
-                    to="https://posthog.com/docs/llm-analytics/manual-capture"
-                    target="_blank"
-                    targetBlankIcon
-                    disableDocsPanel
-                >
-                    Learn about all available properties
-                </Link>
-            </div>
-        </LemonBanner>
-    )
-}
-
-export function LLMManualCaptureInstructions(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const [language, setLanguage] = useState<SDKKey>(SDKKey.API)
+    const GenerationEvent = snippets?.GenerationEvent
+    const TraceEvent = snippets?.TraceEvent
+    const SpanEvent = snippets?.SpanEvent
+    const EmbeddingEvent = snippets?.EmbeddingEvent
 
     const languages = [
-        { key: SDKKey.API, label: 'API', lang: Language.Bash },
-        { key: SDKKey.NODE_JS, label: 'Node.js', lang: Language.JavaScript },
-        { key: SDKKey.PYTHON, label: 'Python', lang: Language.Python },
-        { key: SDKKey.GO, label: 'Go', lang: Language.Go },
-        { key: SDKKey.RUBY, label: 'Ruby', lang: Language.Ruby },
-        { key: SDKKey.PHP, label: 'PHP', lang: Language.PHP },
+        { key: 'API', label: 'API' },
+        { key: 'Node.js', label: 'Node.js' },
+        { key: 'Python', label: 'Python' },
+        { key: 'Go', label: 'Go' },
+        { key: 'Ruby', label: 'Ruby' },
+        { key: 'PHP', label: 'PHP' },
     ]
 
     return (
         <>
-            <h3>Manual $ai_generation Event Capture</h3>
-            <p>
-                For server-side SDKs, you can manually capture LLM events using the <code>$ai_generation</code> event.
-            </p>
+            <Markdown>
+                If you're using a different server-side SDK or prefer to use the API, you can manually capture the data
+                by calling the `capture` method or using the [capture API](https://posthog.com/docs/api/capture).
+            </Markdown>
 
-            <LemonTabs
-                activeKey={language}
-                onChange={(key) => setLanguage(key as SDKKey)}
-                tabs={languages.map((l) => ({ key: l.key, label: l.label }))}
-            />
+            <Tab.Group tabs={languages.map((l) => l.label)}>
+                <Tab.List>
+                    {languages.map((l) => (
+                        <Tab key={l.key}>{l.label}</Tab>
+                    ))}
+                </Tab.List>
+                <Tab.Panels>
+                    {languages.map((l) => (
+                        <Tab.Panel key={l.key}>
+                            <>
+                                {l.key === 'Node.js' && (
+                                    <>
+                                        <Markdown>### 1. Install</Markdown>
+                                        <CodeBlock language="bash" code="npm install posthog-node" />
 
-            {language === SDKKey.NODE_JS && (
-                <>
-                    <h3>1. Install</h3>
-                    <CodeSnippet language={Language.Bash}>npm install posthog-node</CodeSnippet>
+                                        <Markdown>### 2. Initialize PostHog</Markdown>
+                                        <CodeBlock
+                                            language="javascript"
+                                            code={dedent`
+                                                import { PostHog } from 'posthog-node'
 
-                    <h3>2. Initialize PostHog</h3>
-                    <CodeSnippet language={Language.JavaScript}>{`import { PostHog } from 'posthog-node'
+                                                const client = new PostHog('<ph_project_api_key>', {
+                                                    host: '<ph_client_api_host>'
+                                                })
+                                            `}
+                                        />
 
-const client = new PostHog('${currentTeam?.api_token}', {
-    host: '${apiHostOrigin()}'
-})`}</CodeSnippet>
+                                        <Markdown>### 3. Capture Event</Markdown>
+                                        <CodeBlock
+                                            language="javascript"
+                                            code={dedent`
+                                                // After your LLM call
+                                                client.capture({
+                                                    distinctId: 'user_123',
+                                                    event: '$ai_generation',
+                                                    properties: {
+                                                        $ai_trace_id: 'trace_id_here',
+                                                        $ai_model: 'gpt-4o-mini',
+                                                        $ai_provider: 'openai',
+                                                        $ai_input: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
+                                                        $ai_input_tokens: 10,
+                                                        $ai_output_choices: [{ role: 'assistant', content: 'Hedgehogs have around 5,000 to 7,000 spines on their backs!' }],
+                                                        $ai_output_tokens: 20,
+                                                        $ai_latency: 1.5
+                                                    }
+                                                })
 
-                    <h3>3. Capture $ai_generation Event</h3>
+                                                client.shutdown()
+                                            `}
+                                        />
+                                    </>
+                                )}
 
-                    <PropertiesInfoBanner />
+                                {l.key === 'Python' && (
+                                    <>
+                                        <Markdown>### 1. Install</Markdown>
+                                        <CodeBlock language="bash" code="pip install posthog" />
 
-                    <CodeSnippet language={Language.JavaScript}>{`// After your LLM call
-client.capture({
-    distinctId: 'user_123',
-    event: '$ai_generation',
-    properties: {
-        $ai_trace_id: 'trace_id_here',
-        $ai_model: 'gpt-4o-mini',
-        $ai_provider: 'openai',
-        $ai_input: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
-        $ai_input_tokens: 10,
-        $ai_output_choices: [{ role: 'assistant', content: 'Hedgehogs have around 5,000 to 7,000 spines on their backs!' }],
-        $ai_output_tokens: 20,
-        $ai_latency: 1.5
-    }
-})
+                                        <Markdown>### 2. Initialize PostHog</Markdown>
+                                        <CodeBlock
+                                            language="python"
+                                            code={dedent`
+                                                from posthog import Posthog
 
-client.shutdown()`}</CodeSnippet>
-                </>
-            )}
+                                                posthog = Posthog("<ph_project_api_key>", host="<ph_client_api_host>")
+                                            `}
+                                        />
 
-            {language === SDKKey.PYTHON && (
-                <>
-                    <h3>1. Install</h3>
-                    <CodeSnippet language={Language.Bash}>pip install posthog</CodeSnippet>
+                                        <Markdown>### 3. Capture Event</Markdown>
+                                        <CodeBlock
+                                            language="python"
+                                            code={dedent`
+                                                # After your LLM call
+                                                posthog.capture(
+                                                    distinct_id='user_123',
+                                                    event='$ai_generation',
+                                                    properties={
+                                                        '$ai_trace_id': 'trace_id_here',
+                                                        '$ai_model': 'gpt-4o-mini',
+                                                        '$ai_provider': 'openai',
+                                                        '$ai_input': [{'role': 'user', 'content': 'Tell me a fun fact about hedgehogs'}],
+                                                        '$ai_input_tokens': 10,
+                                                        '$ai_output_choices': [{'role': 'assistant', 'content': 'Hedgehogs have around 5,000 to 7,000 spines on their backs!'}],
+                                                        '$ai_output_tokens': 20,
+                                                        '$ai_latency': 1.5
+                                                    }
+                                                )
+                                            `}
+                                        />
+                                    </>
+                                )}
 
-                    <h3>2. Initialize PostHog</h3>
-                    <CodeSnippet language={Language.Python}>{`from posthog import Posthog
+                                {l.key === 'Go' && (
+                                    <>
+                                        <Markdown>### 1. Install</Markdown>
+                                        <CodeBlock language="bash" code="go get github.com/posthog/posthog-go" />
 
-posthog = Posthog("${currentTeam?.api_token}", host="${apiHostOrigin()}")`}</CodeSnippet>
+                                        <Markdown>### 2. Initialize PostHog</Markdown>
+                                        <CodeBlock
+                                            language="go"
+                                            code={dedent`
+                                                import "github.com/posthog/posthog-go"
 
-                    <h3>3. Capture $ai_generation Event</h3>
+                                                client, _ := posthog.NewWithConfig("<ph_project_api_key>", posthog.Config{
+                                                    Endpoint: "<ph_client_api_host>",
+                                                })
+                                                defer client.Close()
+                                            `}
+                                        />
 
-                    <PropertiesInfoBanner />
+                                        <Markdown>### 3. Capture Event</Markdown>
+                                        <CodeBlock
+                                            language="go"
+                                            code={dedent`
+                                                // After your LLM call
+                                                client.Enqueue(posthog.Capture{
+                                                    DistinctId: "user_123",
+                                                    Event:      "$ai_generation",
+                                                    Properties: map[string]interface{}{
+                                                        "$ai_trace_id":        "trace_id_here",
+                                                        "$ai_model":           "gpt-4o-mini",
+                                                        "$ai_provider":        "openai",
+                                                        "$ai_input_tokens":    10,
+                                                        "$ai_output_tokens":   20,
+                                                        "$ai_latency":         1.5,
+                                                    },
+                                                })
+                                            `}
+                                        />
+                                    </>
+                                )}
 
-                    <CodeSnippet language={Language.Python}>{`# After your LLM call
-posthog.capture(
-    distinct_id='user_123',
-    event='$ai_generation',
-    properties={
-        '$ai_trace_id': 'trace_id_here',
-        '$ai_model': 'gpt-4o-mini',
-        '$ai_provider': 'openai',
-        '$ai_input': [{'role': 'user', 'content': 'Tell me a fun fact about hedgehogs'}],
-        '$ai_input_tokens': 10,
-        '$ai_output_choices': [{'role': 'assistant', 'content': 'Hedgehogs have around 5,000 to 7,000 spines on their backs!'}],
-        '$ai_output_tokens': 20,
-        '$ai_latency': 1.5
-    }
-)`}</CodeSnippet>
-                </>
-            )}
+                                {l.key === 'Ruby' && (
+                                    <>
+                                        <Markdown>### 1. Install</Markdown>
+                                        <CodeBlock language="bash" code="gem install posthog-ruby" />
 
-            {language === SDKKey.GO && (
-                <>
-                    <h3>1. Install</h3>
-                    <CodeSnippet language={Language.Bash}>go get github.com/posthog/posthog-go</CodeSnippet>
+                                        <Markdown>### 2. Initialize PostHog</Markdown>
+                                        <CodeBlock
+                                            language="ruby"
+                                            code={dedent`
+                                                require 'posthog-ruby'
 
-                    <h3>2. Initialize PostHog</h3>
-                    <CodeSnippet language={Language.Go}>{`import "github.com/posthog/posthog-go"
+                                                posthog = PostHog::Client.new({
+                                                    api_key: '<ph_project_api_key>',
+                                                    host: '<ph_client_api_host>'
+                                                })
+                                            `}
+                                        />
 
-client, _ := posthog.NewWithConfig("${currentTeam?.api_token}", posthog.Config{
-    Endpoint: "${apiHostOrigin()}",
-})
-defer client.Close()`}</CodeSnippet>
+                                        <Markdown>### 3. Capture Event</Markdown>
+                                        <CodeBlock
+                                            language="ruby"
+                                            code={dedent`
+                                                # After your LLM call
+                                                posthog.capture({
+                                                    distinct_id: 'user_123',
+                                                    event: '$ai_generation',
+                                                    properties: {
+                                                    '$ai_trace_id' => 'trace_id_here',
+                                                    '$ai_model' => 'gpt-4o-mini',
+                                                    '$ai_provider' => 'openai',
+                                                    '$ai_input_tokens' => 10,
+                                                    '$ai_output_tokens' => 20,
+                                                    '$ai_latency' => 1.5
+                                                    }
+                                                })
+                                            `}
+                                        />
+                                    </>
+                                )}
 
-                    <h3>3. Capture $ai_generation Event</h3>
+                                {l.key === 'PHP' && (
+                                    <>
+                                        <Markdown>### 1. Install</Markdown>
+                                        <CodeBlock language="bash" code="composer require posthog/posthog-php" />
 
-                    <PropertiesInfoBanner />
+                                        <Markdown>### 2. Initialize PostHog</Markdown>
+                                        <CodeBlock
+                                            language="php"
+                                            code={dedent`
+                                                <?php
+                                                require_once __DIR__ . '/vendor/autoload.php';
+                                                use PostHog\\PostHog;
 
-                    <CodeSnippet language={Language.Go}>{`// After your LLM call
-client.Enqueue(posthog.Capture{
-    DistinctId: "user_123",
-    Event:      "$ai_generation",
-    Properties: map[string]interface{}{
-        "$ai_trace_id":        "trace_id_here",
-        "$ai_model":           "gpt-4o-mini",
-        "$ai_provider":        "openai",
-        "$ai_input_tokens":    10,
-        "$ai_output_tokens":   20,
-        "$ai_latency":         1.5,
-    },
-})`}</CodeSnippet>
-                </>
-            )}
+                                                PostHog::init('<ph_project_api_key>', [
+                                                    'host' => '<ph_client_api_host>'
+                                                ]);
+                                            `}
+                                        />
 
-            {language === SDKKey.RUBY && (
-                <>
-                    <h3>1. Install</h3>
-                    <CodeSnippet language={Language.Bash}>gem install posthog-ruby</CodeSnippet>
+                                        <Markdown>### 3. Capture Event</Markdown>
+                                        <CodeBlock
+                                            language="php"
+                                            code={dedent`
+                                                // After your LLM call
+                                                PostHog::capture([
+                                                    'distinctId' => 'user_123',
+                                                    'event' => '$ai_generation',
+                                                    'properties' => [
+                                                        '$ai_trace_id' => 'trace_id_here',
+                                                        '$ai_model' => 'gpt-4o-mini',
+                                                        '$ai_provider' => 'openai',
+                                                        '$ai_input_tokens' => 10,
+                                                        '$ai_output_tokens' => 20,
+                                                        '$ai_latency' => 1.5
+                                                    ]
+                                                ]);
+                                            `}
+                                        />
+                                    </>
+                                )}
 
-                    <h3>2. Initialize PostHog</h3>
-                    <CodeSnippet language={Language.Ruby}>{`require 'posthog-ruby'
+                                {l.key === 'API' && (
+                                    <>
+                                        <Markdown>### Capture via API</Markdown>
+                                        <CodeBlock
+                                            language="bash"
+                                            code={dedent`
+                                                curl -X POST "<ph_client_api_host>/i/v0/e/" \\
+                                                        -H "Content-Type: application/json" \\
+                                                        -d '{
+                                                            "api_key": "<ph_project_api_key>",
+                                                            "event": "$ai_generation",
+                                                            "properties": {
+                                                                "distinct_id": "user_123",
+                                                                "$ai_trace_id": "trace_id_here",
+                                                                "$ai_model": "gpt-4o-mini",
+                                                                "$ai_provider": "openai",
+                                                                "$ai_input": [{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
+                                                                "$ai_input_tokens": 10,
+                                                                "$ai_output_choices": [{"role": "assistant", "content": "Hedgehogs have around 5,000 to 7,000 spines on their backs!"}],
+                                                                "$ai_output_tokens": 20,
+                                                                "$ai_latency": 1.5
+                                                            }
+                                                        }'
+                                            `}
+                                        />
+                                    </>
+                                )}
+                            </>
+                        </Tab.Panel>
+                    ))}
+                </Tab.Panels>
+            </Tab.Group>
 
-posthog = PostHog::Client.new({
-  api_key: '${currentTeam?.api_token}',
-  host: '${apiHostOrigin()}'
-})`}</CodeSnippet>
+            <Markdown>
+                {dedent`
+                    ### Event Properties
 
-                    <h3>3. Capture $ai_generation Event</h3>
+                    Each event type has specific properties. See the tabs below for detailed property documentation for each event type.
+                `}
+            </Markdown>
 
-                    <PropertiesInfoBanner />
-
-                    <CodeSnippet language={Language.Ruby}>{`# After your LLM call
-posthog.capture({
-  distinct_id: 'user_123',
-  event: '$ai_generation',
-  properties: {
-    '$ai_trace_id' => 'trace_id_here',
-    '$ai_model' => 'gpt-4o-mini',
-    '$ai_provider' => 'openai',
-    '$ai_input_tokens' => 10,
-    '$ai_output_tokens' => 20,
-    '$ai_latency' => 1.5
-  }
-})`}</CodeSnippet>
-                </>
-            )}
-
-            {language === SDKKey.PHP && (
-                <>
-                    <h3>1. Install</h3>
-                    <CodeSnippet language={Language.Bash}>composer require posthog/posthog-php</CodeSnippet>
-
-                    <h3>2. Initialize PostHog</h3>
-                    <CodeSnippet language={Language.PHP}>{`<?php
-require_once __DIR__ . '/vendor/autoload.php';
-use PostHog\\PostHog;
-
-PostHog::init('${currentTeam?.api_token}', [
-    'host' => '${apiHostOrigin()}'
-]);`}</CodeSnippet>
-
-                    <h3>3. Capture $ai_generation Event</h3>
-
-                    <PropertiesInfoBanner />
-
-                    <CodeSnippet language={Language.PHP}>{`// After your LLM call
-PostHog::capture([
-    'distinctId' => 'user_123',
-    'event' => '$ai_generation',
-    'properties' => [
-        '$ai_trace_id' => 'trace_id_here',
-        '$ai_model' => 'gpt-4o-mini',
-        '$ai_provider' => 'openai',
-        '$ai_input_tokens' => 10,
-        '$ai_output_tokens' => 20,
-        '$ai_latency' => 1.5
-    ]
-]);`}</CodeSnippet>
-                </>
-            )}
-
-            {language === SDKKey.API && (
-                <>
-                    <h3>Capture via API</h3>
-
-                    <PropertiesInfoBanner />
-
-                    <CodeSnippet language={Language.Bash}>{`curl -X POST "${apiHostOrigin()}/i/v0/e/" \\
-     -H "Content-Type: application/json" \\
-     -d '{
-         "api_key": "${currentTeam?.api_token}",
-         "event": "$ai_generation",
-         "properties": {
-             "distinct_id": "user_123",
-             "$ai_trace_id": "trace_id_here",
-             "$ai_model": "gpt-4o-mini",
-             "$ai_provider": "openai",
-             "$ai_input": [{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
-             "$ai_input_tokens": 10,
-             "$ai_output_choices": [{"role": "assistant", "content": "Hedgehogs have around 5,000 to 7,000 spines on their backs!"}],
-             "$ai_output_tokens": 20,
-             "$ai_latency": 1.5
-         }
-     }'`}</CodeSnippet>
-                </>
-            )}
-
-            <DocumentationLink path="llm-analytics/manual-capture" text="View full manual capture documentation ↗" />
+            <Tab.Group tabs={['Generation', 'Trace', 'Span', 'Embedding']}>
+                <Tab.List>
+                    <Tab>Generation</Tab>
+                    <Tab>Trace</Tab>
+                    <Tab>Span</Tab>
+                    <Tab>Embedding</Tab>
+                </Tab.List>
+                <Tab.Panels>
+                    <Tab.Panel>{GenerationEvent && <GenerationEvent />}</Tab.Panel>
+                    <Tab.Panel>{TraceEvent && <TraceEvent />}</Tab.Panel>
+                    <Tab.Panel>{SpanEvent && <SpanEvent />}</Tab.Panel>
+                    <Tab.Panel>{EmbeddingEvent && <EmbeddingEvent />}</Tab.Panel>
+                </Tab.Panels>
+            </Tab.Group>
         </>
     )
 }
