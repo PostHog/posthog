@@ -55,7 +55,8 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { SceneExport } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyModal } from 'scenes/surveys/quick-create/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -876,13 +877,16 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 )}
             </div>
             <QuickSurveyModal
-                flag={featureFlag}
+                context={{
+                    type: QuickSurveyType.FEATURE_FLAG,
+                    flag: featureFlag,
+                    initialVariantKey: quickSurveyVariantKey,
+                }}
                 isOpen={isQuickSurveyModalOpen}
-                onClose={() => {
+                onCancel={() => {
                     setIsQuickSurveyModalOpen(false)
                     setQuickSurveyVariantKey(null)
                 }}
-                initialVariantKey={quickSurveyVariantKey}
             />
         </>
     )

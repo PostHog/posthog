@@ -62,7 +62,11 @@ export function DashboardItems(): JSX.Element {
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
-        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
+        : getBestSurveyOpportunityFunnel(
+              tiles || [],
+              surveyLinkedInsights,
+              featureFlags[FEATURE_FLAGS.SURVEYS_INSIGHT_BUTTON_EXPERIMENT] === 'test'
+          )
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
