@@ -2066,6 +2066,9 @@ importers:
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+      '@types/papaparse':
+        specifier: '*'
+        version: 5.3.8
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2096,6 +2099,9 @@ importers:
       kea-router:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
+      papaparse:
+        specifier: '*'
+        version: 5.4.1
       prettier:
         specifier: '*'
         version: 3.4.2

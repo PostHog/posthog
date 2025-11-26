@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 
 import {
     IconClock,
+    IconDownload,
     IconFilter,
     IconMinusSquare,
     IconPin,
@@ -415,45 +416,70 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, prettifyJson, timestampFormat } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat } = useActions(logsLogic)
+    const { orderBy, wrapBody, prettifyJson, timestampFormat, parsedLogs } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat, exportToCSV, exportToJSON } =
+        useActions(logsLogic)
 
     return (
-        <div className="flex gap-2">
-            <LemonSegmentedButton
-                value={orderBy}
-                onChange={setOrderBy}
-                options={[
-                    {
-                        value: 'earliest',
-                        label: 'Earliest',
-                    },
-                    {
-                        value: 'latest',
-                        label: 'Latest',
-                    },
-                ]}
-                size="small"
-            />
-            <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
-            <LemonCheckbox
-                checked={prettifyJson}
-                bordered
-                onChange={setPrettifyJson}
-                label="Prettify JSON"
-                size="small"
-            />
-            <LemonSelect
-                value={timestampFormat}
-                icon={<IconClock />}
-                onChange={(value) => setTimestampFormat(value)}
-                size="small"
-                type="secondary"
-                options={[
-                    { value: 'absolute', label: 'Absolute' },
-                    { value: 'relative', label: 'Relative' },
-                ]}
-            />
+        <div className="flex gap-2 justify-between">
+            <div className="flex gap-2">
+                <LemonSegmentedButton
+                    value={orderBy}
+                    onChange={setOrderBy}
+                    options={[
+                        {
+                            value: 'earliest',
+                            label: 'Earliest',
+                        },
+                        {
+                            value: 'latest',
+                            label: 'Latest',
+                        },
+                    ]}
+                    size="small"
+                />
+                <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+                <LemonCheckbox
+                    checked={prettifyJson}
+                    bordered
+                    onChange={setPrettifyJson}
+                    label="Prettify JSON"
+                    size="small"
+                />
+                <LemonSelect
+                    value={timestampFormat}
+                    icon={<IconClock />}
+                    onChange={(value) => setTimestampFormat(value)}
+                    size="small"
+                    type="secondary"
+                    options={[
+                        { value: 'absolute', label: 'Absolute' },
+                        { value: 'relative', label: 'Relative' },
+                    ]}
+                />
+            </div>
+            <div className="flex gap-2">
+                <LemonSelect
+                    value={null}
+                    icon={<IconDownload />}
+                    onChange={(value) => {
+                        if (value === 'csv') {
+                            exportToCSV()
+                        } else if (value === 'json') {
+                            exportToJSON()
+                        }
+                    }}
+                    size="small"
+                    type="secondary"
+                    placeholder="Export results"
+                    options={[
+                        { value: 'csv', label: 'Download table (CSV)' },
+                        { value: 'json', label: 'Download table (JSON)' },
+                    ]}
+                    disabledReason={parsedLogs.length === 0 ? 'No logs to export' : undefined}
+                    dropdownPlacement="bottom-end"
+                />
+            </div>
         </div>
     )
 }

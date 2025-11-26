@@ -4,6 +4,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import api from 'lib/api'
@@ -12,7 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { downloadFile, humanFriendlyDetailedTime } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
@@ -22,6 +23,7 @@ import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, Un
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
 import { ParsedLogMessage } from './types'
+import { logsToCSV, logsToJSON } from './utils/exportHelpers'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
@@ -168,6 +170,8 @@ export const logsLogic = kea<logsLogicType>([
             value,
             operator,
         }),
+        exportToCSV: () => ({}),
+        exportToJSON: () => ({}),
         togglePinLog: (logId: string) => ({ logId }),
         pinLog: (log: LogMessage) => ({ log }),
         unpinLog: (logId: string) => ({ logId }),
@@ -529,6 +533,42 @@ export const logsLogic = kea<logsLogicType>([
             }
 
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
+        },
+        exportToCSV: () => {
+            const logs = values.parsedLogs
+            if (logs.length === 0) {
+                return
+            }
+
+            try {
+                const csvContent = logsToCSV(logs)
+                const file = new File([csvContent], `posthog-logs-${new Date().toISOString()}.csv`, {
+                    type: 'text/csv;charset=utf-8;',
+                })
+                downloadFile(file)
+                lemonToast.success(`Exported ${logs.length} log${logs.length === 1 ? '' : 's'} to CSV`)
+            } catch (error) {
+                console.error('CSV export failed:', error)
+                lemonToast.error('Failed to export logs to CSV')
+            }
+        },
+        exportToJSON: () => {
+            const logs = values.parsedLogs
+            if (logs.length === 0) {
+                return
+            }
+
+            try {
+                const jsonContent = logsToJSON(logs)
+                const file = new File([jsonContent], `posthog-logs-${new Date().toISOString()}.json`, {
+                    type: 'application/json;charset=utf-8;',
+                })
+                downloadFile(file)
+                lemonToast.success(`Exported ${logs.length} log${logs.length === 1 ? '' : 's'} to JSON`)
+            } catch (error) {
+                console.error('JSON export failed:', error)
+                lemonToast.error('Failed to export logs to JSON')
+            }
         },
         togglePinLog: ({ logId }) => {
             const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
