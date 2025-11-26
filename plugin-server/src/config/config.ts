@@ -335,13 +335,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_MERGE_ASYNC_ENABLED: false,
         // Batch size for sync person merge processing (0 = unlimited, process all distinct IDs in one query)
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
-        // Enable person table cutover migration
-        PERSON_TABLE_CUTOVER_ENABLED: false,
-        // New person table name for cutover migration
-        PERSON_NEW_TABLE_NAME: 'posthog_person_new',
-        // Person ID offset threshold - person IDs >= this value route to new table
-        // Default is max safe integer to ensure cutover doesn't activate accidentally
-        PERSON_NEW_TABLE_ID_OFFSET: Number.MAX_SAFE_INTEGER,
 
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,

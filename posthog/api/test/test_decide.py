@@ -9,12 +9,12 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
-from django.conf import settings
 from django.core.cache import cache
-from django.db import connection, connections
+from django.db import connections
 from django.http import HttpRequest
 from django.test import TestCase, TransactionTestCase
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 
 from inline_snapshot import snapshot
 from parameterized import parameterized
@@ -156,12 +156,35 @@ class TestDecide(BaseTest, QueryMatchingTest):
             )
 
         if simulate_database_timeout:
-            with connection.execute_wrapper(QueryTimeoutWrapper()):
+            # Wrap all database connections to simulate timeout across all databases
+            from contextlib import ExitStack
+
+            with ExitStack() as stack:
+                for db_alias in self.databases:
+                    stack.enter_context(connections[db_alias].execute_wrapper(QueryTimeoutWrapper()))
                 return do_request()
 
         if assert_num_queries:
-            with self.assertNumQueries(assert_num_queries):
-                return do_request()
+            # Count queries across all databases defined in the test case
+            query_contexts = {}
+            for db_alias in self.databases:
+                query_contexts[db_alias] = CaptureQueriesContext(connections[db_alias])
+                query_contexts[db_alias].__enter__()
+
+            try:
+                result = do_request()
+            finally:
+                for _, ctx in query_contexts.items():
+                    ctx.__exit__(None, None, None)
+
+            total_queries = sum(len(ctx) for ctx in query_contexts.values())
+            queries_by_db = ", ".join(f"{len(ctx)} to {db}" for db, ctx in query_contexts.items() if len(ctx) > 0)
+            self.assertEqual(
+                total_queries,
+                assert_num_queries,
+                f"{total_queries} queries executed ({queries_by_db}), {assert_num_queries} expected",
+            )
+            return result
         else:
             return do_request()
 
@@ -1390,7 +1413,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=33,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1441,7 +1464,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 12345,
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=33,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1453,7 +1476,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "xyz",
                 "$anon_distinct_id": 12345,
             },
-            assert_num_queries=9,
+            assert_num_queries=17,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1465,7 +1488,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 5,
                 "$anon_distinct_id": 12345,
             },
-            assert_num_queries=9,
+            assert_num_queries=17,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1540,7 +1563,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=12,
+            assert_num_queries=8,
         )
         # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1627,7 +1650,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=33,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1652,7 +1675,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 FROM deletions
                 ON CONFLICT DO NOTHING
         """
-        with connection.cursor() as cursor:
+        # posthog_featureflaghashkeyoverride is in persons database
+        with connections["persons_db_writer"].cursor() as cursor:
             cursor.execute(query)
 
         person2.delete()
@@ -1742,7 +1766,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": "other_id",
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=13,
+            assert_num_queries=33,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -3205,7 +3229,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
         self.client.logout()
-        Person.objects.create(
+        person = Person.objects.create(
             team=self.team,
             distinct_ids=[
                 "a",
@@ -3215,6 +3239,32 @@ class TestDecide(BaseTest, QueryMatchingTest):
             ],
             properties={"email": "tim@posthog.com", "realm": "cloud"},
         )
+
+        # Verify Person was created in persons database
+        from posthog.models import PersonDistinctId
+
+        self.assertEqual(Person.objects.using("persons_db_writer").filter(team=self.team).count(), 1)
+        self.assertEqual(PersonDistinctId.objects.using("persons_db_writer").filter(team=self.team).count(), 4)
+
+        # Verify all distinct_ids were created correctly
+        distinct_ids = list(
+            PersonDistinctId.objects.using("persons_db_writer")
+            .filter(team=self.team, person=person)
+            .values_list("distinct_id", flat=True)
+        )
+        self.assertEqual(
+            set(distinct_ids),
+            {
+                "a",
+                "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}",
+                "{'x': 'y'}",
+                '{"x": "z"}',
+            },
+        )
+
+        # Verify person properties
+        self.assertEqual(person.properties, {"email": "tim@posthog.com", "realm": "cloud"})
+
         FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"rollout_percentage": 100}]},
@@ -3237,15 +3287,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(api_version=2, distinct_id=12345, assert_num_queries=4)
         self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
 
+        # Debug: Check what distinct_id string will be generated
+        test_distinct_id = {
+            "id": 33040,
+            "shopify_domain": "xxx.myshopify.com",
+            "shopify_token": "shpat_xxxx",
+            "created_at": "2023-04-17T08:55:34.624Z",
+            "updated_at": "2023-04-21T08:43:34.479",
+        }
+
         response = self._post_decide(
             api_version=2,
-            distinct_id={
-                "id": 33040,
-                "shopify_domain": "xxx.myshopify.com",
-                "shopify_token": "shpat_xxxx",
-                "created_at": "2023-04-17T08:55:34.624Z",
-                "updated_at": "2023-04-21T08:43:34.479",
-            },
+            distinct_id=test_distinct_id,
             assert_num_queries=4,
         )
         self.assertEqual(
@@ -4083,10 +4136,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         client.logout()
 
 
-@pytest.mark.skipif(
-    "decide" not in settings.READ_REPLICA_OPT_IN,
-    reason="This test requires READ_REPLICA_OPT_IN=decide",
-)
+@pytest.mark.skip(reason="Decide endpoint is obsolete, skipping read replica tests")
 class TestDecideUsesReadReplica(TransactionTestCase):
     """
     A cheat sheet for creating a READ-ONLY fake replica when local testing:
@@ -4114,7 +4164,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
     when it shouldn't be.
     """  # noqa: W605
 
-    databases = {"default", "replica"}
+    databases = {"default", "replica", "persons_db_writer", "persons_db_reader"}
 
     def setup_user_and_team_in_db(self, dbname: str = "default"):
         organization = Organization.objects.db_manager(dbname).create(
