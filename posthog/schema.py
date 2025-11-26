@@ -3195,6 +3195,16 @@ class UserBasicType(BaseModel):
     uuid: str
 
 
+class UserProductListReason(StrEnum):
+    ONBOARDING = "onboarding"
+    PRODUCT_INTENT = "product_intent"
+    USED_BY_COLLEAGUES = "used_by_colleagues"
+    USED_SIMILAR_PRODUCTS = "used_similar_products"
+    USED_ON_SEPARATE_TEAM = "used_on_separate_team"
+    NEW_PRODUCT = "new_product"
+    SALES_LED = "sales_led"
+
+
 class VectorSearchResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5783,6 +5793,19 @@ class UsageMetricsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class UserProductListItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    enabled: bool
+    id: str
+    product_path: str
+    reason: UserProductListReason
+    reason_text: Optional[str] = None
+    updated_at: str
 
 
 class WebAnalyticsExternalSummaryQueryResponse(BaseModel):

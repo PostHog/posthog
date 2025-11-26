@@ -28937,6 +28937,46 @@
             "required": ["distinct_id", "email", "first_name", "id", "uuid"],
             "type": "object"
         },
+        "UserProductListItem": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "product_path": {
+                    "type": "string"
+                },
+                "reason": {
+                    "$ref": "#/definitions/UserProductListReason"
+                },
+                "reason_text": {
+                    "type": ["string", "null"]
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "product_path", "enabled", "reason", "reason_text", "created_at", "updated_at"],
+            "type": "object"
+        },
+        "UserProductListReason": {
+            "enum": [
+                "onboarding",
+                "product_intent",
+                "used_by_colleagues",
+                "used_similar_products",
+                "used_on_separate_team",
+                "new_product",
+                "sales_led"
+            ],
+            "type": "string"
+        },
         "VectorSearchQuery": {
             "additionalProperties": false,
             "properties": {

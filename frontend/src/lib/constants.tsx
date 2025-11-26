@@ -322,7 +322,6 @@ export const FEATURE_FLAGS = {
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
     SEEKBAR_PREVIEW_SCRUBBING: 'seekbar-preview-scrubbing', // owner: @pauldambra #team-replay
     EXPERIMENTS_BREAKDOWN_FILTER: 'experiments-breakdown-filter', // owner: @rodrigoi #team-experiments
-    TARGETED_PRODUCT_UPSELL: 'targeted-product-upsell', // owner: @raquelmsmith
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
     REPLAY_CLIENT_SIDE_DECOMPRESSION: 'replay-client-side-decompression', // owner: @pauldambra #team-replay
     REPLAY_DECOMPRESSION_WORKER: 'replay-decompression-worker', // owner: @pauldambra #team-replay
