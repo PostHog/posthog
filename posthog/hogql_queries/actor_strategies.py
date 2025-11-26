@@ -90,7 +90,7 @@ class PersonStrategy(ActorStrategy):
         )
 
         response = execute_hogql_query(
-            query_type="ActorsQuery",
+            query_type="persons_enrichment",
             query=query,
             team=self.team,
         )
