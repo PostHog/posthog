@@ -655,9 +655,6 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.sceneId],
             (sceneId: Scene): SceneConfig | null => {
                 const config = sceneConfigurations[sceneId] || null
-                if (sceneId === Scene.SQLEditor) {
-                    return { ...config, layout: 'app-raw' }
-                }
                 return config
             },
             { resultEqualityCheck: equal },

@@ -1012,7 +1012,7 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
     )
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+        "ee.billing.quota_limiting.list_limited_team_attributes",
     ) as mock_list_limited_team_attributes:
         mock_list_limited_team_attributes.return_value = [team.api_token]
 
@@ -1056,7 +1056,7 @@ async def test_create_external_job_failure(team, stripe_customer, mock_stripe_cl
     )
 
     with mock.patch(
-        "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+        "ee.billing.quota_limiting.list_limited_team_attributes",
     ) as mock_list_limited_team_attributes:
         mock_list_limited_team_attributes.side_effect = Exception("Ruhoh!")
 
@@ -1157,7 +1157,7 @@ async def test_non_retryable_error(team, zendesk_brands):
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+            "ee.billing.quota_limiting.list_limited_team_attributes",
         ) as mock_list_limited_team_attributes,
         mock.patch.object(posthoganalytics, "capture") as capture_mock,
     ):
@@ -1209,7 +1209,7 @@ async def test_non_retryable_error_with_special_characters(team, stripe_customer
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+            "ee.billing.quota_limiting.list_limited_team_attributes",
         ) as mock_list_limited_team_attributes,
         mock.patch.object(posthoganalytics, "capture") as capture_mock,
     ):
