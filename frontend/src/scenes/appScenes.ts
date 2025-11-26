@@ -27,6 +27,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.DataWarehouseSource]: () => import('./data-warehouse/settings/DataWarehouseSourceScene'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/DataWarehouseScene'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
+    [Scene.DebugDnd]: () => import('./debug/DebugDnd'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),

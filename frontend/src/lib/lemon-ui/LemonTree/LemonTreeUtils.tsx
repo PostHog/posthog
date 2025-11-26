@@ -11,6 +11,7 @@ import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
 
 export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center relative'
+export const NATIVE_DRAG_DATA_MIME = 'application/x-posthog-native-drag'
 
 type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
@@ -149,6 +150,7 @@ type DragAndDropProps = {
 type DraggableProps = DragAndDropProps & {
     enableDragging: boolean
     className?: string
+    nativeDragPayload?: Record<string, any>
 }
 
 export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
@@ -175,11 +177,37 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
           )
         : {}
 
+    const handleNativeDragStart = (event: React.DragEvent<HTMLDivElement>): void => {
+        if (!props.enableDragging) {
+            event.preventDefault()
+            return
+        }
+
+        if (props.nativeDragPayload) {
+            try {
+                event.dataTransfer?.setData(NATIVE_DRAG_DATA_MIME, JSON.stringify(props.nativeDragPayload))
+            } catch (error) {
+                event.dataTransfer?.setData(
+                    NATIVE_DRAG_DATA_MIME,
+                    JSON.stringify({ error: String(error), fallback: props.nativeDragPayload })
+                )
+            }
+
+            const fallbackText =
+                props.nativeDragPayload.path || props.nativeDragPayload.href || props.nativeDragPayload.name || props.id
+            if (fallbackText) {
+                event.dataTransfer?.setData('text/plain', String(fallbackText))
+            }
+        }
+    }
+
     return (
         // Apply transform to the entire container and make it the drag reference
         <div
             className={cn('relative w-full', props.className)}
             ref={setNodeRef}
+            draggable={props.enableDragging}
+            onDragStart={handleNativeDragStart}
             {...(props.enableDragging ? listeners : {})}
         >
             <div

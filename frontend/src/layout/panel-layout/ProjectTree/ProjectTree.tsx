@@ -56,6 +56,29 @@ let counter = 0
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
 
+const attachNativeDragPayload = (items: TreeDataItem[]): TreeDataItem[] =>
+    items.map((item) => {
+        const nativeDragPayload =
+            (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
+                ? {
+                      kind: 'project-tree',
+                      id: item.id,
+                      name: item.name,
+                      path: item.record.path,
+                      href: item.record.href,
+                      ref: item.record.ref,
+                      type: item.record.type,
+                      protocol: item.record.protocol,
+                  }
+                : undefined
+
+        return {
+            ...item,
+            nativeDragPayload,
+            children: item.children ? attachNativeDragPayload(item.children) : undefined,
+        }
+    })
+
 export function ProjectTree({
     logicKey,
     root,
@@ -172,6 +195,8 @@ export function ProjectTree({
         }
     }
 
+    const treeDataWithPayload = attachNativeDragPayload(treeData)
+
     useEffect(() => {
         setPanelTreeRef(treeRef)
     }, [treeRef, setPanelTreeRef])
@@ -228,7 +253,7 @@ export function ProjectTree({
             ref={treeRef}
             contentRef={mainContentRef as RefObject<HTMLElement>}
             className="px-0 py-1"
-            data={treeData}
+            data={treeDataWithPayload}
             mode={onlyTree ? 'tree' : projectTreeMode}
             selectMode={selectMode}
             tableViewKeys={treeTableKeys}

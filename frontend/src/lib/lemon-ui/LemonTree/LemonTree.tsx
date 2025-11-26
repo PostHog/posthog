@@ -78,6 +78,9 @@ export type TreeDataItem = {
 
     /** Order of object in tree */
     visualOrder?: number
+
+    /** Optional data for native drag targets outside the LemonTree context. */
+    nativeDragPayload?: Record<string, any>
 }
 export type TreeMode = 'tree' | 'table'
 
@@ -498,6 +501,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             <TreeNodeDraggable
                                 id={item.id}
                                 enableDragging
+                                nativeDragPayload={item.nativeDragPayload}
                                 className="h-[var(--lemon-tree-button-height)]"
                             >
                                 {button}
