@@ -304,7 +304,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Search',
         iconType: 'search',
         hideProjectNotice: true,
-        layout: 'app-raw',
+        layout: 'app-raw-no-header',
     },
     [Scene.Notebook]: {
         projectBased: true,
@@ -424,14 +424,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Revenue analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/revenue-analytics',
-    },
-    [Scene.SQLEditor]: {
-        projectBased: true,
-        name: 'SQL editor',
-        defaultDocsPath: '/docs/cdp/sources',
-        layout: 'app-raw-no-header',
-        hideProjectNotice: true,
-        description: 'Write and execute SQL queries against your data warehouse',
     },
     [Scene.SavedInsights]: {
         projectBased: true,

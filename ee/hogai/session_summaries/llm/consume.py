@@ -127,6 +127,7 @@ def _convert_llm_content_to_session_summary(
         session_start_time_str=session_start_time_str,
         session_duration=session_duration,
         session_id=session_id,
+        final_validation=final_validation,
     )
 
     # Track generation for history of experiments. Don't run in tests.
