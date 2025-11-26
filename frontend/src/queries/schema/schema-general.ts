@@ -1069,6 +1069,8 @@ interface DataTableNodeViewProps {
     showColumnConfigurator?: boolean
     /** Show a button to configure and persist the table's default columns if possible */
     showPersistentColumnConfigurator?: boolean
+    /** Context key for universal column configuration (e.g., "survey:123") */
+    contextKey?: string
     /** Shows a list of saved queries */
     showSavedQueries?: boolean
     /** Show saved filters feature for this table (requires uniqueKey) */
@@ -2900,6 +2902,7 @@ export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
     RATIO = 'ratio',
+    RETENTION = 'retention',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
@@ -2960,15 +2963,42 @@ export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
     metric.metric_type === ExperimentMetricType.RATIO
 
+export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.RETENTION
+    // Event that defines the start of the retention window
+    start_event: ExperimentMetricSource
+    // Event that defines the completion of the retention window
+    completion_event: ExperimentMetricSource
+
+    // Start of the retention window
+    retention_window_start: integer
+    // End of the retention window
+    retention_window_end: integer
+    retention_window_unit: FunnelConversionWindowTimeUnit
+
+    // How to handle the start of the retention window
+    start_handling: 'first_seen' | 'last_seen'
+}
+
+export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
+    metric.metric_type === ExperimentMetricType.RETENTION
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentRetentionMetricTypeProps = Omit<ExperimentRetentionMetric, keyof ExperimentMetricBaseProperties>
+
 export type ExperimentMetricTypeProps =
     | ExperimentMeanMetricTypeProps
     | ExperimentFunnelMetricTypeProps
     | ExperimentRatioMetricTypeProps
+    | ExperimentRetentionMetricTypeProps
 
-export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric
+export type ExperimentMetric =
+    | ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
@@ -4291,6 +4321,7 @@ export interface MarketingAnalyticsConfig {
     attribution_window_days?: number
     attribution_mode?: AttributionMode
     campaign_name_mappings?: Record<string, Record<string, string[]>>
+    custom_source_mappings?: Record<string, string[]>
 }
 
 export enum MarketingAnalyticsBaseColumns {

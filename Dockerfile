@@ -350,5 +350,6 @@ EXPOSE 8000
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
 COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
+# nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
 USER root
 CMD ["./bin/docker"]

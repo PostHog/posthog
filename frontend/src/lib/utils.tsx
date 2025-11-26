@@ -1270,7 +1270,7 @@ export function componentsToDayJs(
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
 export function dateStringToDayJs(date: string | null, timezone: string = 'UTC'): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
-        return dayjs(date).tz(timezone)
+        return dayjs.tz(date, timezone)
     }
     const dateComponents = dateStringToComponents(date)
     if (!dateComponents) {

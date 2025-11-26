@@ -1,1 +1,1 @@
-0918_add_column_configurator
+0920_alter_integration_kind
