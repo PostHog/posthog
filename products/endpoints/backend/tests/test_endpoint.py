@@ -82,7 +82,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(log.detail.get("name"), "test_query")
 
     @skip("Validation of HogQL not implemented yet")
-    def test_cant_create_endpoint_with_invalid_sql(self):
+    def test_cannot_create_endpoint_with_invalid_sql(self):
         """Test creating an endpoint with invalid HogQL fails."""
         data = {
             "name": "test_query",
