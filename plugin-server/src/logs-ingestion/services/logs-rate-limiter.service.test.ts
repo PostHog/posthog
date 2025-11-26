@@ -403,4 +403,75 @@ describe('LogsRateLimiterService', () => {
             expect(result.dropped).toHaveLength(0)
         })
     })
+
+    describe('team-specific limits', () => {
+        let hub: Hub
+        let redis: RedisV2
+
+        const DEFAULT_BUCKET_SIZE_KB = 100
+        const DEFAULT_REFILL_RATE_KB_PER_SECOND = 10
+
+        beforeEach(async () => {
+            hub = await createHub()
+            hub.LOGS_LIMITER_BUCKET_SIZE_KB = DEFAULT_BUCKET_SIZE_KB
+            hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = DEFAULT_REFILL_RATE_KB_PER_SECOND
+            hub.LOGS_LIMITER_TTL_SECONDS = 3600
+            hub.LOGS_LIMITER_ENABLED_TEAMS = '*'
+
+            redis = createRedisV2Pool(hub, 'logs')
+            await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+        })
+
+        afterEach(async () => {
+            await closeHub(hub)
+        })
+
+        it.each([
+            { config: '1:50', teamId: '1', expectedBucket: 50, description: 'team with override' },
+            {
+                config: '1:50',
+                teamId: '2',
+                expectedBucket: DEFAULT_BUCKET_SIZE_KB,
+                description: 'team without override',
+            },
+            { config: '1:25, 2:50, 3:75', teamId: '1', expectedBucket: 25, description: 'first of multiple overrides' },
+            { config: '1:25, 2:50, 3:75', teamId: '3', expectedBucket: 75, description: 'last of multiple overrides' },
+            { config: '', teamId: '1', expectedBucket: DEFAULT_BUCKET_SIZE_KB, description: 'empty config' },
+        ])('uses correct bucket size for $description', async ({ config, teamId, expectedBucket }) => {
+            hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB = config
+            const rateLimiter = new LogsRateLimiterService(hub, redis)
+
+            const [[, result]] = await rateLimiter.rateLimitMany([[teamId, 0]])
+
+            expect(result.tokensBefore).toBe(expectedBucket)
+        })
+
+        it.each([
+            { config: '1:5', teamId: '1', expectedRefill: 10, description: 'team with 5KB/s override' },
+            { config: '1:5', teamId: '2', expectedRefill: 20, description: 'team using default 10KB/s' },
+        ])('uses correct refill rate for $description', async ({ config, teamId, expectedRefill }) => {
+            hub.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND = config
+            const rateLimiter = new LogsRateLimiterService(hub, redis)
+
+            await rateLimiter.rateLimitMany([[teamId, 50]])
+            mockNow.mockReturnValue(Date.now() + 2000)
+            const [[, result]] = await rateLimiter.rateLimitMany([[teamId, 0]])
+
+            expect(result.tokensBefore).toBe(50 + expectedRefill)
+        })
+
+        it.each([
+            { config: 'invalid', teamId: '1', description: 'completely invalid' },
+            { config: '2:abc', teamId: '2', description: 'non-numeric value' },
+            { config: ':100', teamId: '1', description: 'missing team id' },
+            { config: '3:', teamId: '3', description: 'missing value' },
+        ])('falls back to default for malformed config: $description', async ({ config, teamId }) => {
+            hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB = config
+            const rateLimiter = new LogsRateLimiterService(hub, redis)
+
+            const [[, result]] = await rateLimiter.rateLimitMany([[teamId, 0]])
+
+            expect(result.tokensBefore).toBe(DEFAULT_BUCKET_SIZE_KB)
+        })
+    })
 })

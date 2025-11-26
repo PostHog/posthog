@@ -371,6 +371,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOGS_LIMITER_BUCKET_SIZE_KB: 10000, // 10MB burst
         LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: 1000, // 1MB/second refill rate
         LOGS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
+        LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
+        LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
     }
 }
 

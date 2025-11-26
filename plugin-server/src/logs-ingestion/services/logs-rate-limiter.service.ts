@@ -24,20 +24,41 @@ export type FilteredMessages = {
  * The burst shouldn't be too much higher.
  */
 export class LogsRateLimiterService {
+    private teamBucketSizes: Map<number, number>
+    private teamRefillRates: Map<number, number>
+
     constructor(
         private hub: Hub,
         private redis: RedisV2
-    ) {}
+    ) {
+        this.teamBucketSizes = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
+        this.teamRefillRates = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
+    }
+
+    private parseTeamConfig(config: string): Map<number, number> {
+        const result = new Map<number, number>()
+        if (!config) {
+            return result
+        }
+        for (const entry of config.split(',')) {
+            const [teamId, value] = entry.split(':').map((s) => parseInt(s.trim(), 10))
+            if (!isNaN(teamId) && !isNaN(value)) {
+                result.set(teamId, value)
+            }
+        }
+        return result
+    }
 
     private rateLimitArgs(id: string, cost: number): [string, number, number, number, number, number] {
         const nowSeconds = Math.round(Date.now() / 1000)
+        const teamId = parseInt(id, 10)
 
         return [
             `${REDIS_KEY_TOKENS}/${id}`,
             nowSeconds,
             cost,
-            this.hub.LOGS_LIMITER_BUCKET_SIZE_KB,
-            this.hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
+            this.teamBucketSizes.get(teamId) ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB,
+            this.teamRefillRates.get(teamId) ?? this.hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
             this.hub.LOGS_LIMITER_TTL_SECONDS,
         ]
     }

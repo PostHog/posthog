@@ -244,6 +244,8 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_BUCKET_SIZE_KB: number
     LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: number
     LOGS_LIMITER_TTL_SECONDS: number
+    LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
+    LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
 /**
