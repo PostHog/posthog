@@ -18,28 +18,31 @@ class TestPropertyExtractionSQL:
     """Test SQL generation for extracting properties."""
 
     @pytest.mark.parametrize(
-        "property_name,property_type,expected_fragments",
+        "property_type,expected_fragments",
         [
-            ("custom_prop", "String", ["replaceRegexpAll(JSONExtractRaw(properties, 'custom_prop')"]),
-            ("revenue", "Numeric", ["toFloat64OrNull("]),
-            ("is_active", "Boolean", ["transform(toString(", "['true', 'false'], [1, 0], NULL)"]),
-            ("last_login", "DateTime", ["coalesce(", "parseDateTimeBestEffortOrNull("]),
+            # String type uses base extraction with nullIf handling (HogQL pattern)
+            ("String", ["replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(property_name)s)", "'null')"]),
+            ("Numeric", ["toFloat64OrNull("]),
+            ("Boolean", ["transform(toString(", "['true', 'false'], [1, 0], NULL)"]),
+            ("DateTime", ["coalesce(", "parseDateTimeBestEffortOrNull("]),
         ],
     )
     def test_property_extraction_sql_generation(
         self,
-        property_name,
         property_type,
         expected_fragments,
     ):
-        sql = _generate_property_extraction_sql(property_name, property_type)
+        """Test that SQL uses parameterized placeholder for property_name."""
+        sql = _generate_property_extraction_sql(property_type)
         for fragment in expected_fragments:
             assert fragment in sql, f"Expected '{fragment}' in SQL: {sql}"
+        # All types should use the parameterized placeholder
+        assert "%(property_name)s" in sql, f"Expected parameterized property_name in SQL: {sql}"
 
     def test_property_extraction_unsupported_type(self):
         """Test that unsupported property types raise error."""
         with pytest.raises(ValueError, match="Unsupported property type"):
-            _generate_property_extraction_sql("prop", "UnsupportedType")
+            _generate_property_extraction_sql("UnsupportedType")
 
 
 @pytest.mark.django_db(transaction=True)
@@ -48,7 +51,7 @@ class TestBackfillMaterializedColumn:
 
     @patch("posthog.temporal.backfill_materialized_property.activities.sync_execute")
     def test_backfill_executes_alter_table(self, mock_sync_execute, activity_environment):
-        """Test that backfill executes ALTER TABLE UPDATE."""
+        """Test that backfill executes ALTER TABLE UPDATE with parameterized property_name."""
         activity_environment.run(
             backfill_materialized_column,
             BackfillMaterializedColumnInputs(
@@ -62,13 +65,20 @@ class TestBackfillMaterializedColumn:
         # Verify sync_execute was called with ALTER TABLE UPDATE
         assert mock_sync_execute.called
         query = mock_sync_execute.call_args[0][0]
+        params = mock_sync_execute.call_args[0][1]
+
         assert "ALTER TABLE sharded_events" in query
         assert "UPDATE dmat_string_0" in query
         assert "WHERE team_id = %(team_id)s" in query
+        # Property name should be parameterized, not interpolated
+        assert "%(property_name)s" in query
+        assert "test_prop" not in query  # Should NOT be in SQL directly
+        assert params["property_name"] == "test_prop"
+        assert params["team_id"] == 123
 
     @patch("posthog.temporal.backfill_materialized_property.activities.sync_execute")
     def test_backfill_with_partition_id(self, mock_sync_execute, activity_environment):
-        """Test backfilling a specific partition."""
+        """Test backfilling a specific partition with parameterized partition_id."""
         activity_environment.run(
             backfill_materialized_column,
             BackfillMaterializedColumnInputs(
@@ -81,7 +91,12 @@ class TestBackfillMaterializedColumn:
         )
 
         query = mock_sync_execute.call_args[0][0]
-        assert "IN PARTITION '202401'" in query
+        params = mock_sync_execute.call_args[0][1]
+
+        # Partition ID should be parameterized
+        assert "IN PARTITION %(partition_id)s" in query
+        assert "'202401'" not in query  # Should NOT be in SQL directly
+        assert params["partition_id"] == "202401"
 
     @patch("posthog.temporal.backfill_materialized_property.activities.sync_execute")
     def test_backfill_without_partition_id(self, mock_sync_execute, activity_environment):
@@ -98,8 +113,11 @@ class TestBackfillMaterializedColumn:
         )
 
         query = mock_sync_execute.call_args[0][0]
+        params = mock_sync_execute.call_args[0][1]
+
         # Should NOT have partition clause
         assert "IN PARTITION" not in query
+        assert "partition_id" not in params
 
     @patch("posthog.temporal.backfill_materialized_property.activities.sync_execute")
     def test_backfill_clickhouse_error(self, mock_sync_execute, activity_environment):
@@ -116,6 +134,44 @@ class TestBackfillMaterializedColumn:
                     mat_column_name="dmat_string_0",
                 ),
             )
+
+    @pytest.mark.parametrize(
+        "property_name",
+        [
+            "test'prop",  # Single quote - would break unparameterized SQL
+            'test"prop',  # Double quote
+            "test\\prop",  # Backslash
+            "$feature/my-flag",  # Feature flag format with special chars
+            "prop'); DROP TABLE events; --",  # SQL injection attempt
+        ],
+    )
+    @patch("posthog.temporal.backfill_materialized_property.activities.sync_execute")
+    def test_backfill_special_characters_in_property_name_are_parameterized(
+        self, mock_sync_execute, activity_environment, property_name
+    ):
+        """Test that property names with special characters are safely parameterized.
+
+        This ensures SQL injection is not possible through property names.
+        The property name should NEVER appear directly in the SQL query - it must
+        only be passed through the params dict for safe escaping by ClickHouse.
+        """
+        activity_environment.run(
+            backfill_materialized_column,
+            BackfillMaterializedColumnInputs(
+                team_id=123,
+                property_name=property_name,
+                property_type="String",
+                mat_column_name="dmat_string_0",
+            ),
+        )
+
+        query = mock_sync_execute.call_args[0][0]
+        params = mock_sync_execute.call_args[0][1]
+
+        # Property name should NEVER be in the SQL string directly
+        assert property_name not in query, f"Property name '{property_name}' should not be in SQL: {query}"
+        # It should only be in the params dict
+        assert params["property_name"] == property_name
 
 
 @pytest.mark.django_db(transaction=True)
