@@ -27,7 +27,7 @@ type ModeValue = AgentMode | SpecialMode | null
 
 function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Element {
     return (
-        <div className="flex flex-col gap-1.5">
+        <div className="max-h-[calc(100vh - (var(--spacing) * 5))] overflow-y-auto show-scrollbar-on-hover flex flex-col gap-1.5">
             <div>{description}</div>
             {tools.length > 0 && (
                 <div>
@@ -76,7 +76,7 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
     )
 
     return (
-        <div className="flex flex-col gap-1.5">
+        <div className="max-h-[calc(100vh - (var(--spacing) * 5))] overflow-y-auto show-scrollbar-on-hover flex flex-col gap-1.5">
             <div>{description}</div>
             {defaultTools.length > 0 && (
                 <div>
