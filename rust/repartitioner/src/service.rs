@@ -446,10 +446,10 @@ mod tests {
             .set("group.id", "test_group")
             .set("auto.offset.reset", "earliest")
             .set("enable.auto.commit", "false")
-            .set("metadata.max.age.ms", "1000")
-            .set("session.timeout.ms", "3000")
+            .set("metadata.max.age.ms", "60000")
+            .set("session.timeout.ms", "30000")
             .set("heartbeat.interval.ms", "500")
-            .set("max.poll.interval.ms", "5000")
+            .set("max.poll.interval.ms", "30000")
             .create()
             .expect("Failed to create consumer");
 
