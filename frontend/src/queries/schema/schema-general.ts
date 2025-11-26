@@ -2902,6 +2902,7 @@ export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
     RATIO = 'ratio',
+    RETENTION = 'retention',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
@@ -2962,15 +2963,42 @@ export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
     metric.metric_type === ExperimentMetricType.RATIO
 
+export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.RETENTION
+    // Event that defines the start of the retention window
+    start_event: ExperimentMetricSource
+    // Event that defines the completion of the retention window
+    completion_event: ExperimentMetricSource
+
+    // Start of the retention window
+    retention_window_start: integer
+    // End of the retention window
+    retention_window_end: integer
+    retention_window_unit: FunnelConversionWindowTimeUnit
+
+    // How to handle the start of the retention window
+    start_handling: 'first_seen' | 'last_seen'
+}
+
+export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
+    metric.metric_type === ExperimentMetricType.RETENTION
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentRetentionMetricTypeProps = Omit<ExperimentRetentionMetric, keyof ExperimentMetricBaseProperties>
+
 export type ExperimentMetricTypeProps =
     | ExperimentMeanMetricTypeProps
     | ExperimentFunnelMetricTypeProps
     | ExperimentRatioMetricTypeProps
+    | ExperimentRetentionMetricTypeProps
 
-export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric
+export type ExperimentMetric =
+    | ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
@@ -4549,6 +4577,26 @@ export interface ProductsData {
     products: ProductItem[]
     games: ProductItem[]
     metadata: ProductItem[]
+}
+
+export enum UserProductListReason {
+    ONBOARDING = 'onboarding',
+    PRODUCT_INTENT = 'product_intent',
+    USED_BY_COLLEAGUES = 'used_by_colleagues',
+    USED_SIMILAR_PRODUCTS = 'used_similar_products',
+    USED_ON_SEPARATE_TEAM = 'used_on_separate_team',
+    NEW_PRODUCT = 'new_product',
+    SALES_LED = 'sales_led',
+}
+
+export interface UserProductListItem {
+    id: string
+    product_path: string
+    enabled: boolean
+    reason: UserProductListReason
+    reason_text: string | null
+    created_at: string
+    updated_at: string
 }
 
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity

@@ -22,8 +22,6 @@ export interface PersonUpdate {
     properties_to_unset: string[] // Property keys to unset
     original_is_identified: boolean
     original_created_at: DateTime
-    /** Internal flag to track which table this person exists in during cutover migration */
-    __useNewTable?: boolean
 }
 
 export interface PersonPropertyUpdate {
@@ -51,7 +49,6 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         properties_to_unset: [],
         original_is_identified: person.is_identified,
         original_created_at: person.created_at,
-        __useNewTable: person.__useNewTable,
     }
 }
 
@@ -80,6 +77,5 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         version: personUpdate.version,
         is_identified: personUpdate.is_identified,
         is_user_id: personUpdate.is_user_id,
-        __useNewTable: personUpdate.__useNewTable,
     }
 }
