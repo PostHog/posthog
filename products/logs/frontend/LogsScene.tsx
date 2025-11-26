@@ -79,7 +79,7 @@ export function LogsScene(): JSX.Element {
         timestampFormat === 'absolute'
             ? {
                   formatDate: 'YYYY-MM-DD',
-                  formatTime: 'HH:mm:ss',
+                  formatTime: 'HH:mm:ss.SSS',
               }
             : {}
 
@@ -247,7 +247,9 @@ function LogsTable({
                         key: 'timestamp',
                         dataIndex: 'timestamp',
                         width: 180,
-                        render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
+                        render: (_, { timestamp }) => (
+                            <TZLabel time={timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
+                        ),
                     },
                     {
                         title: 'Level',
