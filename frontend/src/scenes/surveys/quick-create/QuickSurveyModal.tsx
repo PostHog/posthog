@@ -1,18 +1,26 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
-import { LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SurveyQuestionType } from '~/types'
+
 import { EventSelector } from './components/EventSelector'
 import { FunnelSequence } from './components/FunnelSequence'
 import { URLInput } from './components/URLInput'
 import { VariantSelector } from './components/VariantSelector'
-import { QuickSurveyCreateMode, QuickSurveyFormLogicProps, quickSurveyFormLogic } from './quickSurveyFormLogic'
+import {
+    DEFAULT_RATING_LOWER_LABEL,
+    DEFAULT_RATING_UPPER_LABEL,
+    QuickSurveyCreateMode,
+    QuickSurveyFormLogicProps,
+    quickSurveyFormLogic,
+} from './quickSurveyFormLogic'
 import { QuickSurveyFormProps, QuickSurveyType } from './types'
 import { buildLogicProps } from './utils'
 
@@ -51,10 +59,41 @@ export function QuickSurveyForm({ context, onCancel }: QuickSurveyFormProps): JS
                         />
                     </div>
 
+                    {surveyForm.questionType === SurveyQuestionType.Rating && (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <LemonLabel className="mb-2">Low rating label</LemonLabel>
+                                <LemonInput
+                                    value={surveyForm.ratingLowerBound || ''}
+                                    onChange={(value) => setSurveyFormValue('ratingLowerBound', value)}
+                                    placeholder={DEFAULT_RATING_LOWER_LABEL}
+                                />
+                            </div>
+                            <div>
+                                <LemonLabel className="mb-2">High rating label</LemonLabel>
+                                <LemonInput
+                                    value={surveyForm.ratingUpperBound || ''}
+                                    onChange={(value) => setSurveyFormValue('ratingUpperBound', value)}
+                                    placeholder={DEFAULT_RATING_UPPER_LABEL}
+                                />
+                            </div>
+                        </div>
+                    )}
+
                     <BindLogic logic={quickSurveyFormLogic} props={logicProps}>
                         {context.type === QuickSurveyType.FEATURE_FLAG && (
                             <>
-                                <VariantSelector flag={context.flag} />
+                                <VariantSelector variants={context.flag.filters?.multivariate?.variants || []} />
+                                <EventSelector />
+                            </>
+                        )}
+
+                        {context.type === QuickSurveyType.EXPERIMENT && (
+                            <>
+                                <VariantSelector
+                                    variants={context.experiment.parameters?.feature_flag_variants || []}
+                                    defaultOptionText="All users exposed to this experiment"
+                                />
                                 <EventSelector />
                             </>
                         )}

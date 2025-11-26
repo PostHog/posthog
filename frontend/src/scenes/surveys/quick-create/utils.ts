@@ -1,8 +1,14 @@
+import { SurveyQuestionType } from 'posthog-js'
+
 import { EventsNode } from '~/queries/schema/schema-general'
 
 import { SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'
 import { toSurveyEvent } from '../utils/opportunityDetection'
-import { QuickSurveyFormLogicProps } from './quickSurveyFormLogic'
+import {
+    DEFAULT_RATING_LOWER_LABEL,
+    DEFAULT_RATING_UPPER_LABEL,
+    QuickSurveyFormLogicProps,
+} from './quickSurveyFormLogic'
 import { QuickSurveyContext, QuickSurveyType } from './types'
 
 export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFormLogicProps, 'onSuccess'> => {
@@ -48,5 +54,23 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                     },
                 },
             }
+        case QuickSurveyType.EXPERIMENT:
+            return {
+                key: `experiment-${context.experiment.id}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.EXPERIMENTS,
+                defaults: {
+                    name: `${context.experiment.name} - Quick feedback ${randomId}`,
+                    question: 'This update?',
+                    questionType: SurveyQuestionType.Rating,
+                    ratingLowerBound: DEFAULT_RATING_LOWER_LABEL,
+                    ratingUpperBound: DEFAULT_RATING_UPPER_LABEL,
+                    linkedFlagId: context.experiment.feature_flag?.id,
+                },
+            }
+        default: {
+            const _exhaustiveCheck: never = context
+            throw new Error(`Unhandled context type: ${(_exhaustiveCheck as QuickSurveyContext).type}`)
+        }
     }
 }
