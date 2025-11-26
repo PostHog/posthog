@@ -45,25 +45,29 @@ export function PlayerShareMenu(): JSX.Element {
         <LemonMenu
             items={[
                 {
+                    label: 'Open in new tab',
+                    icon: <IconExternal />,
+                    onClick: onOpenInNewTab,
+                    disabledReason: !sessionRecordingId ? 'Recording not loaded yet' : undefined,
+                    'data-attr': 'open-in-new-tab',
+                },
+                {
                     label: 'Share private link',
                     icon: <IconShield />,
                     onClick: () => onShare('private'),
+                    'data-attr': 'share-private-link',
                 },
                 {
                     label: 'Share public link',
                     icon: <IconGlobe />,
                     onClick: () => onShare('public'),
-                },
-                {
-                    label: 'Open in new tab',
-                    icon: <IconExternal />,
-                    onClick: onOpenInNewTab,
-                    disabledReason: !sessionRecordingId ? 'Recording not loaded yet' : undefined,
+                    'data-attr': 'share-public-link',
                 },
                 {
                     label: 'Share to Linear',
                     icon: <IconExternal />,
                     onClick: () => onShare('linear'),
+                    'data-attr': 'share-to-linear',
                 },
             ]}
             buttonSize="xsmall"
