@@ -71,6 +71,8 @@ import {
     TeamType,
 } from '~/types'
 
+import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
+
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
@@ -315,14 +317,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'variable key',
                         type: TaxonomicFilterGroupType.WorkflowVariables,
                         categoryLabel: () => 'Workflow variable',
-                        options: workflow
-                            ? workflow.variables.map((variable) => ({
-                                  name: variable.key,
-                                  value: variable.key,
-                              }))
-                            : [],
+                        render: HogFlowTaxonomicFilters,
                         getPopoverHeader: () => 'Workflow variable',
-                        componentProps: { metadataSource },
                     },
                     {
                         name: 'Actions',

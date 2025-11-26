@@ -34,6 +34,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.HogQLExpression,
+        TaxonomicFilterGroupType.WorkflowVariables,
     ]
     if (shouldShowInternalEvents) {
         propertyTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEventProperties)
