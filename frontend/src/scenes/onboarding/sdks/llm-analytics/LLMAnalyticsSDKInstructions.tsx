@@ -1,13 +1,71 @@
+import { AnthropicInstallation } from 'onboarding/anthropic'
+import { GoogleInstallation } from 'onboarding/google'
+import { LangChainInstallation } from 'onboarding/langchain'
+import { LiteLLMInstallation } from 'onboarding/litellm'
+import { OpenAIInstallation } from 'onboarding/openai'
+import { OpenRouterInstallation } from 'onboarding/openrouter'
+import { VercelAIInstallation } from 'onboarding/vercel-ai'
+
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { LLMAnthropicInstructions } from './anthropic'
-import { LLMGoogleInstructions } from './google'
-import { LLMLangChainInstructions } from './langchain'
-import { LLMLiteLLMInstructions } from './litellm'
+import { OnboardingContentWrapper } from './OnboardingContentWrapper'
 import { LLMManualCaptureInstructions } from './manual'
-import { LLMOpenAIInstructions } from './openai'
-import { LLMOpenRouterInstructions } from './openrouter'
-import { LLMVercelAIInstructions } from './vercel-ai'
+
+function LLMOpenAIInstructions(): JSX.Element {
+    return (
+        <OnboardingContentWrapper>
+            <OpenAIInstallation />
+        </OnboardingContentWrapper>
+    )
+}
+
+function LLMAnthropicInstructions(): JSX.Element {
+    return (
+        <OnboardingContentWrapper>
+            <AnthropicInstallation />
+        </OnboardingContentWrapper>
+    )
+}
+
+function LLMGoogleInstructions(): JSX.Element {
+    return (
+        <OnboardingContentWrapper>
+            <GoogleInstallation />
+        </OnboardingContentWrapper>
+    )
+}
+
+function LLMOpenRouterInstructions(): JSX.Element {
+    return (
+        <OnboardingContentWrapper>
+            <OpenRouterInstallation />
+        </OnboardingContentWrapper>
+    )
+}
+
+function LLMLangChainInstructions(): JSX.Element {
+    return (
+        <OnboardingContentWrapper>
+            <LangChainInstallation />
+        </OnboardingContentWrapper>
+    )
+}
+
+function LLMLiteLLMInstructions(): JSX.Element {
+    return (
+        <OnboardingContentWrapper>
+            <LiteLLMInstallation />
+        </OnboardingContentWrapper>
+    )
+}
+
+function LLMVercelAIInstructions(): JSX.Element {
+    return (
+        <OnboardingContentWrapper>
+            <VercelAIInstallation />
+        </OnboardingContentWrapper>
+    )
+}
 
 export const LLMAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENAI]: LLMOpenAIInstructions,

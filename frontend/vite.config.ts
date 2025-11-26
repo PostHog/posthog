@@ -1,4 +1,5 @@
 import react from '@vitejs/plugin-react'
+import { existsSync } from 'fs'
 import { URL, fileURLToPath } from 'node:url'
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
@@ -18,6 +19,49 @@ export default defineConfig(({ mode }) => {
             htmlGenerationPlugin(),
             // Copy public assets to src/assets for development
             publicAssetsPlugin(),
+            // Specifically for onboarding instructions to be shared with website repo
+            {
+                name: 'docs-components-alias',
+                resolveId(id, importer) {
+                    // Only handle imports from docs directory
+                    if (!importer || !importer.includes('/docs/onboarding/')) {
+                        return null
+                    }
+                    // Handle components/* imports
+                    if (id.startsWith('components/')) {
+                        const componentPath = id.replace('components/', '')
+                        // Map OnboardingContentWrapper to the actual location
+                        if (componentPath === 'Docs/OnboardingContentWrapper') {
+                            return resolve(
+                                __dirname,
+                                'src/scenes/onboarding/sdks/llm-analytics/OnboardingContentWrapper.tsx'
+                            )
+                        }
+                    }
+                    return null
+                },
+            },
+            {
+                name: 'onboarding-alias',
+                resolveId(id) {
+                    // Handle onboarding/* imports
+                    if (id.startsWith('onboarding/')) {
+                        const filePath = id.replace('onboarding/', '')
+                        const fullPath = resolve(__dirname, '../docs/onboarding', filePath)
+                        // Try with .tsx extension first
+                        const withExtension = `${fullPath}.tsx`
+                        if (existsSync(withExtension)) {
+                            return withExtension
+                        }
+                        // Try without extension
+                        if (existsSync(fullPath)) {
+                            return fullPath
+                        }
+                        return withExtension
+                    }
+                    return null
+                },
+            },
             {
                 name: 'startup-message',
                 configureServer(server) {
@@ -61,6 +105,8 @@ export default defineConfig(({ mode }) => {
                 // Just for Vite: we copy public assets to src/assets, we need to alias it to the correct path
                 public: resolve(__dirname, 'src/assets'),
                 products: resolve(__dirname, '../products'),
+                // Alias for docs/onboarding directory
+                onboarding: resolve(__dirname, '../docs/onboarding'),
                 // Node.js polyfills for browser compatibility
                 buffer: 'buffer',
             },

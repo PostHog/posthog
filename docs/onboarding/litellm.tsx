@@ -1,18 +1,16 @@
 import React from "react"
-import { dedent } from "~/utils"
 import { useMDXComponents } from "components/Docs/OnboardingContentWrapper"
 
-export const LiteLLMInstallation = () => {
+export const LiteLLMInstallation = (): JSX.Element => {
     const {
         Steps,
         Step,
-        MdxCodeBlock,
-        CalloutBox,
+        CodeBlock,
         ProductScreenshot,
         OSButton,
         Markdown,
         Blockquote,
-        createCodeBlock,
+        dedent,
         snippets,
     } = useMDXComponents()
     
@@ -28,26 +26,28 @@ export const LiteLLMInstallation = () => {
             <Step title="Install LiteLLM" badge="required">
                 <Markdown>Choose your installation method based on how you want to use LiteLLM:</Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            pip install litellm
-                        `,
-                        "SDK"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            # Install via pip
-                            pip install 'litellm[proxy]'
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'SDK',
+                            code: dedent`
+                                pip install litellm
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Proxy',
+                            code: dedent`
+                                # Install via pip
+                                pip install 'litellm[proxy]'
 
-                            # Or run via Docker
-                            docker run --rm -p 4000:4000 ghcr.io/berriai/litellm:latest
-                        `,
-                        "Proxy"
-                    )}
-                </MdxCodeBlock>
+                                # Or run via Docker
+                                docker run --rm -p 4000:4000 ghcr.io/berriai/litellm:latest
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Configure PostHog observability" badge="required">
@@ -55,43 +55,45 @@ export const LiteLLMInstallation = () => {
                     Configure PostHog by setting your project API key and host as well as adding `posthog` to your LiteLLM callback handlers. You can find your API key in [your project settings](https://app.posthog.com/settings/project).
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            import os
-                            import litellm
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'SDK',
+                            code: dedent`
+                                import os
+                                import litellm
 
-                            # Set environment variables
-                            os.environ["POSTHOG_API_KEY"] = "<ph_project_api_key>"
-                            os.environ["POSTHOG_API_URL"] = "<ph_client_api_host>"  # Optional, defaults to https://app.posthog.com
+                                # Set environment variables
+                                os.environ["POSTHOG_API_KEY"] = "<ph_project_api_key>"
+                                os.environ["POSTHOG_API_URL"] = "<ph_client_api_host>"  # Optional, defaults to https://app.posthog.com
 
-                            # Enable PostHog callbacks
-                            litellm.success_callback = ["posthog"]
-                            litellm.failure_callback = ["posthog"]  # Optional: also log failures
-                        `,
-                        "SDK"
-                    )}
-                    {createCodeBlock(
-                        "yaml",
-                        dedent`
-                            # config.yaml
-                            model_list:
-                            - model_name: gpt-4o-mini
-                              litellm_params:
-                                model: gpt-4o-mini
+                                # Enable PostHog callbacks
+                                litellm.success_callback = ["posthog"]
+                                litellm.failure_callback = ["posthog"]  # Optional: also log failures
+                            `,
+                        },
+                        {
+                            language: 'yaml',
+                            file: 'Proxy',
+                            code: dedent`
+                                # config.yaml
+                                model_list:
+                                - model_name: gpt-4o-mini
+                                  litellm_params:
+                                    model: gpt-4o-mini
 
-                            litellm_settings:
-                              success_callback: ["posthog"]
-                              failure_callback: ["posthog"]  # Optional: also log failures
+                                litellm_settings:
+                                  success_callback: ["posthog"]
+                                  failure_callback: ["posthog"]  # Optional: also log failures
 
-                            environment_variables:
-                              POSTHOG_API_KEY: "<ph_project_api_key>"
-                              POSTHOG_API_URL: "<ph_client_api_host>"  # Optional
-                        `,
-                        "Proxy"
-                    )}
-                </MdxCodeBlock>
+                                environment_variables:
+                                  POSTHOG_API_KEY: "<ph_project_api_key>"
+                                  POSTHOG_API_URL: "<ph_client_api_host>"  # Optional
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Call LLMs through LiteLLM" badge="required">
@@ -99,48 +101,50 @@ export const LiteLLMInstallation = () => {
                     Now, when you use LiteLLM to call various LLM providers, PostHog automatically captures an `$ai_generation` event.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            response = litellm.completion(
-                                model="gpt-4o-mini",
-                                messages=[
-                                    {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
-                                ],
-                                metadata={
-                                    "user_id": "user_123",  # Maps to PostHog distinct_id
-                                    "company": "company_id_in_your_db"  # Custom property
-                                }
-                            )
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'SDK',
+                            code: dedent`
+                                response = litellm.completion(
+                                    model="gpt-4o-mini",
+                                    messages=[
+                                        {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
+                                    ],
+                                    metadata={
+                                        "user_id": "user_123",  # Maps to PostHog distinct_id
+                                        "company": "company_id_in_your_db"  # Custom property
+                                    }
+                                )
 
-                            print(response.choices[0].message.content)
-                        `,
-                        "SDK"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            # Start the proxy (if not already running)
-                            litellm --config config.yaml
+                                print(response.choices[0].message.content)
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Proxy',
+                            code: dedent`
+                                # Start the proxy (if not already running)
+                                litellm --config config.yaml
 
-                            # Make a request to the proxy
-                            curl -X POST http://localhost:4000/chat/completions \
-                              -H "Content-Type: application/json" \
-                              -d '{
-                                "model": "gpt-4o-mini",
-                                "messages": [
-                                  {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
-                                ],
-                                "metadata": {
-                                  "user_id": "user_123",
-                                  "company": "company_id_in_your_db" # Custom property
-                                }
-                              }'
-                        `,
-                        "Proxy"
-                    )}
-                </MdxCodeBlock>
+                                # Make a request to the proxy
+                                curl -X POST http://localhost:4000/chat/completions \
+                                  -H "Content-Type: application/json" \
+                                  -d '{
+                                    "model": "gpt-4o-mini",
+                                    "messages": [
+                                      {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
+                                    ],
+                                    "metadata": {
+                                      "user_id": "user_123",
+                                      "company": "company_id_in_your_db" # Custom property
+                                    }
+                                  }'
+                            `,
+                        },
+                    ]}
+                />
 
                 <Blockquote>
                     <Markdown>
@@ -205,39 +209,41 @@ export const LiteLLMInstallation = () => {
                     PostHog can also capture embedding generations as `$ai_embedding` events through LiteLLM:
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            response = litellm.embedding(
-                                input="The quick brown fox",
-                                model="text-embedding-3-small",
-                                metadata={
-                                    "user_id": "user_123",  # Maps to PostHog distinct_id
-                                    "company": "company_id_in_your_db"  # Custom property
-                                }
-                            )
-                        `,
-                        "SDK"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            # Make an embeddings request to the proxy
-                            curl -X POST http://localhost:4000/embeddings \
-                              -H "Content-Type: application/json" \
-                              -d '{
-                                "input": "The quick brown fox",
-                                "model": "text-embedding-3-small",
-                                "metadata": {
-                                  "user_id": "user_123",
-                                  "company": "company_id_in_your_db" # Custom property
-                                }
-                              }'
-                        `,
-                        "Proxy"
-                    )}
-                </MdxCodeBlock>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'SDK',
+                            code: dedent`
+                                response = litellm.embedding(
+                                    input="The quick brown fox",
+                                    model="text-embedding-3-small",
+                                    metadata={
+                                        "user_id": "user_123",  # Maps to PostHog distinct_id
+                                        "company": "company_id_in_your_db"  # Custom property
+                                    }
+                                )
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Proxy',
+                            code: dedent`
+                                # Make an embeddings request to the proxy
+                                curl -X POST http://localhost:4000/embeddings \
+                                  -H "Content-Type: application/json" \
+                                  -d '{
+                                    "input": "The quick brown fox",
+                                    "model": "text-embedding-3-small",
+                                    "metadata": {
+                                      "user_id": "user_123",
+                                      "company": "company_id_in_your_db" # Custom property
+                                    }
+                                  }'
+                            `,
+                        },
+                    ]}
+                />
             </Step>
         </Steps>
     )

@@ -1,18 +1,17 @@
 import React from "react"
-import { dedent } from "~/utils"
 import { useMDXComponents } from "components/Docs/OnboardingContentWrapper"
 
-export const LangChainInstallation = () => {
+export const LangChainInstallation = (): JSX.Element => {
     const {
         Steps,
         Step,
-        MdxCodeBlock,
+        CodeBlock,
         CalloutBox,
         ProductScreenshot,
         OSButton,
         Markdown,
         Blockquote,
-        createCodeBlock,
+        dedent,
         snippets,
     } = useMDXComponents()
     
@@ -24,43 +23,47 @@ export const LangChainInstallation = () => {
                     Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works best with our Python and Node SDKs.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            pip install posthog
-                        `,
-                        "Python"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            npm install @posthog/ai posthog-node
-                        `,
-                        "Node"
-                    )}
-                </MdxCodeBlock>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'Python',
+                            code: dedent`
+                                pip install posthog
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Node',
+                            code: dedent`
+                                npm install @posthog/ai posthog-node
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Install LangChain and OpenAI SDKs" badge="required">
                 <Markdown>Install the LangChain and OpenAI Python SDKs:</Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            pip install langchain openai langchain-openai
-                        `,
-                        "Python"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            npm install langchain @langchain/core @posthog/ai
-                        `,
-                        "Node"
-                    )}
-                </MdxCodeBlock>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'Python',
+                            code: dedent`
+                                pip install langchain openai langchain-openai
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Node',
+                            code: dedent`
+                                npm install langchain @langchain/core @posthog/ai
+                            `,
+                        },
+                    ]}
+                />
 
                 <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                     <Markdown>
@@ -78,55 +81,59 @@ export const LangChainInstallation = () => {
                     Optionally, you can provide a user distinct ID, trace ID, PostHog properties, [groups](/docs/product-analytics/group-analytics), and privacy mode.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            from posthog.ai.langchain import CallbackHandler
-                            from langchain_openai import ChatOpenAI
-                            from langchain_core.prompts import ChatPromptTemplate
-                            from posthog import Posthog
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'Python',
+                            code: dedent`
+                                from posthog.ai.langchain import CallbackHandler
+                                from langchain_openai import ChatOpenAI
+                                from langchain_core.prompts import ChatPromptTemplate
+                                from posthog import Posthog
 
-                            posthog = Posthog(
-                                "<ph_project_api_key>",
-                                host="<ph_client_api_host>"
-                            )
+                                posthog = Posthog(
+                                    "<ph_project_api_key>",
+                                    host="<ph_client_api_host>"
+                                )
 
-                            callback_handler = CallbackHandler(
-                                client=posthog, # This is an optional parameter. If it is not provided, a default client will be used.
-                                distinct_id="user_123", # optional
-                                trace_id="trace_456", # optional
-                                properties={"conversation_id": "abc123"} # optional
-                                groups={"company": "company_id_in_your_db"} # optional
-                                privacy_mode=False # optional
-                            )
-                        `
-                    )}
-                    {createCodeBlock(
-                        "ts",
-                        dedent`
-                            import { PostHog } from 'posthog-node';
-                            import { LangChainCallbackHandler } from '@posthog/ai';
-                            import { ChatOpenAI } from '@langchain/openai';
-                            import { ChatPromptTemplate } from '@langchain/core/prompts';
+                                callback_handler = CallbackHandler(
+                                    client=posthog, # This is an optional parameter. If it is not provided, a default client will be used.
+                                    distinct_id="user_123", # optional
+                                    trace_id="trace_456", # optional
+                                    properties={"conversation_id": "abc123"} # optional
+                                    groups={"company": "company_id_in_your_db"} # optional
+                                    privacy_mode=False # optional
+                                )
+                            `,
+                        },
+                        {
+                            language: 'ts',
+                            file: 'Node',
+                            code: dedent`
+                                import { PostHog } from 'posthog-node';
+                                import { LangChainCallbackHandler } from '@posthog/ai';
+                                import { ChatOpenAI } from '@langchain/openai';
+                                import { ChatPromptTemplate } from '@langchain/core/prompts';
 
-                            const phClient = new PostHog(
-                              '<ph_project_api_key>',
-                              { host: '<ph_client_api_host>' }
-                            );
+                                const phClient = new PostHog(
+                                  '<ph_project_api_key>',
+                                  { host: '<ph_client_api_host>' }
+                                );
 
-                            const callbackHandler = new LangChainCallbackHandler({
-                              client: phClient,
-                              distinctId: 'user_123', // optional
-                              traceId: 'trace_456', // optional
-                              properties: { conversationId: 'abc123' }, // optional
-                              groups: { company: 'company_id_in_your_db' }, // optional
-                              privacyMode: false, // optional
-                              debug: false // optional - when true, logs all events to console
-                            });
-                        `
-                    )}
-                </MdxCodeBlock>
+                                const callbackHandler = new LangChainCallbackHandler({
+                                  client: phClient,
+                                  distinctId: 'user_123', // optional
+                                  traceId: 'trace_456', // optional
+                                  properties: { conversationId: 'abc123' }, // optional
+                                  groups: { company: 'company_id_in_your_db' }, // optional
+                                  privacyMode: false, // optional
+                                  debug: false // optional - when true, logs all events to console
+                                });
+                            `,
+                        },
+                    ]}
+                />
 
                 <Blockquote>
                     <Markdown>
@@ -140,52 +147,56 @@ export const LangChainInstallation = () => {
                     When you invoke your chain, pass the `callback_handler` in the `config` as part of your `callbacks`:
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            prompt = ChatPromptTemplate.from_messages([
-                                ("system", "You are a helpful assistant."),
-                                ("user", "{input}")
-                            ])
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'Python',
+                            code: dedent`
+                                prompt = ChatPromptTemplate.from_messages([
+                                    ("system", "You are a helpful assistant."),
+                                    ("user", "{input}")
+                                ])
 
-                            model = ChatOpenAI(openai_api_key="your_openai_api_key")
-                            chain = prompt | model
+                                model = ChatOpenAI(openai_api_key="your_openai_api_key")
+                                chain = prompt | model
 
-                            # Execute the chain with the callback handler
-                            response = chain.invoke(
-                                {"input": "Tell me a joke about programming"},
-                                config={"callbacks": [callback_handler]}
-                            )
+                                # Execute the chain with the callback handler
+                                response = chain.invoke(
+                                    {"input": "Tell me a joke about programming"},
+                                    config={"callbacks": [callback_handler]}
+                                )
 
-                            print(response.content)
-                        `
-                    )}
-                    {createCodeBlock(
-                        "ts",
-                        dedent`
-                            const prompt = ChatPromptTemplate.fromMessages([
-                              ["system", "You are a helpful assistant."],
-                              ["user", "{input}"]
-                            ]);
+                                print(response.content)
+                            `,
+                        },
+                        {
+                            language: 'ts',
+                            file: 'Node',
+                            code: dedent`
+                                const prompt = ChatPromptTemplate.fromMessages([
+                                  ["system", "You are a helpful assistant."],
+                                  ["user", "{input}"]
+                                ]);
 
-                            const model = new ChatOpenAI({
-                              apiKey: "your_openai_api_key"
-                            });
+                                const model = new ChatOpenAI({
+                                  apiKey: "your_openai_api_key"
+                                });
 
-                            const chain = prompt.pipe(model);
+                                const chain = prompt.pipe(model);
 
-                            // Execute the chain with the callback handler
-                            const response = await chain.invoke(
-                              { input: "Tell me a joke about programming" },
-                              { callbacks: [callbackHandler] }
-                            );
+                                // Execute the chain with the callback handler
+                                const response = await chain.invoke(
+                                  { input: "Tell me a joke about programming" },
+                                  { callbacks: [callbackHandler] }
+                                );
 
-                            console.log(response.content);
-                            phClient.shutdown();
-                        `
-                    )}
-                </MdxCodeBlock>
+                                console.log(response.content);
+                                phClient.shutdown();
+                            `,
+                        },
+                    ]}
+                />
 
                 <Markdown>
                     PostHog automatically captures an `$ai_generation` event along with these properties:

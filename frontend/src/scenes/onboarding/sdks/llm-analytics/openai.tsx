@@ -1,87 +1,256 @@
-import { useValues } from 'kea'
+import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
+import React from 'react'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { apiHostOrigin } from 'lib/utils/apiHost'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { DocumentationLink } from './DocumentationLink'
-import { LanguageSelector, useLanguageSelector } from './LanguageSelector'
-import { ManualCaptureNotice } from './ManualCaptureNotice'
-import { ProxyNote } from './ProxyNote'
-
-export function LLMOpenAIInstructions(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const [language, setLanguage] = useLanguageSelector('node')
-
+export const OpenAIInstallation = (): JSX.Element => {
+    const {
+        Steps,
+        Step,
+        CodeBlock,
+        CalloutBox,
+        ProductScreenshot,
+        OSButton,
+        Markdown,
+        Blockquote,
+        createCodeBlock,
+        dedent,
+    } = useMDXComponents()
     return (
-        <>
-            <LanguageSelector language={language} onChange={setLanguage} />
+        <Steps>
+            <Step title="Install the PostHog SDK" badge="required">
+                <Markdown>
+                    Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works
+                    best with our Python and Node SDKs.
+                </Markdown>
 
-            {language === 'node' && (
-                <>
-                    <h3>1. Install</h3>
-                    <CodeSnippet language={Language.Bash}>npm install @posthog/ai posthog-node openai</CodeSnippet>
+                <CodeBlock>
+                    {createCodeBlock(
+                        'bash',
+                        dedent`
+                            pip install posthog
+                        `,
+                        'Python'
+                    )}
+                    {createCodeBlock(
+                        'bash',
+                        dedent`
+                            npm install @posthog/ai posthog-node
+                        `,
+                        'Node'
+                    )}
+                </CodeBlock>
+            </Step>
 
-                    <h3>2. Initialize</h3>
-                    <CodeSnippet language={Language.JavaScript}>{`import { OpenAI } from '@posthog/ai'
-import { PostHog } from 'posthog-node'
+            <Step title="Install the OpenAI SDK" badge="required">
+                <Markdown>Install the OpenAI SDK:</Markdown>
 
-const phClient = new PostHog('${currentTeam?.api_token}', {
-    host: '${apiHostOrigin()}'
-})
+                <CodeBlock>
+                    {createCodeBlock(
+                        'bash',
+                        dedent`
+                            pip install openai
+                        `,
+                        'Python'
+                    )}
+                    {createCodeBlock(
+                        'bash',
+                        dedent`
+                            npm install openai
+                        `,
+                        'Node'
+                    )}
+                </CodeBlock>
+            </Step>
 
-const openai = new OpenAI({
-    apiKey: 'your_openai_api_key',
-    posthog: phClient
-})`}</CodeSnippet>
+            <Step title="Initialize PostHog and OpenAI client" badge="required">
+                <Markdown>
+                    Initialize PostHog with your project API key and host from [your project
+                    settings](https://app.posthog.com/settings/project), then pass it to our OpenAI wrapper.
+                </Markdown>
 
-                    <h3>3. Call OpenAI</h3>
-                    <CodeSnippet
-                        language={Language.JavaScript}
-                    >{`const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
-    posthogDistinctId: "user_123"
-})
+                <CodeBlock>
+                    {createCodeBlock(
+                        'python',
+                        dedent`
+                            from posthog.ai.openai import OpenAI
+                            from posthog import Posthog
 
-phClient.shutdown()`}</CodeSnippet>
+                            posthog = Posthog(
+                                "<ph_project_api_key>",
+                                host="<ph_client_api_host>"
+                            )
 
-                    <ProxyNote />
+                            client = OpenAI(
+                                api_key="your_openai_api_key",
+                                posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
+                            )
+                        `
+                    )}
+                    {createCodeBlock(
+                        'ts',
+                        dedent`
+                            import { OpenAI } from '@posthog/ai'
+                            import { PostHog } from 'posthog-node'
 
-                    <DocumentationLink provider="openai" />
-                </>
-            )}
+                            const phClient = new PostHog(
+                              '<ph_project_api_key>',
+                              { host: '<ph_client_api_host>' }
+                            );
 
-            {language === 'python' && (
-                <>
-                    <h3>1. Install</h3>
-                    <CodeSnippet language={Language.Bash}>pip install posthog openai</CodeSnippet>
+                            const openai = new OpenAI({
+                              apiKey: 'your_openai_api_key',
+                              posthog: phClient,
+                            });
 
-                    <h3>2. Initialize</h3>
-                    <CodeSnippet language={Language.Python}>{`from posthog.ai.openai import OpenAI
-from posthog import Posthog
+                            // ... your code here ...
 
-posthog = Posthog("${currentTeam?.api_token}", host="${apiHostOrigin()}")
+                            // IMPORTANT: Shutdown the client when you're done to ensure all events are sent
+                            phClient.shutdown()
+                        `
+                    )}
+                </CodeBlock>
 
-client = OpenAI(
-    api_key="your_openai_api_key",
-    posthog_client=posthog
-)`}</CodeSnippet>
+                <Blockquote>
+                    <Markdown>**Note:** This also works with the `AsyncOpenAI` client.</Markdown>
+                </Blockquote>
 
-                    <h3>3. Call OpenAI</h3>
-                    <CodeSnippet language={Language.Python}>{`response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
-    posthog_distinct_id="user_123"
-)`}</CodeSnippet>
+                <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
+                    <Markdown>
+                        These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
+                        background to send the data. You can also use LLM analytics with other SDKs or our API, but you
+                        will need to capture the data in the right format. See the schema in the [manual capture
+                        section](/docs/llm-analytics/installation/manual-capture) for more details.
+                    </Markdown>
+                </CalloutBox>
+            </Step>
 
-                    <ProxyNote />
+            <Step title="Call OpenAI LLMs" badge="required">
+                <Markdown>
+                    Now, when you use the OpenAI SDK to call LLMs, PostHog automatically captures an `$ai_generation`
+                    event. You can enrich the event with additional data such as the trace ID, distinct ID, custom
+                    properties, groups, and privacy mode options.
+                </Markdown>
 
-                    <DocumentationLink provider="openai" />
-                </>
-            )}
+                <CodeBlock>
+                    {createCodeBlock(
+                        'python',
+                        dedent`
+                            response = client.responses.create(
+                                model="gpt-4o-mini",
+                                input=[
+                                    {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
+                                ],
+                                posthog_distinct_id="user_123", # optional
+                                posthog_trace_id="trace_123", # optional
+                                posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
+                                posthog_groups={"company": "company_id_in_your_db"},  # optional 
+                                posthog_privacy_mode=False # optional
+                            )
 
-            <ManualCaptureNotice />
-        </>
+                            print(response.choices[0].message.content)
+                        `
+                    )}
+                    {createCodeBlock(
+                        'ts',
+                        dedent`
+                            const completion = await openai.responses.create({
+                                model: "gpt-4o-mini",
+                                input: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
+                                posthogDistinctId: "user_123", // optional
+                                posthogTraceId: "trace_123", // optional
+                                posthogProperties: { conversation_id: "abc123", paid: true }, // optional
+                                posthogGroups: { company: "company_id_in_your_db" }, // optional 
+                                posthogPrivacyMode: false // optional
+                            });
+
+                            console.log(completion.choices[0].message.content)
+                        `
+                    )}
+                </CodeBlock>
+
+                <Blockquote>
+                    <Markdown>
+                        **Notes:** - We also support the old `chat.completions` API. - This works with responses where
+                        `stream=True`. - If you want to capture LLM events anonymously, **don't** pass a distinct ID to
+                        the request. See our docs on [anonymous vs identified
+                        events](/docs/data/anonymous-vs-identified-events) to learn more.
+                    </Markdown>
+                </Blockquote>
+
+                <Markdown>
+                    {dedent`
+                        You can expect captured \`$ai_generation\` events to have the following properties:
+
+                        | Property | Description |
+                        |----------|-------------|
+                        | \`$ai_model\` | The specific model, like \`gpt-5-mini\` or \`claude-4-sonnet\` |
+                        | \`$ai_latency\` | The latency of the LLM call in seconds |
+                        | \`$ai_tools\` | Tools and functions available to the LLM |
+                        | \`$ai_input\` | List of messages sent to the LLM |
+                        | \`$ai_input_tokens\` | The number of tokens in the input (often found in response.usage) |
+                        | \`$ai_output_choices\` | List of response choices from the LLM |
+                        | \`$ai_output_tokens\` | The number of tokens in the output (often found in \`response.usage\`) |
+                        | \`$ai_total_cost_usd\` | The total cost in USD (input + output) |
+                        | [[...]](/docs/llm-analytics/generations#event-properties) | See [full list](/docs/llm-analytics/generations#event-properties) of properties |
+                    `}
+                </Markdown>
+            </Step>
+
+            <Step
+                checkpoint
+                title="Verify traces and generations"
+                subtitle="Confirm LLM events are being sent to PostHog"
+                docsOnly
+            >
+                <Markdown>
+                    Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you
+                    should see rows of data appear in the **Traces** and **Generations** tabs.
+                </Markdown>
+
+                <br />
+                <ProductScreenshot
+                    imageLight="https://res.cloudinary.com/dmukukwp6/image/upload/SCR_20250807_syne_ecd0801880.png"
+                    imageDark="https://res.cloudinary.com/dmukukwp6/image/upload/SCR_20250807_syjm_5baab36590.png"
+                    alt="LLM generations in PostHog"
+                    classes="rounded"
+                    className="mt-10"
+                    padding={false}
+                />
+
+                <OSButton
+                    variant="secondary"
+                    asLink
+                    className="my-2"
+                    size="sm"
+                    to="https://app.posthog.com/llm-analytics/generations"
+                    external
+                >
+                    Check for LLM events in PostHog
+                </OSButton>
+            </Step>
+
+            <Step title="Capture embeddings" badge="optional">
+                <Markdown>
+                    PostHog can also capture embedding generations as `$ai_embedding` events. Just make sure to use the
+                    same `posthog.ai.openai` client to do so:
+                </Markdown>
+
+                <CodeBlock>
+                    {createCodeBlock(
+                        'python',
+                        dedent`
+                            response = client.embeddings.create(
+                                input="The quick brown fox",
+                                model="text-embedding-3-small",
+                                posthog_distinct_id="user_123", # optional
+                                posthog_trace_id="trace_123",   # optional
+                                posthog_properties={"key": "value"} # optional
+                                posthog_groups={"company": "company_id_in_your_db"}  # optional 
+                                posthog_privacy_mode=False # optional
+                            )
+                        `
+                    )}
+                </CodeBlock>
+            </Step>
+        </Steps>
     )
 }

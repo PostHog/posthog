@@ -1,18 +1,17 @@
 import React from "react"
-import { dedent } from "~/utils"
 import { useMDXComponents } from "components/Docs/OnboardingContentWrapper"
 
-export const AnthropicInstallation = () => {
+export const AnthropicInstallation = (): JSX.Element => {
     const {
         Steps,
         Step,
-        MdxCodeBlock,
+        CodeBlock,
         CalloutBox,
         ProductScreenshot,
         OSButton,
         Markdown,
         Blockquote,
-        createCodeBlock,
+        dedent,
         snippets,
     } = useMDXComponents()
     
@@ -24,43 +23,47 @@ export const AnthropicInstallation = () => {
                     Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works best with our Python and Node SDKs.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            pip install posthog
-                        `,
-                        "Python"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            npm install @posthog/ai posthog-node
-                        `,
-                        "Node"
-                    )}
-                </MdxCodeBlock>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'Python',
+                            code: dedent`
+                                pip install posthog
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Node',
+                            code: dedent`
+                                npm install @posthog/ai posthog-node
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Install the Anthropic SDK" badge="required">
                 <Markdown>Install the Anthropic SDK:</Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            pip install anthropic
-                        `,
-                        "Python"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            npm install @anthropic-ai/sdk
-                        `,
-                        "Node"
-                    )}
-                </MdxCodeBlock>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'Python',
+                            code: dedent`
+                                pip install anthropic
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Node',
+                            code: dedent`
+                                npm install @anthropic-ai/sdk
+                            `,
+                        },
+                    ]}
+                />
 
                 <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                     <Markdown>
@@ -76,42 +79,46 @@ export const AnthropicInstallation = () => {
                     Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass it to our Anthropic wrapper.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            from posthog.ai.anthropic import Anthropic
-                            from posthog import Posthog
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'Python',
+                            code: dedent`
+                                from posthog.ai.anthropic import Anthropic
+                                from posthog import Posthog
 
-                            posthog = Posthog(
-                                "<ph_project_api_key>",
-                                host="<ph_client_api_host>"
-                            )
+                                posthog = Posthog(
+                                    "<ph_project_api_key>",
+                                    host="<ph_client_api_host>"
+                                )
 
-                            client = Anthropic(
-                                api_key="sk-ant-api...", # Replace with your Anthropic API key
-                                posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
-                            )
-                        `
-                    )}
-                    {createCodeBlock(
-                        "ts",
-                        dedent`
-                            import { Anthropic } from '@posthog/ai'
-                            import { PostHog } from 'posthog-node'
+                                client = Anthropic(
+                                    api_key="sk-ant-api...", # Replace with your Anthropic API key
+                                    posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
+                                )
+                            `,
+                        },
+                        {
+                            language: 'ts',
+                            file: 'Node',
+                            code: dedent`
+                                import { Anthropic } from '@posthog/ai'
+                                import { PostHog } from 'posthog-node'
 
-                            const phClient = new PostHog(
-                              '<ph_project_api_key>',
-                              { host: '<ph_client_api_host>' }
-                            )
+                                const phClient = new PostHog(
+                                  '<ph_project_api_key>',
+                                  { host: '<ph_client_api_host>' }
+                                )
 
-                            const client = new Anthropic({
-                              apiKey: 'sk-ant-api...', // Replace with your Anthropic API key
-                              posthog: phClient
-                            })
-                        `
-                    )}
-                </MdxCodeBlock>
+                                const client = new Anthropic({
+                                  apiKey: 'sk-ant-api...', // Replace with your Anthropic API key
+                                  posthog: phClient
+                                })
+                            `,
+                        },
+                    ]}
+                />
 
                 <Blockquote>
                     <Markdown>
@@ -127,51 +134,55 @@ export const AnthropicInstallation = () => {
                     You can enrich the event with additional data such as the trace ID, distinct ID, custom properties, groups, and privacy mode options.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            response = client.messages.create(
-                                model="claude-3-opus-20240229",
-                                messages=[
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'Python',
+                            code: dedent`
+                                response = client.messages.create(
+                                    model="claude-3-opus-20240229",
+                                    messages=[
+                                        {
+                                            "role": "user",
+                                            "content": "Tell me a fun fact about hedgehogs"
+                                        }
+                                    ],
+                                    posthog_distinct_id="user_123", # optional
+                                    posthog_trace_id="trace_123", # optional
+                                    posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
+                                    posthog_groups={"company": "company_id_in_your_db"},  # optional 
+                                    posthog_privacy_mode=False # optional
+                                )
+
+                                print(response.content[0].text)
+                            `,
+                        },
+                        {
+                            language: 'ts',
+                            file: 'Node',
+                            code: dedent`
+                                const response = await client.messages.create({
+                                  model: "claude-3-5-sonnet-latest",
+                                  messages: [
                                     {
-                                        "role": "user",
-                                        "content": "Tell me a fun fact about hedgehogs"
+                                      role: "user",
+                                      content: "Tell me a fun fact about hedgehogs"
                                     }
-                                ],
-                                posthog_distinct_id="user_123", # optional
-                                posthog_trace_id="trace_123", # optional
-                                posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
-                                posthog_groups={"company": "company_id_in_your_db"},  # optional 
-                                posthog_privacy_mode=False # optional
-                            )
+                                  ],
+                                  posthogDistinctId: "user_123", // optional
+                                  posthogTraceId: "trace_123", // optional
+                                  posthogProperties: { conversationId: "abc123", paid: true }, // optional
+                                  posthogGroups: { company: "company_id_in_your_db" }, // optional
+                                  posthogPrivacyMode: false // optional
+                                })
 
-                            print(response.content[0].text)
-                        `
-                    )}
-                    {createCodeBlock(
-                        "ts",
-                        dedent`
-                            const response = await client.messages.create({
-                              model: "claude-3-5-sonnet-latest",
-                              messages: [
-                                {
-                                  role: "user",
-                                  content: "Tell me a fun fact about hedgehogs"
-                                }
-                              ],
-                              posthogDistinctId: "user_123", // optional
-                              posthogTraceId: "trace_123", // optional
-                              posthogProperties: { conversationId: "abc123", paid: true }, // optional
-                              posthogGroups: { company: "company_id_in_your_db" }, // optional
-                              posthogPrivacyMode: false // optional
-                            })
-
-                            console.log(response.content[0].text)
-                            phClient.shutdown()
-                        `
-                    )}
-                </MdxCodeBlock>
+                                console.log(response.content[0].text)
+                                phClient.shutdown()
+                            `,
+                        },
+                    ]}
+                />
 
                 <Blockquote>
                     <Markdown>
@@ -208,7 +219,7 @@ export const AnthropicInstallation = () => {
                 )}
             </Step>
 
-            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog">
+            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog" docsOnly>
                 <Markdown>
                     Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you should see rows of data appear in the **Traces** and **Generations** tabs.
                 </Markdown>

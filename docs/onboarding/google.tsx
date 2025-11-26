@@ -1,18 +1,17 @@
 import React from "react"
-import { dedent } from "~/utils"
 import { useMDXComponents } from "components/Docs/OnboardingContentWrapper"
 
-export const GoogleInstallation = () => {
+export const GoogleInstallation = (): JSX.Element => {
     const {
         Steps,
         Step,
-        MdxCodeBlock,
+        CodeBlock,
         CalloutBox,
         ProductScreenshot,
         OSButton,
         Markdown,
         Blockquote,
-        createCodeBlock,
+        dedent,
         snippets,
     } = useMDXComponents()
     
@@ -24,43 +23,47 @@ export const GoogleInstallation = () => {
                     Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works best with our Python and Node SDKs.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            pip install posthog
-                        `,
-                        "Python"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            npm install @posthog/ai posthog-node
-                        `,
-                        "Node"
-                    )}
-                </MdxCodeBlock>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'Python',
+                            code: dedent`
+                                pip install posthog
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Node',
+                            code: dedent`
+                                npm install @posthog/ai posthog-node
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Install the Google Gen AI SDK" badge="required">
                 <Markdown>Install the Google Gen AI SDK:</Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            pip install google-genai
-                        `,
-                        "Python"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            npm install @google/genai
-                        `,
-                        "Node"
-                    )}
-                </MdxCodeBlock>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'Python',
+                            code: dedent`
+                                pip install google-genai
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Node',
+                            code: dedent`
+                                npm install @google/genai
+                            `,
+                        },
+                    ]}
+                />
 
                 <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                     <Markdown>
@@ -76,42 +79,46 @@ export const GoogleInstallation = () => {
                     Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass it to our Google Gen AI wrapper.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            from posthog.ai.gemini import Client
-                            from posthog import Posthog
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'Python',
+                            code: dedent`
+                                from posthog.ai.gemini import Client
+                                from posthog import Posthog
 
-                            posthog = Posthog(
-                                "<ph_project_api_key>",
-                                host="<ph_client_api_host>"
-                            )
+                                posthog = Posthog(
+                                    "<ph_project_api_key>",
+                                    host="<ph_client_api_host>"
+                                )
 
-                            client = Client(
-                                api_key="...", # Replace with your Gemini API key
-                                posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
-                            )
-                        `
-                    )}
-                    {createCodeBlock(
-                        "ts",
-                        dedent`
-                            import { GoogleGenAI } from '@posthog/ai'
-                            import { PostHog } from 'posthog-node'
+                                client = Client(
+                                    api_key="...", # Replace with your Gemini API key
+                                    posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
+                                )
+                            `,
+                        },
+                        {
+                            language: 'ts',
+                            file: 'Node',
+                            code: dedent`
+                                import { GoogleGenAI } from '@posthog/ai'
+                                import { PostHog } from 'posthog-node'
 
-                            const phClient = new PostHog(
-                                '<ph_project_api_key>',
-                                { host: '<ph_client_api_host>' }
-                            )
+                                const phClient = new PostHog(
+                                    '<ph_project_api_key>',
+                                    { host: '<ph_client_api_host>' }
+                                )
 
-                            const client = new GoogleGenAI({
-                                apiKey: '...', // Replace with your Gemini API key
-                                posthog: phClient
-                            })
-                        `
-                    )}
-                </MdxCodeBlock>
+                                const client = new GoogleGenAI({
+                                    apiKey: '...', // Replace with your Gemini API key
+                                    posthog: phClient
+                                })
+                            `,
+                        },
+                    ]}
+                />
 
                 <Blockquote>
                     <Markdown>
@@ -123,68 +130,72 @@ export const GoogleInstallation = () => {
                     **Vertex AI code example:**
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            from posthog import Posthog
-                            from posthog.ai.gemini import Client
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'Python',
+                            code: dedent`
+                                from posthog import Posthog
+                                from posthog.ai.gemini import Client
 
-                            # Initialize PostHog
-                            posthog = Posthog(
-                                project_api_key="<ph_project_api_key>",
-                                host="<ph_client_api_host>"
-                            )
+                                # Initialize PostHog
+                                posthog = Posthog(
+                                    project_api_key="<ph_project_api_key>",
+                                    host="<ph_client_api_host>"
+                                )
 
-                            # Initialize Gemini client with Vertex AI
-                            client = Client(
-                                vertexai=True,
-                                project="your-gcp-project-id",
-                                location="us-central1",
-                                posthog_client=posthog,
-                                posthog_distinct_id="user-123"
-                            )
+                                # Initialize Gemini client with Vertex AI
+                                client = Client(
+                                    vertexai=True,
+                                    project="your-gcp-project-id",
+                                    location="us-central1",
+                                    posthog_client=posthog,
+                                    posthog_distinct_id="user-123"
+                                )
 
-                            # Use it
-                            response = client.models.generate_content(
-                                model="gemini-2.0-flash",
-                                contents=["Hello, world!"]
-                            )
+                                # Use it
+                                response = client.models.generate_content(
+                                    model="gemini-2.0-flash",
+                                    contents=["Hello, world!"]
+                                )
 
-                            print(response.text)
-                        `
-                    )}
-                    {createCodeBlock(
-                        "ts",
-                        dedent`
-                            import { PostHog } from 'posthog-node'
-                            import { PostHogGoogleGenAI } from '@posthog/ai'
+                                print(response.text)
+                            `,
+                        },
+                        {
+                            language: 'ts',
+                            file: 'Node',
+                            code: dedent`
+                                import { PostHog } from 'posthog-node'
+                                import { PostHogGoogleGenAI } from '@posthog/ai'
 
-                            // Initialize PostHog
-                            const posthog = new PostHog(
-                              '<ph_project_api_key>',
-                              { host: '<ph_client_api_host>' }
-                            )
+                                // Initialize PostHog
+                                const posthog = new PostHog(
+                                  '<ph_project_api_key>',
+                                  { host: '<ph_client_api_host>' }
+                                )
 
-                            // Initialize Gemini client with Vertex AI
-                            const client = new PostHogGoogleGenAI({
-                              vertexai: true,
-                              project: 'your-gcp-project-id',
-                              location: 'us-central1',
-                              posthog: posthog
-                            })
+                                // Initialize Gemini client with Vertex AI
+                                const client = new PostHogGoogleGenAI({
+                                  vertexai: true,
+                                  project: 'your-gcp-project-id',
+                                  location: 'us-central1',
+                                  posthog: posthog
+                                })
 
-                            // Use it
-                            const response = await client.models.generateContent({
-                              model: 'gemini-2.0-flash',
-                              contents: 'Hello, world!',
-                              posthogDistinctId: 'user-123'
-                            })
+                                // Use it
+                                const response = await client.models.generateContent({
+                                  model: 'gemini-2.0-flash',
+                                  contents: 'Hello, world!',
+                                  posthogDistinctId: 'user-123'
+                                })
 
-                            console.log(response.text)
-                        `
-                    )}
-                </MdxCodeBlock>
+                                console.log(response.text)
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Call Google Gen AI LLMs" badge="required">
@@ -194,41 +205,45 @@ export const GoogleInstallation = () => {
                     You can enrich the event with additional data such as the trace ID, distinct ID, custom properties, groups, and privacy mode options.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            response = client.models.generate_content(
-                                model="gemini-2.5-flash",
-                                contents=["Tell me a fun fact about hedgehogs"],
-                                posthog_distinct_id="user_123", # optional
-                                posthog_trace_id="trace_123", # optional
-                                posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
-                                posthog_groups={"company": "company_id_in_your_db"},  # optional 
-                                posthog_privacy_mode=False # optional
-                            )
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'Python',
+                            code: dedent`
+                                response = client.models.generate_content(
+                                    model="gemini-2.5-flash",
+                                    contents=["Tell me a fun fact about hedgehogs"],
+                                    posthog_distinct_id="user_123", # optional
+                                    posthog_trace_id="trace_123", # optional
+                                    posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
+                                    posthog_groups={"company": "company_id_in_your_db"},  # optional 
+                                    posthog_privacy_mode=False # optional
+                                )
 
-                            print(response.text)
-                        `
-                    )}
-                    {createCodeBlock(
-                        "ts",
-                        dedent`
-                            const response = await client.models.generateContent({
-                              model: "gemini-2.5-flash",
-                              contents: ["Tell me a fun fact about hedgehogs"],
-                              posthogDistinctId: "user_123", // optional
-                              posthogTraceId: "trace_123", // optional
-                              posthogProperties: { conversationId: "abc123", paid: true }, // optional
-                              posthogGroups: { company: "company_id_in_your_db" }, // optional
-                              posthogPrivacyMode: false // optional
-                            })
+                                print(response.text)
+                            `,
+                        },
+                        {
+                            language: 'ts',
+                            file: 'Node',
+                            code: dedent`
+                                const response = await client.models.generateContent({
+                                  model: "gemini-2.5-flash",
+                                  contents: ["Tell me a fun fact about hedgehogs"],
+                                  posthogDistinctId: "user_123", // optional
+                                  posthogTraceId: "trace_123", // optional
+                                  posthogProperties: { conversationId: "abc123", paid: true }, // optional
+                                  posthogGroups: { company: "company_id_in_your_db" }, // optional
+                                  posthogPrivacyMode: false // optional
+                                })
 
-                            console.log(response.text)
-                            phClient.shutdown()
-                        `
-                    )}
-                </MdxCodeBlock>
+                                console.log(response.text)
+                                phClient.shutdown()
+                            `,
+                        },
+                    ]}
+                />
 
                 <Blockquote>
                     <Markdown>

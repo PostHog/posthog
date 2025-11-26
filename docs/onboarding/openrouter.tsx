@@ -1,18 +1,17 @@
 import React from "react"
-import { dedent } from "~/utils"
 import { useMDXComponents } from "components/Docs/OnboardingContentWrapper"
 
-export const OpenRouterInstallation = () => {
+export const OpenRouterInstallation = (): JSX.Element => {
     const {
         Steps,
         Step,
-        MdxCodeBlock,
+        CodeBlock,
         CalloutBox,
         ProductScreenshot,
         OSButton,
         Markdown,
         Blockquote,
-        createCodeBlock,
+        dedent,
         snippets,
     } = useMDXComponents()
     
@@ -24,43 +23,47 @@ export const OpenRouterInstallation = () => {
                     Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works best with our Python and Node SDKs.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            pip install posthog
-                        `,
-                        "Python"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            npm install @posthog/ai posthog-node
-                        `,
-                        "Node"
-                    )}
-                </MdxCodeBlock>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'Python',
+                            code: dedent`
+                                pip install posthog
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Node',
+                            code: dedent`
+                                npm install @posthog/ai posthog-node
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Install the OpenAI SDK" badge="required">
                 <Markdown>Install the OpenAI SDK:</Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            pip install openai
-                        `,
-                        "Python"
-                    )}
-                    {createCodeBlock(
-                        "bash",
-                        dedent`
-                            npm install openai
-                        `,
-                        "Node"
-                    )}
-                </MdxCodeBlock>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'bash',
+                            file: 'Python',
+                            code: dedent`
+                                pip install openai
+                            `,
+                        },
+                        {
+                            language: 'bash',
+                            file: 'Node',
+                            code: dedent`
+                                npm install openai
+                            `,
+                        },
+                    ]}
+                />
             </Step>
 
             <Step title="Initialize PostHog and OpenAI client" badge="required">
@@ -70,49 +73,53 @@ export const OpenRouterInstallation = () => {
                     Initialize PostHog with your PostHog project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass the PostHog client along with the OpenRouter config (the base URL and API key) to our OpenAI wrapper.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            from posthog.ai.openai import OpenAI
-                            from posthog import Posthog
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'Python',
+                            code: dedent`
+                                from posthog.ai.openai import OpenAI
+                                from posthog import Posthog
 
-                            posthog = Posthog(
-                                "<ph_project_api_key>",
-                                host="<ph_client_api_host>"
-                            )
+                                posthog = Posthog(
+                                    "<ph_project_api_key>",
+                                    host="<ph_client_api_host>"
+                                )
 
-                            client = OpenAI(
-                                baseURL="https://openrouter.ai/api/v1",
-                                api_key="<openrouter_api_key>",
-                                posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
-                            )
-                        `
-                    )}
-                    {createCodeBlock(
-                        "ts",
-                        dedent`
-                            import { OpenAI } from '@posthog/ai'
-                            import { PostHog } from 'posthog-node'
+                                client = OpenAI(
+                                    baseURL="https://openrouter.ai/api/v1",
+                                    api_key="<openrouter_api_key>",
+                                    posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
+                                )
+                            `,
+                        },
+                        {
+                            language: 'ts',
+                            file: 'Node',
+                            code: dedent`
+                                import { OpenAI } from '@posthog/ai'
+                                import { PostHog } from 'posthog-node'
 
-                            const phClient = new PostHog(
-                              '<ph_project_api_key>',
-                              { host: '<ph_client_api_host>' }
-                            );
+                                const phClient = new PostHog(
+                                  '<ph_project_api_key>',
+                                  { host: '<ph_client_api_host>' }
+                                );
 
-                            const openai = new OpenAI({
-                              baseURL: 'https://openrouter.ai/api/v1',
-                              apiKey: '<openrouter_api_key>',
-                              posthog: phClient,
-                            });
+                                const openai = new OpenAI({
+                                  baseURL: 'https://openrouter.ai/api/v1',
+                                  apiKey: '<openrouter_api_key>',
+                                  posthog: phClient,
+                                });
 
-                            // ... your code here ...
+                                // ... your code here ...
 
-                            // IMPORTANT: Shutdown the client when you're done to ensure all events are sent
-                            phClient.shutdown()
-                        `
-                    )}
-                </MdxCodeBlock>
+                                // IMPORTANT: Shutdown the client when you're done to ensure all events are sent
+                                phClient.shutdown()
+                            `,
+                        },
+                    ]}
+                />
 
                 <Blockquote>
                     <Markdown>
@@ -136,42 +143,46 @@ export const OpenRouterInstallation = () => {
                     You can also capture or modify additional properties with the distinct ID, trace ID, properties, groups, and privacy mode parameters.
                 </Markdown>
 
-                <MdxCodeBlock>
-                    {createCodeBlock(
-                        "python",
-                        dedent`
-                            response = client.responses.create(
-                                model="gpt-5-mini",
-                                input=[
-                                    {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
-                                ],
-                                posthog_distinct_id="user_123", # optional
-                                posthog_trace_id="trace_123", # optional
-                                posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
-                                posthog_groups={"company": "company_id_in_your_db"},  # optional 
-                                posthog_privacy_mode=False # optional
-                            )
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'python',
+                            file: 'Python',
+                            code: dedent`
+                                response = client.responses.create(
+                                    model="gpt-5-mini",
+                                    input=[
+                                        {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
+                                    ],
+                                    posthog_distinct_id="user_123", # optional
+                                    posthog_trace_id="trace_123", # optional
+                                    posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
+                                    posthog_groups={"company": "company_id_in_your_db"},  # optional 
+                                    posthog_privacy_mode=False # optional
+                                )
 
-                            print(response.choices[0].message.content)
-                        `
-                    )}
-                    {createCodeBlock(
-                        "ts",
-                        dedent`
-                            const completion = await openai.responses.create({
-                                model: "gpt-5-mini",
-                                input: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
-                                posthogDistinctId: "user_123", // optional
-                                posthogTraceId: "trace_123", // optional
-                                posthogProperties: { conversation_id: "abc123", paid: true }, // optional
-                                posthogGroups: { company: "company_id_in_your_db" }, // optional 
-                                posthogPrivacyMode: false // optional
-                            });
+                                print(response.choices[0].message.content)
+                            `,
+                        },
+                        {
+                            language: 'ts',
+                            file: 'Node',
+                            code: dedent`
+                                const completion = await openai.responses.create({
+                                    model: "gpt-5-mini",
+                                    input: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
+                                    posthogDistinctId: "user_123", // optional
+                                    posthogTraceId: "trace_123", // optional
+                                    posthogProperties: { conversation_id: "abc123", paid: true }, // optional
+                                    posthogGroups: { company: "company_id_in_your_db" }, // optional 
+                                    posthogPrivacyMode: false // optional
+                                });
 
-                            console.log(completion.choices[0].message.content)
-                        `
-                    )}
-                </MdxCodeBlock>
+                                console.log(completion.choices[0].message.content)
+                            `,
+                        },
+                    ]}
+                />
 
                 <Blockquote>
                     <Markdown>
