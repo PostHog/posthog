@@ -365,12 +365,12 @@ where
                             }
                         }
                         Some(Err(e)) => {
+                            kafka_error_count += 1;
                             if let Some(ke) = Self::handle_kafka_error(e, kafka_error_count).await {
                                 if ke == KafkaError::Canceled {
                                     break;
                                 }
                             }
-                            kafka_error_count += 1;
                         }
                         None => {
                             // Stream ended - return what we have
