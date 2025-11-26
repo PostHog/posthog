@@ -9,7 +9,7 @@ from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
+from ee.hogai.chat_agent.insights.nodes import InsightSearchNode, NoInsightsException
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind

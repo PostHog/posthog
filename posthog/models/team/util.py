@@ -19,6 +19,8 @@ def delete_bulky_postgres_data(team_ids: list[int]):
 
     from posthog.models.cohort import Cohort, CohortPeople
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+    from posthog.models.group.group import Group
+    from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import Person, PersonDistinctId
 
@@ -35,6 +37,8 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(CohortPeople.objects.filter(cohort_id__in=cohort_ids))
 
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
+    _raw_delete(Group.objects.filter(team_id__in=team_ids))
+    _raw_delete(GroupTypeMapping.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
 

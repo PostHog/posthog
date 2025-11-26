@@ -8,6 +8,8 @@ Endpoint:
 - POST /api/projects/:id/llm_analytics/summarize/ - Summarize trace or event
 """
 
+from typing import cast
+
 from django.conf import settings
 from django.core.cache import cache
 
@@ -22,6 +24,8 @@ from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.llm_analytics.backend.summarization.constants import SUMMARIZATION_FEATURE_FLAG
@@ -352,6 +356,20 @@ The response includes the summary text and optional metadata.
                 mode=mode,
                 team_id=self.team_id,
                 force_refresh=force_refresh,
+            )
+
+            # Track user action
+            report_user_action(
+                cast(User, self.request.user),
+                "llma summarization generated",
+                {
+                    "summarize_type": summarize_type,
+                    "entity_id": entity_id,
+                    "mode": mode,
+                    "text_repr_length": len(text_repr),
+                    "force_refresh": force_refresh,
+                },
+                self.team,
             )
 
             return Response(result, status=status.HTTP_200_OK)

@@ -6,7 +6,7 @@ from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 

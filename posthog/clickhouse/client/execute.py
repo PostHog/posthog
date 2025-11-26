@@ -164,6 +164,9 @@ def sync_execute(
     ):
         workload = Workload.ONLINE
 
+    if tags.workload == Workload.ENDPOINTS:
+        workload = Workload.ENDPOINTS
+
     if workload == Workload.DEFAULT:
         workload = get_default_clickhouse_workload_type()
 

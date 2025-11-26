@@ -9,6 +9,7 @@ def register_all_admin():
         AsyncDeletionAdmin,
         BatchImportAdmin,
         CohortAdmin,
+        ColumnConfigurationAdmin,
         DashboardAdmin,
         DashboardTemplateAdmin,
         DataColorThemeAdmin,
@@ -39,6 +40,7 @@ def register_all_admin():
         AsyncDeletion,
         BatchImport,
         Cohort,
+        ColumnConfiguration,
         Dashboard,
         DashboardTemplate,
         DataColorTheme,
@@ -94,6 +96,7 @@ def register_all_admin():
     admin.site.register(Text, TextAdmin)
 
     admin.site.register(Cohort, CohortAdmin)
+    admin.site.register(ColumnConfiguration, ColumnConfigurationAdmin)
     admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 
     admin.site.register(Survey, SurveyAdmin)

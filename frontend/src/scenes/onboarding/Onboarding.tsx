@@ -26,6 +26,7 @@ import {
     TeamType,
 } from '~/types'
 
+import { OnboardingAIConsent } from './OnboardingAIConsent'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
@@ -80,6 +81,7 @@ const OnboardingWrapper = ({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+    const showAIConsentStep = useFeatureFlag('ONBOARDING_AI_CONSENT_STEP', 'test')
 
     useEffect(() => {
         let steps = []
@@ -112,10 +114,15 @@ const OnboardingWrapper = ({
             steps = [...steps, inviteTeammatesStep]
         }
 
+        if (showAIConsentStep) {
+            const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
+            steps = [...steps, aiConsentStep]
+        }
+
         steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization, showAIConsentStep]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {

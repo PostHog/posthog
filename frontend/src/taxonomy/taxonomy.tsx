@@ -177,16 +177,6 @@ export function isPostHogProperty(propertyKey: string, isCloudOrDev: boolean | u
 
 export const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
     {
-        key: UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
-        label: 'UTM Campaign Name',
-        type: 'string',
-    },
-    {
-        key: UTM_SOURCE_NAME_SCHEMA_FIELD,
-        label: 'UTM Source Name',
-        type: 'string',
-    },
-    {
         key: 'timestamp_field',
         label: 'Timestamp Field',
         allowHogQL: true,
@@ -195,5 +185,17 @@ export const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
         key: 'distinct_id_field',
         label: 'Distinct ID Field',
         allowHogQL: true,
+    },
+    {
+        key: UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
+        label: 'UTM Campaign Name',
+        type: 'string',
+        optional: true,
+    },
+    {
+        key: UTM_SOURCE_NAME_SCHEMA_FIELD,
+        label: 'UTM Source Name',
+        type: 'string',
+        optional: true,
     },
 ]

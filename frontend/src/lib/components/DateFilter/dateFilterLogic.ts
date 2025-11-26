@@ -87,10 +87,11 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             },
         ],
         explicitDate: [
-            !!(
-                props.dateFrom &&
-                (dayjs.isDayjs(props.dateFrom) || dayjs(props.dateFrom).format('HH:mm:ss') !== '00:00:00')
-            ),
+            props.explicitDate ??
+                !!(
+                    props.dateFrom &&
+                    (dayjs.isDayjs(props.dateFrom) || dayjs(props.dateFrom).format('HH:mm:ss') !== '00:00:00')
+                ),
             {
                 setExplicitDate: (_, { explicitDate }) => explicitDate,
                 setDate: (_, { explicitDate }) => explicitDate,
@@ -207,6 +208,9 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         },
         setDate: ({ dateFrom, dateTo, explicitDate }) => {
             props.onChange?.(dateFrom, dateTo, explicitDate)
+        },
+        setExplicitDate: ({ explicitDate }) => {
+            props.onChange?.(values.dateFrom, values.dateTo, explicitDate)
         },
     })),
 ])

@@ -51,8 +51,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
-    ErrorTrackingIssueV2: () =>
-        import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueV2Scene/ErrorTrackingIssueV2Scene'),
     ErrorTrackingIssueFingerprints: () =>
         import(
             '../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'
@@ -62,6 +60,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
             '../../products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'
         ),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
+    FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     Links: () => import('../../products/links/frontend/LinksScene'),
     Link: () => import('../../products/links/frontend/LinkScene'),
     LiveDebugger: () => import('../../products/live_debugger/frontend/LiveDebugger'),
@@ -107,12 +106,12 @@ export const productRoutes: Record<string, [string, string]> = {
     '/endpoints/new': ['EndpointNew', 'endpointNew'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
-    '/error_tracking_issue_v2/:id': ['ErrorTrackingIssueV2', 'errorTrackingIssueV2'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
+    '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/links': ['Links', 'links'],
     '/link/:id': ['Link', 'link'],
     '/live-debugger': ['LiveDebugger', 'liveDebugger'],
@@ -201,7 +200,7 @@ export const productConfiguration: Record<string, any> = {
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
-        description: 'Analyze your customers',
+        description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
     },
     DataWarehouse: {
@@ -209,9 +208,18 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         defaultDocsPath: '/docs/data-warehouse',
         activityScope: 'DataWarehouse',
+        layout: 'app-raw-no-header',
         description:
             'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
         iconType: 'data_warehouse',
+    },
+    SQLEditor: {
+        projectBased: true,
+        name: 'SQL editor',
+        defaultDocsPath: '/docs/cdp/sources',
+        layout: 'app-raw-no-header',
+        hideProjectNotice: true,
+        description: 'Write and execute SQL queries against your data warehouse',
     },
     EarlyAccessFeatures: {
         name: 'Early access features',
@@ -250,11 +258,11 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'error_tracking',
         description: 'Track and analyze your error tracking data to understand and fix issues.',
     },
-    ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue' },
-    ErrorTrackingIssueV2: { projectBased: true, name: 'Error tracking issue V2', layout: 'app-full-scene-height' },
+    ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingConfiguration: { projectBased: true, name: 'Error tracking configuration' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
+    FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     Links: {
         name: 'Links',
         projectBased: true,
@@ -428,13 +436,6 @@ export const productUrls = {
     },
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
-    errorTrackingIssueV2: (
-        id: string,
-        params: {
-            timestamp?: string
-            fingerprint?: string
-        } = {}
-    ): string => combineUrl(`/error_tracking_issue_v2/${id}`, params).url,
     errorTrackingIssue: (
         id: string,
         params: {
@@ -464,6 +465,7 @@ export const productUrls = {
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
     game368hedgehogs: (): string => `/games/368hedgehogs`,
+    flappyHog: (): string => `/games/flappyhog`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     groupsNew: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}/new`,
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -941,7 +943,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         sceneKey: 'DataWarehouse',
-        sceneKeys: ['DataWarehouse'],
+        sceneKeys: ['DataWarehouse', 'SQLEditor'],
     },
     {
         path: 'Early access features',
@@ -985,7 +987,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: [
             'ErrorTracking',
             'ErrorTrackingIssue',
-            'ErrorTrackingIssueV2',
             'ErrorTrackingIssueFingerprints',
             'ErrorTrackingConfiguration',
         ],
@@ -1191,7 +1192,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
 ]
 
 /** This const is auto-generated, as is the whole file */
-export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
+export const getTreeItemsGames = (): FileSystemImport[] => [
+    { path: '368 Hedgehogs', href: urls.game368hedgehogs() },
+    { path: 'Flappy Hog', href: '/games/flappyhog' },
+]
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsMetadata = (): FileSystemImport[] => [
@@ -1272,7 +1276,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataWarehouse'],
+        sceneKeys: ['DataWarehouse', 'SQLEditor'],
     },
     {
         path: 'Marketing settings',

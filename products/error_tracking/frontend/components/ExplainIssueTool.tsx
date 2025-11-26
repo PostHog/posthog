@@ -2,10 +2,10 @@ import { useValues } from 'kea'
 
 import { IconList } from '@posthog/icons'
 
-import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
-import { ErrorTrackingExplainIssueToolContext, ProductKey } from '~/queries/schema/schema-general'
+import { ErrorTrackingExplainIssueToolContext, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { useStacktraceDisplay } from '../hooks/use-stacktrace-display'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'

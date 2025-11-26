@@ -178,10 +178,12 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     filters,
     setFilters,
     totalFiltersCount,
+    currentSessionRecordingId,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     totalFiltersCount?: number
+    currentSessionRecordingId?: string
 }): JSX.Element => {
     const { isFiltersExpanded } = useValues(playlistLogic)
     const { setIsFiltersExpanded } = useActions(playlistLogic)
@@ -194,10 +196,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                 identifier="search_session_recordings"
                 context={{
                     current_filters: filters,
-                }}
-                contextDescription={{
-                    text: 'Current filters',
-                    icon: <IconFilter />,
+                    current_session_id: currentSessionRecordingId,
                 }}
                 callback={(toolOutput: Record<string, any>) => {
                     // Improve type

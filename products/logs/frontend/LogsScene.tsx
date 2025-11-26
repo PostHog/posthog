@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import {
     IconClock,
@@ -49,6 +49,8 @@ import { ParsedLogMessage } from './types'
 
 export const scene: SceneExport = {
     component: LogsScene,
+    logic: logsLogic,
+    settingSectionId: 'product-logs',
 }
 
 export function LogsScene(): JSX.Element {
@@ -185,81 +187,98 @@ function LogsTable({
     showHeader = true,
 }: LogsTableProps): JSX.Element {
     const { togglePinLog } = useActions(logsLogic)
+    const { highlightedLogId } = useValues(logsLogic)
+    const tableRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (!loading && highlightedLogId && tableRef.current) {
+            requestAnimationFrame(() => {
+                const highlightedRow = tableRef.current?.querySelector(`[data-row-key="${highlightedLogId}"]`)
+                if (highlightedRow) {
+                    highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }
+            })
+        }
+    }, [loading, highlightedLogId])
 
     return (
-        <LemonTable
-            hideScrollbar
-            showHeader={showHeader}
-            dataSource={dataSource}
-            loading={loading}
-            size="small"
-            embedded
-            rowClassName={(record) =>
-                isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
-            }
-            columns={[
-                {
-                    title: '',
-                    key: 'actions',
-                    width: 0,
-                    render: (_, record) => {
-                        const pinned = isPinned(record.uuid)
-                        return (
-                            <div className="flex items-center gap-1">
-                                <LemonButton
-                                    size="xsmall"
-                                    noPadding
-                                    icon={pinned ? <IconPinFilled /> : <IconPin />}
-                                    onClick={() => togglePinLog(record.uuid)}
-                                    tooltip={pinned ? 'Unpin log' : 'Pin log'}
-                                    className={cn(
-                                        'transition-opacity',
-                                        pinned
-                                            ? 'text-primary opacity-100'
-                                            : 'text-muted opacity-0 group-hover:opacity-100'
-                                    )}
-                                />
-                                <LogsTableRowActions log={record} />
-                            </div>
-                        )
-                    },
-                },
-                {
-                    title: 'Timestamp',
-                    key: 'timestamp',
-                    dataIndex: 'timestamp',
-                    width: 180,
-                    render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
-                },
-                {
-                    title: 'Level',
-                    key: 'severity_text',
-                    dataIndex: 'severity_text',
-                    width: 100,
-                    render: (_, record) => <LogTag level={record.severity_text} />,
-                },
-                {
-                    title: 'Message',
-                    key: 'body',
-                    dataIndex: 'body',
-                    render: (_, { cleanBody, parsedBody }) => {
-                        if (parsedBody && prettifyJson) {
+        <div ref={tableRef}>
+            <LemonTable
+                hideScrollbar
+                showHeader={showHeader}
+                dataSource={dataSource}
+                loading={loading}
+                size="small"
+                embedded
+                rowKey="uuid"
+                rowStatus={(record) => (record.uuid === highlightedLogId ? 'highlighted' : null)}
+                rowClassName={(record) =>
+                    isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
+                }
+                columns={[
+                    {
+                        title: '',
+                        key: 'actions',
+                        width: 0,
+                        render: (_, record) => {
+                            const pinned = isPinned(record.uuid)
                             return (
-                                <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
-                                    {JSON.stringify(parsedBody, null, 2)}
-                                </pre>
+                                <div className="flex items-center gap-1">
+                                    <LemonButton
+                                        size="xsmall"
+                                        noPadding
+                                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                                        onClick={() => togglePinLog(record.uuid)}
+                                        tooltip={pinned ? 'Unpin log' : 'Pin log'}
+                                        className={cn(
+                                            'transition-opacity',
+                                            pinned
+                                                ? 'text-primary opacity-100'
+                                                : 'text-muted opacity-0 group-hover:opacity-100'
+                                        )}
+                                    />
+                                    <LogsTableRowActions log={record} />
+                                </div>
                             )
-                        }
-
-                        return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
+                        },
                     },
-                },
-            ]}
-            expandable={{
-                noIndent: true,
-                expandedRowRender: (log) => <ExpandedLog log={log} />,
-            }}
-        />
+                    {
+                        title: 'Timestamp',
+                        key: 'timestamp',
+                        dataIndex: 'timestamp',
+                        width: 180,
+                        render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
+                    },
+                    {
+                        title: 'Level',
+                        key: 'severity_text',
+                        dataIndex: 'severity_text',
+                        width: 100,
+                        render: (_, record) => <LogTag level={record.severity_text} />,
+                    },
+                    {
+                        title: 'Message',
+                        key: 'body',
+                        dataIndex: 'body',
+                        render: (_, { cleanBody, parsedBody }) => {
+                            if (parsedBody && prettifyJson) {
+                                return (
+                                    <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
+                                        {JSON.stringify(parsedBody, null, 2)}
+                                    </pre>
+                                )
+                            }
+
+                            return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
+                        },
+                    },
+                ]}
+                expandable={{
+                    noIndent: true,
+                    expandedRowRender: (log) => <ExpandedLog log={log} />,
+                }}
+            />
+        </div>
     )
 }
 
