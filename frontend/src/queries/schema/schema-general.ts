@@ -3011,6 +3011,8 @@ export interface ExperimentQueryResponse {
     // Breakdown fields
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
     breakdown_results?: ExperimentBreakdownResult[]
+
+    clickhouse_sql?: string
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -3090,6 +3092,7 @@ export interface ExperimentBreakdownResult {
 }
 
 export interface NewExperimentQueryResponse {
+    clickhouse_sql?: string
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
     breakdown_results?: ExperimentBreakdownResult[]

@@ -1,12 +1,16 @@
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
@@ -107,6 +111,8 @@ export function ResultDetails({
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
 }): JSX.Element {
+    const { featureFlags } = useValues(experimentLogic)
+
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
             key: 'variant',
@@ -237,6 +243,21 @@ export function ResultDetails({
                     experimentResult={result}
                     experiment={experiment}
                     metric={metric}
+                />
+            )}
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL] && (
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'clickhouse_sql',
+                            header: 'ClickHouse SQL',
+                            content: (
+                                <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                    {result.clickhouse_sql || 'No SQL available'}
+                                </CodeSnippet>
+                            ),
+                        },
+                    ]}
                 />
             )}
         </div>
