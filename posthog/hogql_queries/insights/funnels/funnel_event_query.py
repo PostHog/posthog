@@ -147,7 +147,7 @@ class FunnelEventQuery:
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
             if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions(all_exclusions)
+                steps_conditions = self._get_steps_conditions(SourceTableKind.EVENTS, steps, all_exclusions)
                 where = ast.And(exprs=[where, steps_conditions])
 
             stmt = ast.SelectQuery(
@@ -192,12 +192,14 @@ class FunnelEventQuery:
                 ),
                 # TODO: add filter for steps here
             ]
-
-            aggregation_target_filter = self._aggregation_target_filter()
-            if aggregation_target_filter is not None:
-                where_exprs.append(aggregation_target_filter)
-
+            # aggregation_target_filter = self._aggregation_target_filter()
+            # if aggregation_target_filter is not None:
+            #     where_exprs.append(aggregation_target_filter)
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
+
+            if not skip_step_filter:
+                steps_conditions = self._get_steps_conditions(SourceTableKind.DATA_WAREHOUSE, steps, all_exclusions)
+                where = ast.And(exprs=[where, steps_conditions])
 
             return ast.SelectQuery(
                 select=select,
@@ -341,13 +343,16 @@ class FunnelEventQuery:
             return ast.And(exprs=filters)
         return filters[0]
 
-    def _get_steps_conditions(self, exclusions) -> ast.Expr:
+    def _get_steps_conditions(
+        self, source_kind: SourceTableKind, steps: list[tuple[int, EntityNode]], exclusions
+    ) -> ast.Expr:
         step_conditions: list[ast.Expr] = []
 
-        for index in range(len(self.context.query.series)):
-            step_conditions.append(parse_expr(f"step_{index} = 1"))
-            if exclusions[index]:
-                step_conditions.append(parse_expr(f"exclusion_{index} = 1"))
+        for index, step in steps:
+            if not entity_source_mismatch(step, source_kind):
+                step_conditions.append(parse_expr(f"step_{index} = 1"))
+                if exclusions[index]:
+                    step_conditions.append(parse_expr(f"exclusion_{index} = 1"))
 
         return ast.Or(exprs=step_conditions)
 
