@@ -22,26 +22,30 @@ export function CustomSourceMappingsConfiguration({
     const { updateCustomSourceMappings } = useActions(marketingAnalyticsSettingsLogic)
 
     const customMappings = marketingAnalyticsConfig?.custom_source_mappings || {}
-    const [newUtmSources, setNewUtmSources] = useState('')
+    const [inputValues, setInputValues] = useState<Record<string, string>>({})
 
-    // Get integrations to display
     const integrationsToShow = sourceFilter ? [sourceFilter] : [...VALID_NATIVE_MARKETING_SOURCES]
+
+    const getInputValue = (integration: string): string => inputValues[integration] || ''
+    const setInputValue = (integration: string, value: string): void => {
+        setInputValues((prev) => ({ ...prev, [integration]: value }))
+    }
 
     const updateMappings = (newMappings: Record<string, string[]>): void => {
         updateCustomSourceMappings(newMappings)
     }
 
     const getValidationError = (integration: string): string | null => {
-        if (!newUtmSources.trim()) {
+        const inputValue = getInputValue(integration)
+        if (!inputValue.trim()) {
             return null
         }
 
-        const utmSourcesArray = newUtmSources
+        const utmSourcesArray = inputValue
             .split(SEPARATOR)
             .map((v) => v.trim())
             .filter((v) => v.length > 0)
 
-        // Check for conflicts with defaults
         const defaultSources =
             MARKETING_DEFAULT_SOURCE_MAPPINGS[integration as keyof typeof MARKETING_DEFAULT_SOURCE_MAPPINGS] || []
         const conflictsWithDefaults = utmSourcesArray.filter((source) =>
@@ -51,7 +55,6 @@ export function CustomSourceMappingsConfiguration({
             return `${conflictsWithDefaults.join(', ')} already default`
         }
 
-        // Check for duplicates within the same integration
         const existingSources = customMappings[integration] || []
         const duplicates = utmSourcesArray.filter((source) =>
             (existingSources as string[]).some((existing) => existing.toLowerCase() === source.toLowerCase())
@@ -60,7 +63,6 @@ export function CustomSourceMappingsConfiguration({
             return `${duplicates.join(', ')} already added`
         }
 
-        // Check for conflicts with other integrations
         for (const [otherIntegration, sources] of Object.entries(customMappings)) {
             if (otherIntegration === integration) {
                 continue
@@ -78,11 +80,12 @@ export function CustomSourceMappingsConfiguration({
     }
 
     const addMapping = (integration: string): void => {
-        if (!integration || !newUtmSources.trim() || getValidationError(integration)) {
+        const inputValue = getInputValue(integration)
+        if (!integration || !inputValue.trim() || getValidationError(integration)) {
             return
         }
 
-        const utmSourcesArray = newUtmSources
+        const utmSourcesArray = inputValue
             .split(SEPARATOR)
             .map((v) => v.trim())
             .filter((v) => v.length > 0)
@@ -94,7 +97,7 @@ export function CustomSourceMappingsConfiguration({
             [integration]: [...existingSources, ...utmSourcesArray],
         })
 
-        setNewUtmSources('')
+        setInputValue(integration, '')
     }
 
     const removeMapping = (integration: string, utmSource: string): void => {
@@ -142,9 +145,9 @@ export function CustomSourceMappingsConfiguration({
                                     integration as keyof typeof MARKETING_DEFAULT_SOURCE_MAPPINGS
                                 ] || []
                             const custom = customMappings[integration] || []
-
+                            const inputValue = getInputValue(integration)
                             const validationError = getValidationError(integration)
-                            const isDisabled = !newUtmSources.trim() || !!validationError
+                            const isDisabled = !inputValue.trim() || !!validationError
 
                             return (
                                 <tr key={integration} className="border-b last:border-b-0">
@@ -176,8 +179,8 @@ export function CustomSourceMappingsConfiguration({
                                             ))}
                                             <div className="flex gap-1 items-center">
                                                 <LemonInput
-                                                    value={newUtmSources}
-                                                    onChange={setNewUtmSources}
+                                                    value={inputValue}
+                                                    onChange={(value) => setInputValue(integration, value)}
                                                     placeholder="Add custom sources"
                                                     size="small"
                                                     className="w-40"

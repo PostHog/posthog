@@ -4485,15 +4485,9 @@ export const externalDataSources = [
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
-// Marketing Analytics Integration Constants
-// Python constants in products/marketing_analytics/backend/hogql_queries/constants.py
-// are automatically derived from the generated types
-
-/** Valid native marketing source integrations */
 export const VALID_NATIVE_MARKETING_SOURCES = ['GoogleAds', 'LinkedinAds', 'MetaAds', 'TikTokAds', 'RedditAds'] as const
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
 
-/** Configuration for each marketing integration */
 export const MARKETING_INTEGRATION_CONFIGS = {
     GoogleAds: {
         sourceType: 'GoogleAds' as const,
@@ -4573,25 +4567,20 @@ export const MARKETING_INTEGRATION_CONFIGS = {
     },
 } as const
 
-/** Type for a single integration config */
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
 
-// Types derived from config - these become Python StrEnums
-// Default UTM sources for each integration
 export type GoogleAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['defaultSources'][number]
 export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['defaultSources'][number]
 export type MetaAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['defaultSources'][number]
 export type TikTokAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['defaultSources'][number]
 export type RedditAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['defaultSources'][number]
 
-// Table keywords for each integration
 export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
 export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
 export type MetaAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableKeywords'][number]
 export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableKeywords'][number]
 export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
 
-// Table exclusions for each integration
 export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
 export type LinkedinAdsTableExclusions =
     (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableExclusions'][number]
@@ -4599,7 +4588,6 @@ export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['Met
 export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
 export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
 
-// Derived constants for backward compatibility and convenience
 export const MARKETING_INTEGRATION_FIELD_MAP = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [
         source,
@@ -4624,7 +4612,6 @@ export const MARKETING_DEFAULT_SOURCE_MAPPINGS = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [source, [...MARKETING_INTEGRATION_CONFIGS[source].defaultSources]])
 ) as unknown as Record<NativeMarketingSource, string[]>
 
-/** Interface for integration config - generated to Python */
 export interface MarketingIntegrationConfigType {
     sourceType: NativeMarketingSource
     nameField: string

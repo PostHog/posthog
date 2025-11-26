@@ -183,14 +183,6 @@ VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
 # Valid self-managed marketing sources (mirrors frontend types)
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]
 
-# =============================================================================
-# Marketing Integration Configuration Constants
-# =============================================================================
-# These constants are automatically derived from generated schema types.
-# Source of truth: frontend/src/queries/schema/schema-general.ts
-# Run `pnpm run schema:build` to regenerate after TypeScript changes.
-# =============================================================================
-
 # Map generated config models to NativeMarketingSource using sourceType field
 _ALL_CONFIG_MODELS = [
     MarketingIntegrationConfig1,

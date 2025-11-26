@@ -1,12 +1,3 @@
-"""
-Tests for marketing analytics constants to ensure all mappings are complete and consistent.
-
-These tests verify that:
-1. All NativeMarketingSource values are covered in each mapping
-2. The derived constants have correct structure
-3. Values are non-empty and valid
-"""
-
 from parameterized import parameterized
 
 from posthog.schema import NativeMarketingSource
@@ -25,8 +16,6 @@ from .constants import (
 
 
 class TestMarketingAnalyticsConstantsCoverage:
-    """Test that all NativeMarketingSource values are covered in each mapping."""
-
     def test_config_models_covers_all_sources(self):
         all_sources = set(NativeMarketingSource)
         covered_sources = set(_CONFIG_MODELS.keys())
@@ -85,8 +74,6 @@ class TestMarketingAnalyticsConstantsCoverage:
 
 
 class TestMarketingAnalyticsConstantsStructure:
-    """Test that derived constants have correct structure and valid values."""
-
     @parameterized.expand([(source,) for source in NativeMarketingSource])
     def test_integration_field_names_has_required_fields(self, source):
         field_names = INTEGRATION_FIELD_NAMES[source]
@@ -130,8 +117,6 @@ class TestMarketingAnalyticsConstantsStructure:
 
 
 class TestMarketingAnalyticsConstantsConsistency:
-    """Test consistency between related constants."""
-
     @parameterized.expand([(source,) for source in NativeMarketingSource])
     def test_stats_table_name_matches_pattern(self, source):
         needed_fields = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source]

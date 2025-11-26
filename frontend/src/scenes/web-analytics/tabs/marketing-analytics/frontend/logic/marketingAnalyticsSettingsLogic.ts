@@ -7,39 +7,21 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import {
     AttributionMode,
-    DatabaseSchemaDataWarehouseTable,
-    HogQLQueryResponse,
-    MarketingAnalyticsColumnsSchemaNames,
-    NodeKind,
-} from '~/queries/schema/schema-general'
-import {
     CampaignFieldPreference,
     ConversionGoalFilter,
+    DatabaseSchemaDataWarehouseTable,
+    HogQLQueryResponse,
+    MARKETING_CAMPAIGN_TABLE_PATTERNS,
+    MARKETING_INTEGRATION_FIELD_MAP,
+    MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConfig,
+    NodeKind,
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, generateUniqueName } from './utils'
-
-// Map integration names to their campaign field names
-const INTEGRATION_FIELD_MAP: Record<string, { nameField: string; idField: string }> = {
-    GoogleAds: { nameField: 'campaign_name', idField: 'campaign_id' },
-    LinkedinAds: { nameField: 'name', idField: 'id' },
-    MetaAds: { nameField: 'name', idField: 'id' },
-    TikTokAds: { nameField: 'campaign_name', idField: 'campaign_id' },
-    RedditAds: { nameField: 'name', idField: 'id' },
-}
-
-// Campaign table keyword patterns for each integration
-const CAMPAIGN_TABLE_PATTERNS: Record<string, { keywords: string[]; exclusions: string[] }> = {
-    GoogleAds: { keywords: ['campaign'], exclusions: ['stats'] },
-    LinkedinAds: { keywords: ['campaigns'], exclusions: ['stats'] },
-    MetaAds: { keywords: ['campaigns'], exclusions: ['stats'] },
-    TikTokAds: { keywords: ['campaigns'], exclusions: ['report'] },
-    RedditAds: { keywords: ['campaigns'], exclusions: ['report'] },
-}
 
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     sources_map: {},
@@ -281,7 +263,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 // For each native source, find its campaign table
                 for (const source of sources) {
                     const sourceType = source.source_type
-                    const patterns = CAMPAIGN_TABLE_PATTERNS[sourceType]
+                    const patterns = MARKETING_CAMPAIGN_TABLE_PATTERNS[sourceType]
                     if (!patterns) {
                         continue
                     }
@@ -328,7 +310,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateCustomSourceMappings: updateCurrentTeam,
             updateCampaignFieldPreferences: updateCurrentTeam,
             loadIntegrationCampaigns: async ({ integration }) => {
-                const fieldInfo = INTEGRATION_FIELD_MAP[integration]
+                const fieldInfo = MARKETING_INTEGRATION_FIELD_MAP[integration]
                 if (!fieldInfo) {
                     actions.setIntegrationCampaigns(integration, [])
                     return
