@@ -63,7 +63,7 @@ class SingleSessionSummaryLlmInputs:
 
     session_id: str
     user_id: int
-    user_distinct_id: str | None = None
+    user_distinct_id_to_log: str | None = None
     summary_prompt: str
     system_prompt: str
     simplified_events_mapping: dict[str, list[str | int | None | list[str]]]

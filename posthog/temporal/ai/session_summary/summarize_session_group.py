@@ -708,7 +708,7 @@ async def execute_summarize_session_group(
     session_group_input = SessionGroupSummaryInputs(
         session_ids=session_ids,
         user_id=user.id,
-        user_distinct_id_to_log=user.user_distinct_id_to_log,
+        user_distinct_id_to_log=user.distinct_id,
         team_id=team.id,
         redis_key_base=redis_key_base,
         summary_title=summary_title,
