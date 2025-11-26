@@ -325,7 +325,9 @@ def _has_duplicate_primary_keys(
 def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
+            SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
+                SELECT pg_column_size(t) as row_size FROM ({}) as t
+            ) as subquery
         """).format(inner_query)
 
         _explain_query(cursor, query, logger)

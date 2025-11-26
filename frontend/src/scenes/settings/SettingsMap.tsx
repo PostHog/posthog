@@ -59,7 +59,6 @@ import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConf
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import {
     NetworkCaptureSettings,
-    ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayDataRetentionSettings,
     ReplayGeneral,
@@ -415,12 +414,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
                 allowForTeam: (t) => !!t?.recording_domains?.length,
-            },
-            {
-                id: 'replay-ai-config',
-                title: 'AI recording summary',
-                component: <ReplayAISettings />,
-                flag: 'AI_SESSION_PERMISSIONS',
             },
             {
                 id: 'replay-retention',

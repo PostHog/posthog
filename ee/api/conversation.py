@@ -1,3 +1,4 @@
+import time
 from collections.abc import AsyncGenerator
 from typing import cast
 
@@ -8,6 +9,7 @@ import pydantic
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
+from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -18,7 +20,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
@@ -30,6 +32,7 @@ from posthog.temporal.ai.chat_agent import (
 )
 from posthog.utils import get_instance_region
 
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.utils.aio import async_to_sync
@@ -38,6 +41,12 @@ from ee.hogai.utils.types.base import AssistantMode
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+
+STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_stream_iteration_latency_seconds",
+    "Time between iterations in the async stream loop",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
 
 
 def is_team_exempt_from_rate_limits(team_id: int) -> bool:
@@ -111,17 +120,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     lookup_url_kwarg = "conversation"
 
     def safely_get_queryset(self, queryset):
-        # Only allow access to conversations created by the current user
-        qs = queryset.filter(user=self.request.user)
-
-        # Allow sending messages to any conversation
-        if self.action == "create":
-            return qs
-
-        # But retrieval must only return conversations from the assistant and with a title.
-        return qs.filter(
-            title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
-        ).order_by("-updated_at")
+        # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
+        if self.action != "retrieve":
+            queryset = queryset.filter(user=self.request.user)
+        # For listing or single retrieval, conversations must be from the assistant and have a title
+        if self.action in ("list", "retrieve"):
+            queryset = queryset.filter(
+                title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
+            ).order_by("-updated_at")
+        return queryset
 
     def get_throttles(self):
         if (
@@ -154,6 +161,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         - If message is provided: Start new conversation processing
         - If no message: Stream from existing conversation
         """
+
+        if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+            raise QuotaLimitExceeded(
+                "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation_id = serializer.validated_data["conversation"]
@@ -216,13 +229,21 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             stream_manager = AgentExecutor(
                 conversation, timeout=CHAT_AGENT_WORKFLOW_TIMEOUT, max_length=CHAT_AGENT_STREAM_MAX_LENGTH
             )
+            last_iteration_time = time.time()
             async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
-                yield serializer.dumps(chunk).encode("utf-8")
+                chunk_received_time = time.time()
+                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(chunk_received_time - last_iteration_time)
+                last_iteration_time = chunk_received_time
+
+                event = await serializer.dumps(chunk)
+                yield event.encode("utf-8")
 
         return StreamingHttpResponse(
-            async_stream(workflow_inputs)
-            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-            else async_to_sync(lambda: async_stream(workflow_inputs)),
+            (
+                async_stream(workflow_inputs)
+                if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+                else async_to_sync(lambda: async_stream(workflow_inputs))
+            ),
             content_type="text/event-stream",
         )
 

@@ -18,9 +18,15 @@ def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: 
 
     if isinstance(command, list):
         display = " ".join(command)
-    else:
+        click.echo(f"🚀 {display}")
+    elif "\n" not in command:
+        # Only show single-line commands
         display = command
-    click.echo(f"🚀 {display}")
+        click.echo(f"🚀 {command}")
+    else:
+        # Multiline command - no display
+        display = "<multiline command>"
+
     try:
         subprocess.run(
             command,
@@ -208,14 +214,14 @@ class DirectCommand(Command):
     def execute(self, *args: str) -> None:
         """Execute the shell command with any passed arguments."""
         cmd_str = self.config.get("cmd", "")
-        # Use shell=True if command contains operators like && or ||
-        has_operators = " && " in cmd_str or " || " in cmd_str
+        # Use shell=True if command contains shell operators or is multiline
+        has_operators = any(op in cmd_str for op in [" && ", " || ", "|", "\n"])
         if has_operators:
-            # Append args to the command string when using shell
-            # Use shlex.quote() to safely escape arguments for shell execution
+            # For shell commands, pass args as positional parameters using sh -c
             if args:
+                # Pass args as positional parameters: _ is placeholder for $0, then actual args as $1, $2, etc.
                 escaped_args = " ".join(shlex.quote(arg) for arg in args)
-                cmd_str = f"{cmd_str} {escaped_args}"
+                cmd_str = f"sh -c {shlex.quote(cmd_str)} _ {escaped_args}"
             _run(cmd_str, shell=True)
         else:
             # Use list format for simple commands without shell operators

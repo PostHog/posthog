@@ -8,19 +8,17 @@ import { mswDecorator } from '~/mocks/browser'
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Persons & Groups',
+    title: 'Scenes-App/People/Persons',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2023-07-04', // To stabilize relative dates
+        mockDate: '2023-07-04',
     },
 }
 export default meta
 
 type Story = StoryObj<typeof meta>
 export const PersonsEmpty: Story = { parameters: { pageUrl: urls.persons() } }
-export const Cohorts: Story = { parameters: { pageUrl: urls.cohorts() } }
-export const Groups: Story = { parameters: { pageUrl: urls.groups(0) } }
 
 export const Persons: Story = {
     parameters: { pageUrl: urls.persons() },

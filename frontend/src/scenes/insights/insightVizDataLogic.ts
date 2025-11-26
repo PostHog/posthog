@@ -108,7 +108,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
-        updateDateRange: (dateRange: DateRange) => ({ dateRange }),
+        updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
@@ -119,8 +119,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
         }),
-        // Separate action to set explicitDate so we don't lose the flag value when changing dates in the selector
-        setExplicitDate: (explicitDate: boolean) => ({ explicitDate }),
     }),
 
     reducers({
@@ -548,13 +546,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         // query source properties
-        updateDateRange: async ({ dateRange }, breakpoint) => {
-            await breakpoint(300)
+        updateDateRange: async ({ dateRange, ignoreDebounce }, breakpoint) => {
+            if (!ignoreDebounce) {
+                await breakpoint(300)
+            }
             const updates = {
                 dateRange: {
                     ...values.dateRange,
                     ...dateRange,
-                    explicitDate: values.dateRange?.explicitDate ?? dateRange.explicitDate,
+                    explicitDate: dateRange.explicitDate ?? values.dateRange?.explicitDate ?? false,
                 },
                 ...(dateRange.date_from == 'all' ? ({ compareFilter: undefined } as Partial<TrendsQuery>) : {}),
             } as QuerySourceUpdate

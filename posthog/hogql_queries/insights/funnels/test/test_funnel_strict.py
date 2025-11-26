@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import Mock, patch
 
 from posthog.schema import FunnelsQuery
 
@@ -620,23 +619,3 @@ class BaseTestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
             self._get_actor_ids_at_step(filters, 3),
             [person3_stopped_after_insight_view.uuid],
         )
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class TestFunnelStrictStepsBreakdown(BaseTestFunnelStrictStepsBreakdown):
-    __test__ = True
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class TestFunnelStrictSteps(BaseTestFunnelStrictSteps):
-    __test__ = True
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class TestStrictFunnelGroupBreakdown(BaseTestStrictFunnelGroupBreakdown):
-    __test__ = True
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-class TestFunnelStrictStepsConversionTime(BaseTestFunnelStrictStepsConversionTime):
-    __test__ = True

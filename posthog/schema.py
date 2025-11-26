@@ -5111,6 +5111,9 @@ class SavedInsightNode(BaseModel):
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
+    contextKey: Optional[str] = Field(
+        default=None, description='Context key for universal column configuration (e.g., "survey:123")'
+    )
     defaultColumns: Optional[list[str]] = Field(
         default=None, description="Default columns to use when resetting column configuration"
     )
@@ -8346,6 +8349,7 @@ class DashboardFilter(BaseModel):
     breakdown_filter: Optional[BreakdownFilter] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -10058,6 +10062,7 @@ class MarketingAnalyticsConfig(BaseModel):
     attribution_window_days: Optional[float] = None
     campaign_name_mappings: Optional[dict[str, dict[str, list[str]]]] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
+    custom_source_mappings: Optional[dict[str, list[str]]] = None
     sources_map: Optional[dict[str, SourceMap]] = None
 
 
@@ -12134,6 +12139,7 @@ class TileFilters(BaseModel):
     breakdown_filter: Optional[BreakdownFilter] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    explicitDate: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -15899,6 +15905,9 @@ class DataTableNode(BaseModel):
     )
     context: Optional[DataTableNodeViewPropsContext] = Field(
         default=None, description="Context for the table, used by components like ColumnConfigurator"
+    )
+    contextKey: Optional[str] = Field(
+        default=None, description='Context key for universal column configuration (e.g., "survey:123")'
     )
     defaultColumns: Optional[list[str]] = Field(
         default=None, description="Default columns to use when resetting column configuration"

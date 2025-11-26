@@ -349,6 +349,7 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
+    resolved_date_range = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
 
@@ -389,6 +390,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_status",
             "hogql",
             "types",
+            "resolved_date_range",
             "_create_in_folder",
             "alerts",
             "last_viewed_at",
@@ -647,6 +649,9 @@ class InsightSerializer(InsightBasicSerializer):
 
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
+
+    def get_resolved_date_range(self, insight: Insight):
+        return self.insight_result(insight).resolved_date_range
 
     def get_alerts(self, insight: Insight):
         if not are_alerts_supported_for_insight(insight):
