@@ -117,17 +117,17 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1400px]:grid-cols-[2fr_3fr]">
                 {/* Column 1 */}
-                <div className="flex flex-col gap-0 overflow-hidden">
+                <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
-                    <div className="inline-flex deprecated-space-x-8">
+                    <div className="flex flex-wrap gap-x-8 gap-y-2">
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
                             <StatusTag status={status} />
                         </div>
                         {experiment.feature_flag && (
-                            <div className="flex flex-col">
+                            <div className="flex flex-col max-w-[500px]">
                                 <Label intent="menu">Feature flag</Label>
                                 <div className="flex gap-1 items-center">
                                     {status === ProgressStatus.Running && !experiment.feature_flag.active && (
@@ -237,13 +237,13 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                 </div>
 
                 {/* Column 2 */}
-                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1200px]:items-end">
+                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1400px]:items-end min-w-0">
                     {/* Row 1: Duration */}
                     {!isExperimentDraft && <ExperimentDuration />}
 
                     {/* Row 2: Last refreshed, Created by */}
-                    <div className="flex flex-col overflow-hidden items-start min-[1200px]:items-end">
-                        <div className="inline-flex deprecated-space-x-8">
+                    <div className="flex flex-col overflow-hidden items-start min-[1400px]:items-end">
+                        <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
                             {experiment.start_date && (
                                 <>
                                     {useNewCalculator && tabId && (
