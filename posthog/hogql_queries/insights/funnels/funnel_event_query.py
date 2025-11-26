@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import Optional, Union
+from enum import Enum, auto
 
 from rest_framework.exceptions import ValidationError
 
@@ -29,6 +30,11 @@ from posthog.models.property.property import PropertyName
 from posthog.types import EntityNode, ExclusionEntityNode
 
 FunnelsNode = EventsNode | ActionsNode | DataWarehouseNode
+
+
+class SourceTableKind(Enum):
+    EVENTS = auto()
+    DATA_WAREHOUSE = auto()
 
 
 class FunnelEventQuery:
@@ -71,7 +77,7 @@ class FunnelEventQuery:
             tables_to_steps[table_name].append((step_index, node))
 
         def _build_events_table_query(steps: list[tuple[int, EventsNode | ActionsNode]]) -> ast.SelectQuery:
-            all_step_cols, all_exclusions = self._get_funnel_cols()
+            all_step_cols, all_exclusions = self._get_funnel_cols(source_kind=SourceTableKind.EVENTS)
 
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
@@ -177,7 +183,7 @@ class FunnelEventQuery:
         )
 
     def _get_funnel_cols(
-        self,
+        self, source_kind: SourceTableKind
     ) -> tuple[list[ast.Expr], list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]]]:
         series, funnelsFilter = self.context.query.series, self.context.funnelsFilter
 
@@ -186,7 +192,7 @@ class FunnelEventQuery:
 
         # step cols
         for index, entity in enumerate(series):
-            step_cols = self._get_step_col(entity, index)
+            step_cols = self._get_step_col(source_kind, entity, index)
             all_step_cols.extend(step_cols)
             all_exclusions.append([])
 
@@ -222,6 +228,7 @@ class FunnelEventQuery:
 
     def _get_step_col(
         self,
+        source_kind: SourceTableKind,
         entity: EntityNode | ExclusionEntityNode,
         index: int,
         step_prefix: str = "",
