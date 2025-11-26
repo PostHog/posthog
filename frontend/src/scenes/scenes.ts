@@ -425,14 +425,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/revenue-analytics',
     },
-    [Scene.SQLEditor]: {
-        projectBased: true,
-        name: 'SQL editor',
-        defaultDocsPath: '/docs/cdp/sources',
-        layout: 'app-raw-no-header',
-        hideProjectNotice: true,
-        description: 'Write and execute SQL queries against your data warehouse',
-    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
