@@ -27,7 +27,11 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
         query={"query": "SELECT 1", "kind": "HogQLQuery"},
     )
     job_id = uuid.uuid4().hex
-    table_uri = f"s3://source/team_{ateam.pk}_model_{saved_query.id.hex}/{saved_query.normalized_name}"
+    table_uri = f"s3://source/team_{ateam.pk}_model_{saved_query.id.hex}/modeling/{saved_query.normalized_name}"
+    file_uris = [
+        f"{table_uri}/part-0.parquet",
+        f"{table_uri}/chunk=1/part-1.parquet",
+    ]
     inputs = DataModelingDuckLakeCopyInputs(
         team_id=ateam.pk,
         job_id=job_id,
@@ -36,6 +40,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
                 model_label=saved_query.id.hex,
                 saved_query_id=str(saved_query.id),
                 table_uri=table_uri,
+                file_uris=file_uris,
             )
         ],
     )
@@ -46,12 +51,10 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     assert len(metadata) == 1
     model_metadata = metadata[0]
     assert model_metadata.model_label == saved_query.id.hex
-    assert model_metadata.table_uri == table_uri
     assert model_metadata.saved_query_name == saved_query.name
-    assert model_metadata.destination_uri == (
-        f"s3://ducklake-test-bucket/data_modeling/"
-        f"team_{ateam.pk}/job_{job_id}/model_{saved_query.id.hex}/{saved_query.normalized_name}.parquet"
-    )
+    assert model_metadata.source_glob_uri == f"{table_uri}/**/*.parquet"
+    assert model_metadata.schema_name == f"data_modeling_team_{ateam.pk}"
+    assert model_metadata.table_name == f"model_{saved_query.id.hex}"
 
 
 @pytest.mark.asyncio
@@ -96,8 +99,9 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
         saved_query_id=str(uuid.uuid4()),
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
-        table_uri="s3://source/table",
-        destination_uri="s3://ducklake-target/path/to/model.parquet",
+        source_glob_uri="s3://source/table/**/*.parquet",
+        schema_name="data_modeling_team_1",
+        table_name="model_a",
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -109,28 +113,16 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     ):
         activity_environment.run(copy_data_modeling_model_to_ducklake_activity, inputs)
 
-    create_calls = [
-        statement
-        for statement, params in fake_conn_calls
-        if params is not None and ("delta_scan" in statement or "read_delta" in statement)
-    ]
-    copy_calls = [statement for statement, params in fake_conn_calls if statement.startswith("COPY (SELECT * FROM")]
-    drop_calls = [statement for statement, _ in fake_conn_calls if statement.startswith("DROP TABLE")]
     schema_calls = [
         statement for statement, _ in fake_conn_calls if statement.startswith("CREATE SCHEMA IF NOT EXISTS")
     ]
-    view_calls = [statement for statement, _ in fake_conn_calls if statement.startswith("CREATE OR REPLACE VIEW")]
-    comment_calls = [statement for statement, _ in fake_conn_calls if statement.startswith("COMMENT ON VIEW")]
+    table_calls = [statement for statement, _ in fake_conn_calls if statement.startswith("CREATE OR REPLACE TABLE")]
 
     assert configure_args["install_extension"] is True
     assert configure_args["bucket"] == ducklake_module.get_config()["DUCKLAKE_DATA_BUCKET"]
     assert ensured["called"] is True
-    assert create_calls, "Expected temp table creation with delta_scan/read_delta"
-    assert copy_calls and inputs.model.destination_uri in copy_calls[0]
-    assert drop_calls, "Expected temporary table cleanup"
     assert schema_calls and "ducklake_dev.data_modeling_team_1" in schema_calls[0]
-    assert view_calls and "ducklake_dev.data_modeling_team_1.model_a" in view_calls[0]
-    assert view_calls and inputs.model.destination_uri in view_calls[0]
-    assert comment_calls and "ducklake_dev.data_modeling_team_1.model_a" in comment_calls[0]
+    assert table_calls and "ducklake_dev.data_modeling_team_1.model_a" in table_calls[0]
+    assert "read_parquet('s3://source/table/**/*.parquet')" in table_calls[0]
     assert any("ATTACH" in statement for statement in fake_conn.sql_statements), "Expected DuckLake catalog attach"
     assert fake_conn.closed is True

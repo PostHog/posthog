@@ -1,8 +1,8 @@
 import re
 import json
-import uuid
 import datetime as dt
 import dataclasses
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -37,8 +37,9 @@ class DuckLakeCopyModelMetadata:
     saved_query_id: str
     saved_query_name: str
     normalized_name: str
-    table_uri: str
-    destination_uri: str
+    source_glob_uri: str
+    schema_name: str
+    table_name: str
 
 
 @dataclasses.dataclass
@@ -60,7 +61,6 @@ async def prepare_data_modeling_ducklake_metadata_activity(
         await logger.ainfo("DuckLake copy requested but no models were provided - skipping")
         return []
 
-    config = get_config()
     metadata: list[DuckLakeCopyModelMetadata] = []
 
     for model in inputs.models:
@@ -69,21 +69,18 @@ async def prepare_data_modeling_ducklake_metadata_activity(
         )
 
         normalized_name = saved_query.normalized_name or saved_query.name
-        destination_uri = _build_ducklake_destination_uri(
-            bucket=config["DUCKLAKE_DATA_BUCKET"],
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
-            model_label=model.model_label,
-            normalized_name=normalized_name,
-        )
         metadata.append(
             DuckLakeCopyModelMetadata(
                 model_label=model.model_label,
                 saved_query_id=str(saved_query.id),
                 saved_query_name=saved_query.name,
                 normalized_name=normalized_name,
-                table_uri=model.table_uri,
-                destination_uri=destination_uri,
+                source_glob_uri=_build_ducklake_source_glob(model.file_uris),
+                schema_name=_sanitize_ducklake_identifier(
+                    f"{DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
+                    default_prefix=DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX,
+                ),
+                table_name=_sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
             )
         )
 
@@ -92,41 +89,32 @@ async def prepare_data_modeling_ducklake_metadata_activity(
 
 @activity.defn
 def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
-    """Copy a single model's Delta table into the DuckLake-managed Parquet bucket."""
+    """Ingest a single model's Parquet snapshot into DuckLake using native SQL."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
 
     config = get_config()
     conn = duckdb.connect()
-    table_name = f"ducklake_src_{uuid.uuid4().hex}"
+    alias = "ducklake_dev"
     try:
         _configure_source_storage(conn, logger)
-        logger.info("Loading Delta table into DuckDB", table_uri=inputs.model.table_uri)
-        conn.execute(
-            f"CREATE OR REPLACE TEMP TABLE {table_name} AS SELECT * FROM delta_scan(?)",
-            [inputs.model.table_uri],
-        )
-
         configure_connection(conn, config, install_extension=True)
         _ensure_ducklake_bucket_exists(config)
-        conn.execute(
-            f"COPY (SELECT * FROM {table_name}) TO '{ducklake_escape(inputs.model.destination_uri)}' "
-            " (FORMAT PARQUET, OVERWRITE TRUE)"
+        _attach_ducklake_catalog(conn, config, alias=alias)
+
+        qualified_schema = f"{alias}.{inputs.model.schema_name}"
+        qualified_table = f"{qualified_schema}.{inputs.model.table_name}"
+        escaped_glob = ducklake_escape(inputs.model.source_glob_uri)
+
+        logger.info(
+            "Creating DuckLake table from Parquet snapshot",
+            ducklake_table=qualified_table,
+            source_glob=inputs.model.source_glob_uri,
         )
-        logger.info("Successfully copied model into DuckLake")
-        _register_dataset_in_ducklake_catalog(
-            conn,
-            config,
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
-            model=inputs.model,
-            logger=logger,
-        )
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
+        conn.execute(f"CREATE OR REPLACE TABLE {qualified_table} AS " f"SELECT * FROM read_parquet('{escaped_glob}')")
+        logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
     finally:
-        try:
-            conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-        except duckdb.Error:
-            logger.warning("Failed to drop temporary DuckDB table", temp_table=table_name)
         conn.close()
 
 
@@ -176,16 +164,6 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
             raise
 
         get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
-
-
-def _build_ducklake_destination_uri(
-    *, bucket: str, team_id: int, job_id: str, model_label: str, normalized_name: str
-) -> str:
-    bucket = bucket.rstrip("/")
-    return (
-        f"s3://{bucket}/{DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX}/"
-        f"team_{team_id}/job_{job_id}/model_{model_label}/{normalized_name}.parquet"
-    )
 
 
 def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
@@ -243,41 +221,6 @@ def _ensure_ducklake_bucket_exists(config: dict[str, str]) -> None:
     )
 
 
-def _register_dataset_in_ducklake_catalog(
-    conn: duckdb.DuckDBPyConnection,
-    config: dict[str, str],
-    *,
-    team_id: int,
-    job_id: str,
-    model: DuckLakeCopyModelMetadata,
-    logger,
-    alias: str = "ducklake_dev",
-) -> None:
-    """Expose the copied Parquet file through the DuckLake catalog."""
-    _attach_ducklake_catalog(conn, config, alias=alias)
-    schema_name = _sanitize_ducklake_identifier(f"data_modeling_team_{team_id}", default_prefix="data_modeling")
-    table_name = _sanitize_ducklake_identifier(model.model_label or model.normalized_name, default_prefix="model")
-
-    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.{schema_name}")
-    escaped_destination = ducklake_escape(model.destination_uri)
-    conn.execute(
-        f"CREATE OR REPLACE VIEW {alias}.{schema_name}.{table_name} AS "
-        f"SELECT * FROM read_parquet('{escaped_destination}')"
-    )
-    comment = (
-        "DuckLake data modeling copy "
-        f"(team_id={team_id}, job_id={job_id}, model_label='{model.model_label}', saved_query_id='{model.saved_query_id}')"
-    )
-    conn.execute(f"COMMENT ON VIEW {alias}.{schema_name}.{table_name} IS '{ducklake_escape(comment)}'")
-    logger.info(
-        "Registered DuckLake dataset",
-        ducklake_alias=alias,
-        schema=schema_name,
-        table=table_name,
-        destination=model.destination_uri,
-    )
-
-
 def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, str], alias: str) -> None:
     """Attach the DuckLake catalog, swallowing the error if already attached."""
     try:
@@ -298,3 +241,52 @@ def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     if cleaned[0].isdigit():
         cleaned = f"{default_prefix}_{cleaned}"
     return cleaned[:63]
+
+
+def _build_ducklake_source_glob(file_uris: list[str]) -> str:
+    """Derive a glob covering all Parquet files that make up the saved query snapshot."""
+    if not file_uris:
+        raise ValueError("DuckLake copy requires at least one Parquet file URI")
+
+    base: str | None = None
+    directory_segments: list[list[str]] = []
+    for uri in file_uris:
+        parsed = urlparse(uri)
+        scheme = (parsed.scheme or "s3").lower()
+        if scheme.startswith("s3"):
+            scheme = "s3"
+        if not parsed.netloc:
+            raise ValueError(f"Unable to determine host/bucket for DuckLake URI '{uri}'")
+        current_base = f"{scheme}://{parsed.netloc}"
+        if base is None:
+            base = current_base
+        elif current_base != base:
+            raise ValueError("DuckLake copy inputs must share the same base URI")
+
+        stripped_path = parsed.path.lstrip("/")
+        directory = stripped_path.rsplit("/", 1)[0] if "/" in stripped_path else ""
+        directory_segments.append([segment for segment in directory.split("/") if segment])
+
+    if base is None:
+        raise ValueError("Invalid DuckLake file URIs - missing base path")
+
+    common_segments = directory_segments[0][:]
+    for segments in directory_segments[1:]:
+        new_common: list[str] = []
+        for left, right in zip(common_segments, segments):
+            if left != right:
+                break
+            new_common.append(left)
+        common_segments = new_common
+        if not common_segments:
+            break
+
+    if not common_segments and any(directory_segments):
+        raise ValueError("DuckLake copy inputs must share a common directory prefix")
+
+    relative_prefix = "/".join(common_segments)
+    normalized_base = base.rstrip("/")
+    if relative_prefix:
+        normalized_base = f"{normalized_base}/{relative_prefix}"
+
+    return f"{normalized_base.rstrip('/')}/**/*.parquet"
