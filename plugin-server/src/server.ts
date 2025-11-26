@@ -10,6 +10,7 @@ import express from 'ultimate-express'
 import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
+import { CdpBackfillConsumer } from './cdp/consumers/cdp-backfill.consumer'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
@@ -283,6 +284,14 @@ export class PluginServer {
             if (capabilities.cdpCohortMembership) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpCohortMembershipConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpBackfill) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpBackfillConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })

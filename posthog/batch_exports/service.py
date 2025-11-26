@@ -27,6 +27,7 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
+from posthog.kafka_client.topics import KAFKA_CDP_BACKFILL_EVENTS
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -78,6 +79,7 @@ class BackfillDetails:
     start_at: str | None
     end_at: str | None
     is_earliest_backfill: bool = False
+    is_last_backfill_run: bool = False
 
 
 @dataclass(kw_only=True)
@@ -313,6 +315,17 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class WorkflowsBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for Workflows export workflow.
+
+    NOTE: "Workflows" in this context refers to PostHog Workflows. PostHog Workflows
+    are not related to Temporal Workflows.
+    """
+
+    topic: str = KAFKA_CDP_BACKFILL_EVENTS
+
+
+@dataclass(kw_only=True)
 class HttpBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Http export workflow."""
 
@@ -336,6 +349,7 @@ DESTINATION_WORKFLOWS = {
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
+    "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }
 
 
