@@ -142,7 +142,7 @@ export const VercelAIInstallation = (): JSX.Element => {
                 )}
             </Step>
 
-            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog">
+            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog" docsOnly>
                 <Markdown>
                     Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you should see rows of data appear in the **Traces** and **Generations** tabs.
                 </Markdown>
