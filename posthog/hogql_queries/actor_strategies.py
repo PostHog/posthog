@@ -1,7 +1,5 @@
 from typing import Any, Literal, Optional, cast
 
-import structlog
-
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
 from posthog.hogql import ast
@@ -12,8 +10,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Group, Team
-
-logger = structlog.get_logger(__name__)
 
 
 def _parse_properties(properties: Any) -> dict:
@@ -67,12 +63,6 @@ class PersonStrategy(ActorStrategy):
         if not actor_ids_list:
             return {}
 
-        logger.info(
-            "get_actors_started",
-            team_id=self.team.pk,
-            actor_ids_count=len(actor_ids_list),
-        )
-
         query = parse_select(
             """
             SELECT
@@ -93,12 +83,6 @@ class PersonStrategy(ActorStrategy):
             query_type="persons_enrichment",
             query=query,
             team=self.team,
-        )
-
-        logger.info(
-            "get_actors_fetched",
-            team_id=self.team.pk,
-            actors_count=len(response.results) if response.results else 0,
         )
 
         return {
