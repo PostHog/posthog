@@ -63,6 +63,7 @@ rust/cyclotron-node/index.node
 rust/cyclotron-node/node_modules
 rust/docker
 rust/target
+**/__snapshots__
 !docker-compose.base.yml
 !docker-compose.dev.yml
 !docker
