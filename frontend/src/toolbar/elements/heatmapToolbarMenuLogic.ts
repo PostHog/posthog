@@ -15,7 +15,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { elementIsVisible, elementToActionStep, trimElement } from '~/toolbar/utils'
+import { elementIsVisible, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
@@ -404,7 +404,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
             breakpoint()
 
-            const countedElements = aggregateAndSortElements(trimmedElements, dataAttributes)
+            const countedElements = aggregateAndSortElements(trimmedElements)
 
             actions.setProcessedElements(countedElements)
         },
@@ -660,7 +660,7 @@ function matchEventToElement(
     return null
 }
 
-function aggregateAndSortElements(elements: CountedHTMLElement[], dataAttributes: string[]): CountedHTMLElement[] {
+function aggregateAndSortElements(elements: CountedHTMLElement[]): CountedHTMLElement[] {
     const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
 
     for (const countedElement of elements) {
@@ -676,7 +676,6 @@ function aggregateAndSortElements(elements: CountedHTMLElement[], dataAttributes
                 clickCount: countedElement.type === '$autocapture' ? countedElement.count : 0,
                 rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
                 deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
-                actionStep: elementToActionStep(countedElement.element, dataAttributes),
             })
         }
     }
