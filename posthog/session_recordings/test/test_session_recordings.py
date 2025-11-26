@@ -816,25 +816,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch(
-        "posthog.session_recordings.session_recording_v2_service.copy_to_lts",
-        return_value="some-lts-path",
-    )
-    def test_persist_session_recording(self, _mock_copy_objects: MagicMock) -> None:
-        self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["storage"] == "object_storage"
-
-        response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/1/persist")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"success": True}
-
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["storage"] == "object_storage_lts"
-
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [
             f'session_ids=["{str(uuid7())}", "{str(uuid7())}"]',

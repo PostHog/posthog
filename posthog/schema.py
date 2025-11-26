@@ -3015,7 +3015,6 @@ class SnapshotSource(StrEnum):
 
 
 class Storage(StrEnum):
-    OBJECT_STORAGE_LTS = "object_storage_lts"
     OBJECT_STORAGE = "object_storage"
 
 

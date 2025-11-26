@@ -92,8 +92,7 @@ function TTLWarning(): JSX.Element | null {
                         description: (
                             <span>
                                 This recording will expire in{' '}
-                                <strong>{sessionPlayerMetaData.recording_ttl} days</strong>. If you wish to keep it
-                                around, you should add it to a collection.
+                                <strong>{sessionPlayerMetaData.recording_ttl} days</strong>.
                                 <br />
                                 Refer to{' '}
                                 <Link
