@@ -357,3 +357,12 @@ class TestUserProductList(BaseTest):
 
         created_paths = {item.product_path for item in created_items}
         assert not created_paths.intersection(analytics_products)
+
+    def test_user_product_list_reason_enum_matches_backend(self):
+        """Test that the frontend UserProductListReason enum matches the backend Reason choices."""
+        from posthog.schema import UserProductListReason
+
+        backend_reasons = {key for key, _ in UserProductList.Reason.choices}
+        schema_reasons = {value for _, value in UserProductListReason.__members__.items()}
+
+        assert backend_reasons == schema_reasons, "Backend reasons do not match schema reasons"
