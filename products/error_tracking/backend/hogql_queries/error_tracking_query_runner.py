@@ -797,15 +797,33 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"])),
             where=ast.And(
                 exprs=[
+                    # Filter by date range first to match ORDER BY primary key
+                    # Sessions can start before errors occur, so look back 1 day
                     ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["session_id"]),
-                        right=ast.Constant(value=list(session_ids)),
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["min_first_timestamp"]),
+                        right=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Sub,
+                            left=ast.Constant(value=self.date_from),
+                            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)]),
+                        ),
                     ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["min_first_timestamp"]),
+                        right=ast.Constant(value=self.date_to),
+                    ),
+                    # Then filter by team_id (second in ORDER BY)
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["team_id"]),
                         right=ast.Constant(value=self.team.pk),
+                    ),
+                    # Finally filter by session_id (third in ORDER BY)
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["session_id"]),
+                        right=ast.Constant(value=list(session_ids)),
                     ),
                 ]
             ),
