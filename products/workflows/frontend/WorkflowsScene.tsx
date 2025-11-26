@@ -2,7 +2,7 @@ import { actions, kea, path, props, reducers, selectors, useActions, useValues }
 import { urlToAction } from 'kea-router'
 
 import { IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -138,11 +138,13 @@ export function WorkflowsScene(): JSX.Element {
 
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
         {
-            label: 'Workflows',
+            label: <>Workflows</>,
             key: 'workflows',
             content: (
                 <>
-                    <p>Create and manage your workflows</p>
+                    <span className="flex gap-2 items-baseline">
+                        <LemonTag type="warning">BETA</LemonTag> <p>Create and manage your workflows</p>
+                    </span>
                     <WorkflowsTable />
                 </>
             ),

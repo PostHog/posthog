@@ -18,6 +18,7 @@ from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.cdp.filters import compile_filters_bytecode
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -95,6 +96,23 @@ class HogFlowActionSerializer(serializers.Serializer):
             function_config_serializer.is_valid(raise_exception=True)
 
             data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+
+        if len(data.get("config", {}).get("conditions", [])) > 0:
+            conditions = data.get("config", {}).get("conditions", [])
+            for condition in conditions:
+                filters = condition.get("filters")
+                if filters is not None:
+                    compiled = compile_filters_bytecode(filters, self.context["get_team"]())
+                    if compiled.get("bytecode_error"):
+                        raise serializers.ValidationError(
+                            {
+                                "config": {
+                                    "conditions": "Invalid filters in conditional branch action: "
+                                    + compiled["bytecode_error"],
+                                }
+                            }
+                        )
+                    condition["bytecode"] = compiled["bytecode"]
 
         return data
 

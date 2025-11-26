@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
+import { logger } from '~/utils/logger'
 
 import { findContinueAction, findNextAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
@@ -31,6 +32,10 @@ export class ConditionalBranchHandler implements ActionHandler {
                   }
         )
 
+        logger.info('Evaluating conditional branch action', {
+            conditionResult,
+        })
+
         if (conditionResult.scheduledAt) {
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
@@ -54,7 +59,14 @@ export async function checkConditions(
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,
+            filterGlobals: { ...invocation.filterGlobals, variables: invocation.state.variables },
+        })
+
+        logger.info('Checking condition filters', {
+            filters: condition.filters,
             filterGlobals: invocation.filterGlobals,
+            variables: invocation.state.variables,
+            filterResults,
         })
 
         if (filterResults.match) {
