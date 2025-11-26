@@ -85,7 +85,7 @@ def split_baseline_and_test_variants(
 
 def get_variant_result(
     result: tuple,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
     """
     Parse a single result row from the experiment query into a structured variant result.
