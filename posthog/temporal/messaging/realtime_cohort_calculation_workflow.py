@@ -74,9 +74,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
     bind_contextvars()
     logger = LOGGER.bind()
 
-    logger.info(
-        f"Starting realtime cohort calculation workflow for range offset={inputs.offset}, limit={inputs.limit}",
-    )
+    logger.info(f"Starting realtime cohort calculation workflow for range offset={inputs.offset}, limit={inputs.limit}")
 
     async with Heartbeater(details=(f"Starting to process cohorts (offset={inputs.offset})",)) as heartbeater:
         start_time = time.time()
@@ -117,16 +115,19 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
                 current_members_query = realtime_query.get_query()
                 hogql_context = HogQLContext(team_id=cohort_obj.team_id, enable_select_queries=True)
-                current_members_sql, _ = prepare_and_print_ast(
-                    current_members_query, hogql_context, "clickhouse"
-                )
+                current_members_sql, _ = prepare_and_print_ast(current_members_query, hogql_context, "clickhouse")
                 return current_members_sql, hogql_context.values
 
             for retry_attempt in range(1, max_retries + 1):
                 try:
                     cohort_max_execution_time = 60 * retry_attempt
                     current_members_sql, query_params = await build_query(cohort)
-                    query_params = {**query_params, "team_id": cohort.team_id, "cohort_id": cohort.id}
+                    query_params = {
+                        **query_params,
+                        "team_id": cohort.team_id,
+                        "cohort_id": cohort.id,
+                        "max_execution_time": cohort_max_execution_time,
+                    }
 
                     final_query = f"""
                         SELECT
@@ -154,7 +155,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                             HAVING status = 'entered'
                         ) previous_members ON current_matches.id = previous_members.person_id
                         WHERE status != 'unchanged'
-                        SETTINGS join_use_nulls = 1, max_execution_time = {cohort_max_execution_time}
+                        SETTINGS join_use_nulls = 1, max_execution_time = %(max_execution_time)s
                         FORMAT JSONEachRow
                     """
 
