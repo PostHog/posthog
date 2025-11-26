@@ -244,16 +244,36 @@ def combine_event_ids_mappings_from_single_session_summaries(
 
 def combine_patterns_assignments_from_single_session_summaries(
     patterns_assignments_list_of_lists: list[RawSessionGroupPatternAssignmentsList],
+    event_id_to_session_id_mapping: dict[str, tuple[str, str]],
 ) -> dict[int, list[str]]:
-    """Merge pattern assignments from multiple sessions."""
+    """Merge pattern assignments from multiple sessions.
+
+    Deduplicates to keep only one event per session per pattern (first occurrence wins).
+    """
     combined_patterns_assignments: dict[int, list[str]] = {}
+    # Track which sessions have already contributed to each pattern
+    pattern_session_seen: dict[int, set[str]] = {}
     for assignments_list in patterns_assignments_list_of_lists:
         for pattern_assignment in assignments_list.patterns:
             pattern_id = pattern_assignment.pattern_id
-            event_ids = pattern_assignment.event_ids
             if pattern_id not in combined_patterns_assignments:
                 combined_patterns_assignments[pattern_id] = []
-            combined_patterns_assignments[pattern_id].extend(event_ids)
+                pattern_session_seen[pattern_id] = set()
+            for event_id in pattern_assignment.event_ids:
+                # Get session_id for this event
+                ids_tuple = event_id_to_session_id_mapping.get(event_id)
+                if not ids_tuple:
+                    # Skip events without mapping - they'll fail enrichment anyway
+                    continue
+                _, session_id = ids_tuple
+                # Only add if this session hasn't contributed to this pattern yet
+                if session_id in pattern_session_seen[pattern_id]:
+                    logger.warning(
+                        f"Event {event_id} from session {session_id} already contributed to pattern {pattern_id}, skipping"
+                    )
+                    continue
+                pattern_session_seen[pattern_id].add(session_id)
+                combined_patterns_assignments[pattern_id].append(event_id)
     return combined_patterns_assignments
 
 
@@ -375,7 +395,6 @@ def combine_patterns_ids_with_events_context(
 ) -> dict[int, list[PatternAssignedEventSegmentContext]]:
     """Map pattern IDs to enriched event contexts using assignments context."""
     pattern_event_ids_mapping: dict[int, list[PatternAssignedEventSegmentContext]] = {}
-    patterns_with_removed_non_blocking_exceptions = set()
     # Creating mapping to avoid serializing the sessions on every event
     session_id_to_serialized_summary_mapping = {
         session_id: session_summary_to_serializer(db_summary.summary)
@@ -412,20 +431,9 @@ def combine_patterns_ids_with_events_context(
                 session_summary=session_summary,
                 person=session_id_to_person_mapping.get(session_id),
             )
-            # Skip non-blocking exceptions, allow blocking ones and abandonment (no exception)
-            if event_segment_context.target_event.exception == "non-blocking":
-                patterns_with_removed_non_blocking_exceptions.add(pattern_id)
-                continue
             if pattern_id not in pattern_event_ids_mapping:
                 pattern_event_ids_mapping[pattern_id] = []
             pattern_event_ids_mapping[pattern_id].append(event_segment_context)
-    # If we removed all non-blocking exceptions for some patterns - it's not a failure
-    for pattern_id in patterns_with_removed_non_blocking_exceptions:
-        if pattern_id in pattern_event_ids_mapping:
-            # Avoid touching patterns that have events left even after removing non-blocking exceptions
-            continue
-        # Let's back the patterns we emptied, so we can properly calculate failure ratio
-        pattern_event_ids_mapping[pattern_id] = []
     return pattern_event_ids_mapping
 
 
@@ -462,15 +470,10 @@ def combine_patterns_with_events_context(
 ) -> EnrichedSessionGroupSummaryPatternsList:
     """Attach event context and stats to each extracted pattern."""
     combined_patterns = []
-    non_failed_empty_patterns_count = 0
     for pattern in patterns.patterns:
         pattern_id = pattern.pattern_id
         pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id))
         if not pattern_events:
-            if pattern_events is not None:
-                # If the pattern has not events, but is in the mapping - it's not a failure,
-                # it means we made it empty by removing non-blocking exceptions
-                non_failed_empty_patterns_count += 1
             continue
         enriched_pattern = EnrichedSessionGroupSummaryPattern(
             **pattern.model_dump(),
@@ -481,7 +484,7 @@ def combine_patterns_with_events_context(
     # If not enough patterns were properly enriched - fail the activity
     # Using `floor` as for small numbers of patterns - >30% could be filtered as "non-blocking only"
     minimum_expected_patterns_count = max(1, floor(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO))
-    successful_patterns_count = len(combined_patterns) + non_failed_empty_patterns_count
+    successful_patterns_count = len(combined_patterns)
     failed_patterns_count = len(patterns.patterns) - successful_patterns_count
     if minimum_expected_patterns_count > successful_patterns_count:
         exception_message = (
