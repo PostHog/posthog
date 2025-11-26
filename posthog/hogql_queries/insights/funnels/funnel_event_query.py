@@ -33,7 +33,6 @@ FunnelsNode = EventsNode | ActionsNode | DataWarehouseNode
 
 class FunnelEventQuery:
     context: FunnelQueryContext
-    _entities: list[EntityNode] | None = None
     _entity_name = "events"
     _extra_event_fields_and_properties: list[ColumnName | PropertyName]
 
@@ -42,7 +41,6 @@ class FunnelEventQuery:
     def __init__(
         self,
         context: FunnelQueryContext,
-        entities: list[EntityNode] | None = None,
         entity_name="events",
         extra_event_fields_and_properties: Optional[list[ColumnName | PropertyName]] = None,
     ):
@@ -50,7 +48,6 @@ class FunnelEventQuery:
             extra_event_fields_and_properties = []
 
         self.context = context
-        self._entities = entities
         self._entity_name = entity_name
         self._extra_event_fields_and_properties = extra_event_fields_and_properties
 
@@ -77,12 +74,11 @@ class FunnelEventQuery:
             tables_to_steps[table_name].append((step_index, node))
 
         def _build_events_table_query(steps: list[tuple[int, EventsNode | ActionsNode]]) -> ast.SelectQuery:
-            funnelsFilter = self.context.funnelsFilter
-            entities_to_use = self._entities or self.context.query.series
+            series, funnelsFilter = self.context.query.series, self.context.funnelsFilter
 
             all_step_cols: list[ast.Expr] = []
             all_exclusions: list[list[FunnelExclusionEventsNode | FunnelExclusionActionsNode]] = []
-            for index, entity in enumerate(entities_to_use):
+            for index, entity in enumerate(series):
                 step_cols = self._get_step_col(entity, index, self._entity_name, for_udf=True)
                 all_step_cols.extend(step_cols)
                 all_exclusions.append([])
@@ -128,7 +124,7 @@ class FunnelEventQuery:
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
             if not skip_step_filter:
-                steps_conditions = self._get_steps_conditions(all_exclusions, length=len(entities_to_use))
+                steps_conditions = self._get_steps_conditions(all_exclusions, length=len(series))
                 where = ast.And(exprs=[where, steps_conditions])
 
             stmt = ast.SelectQuery(
