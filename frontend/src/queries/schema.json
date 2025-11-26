@@ -13285,6 +13285,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentRatioMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRetentionMetric"
                 }
             ]
         },
@@ -13437,7 +13440,7 @@
             "type": "object"
         },
         "ExperimentMetricType": {
-            "enum": ["funnel", "mean", "ratio"],
+            "enum": ["funnel", "mean", "ratio", "retention"],
             "type": "string"
         },
         "ExperimentMetricTypeProps": {
@@ -13450,6 +13453,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentRatioMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRetentionMetricTypeProps"
                 }
             ]
         },
@@ -13647,6 +13653,121 @@
                 }
             },
             "required": ["metric_type", "numerator", "denominator"],
+            "type": "object"
+        },
+        "ExperimentRetentionMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
+                "completion_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "retention",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "retention_window_end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "sharedMetricId": {
+                    "type": "number"
+                },
+                "start_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "start_handling": {
+                    "enum": ["first_seen", "last_seen"],
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "completion_event",
+                "kind",
+                "metric_type",
+                "retention_window_end",
+                "retention_window_start",
+                "retention_window_unit",
+                "start_event",
+                "start_handling"
+            ],
+            "type": "object"
+        },
+        "ExperimentRetentionMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "completion_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "metric_type": {
+                    "const": "retention",
+                    "type": "string"
+                },
+                "retention_window_end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "start_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "start_handling": {
+                    "enum": ["first_seen", "last_seen"],
+                    "type": "string"
+                }
+            },
+            "required": [
+                "metric_type",
+                "start_event",
+                "completion_event",
+                "retention_window_start",
+                "retention_window_end",
+                "retention_window_unit",
+                "start_handling"
+            ],
             "type": "object"
         },
         "ExperimentSignificanceCode": {
@@ -30512,6 +30633,22 @@
         },
         "isExperimentRatioMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentRatioMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentRetentionMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentRetentionMetric",
             "properties": {
                 "namedArgs": {
                     "additionalProperties": false,
