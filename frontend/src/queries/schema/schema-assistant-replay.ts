@@ -19,6 +19,7 @@ export interface MaxRecordingUniversalFilters {
     filter_group: MaxOuterUniversalFiltersGroup
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
+    limit?: RecordingsQuery['limit']
 }
 
 export type MaxOuterUniversalFiltersGroup = {

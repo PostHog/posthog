@@ -20,7 +20,6 @@ class AIEventType(StrEnum):
     FIELD_AI_TRACE = "$ai_trace"
     FIELD_AI_METRIC = "$ai_metric"
     FIELD_AI_FEEDBACK = "$ai_feedback"
-    FIELD_AI_EVALUATION = "$ai_evaluation"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -13431,6 +13430,7 @@ class MaxRecordingUniversalFilters(BaseModel):
     duration: list[RecordingDurationFilter]
     filter_group: MaxOuterUniversalFiltersGroup
     filter_test_accounts: Optional[bool] = None
+    limit: Optional[int] = None
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
     order_direction: Optional[RecordingOrderDirection] = Field(
         default=RecordingOrderDirection.DESC,

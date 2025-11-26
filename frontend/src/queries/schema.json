@@ -18625,6 +18625,9 @@
                 "filter_test_accounts": {
                     "type": "boolean"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
                     "default": "start_time"
