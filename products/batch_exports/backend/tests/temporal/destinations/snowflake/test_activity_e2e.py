@@ -7,6 +7,7 @@ Note: This module uses a real Snowflake connection.
 import os
 import uuid
 import datetime as dt
+import collections.abc
 
 import pytest
 
@@ -60,6 +61,7 @@ async def _run_activity(
     expect_duplicates: bool = False,
     primary_key=None,
     assert_clickhouse_records: bool = True,
+    timestamp_columns: collections.abc.Sequence[str] = (),
     uppercase_columns: list[str] | None = None,
 ):
     """Helper function to run insert_into_snowflake_activity_from_stage and assert records in Snowflake"""
@@ -109,6 +111,7 @@ async def _run_activity(
             expected_fields=expected_fields,
             expect_duplicates=expect_duplicates,
             primary_key=primary_key,
+            timestamp_columns=timestamp_columns,
             uppercase_columns=uppercase_columns,
         )
     return result
@@ -570,7 +573,7 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
     )
 
 
-async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incompatible(
+async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
@@ -580,15 +583,24 @@ async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incomp
     data_interval_end,
     ateam,
 ):
-    """Test that the `insert_into_snowflake_activity_from_stage` raises an error when the schema of the destination table is
-    incompatible with the schema of the data we are trying to load. This typically applies to the events table, which
-    has a fixed schema (for now).
+    """Test that the `insert_into_snowflake_activity_from_stage` handles columns in the
+    destination having INT64 type for DateTime64 columns.
 
-    To replicate this situation we first export the data with the original
-    schema, then delete a column in the destination and then rerun the export.
+    ClickHouse exports DateTime columns as uint32. Not to be confused with DateTime64
+    columns which are exported as Arrow's native timestamp type.
+
+    This can lead to fields in destination tables corresponding to DateTime types being
+    created as Snowflake's INTEGER, as that's how we resolve Arrow's uint32.
+
+    If the ClickHouse type ever changes from DateTime to DateTime64, for example, if the
+    query is updated, we want to ensure we can continue exporting to an INTEGER field,
+    even if the field is now DateTime64.
+
+    To replicate this situation we first export the data to create the table, then alter
+    'created_at' to be of type INTEGER, and then rerun the export.
     """
-    model = BatchExportModel(name="events", schema=None)
-    table_name = f"test_insert_activity_events_table_{ateam.pk}"
+    model = BatchExportModel(name="persons", schema=None)
+    table_name = f"test_insert_activity_persons_table_{ateam.pk}"
 
     await _run_activity(
         activity_environment=activity_environment,
@@ -600,11 +612,12 @@ async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incomp
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=model,
-        sort_key="uuid",
+        sort_key="person_id",
     )
 
-    # Drop the timestamp column from the Snowflake table
-    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" DROP COLUMN "timestamp"')
+    snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
+    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" DROP COLUMN "created_at"')
+    snowflake_cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "created_at" INTEGER')
 
     result = await _run_activity(
         activity_environment=activity_environment,
@@ -616,13 +629,12 @@ async def test_insert_into_snowflake_activity_raises_error_when_schema_is_incomp
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=model,
-        sort_key="uuid",
-        assert_clickhouse_records=False,
+        sort_key="person_id",
+        timestamp_columns=("created_at",),
     )
 
     assert isinstance(result, BatchExportResult)
-    assert result.error is not None
-    assert result.error.type == "SnowflakeIncompatibleSchemaError"
+    assert result.error is None
 
 
 @pytest.mark.parametrize(
