@@ -30,9 +30,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(
-        PersonlessDistinctId.objects.using("default").filter(team_id__in=team_ids)
-    )  # Also delete from default DB
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
     # Get cohort_ids from the default database first to avoid cross-database join
