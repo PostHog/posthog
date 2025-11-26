@@ -219,9 +219,9 @@ class DirectCommand(Command):
         if has_operators:
             # For shell commands, pass args as positional parameters using sh -c
             if args:
-                # Pass the script as first arg, script name as $0, then actual args as $1, $2, etc.
+                # Pass args as positional parameters: _ is placeholder for $0, then actual args as $1, $2, etc.
                 escaped_args = " ".join(shlex.quote(arg) for arg in args)
-                cmd_str = f"sh -c {shlex.quote(cmd_str)} -- {escaped_args}"
+                cmd_str = f"sh -c {shlex.quote(cmd_str)} _ {escaped_args}"
             _run(cmd_str, shell=True)
         else:
             # Use list format for simple commands without shell operators
