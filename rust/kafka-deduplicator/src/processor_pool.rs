@@ -1,5 +1,8 @@
-use crate::kafka::batch_message::{Batch, KafkaMessage};
-use crate::kafka::message::MessageProcessor;
+use crate::kafka::{
+    batch_message::{Batch, KafkaMessage},
+    message::MessageProcessor,
+    metrics_consts::BATCH_CONSUMER_MESSAGE_ERROR,
+};
 use common_types::CapturedEvent;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -98,10 +101,10 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
 
                 if !errors.is_empty() {
                     for error in errors {
-                        // errors here will be msg recv or deserialization, should be rare
+                        // errors here will be msg deserialization errors; should be rare
                         // if KafkaMessage<T> type matches expected topic contents!
-                        error!("Router: batch msg error: {:?}", error);
-                        // TODO(eli): stat batch error count and type
+                        error!("Router: batch message processing error: {:?}", error);
+                        metrics::counter!(BATCH_CONSUMER_MESSAGE_ERROR).increment(1);
                     }
                 }
 
