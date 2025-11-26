@@ -263,6 +263,7 @@ export function SessionRecordingCollections(): JSX.Element {
                                 onSelect={(value) => {
                                     setSavedPlaylistsFilters({ collectionType: value })
                                 }}
+                                size="small"
                                 options={[
                                     {
                                         label: 'All',

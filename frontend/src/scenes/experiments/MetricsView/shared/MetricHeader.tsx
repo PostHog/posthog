@@ -83,7 +83,7 @@ const AddBreakdownButton = ({
                 icon={<IconPlusSmall />}
                 onClick={() => setDropdownOpen(!dropdownOpen)}
             >
-                Add breakdown
+                Breakdown
             </LemonButton>
         </LemonDropdown>
     )
