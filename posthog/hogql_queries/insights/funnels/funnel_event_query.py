@@ -159,14 +159,18 @@ class FunnelEventQuery:
             table_name: str, steps: list[tuple[int, DataWarehouseNode]]
         ) -> ast.SelectQuery:
             # TODO: Implement where conditions for data warehouse sources
-            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE)
-
-            table_alias = self.EVENT_TABLE_ALIAS
             node = steps[0][1]
 
+            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE)
+
             select: list[ast.Expr] = [
-                ast.Alias(alias="timestamp", expr=ast.Field(chain=[table_alias, node.timestamp_field])),
-                ast.Alias(alias="aggregation_target", expr=ast.Field(chain=[table_alias, node.distinct_id_field])),
+                ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])),
+                ast.Alias(
+                    alias="aggregation_target",
+                    expr=ast.Call(
+                        name="toUUID", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.distinct_id_field])]
+                    ),
+                ),
                 *all_step_cols,
             ]
 
@@ -174,12 +178,12 @@ class FunnelEventQuery:
             where_exprs: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=[table_alias, node.timestamp_field]),
+                    left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field]),
                     right=ast.Constant(value=date_range.date_from()),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=[table_alias, node.timestamp_field]),
+                    left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field]),
                     right=ast.Constant(value=date_range.date_to()),
                 ),
             ]
@@ -192,7 +196,7 @@ class FunnelEventQuery:
 
             return ast.SelectQuery(
                 select=select,
-                select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]), alias=table_alias),
+                select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]), alias=self.EVENT_TABLE_ALIAS),
                 where=where,
             )
 
