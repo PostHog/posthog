@@ -1,7 +1,17 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { LemonBadge, LemonButton, LemonInput, LemonTable, LemonTableColumn, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonSwitch,
+    LemonTable,
+    LemonTableColumn,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -25,17 +35,16 @@ export function HogFunctionList({
     hideFeedback = false,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { filteredHogFunctions, filters, loading, pagination, totalCount, searchValue, currentPage } = useValues(
-        hogFunctionsListLogic(props)
-    )
+    const { filteredHogFunctions, filters, loading, pagination, totalCount, searchValue, currentPage, showPaused } =
+        useValues(hogFunctionsListLogic(props))
     const {
         loadHogFunctions,
-        setFilters,
         toggleEnabled,
         deleteHogFunction,
         setReorderModalOpen,
         setPagination,
         setSearchValue,
+        setShowPaused,
     } = useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
@@ -215,10 +224,12 @@ export function HogFunctionList({
                     <div className="flex gap-2 items-center mb-2">
                         <LemonInput
                             type="search"
-                            placeholder="Search active..."
+                            placeholder="Search destinations..."
                             value={searchValue}
                             onChange={setSearchValue}
                         />
+                        <LemonSwitch checked={showPaused} onChange={setShowPaused} label="Show paused only" />
+                        <LemonDivider vertical />
                         {!hideFeedback && (
                             <Link
                                 className="text-sm font-semibold"
@@ -237,7 +248,7 @@ export function HogFunctionList({
                         pagination={{
                             controlled: true,
                             pageSize: pagination.limit,
-                            currentPage: currentPage,
+                            currentPage,
                             entryCount: totalCount,
                         }}
                         defaultSorting={{
@@ -257,9 +268,7 @@ export function HogFunctionList({
                             filteredHogFunctions.length === 0 && !loading ? (
                                 <>
                                     No {humanizedType} found.{' '}
-                                    {filters.search && (
-                                        <Link onClick={() => setFilters({ search: '' })}>Clear search</Link>
-                                    )}
+                                    {filters.search && <Link onClick={() => setSearchValue('')}>Clear search</Link>}
                                 </>
                             ) : undefined
                         }

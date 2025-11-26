@@ -21,6 +21,7 @@ export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 
 export type HogFunctionListFilters = {
     search?: string
+    showPaused?: boolean
 }
 
 export type HogFunctionListPagination = {
@@ -85,12 +86,9 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         addHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setReorderModalOpen: (open: boolean) => ({ open }),
         saveHogFunctionOrder: (newOrders: Record<string, number>) => ({ newOrders }),
-        setPagination: (pagination: Partial<HogFunctionListPagination>) => ({
-            pagination,
-        }),
-        setIsPausedExpanded: (expanded: boolean) => ({ expanded }),
-        setActiveSearchValue: (value: string) => ({ value }),
-        setPausedSearchValue: (value: string) => ({ value }),
+        setPagination: (pagination: Partial<HogFunctionListPagination>) => ({ pagination }),
+        setSearchValue: (value: string) => ({ value }),
+        setShowPaused: (showPaused: boolean) => ({ showPaused }),
     }),
     reducers(() => ({
         filters: [
@@ -100,29 +98,26 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     ...state,
                     ...filters,
                 }),
-                resetFilters: () => ({}),
+                setSearchValue: (state, { value }) => ({
+                    ...state,
+                    search: value,
+                }),
+                setShowPaused: (state, { showPaused }) => ({
+                    ...state,
+                    showPaused,
+                }),
             },
         ],
         pagination: [
             { offset: 0, limit: 10 } as HogFunctionListPagination,
             {
                 setPagination: (state, { pagination }) => ({ ...state, ...pagination }),
-                setFilters: () => ({ offset: 0, limit: 10 }),
-                resetFilters: () => ({ offset: 0, limit: 10 }),
             },
         ],
         reorderModalOpen: [
             false as boolean,
             {
                 setReorderModalOpen: (_, { open }) => open,
-            },
-        ],
-        searchValue: [
-            '' as string,
-            {
-                setSearchValue: (_, { value }) => value,
-                setFilters: (state, { filters }) => (filters.search !== undefined ? filters.search : state),
-                resetFilters: () => '',
             },
         ],
     })),
@@ -138,6 +133,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         offset: values.pagination.offset,
                         search: values.filters.search,
                         order: values.pagination.order,
+                        enabled: !values.filters.showPaused,
                     })
                     return { results: response.results, count: response.count }
                 },
@@ -222,6 +218,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             (s) => [s.pagination],
             (pagination: HogFunctionListPagination) => Math.floor(pagination.offset / pagination.limit) + 1,
         ],
+        showPaused: [(s) => [s.filters], (filters: HogFunctionListFilters) => Boolean(filters.showPaused)],
     }),
 
     listeners(({ actions, cache }) => ({
@@ -246,6 +243,9 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             await breakpoint(300)
             actions.setFilters({ search: value })
         },
+        setShowPaused: () => {
+            actions.loadHogFunctions()
+        },
     })),
 
     actionToUrl(({ props, values }) => {
@@ -261,7 +261,6 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             },
         ] => [
             router.values.location.pathname,
-
             values.filters,
             router.values.hashParams,
             {
@@ -282,12 +281,15 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             }
 
             if (!objectsEqual(values.filters, searchParams)) {
-                const { activeSearch, pausedSearch, ...rest } = searchParams
+                const { activeSearch, pausedSearch, page, ...rest } = searchParams
                 const filters = { ...rest }
                 if (activeSearch) {
                     filters.search = activeSearch
                 } else if (pausedSearch) {
                     filters.search = pausedSearch
+                }
+                if (page) {
+                    actions.setPagination({ offset: (Number(page) - 1) * values.pagination.limit })
                 }
                 actions.setFilters(filters)
             }
