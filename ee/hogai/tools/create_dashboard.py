@@ -3,7 +3,7 @@ from typing import Literal
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
+from ee.hogai.chat_agent.dashboards.nodes import DashboardCreationNode
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.utils.types.base import AssistantState, InsightQuery, PartialAssistantState
@@ -30,7 +30,6 @@ class CreateDashboardToolArgs(BaseModel):
 class CreateDashboardTool(MaxTool):
     name: Literal["create_dashboard"] = "create_dashboard"
     description: str = CREATE_DASHBOARD_TOOL_PROMPT
-    thinking_message: str = "Creating a dashboard"
     context_prompt_template: str = "Creates a dashboard based on the user's request"
     args_schema: type[BaseModel] = CreateDashboardToolArgs
     show_tool_call_message: bool = False

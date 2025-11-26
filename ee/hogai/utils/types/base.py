@@ -13,6 +13,7 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
+    AgentMode,
     AssistantEventType,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -247,6 +248,14 @@ class BaseStateWithMessages(BaseState):
     """
     Messages exposed to the user.
     """
+    agent_mode: AgentMode | None = Field(default=None)
+    """
+    The mode of the agent.
+    """
+
+    @property
+    def agent_mode_or_default(self) -> AgentMode:
+        return self.agent_mode or AgentMode.PRODUCT_ANALYTICS
 
 
 class BaseStateWithTasks(BaseState):
@@ -331,6 +340,13 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
     """
+    specific_session_ids_to_summarize: Optional[list[str]] = Field(default=None)
+    """
+    List of specific session IDs (UUIDs) to summarize. Can be populated from:
+    - Session IDs extracted from user's natural language query
+    - Current session ID from context when user refers to "this session"
+    - Multiple session IDs when user specifies several sessions
+    """
     should_use_current_filters: Optional[bool] = Field(default=None)
     """
     Whether to use current filters from user's UI to find relevant sessions.
@@ -388,6 +404,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
+    USAGE_COMMAND_HANDLER = "usage_command_handler"
     TRENDS_GENERATOR = "trends_generator"
     TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
     FUNNEL_GENERATOR = "funnel_generator"
@@ -414,6 +431,8 @@ class AssistantNodeName(StrEnum):
     SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
     REVENUE_ANALYTICS_FILTER = "revenue_analytics_filter"
     REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
+    WEB_ANALYTICS_FILTER = "web_analytics_filter"
+    WEB_ANALYTICS_FILTER_OPTIONS_TOOLS = "web_analytics_filter_options_tools"
 
 
 class AssistantGraphName(StrEnum):

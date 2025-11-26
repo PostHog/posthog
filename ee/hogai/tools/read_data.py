@@ -5,8 +5,8 @@ from pydantic import BaseModel
 
 from posthog.models import Team, User
 
+from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolFatalError
 from ee.hogai.utils.prompt import format_prompt_string

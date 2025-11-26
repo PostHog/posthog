@@ -35,7 +35,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -46,7 +46,6 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
-    ProductKey,
 } from '~/types'
 
 import { createMaxToolSurveyConfig } from './FeatureFlag'
@@ -509,10 +508,10 @@ export function FeatureFlags(): JSX.Element {
                             identifier="create_feature_flag"
                             initialMaxPrompt="Create a feature flag for "
                             suggestions={[
-                                'Create a flag to gradually roll out our new checkout experience',
-                                'Create a dark mode toggle that starts at 10% rollout',
-                                'Create an experimental flag for testing our new recommendation algorithm',
-                                'Create a flag to enable advanced analytics for beta testers',
+                                'Create a flag to gradually roll out…',
+                                'Create a flag that starts at 10% rollout for…',
+                                'Create a multivariate flag for…',
+                                'Create a beta testing flag for…',
                             ]}
                             callback={(toolOutput: { flag_id?: string | number; error?: string }) => {
                                 if (toolOutput?.error || !toolOutput?.flag_id) {

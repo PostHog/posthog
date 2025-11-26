@@ -40,7 +40,7 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { pluralize } from 'lib/utils'
+import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -75,6 +75,8 @@ import { ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { MessageTemplate } from './messages/MessageTemplate'
+import { UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
 import {
     castAssistantQuery,
@@ -175,7 +177,7 @@ interface MessageProps {
 function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
-    const { threadLoading } = useValues(maxThreadLogic)
+    const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -249,6 +251,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                     id={message.id || key}
                                     completed={isThinkingComplete}
                                     showCompletionIcon={false}
+                                    animate={!inStorybookTestRunner() && message.id === 'loader'} // Avoiding flaky snapshots in Storybook
                                 />
                             )
                         }
@@ -263,9 +266,17 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 />
                             ) : null
 
+                        // Allow action to be rendered in the middle if it has hrefs (like, links to open a report)
+                        const ifActionInTheMiddle =
+                            message.meta?.form?.options && message.meta.form.options.some((option) => option.href)
                         // Render main text content
                         const textElement = message.content ? (
-                            <TextAnswer key={`${key}-text`} message={message} withActions={false} />
+                            <TextAnswer
+                                key={`${key}-text`}
+                                message={message}
+                                withActions={ifActionInTheMiddle}
+                                interactable={ifActionInTheMiddle}
+                            />
                         ) : null
 
                         // Compute actions separately to render after tool calls
@@ -302,12 +313,26 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 {actionsElement}
                             </div>
                         )
+                    } else if (
+                        isAssistantToolCallMessage(message) &&
+                        message.ui_payload &&
+                        Object.keys(message.ui_payload).length > 0
+                    ) {
+                        const [toolName, toolPayload] = Object.entries(message.ui_payload)[0]
+                        return (
+                            <UIPayloadAnswer
+                                key={key}
+                                toolCallId={message.tool_call_id}
+                                toolName={toolName}
+                                toolPayload={toolPayload}
+                            />
+                        )
                     } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                interactable={isLastInGroup}
+                                interactable={!isSharedThread && isLastInGroup}
                                 isFinalGroup={isFinal}
                             />
                         )
@@ -360,48 +385,6 @@ function MessageGroupSkeleton({
     )
 }
 
-interface MessageTemplateProps {
-    type: 'human' | 'ai'
-    action?: React.ReactNode
-    className?: string
-    boxClassName?: string
-    wrapperClassName?: string
-    children?: React.ReactNode
-    header?: React.ReactNode
-}
-
-const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, wrapperClassName, action, header },
-    ref
-) {
-    return (
-        <div
-            className={twMerge(
-                'flex flex-col gap-px w-full break-words scroll-mt-12',
-                type === 'human' ? 'items-end' : 'items-start',
-                className
-            )}
-            ref={ref}
-        >
-            <div className={twMerge('max-w-full', wrapperClassName)}>
-                {header}
-                {children && (
-                    <div
-                        className={twMerge(
-                            'border py-2 px-3 rounded-lg bg-surface-primary',
-                            type === 'human' && 'font-medium',
-                            boxClassName
-                        )}
-                    >
-                        {children}
-                    </div>
-                )}
-            </div>
-            {action}
-        </div>
-    )
-})
-
 interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
     interactable?: boolean
@@ -432,8 +415,11 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
               if (isAssistantMessage(message) && interactable) {
                   // Message has been interrupted with a form
-                  if (message.meta?.form?.options && isFinalGroup) {
-                      return <AssistantMessageForm form={message.meta.form} />
+                  if (
+                      message.meta?.form?.options &&
+                      (isFinalGroup || message.meta.form.options.some((option) => option.href))
+                  ) {
+                      return <AssistantMessageForm form={message.meta.form} linksOnly={!isFinalGroup} />
                   }
 
                   // Show answer actions if the assistant's response is complete at this point
@@ -465,17 +451,25 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
 interface AssistantMessageFormProps {
     form: AssistantForm
+    linksOnly?: boolean
 }
 
-function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
+function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
+
+    const options = linksOnly ? form.options.filter((option) => option.href) : form.options
+
     return (
-        <div className="flex flex-wrap gap-1.5 mt-1">
-            {form.options.map((option) => (
+        // ml-1 is because buttons have radius of 0.375rem, while messages of 0.65rem, where diff = 0.25rem
+        // Also makes it clear the form is subservient to the message. *Harmony*
+        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
+            {options.map((option) => (
                 <LemonButton
                     key={option.value}
-                    onClick={() => askMax(option.value)}
+                    onClick={!option.href ? () => askMax(option.value) : undefined}
+                    to={option.href}
                     size="small"
+                    targetBlank={!!option.href}
                     type={
                         option.variant && ['primary', 'secondary', 'tertiary'].includes(option.variant)
                             ? (option.variant as LemonButtonPropsBase['type'])
@@ -579,7 +573,6 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
         </MessageTemplate>
     )
 }
-
 interface PlanningAnswerProps {
     toolCall: EnhancedToolCall
     isLastPlanningMessage?: boolean
@@ -606,7 +599,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     const hasMultipleSteps = steps.length > 1
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col text-xs">
             <div
                 className={clsx('flex items-center', !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer')}
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
@@ -733,7 +726,7 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
 
     return (
-        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
             <div
                 className={clsx(
                     'transition-all duration-500 flex',
@@ -745,11 +738,11 @@ function AssistantActionComponent({
                 aria-label={!showChevron ? undefined : isExpanded ? 'Collapse history' : 'Expand history'}
             >
                 {icon && (
-                    <div className="flex items-center justify-center size-6">
+                    <div className="flex items-center justify-center size-5">
                         {isInProgress && animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
-                            <span className="inline-flex">{icon}</span>
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
                         )}
                     </div>
                 )}
@@ -758,7 +751,7 @@ function AssistantActionComponent({
                         {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
-                            markdownContent
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
                         )}
                     </div>
                     {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
@@ -817,17 +810,24 @@ interface ReasoningAnswerProps {
     completed: boolean
     id: string
     showCompletionIcon?: boolean
+    animate?: boolean
 }
 
-function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: ReasoningAnswerProps): JSX.Element {
+function ReasoningAnswer({
+    content,
+    completed,
+    id,
+    showCompletionIcon = true,
+    animate = false,
+}: ReasoningAnswerProps): JSX.Element {
     return (
         <AssistantActionComponent
             id={id}
             content={completed ? 'Thought' : content}
             substeps={completed ? [content] : []}
             state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
-            icon={<IconBrain className="pt-[0.03rem]" />} // The brain icon is slightly too high, so we need to offset it
-            animate={true}
+            icon={<IconBrain />}
+            animate={!inStorybookTestRunner() && animate} // Avoiding flaky snapshots in Storybook
             showCompletionIcon={showCompletionIcon}
         />
     )

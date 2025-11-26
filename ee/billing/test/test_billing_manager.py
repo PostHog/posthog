@@ -1,9 +1,8 @@
+import datetime
 from typing import Any, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
-
-from django.utils import timezone
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import OrganizationMembership
@@ -65,7 +64,7 @@ class TestBillingManager(BaseTest):
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
         y = User.objects.create_and_join(
             organization=organization,
@@ -93,7 +92,7 @@ class TestBillingManager(BaseTest):
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
         User.objects.create_and_join(
             organization=organization,
@@ -155,6 +154,7 @@ class TestBillingManager(BaseTest):
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
+            "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "survey_responses": {
@@ -169,7 +169,7 @@ class TestBillingManager(BaseTest):
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         billing_status = {
@@ -183,6 +183,7 @@ class TestBillingManager(BaseTest):
                     "feature_flag_requests": {"usage": 25, "limit": 300},
                     "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
                     "llm_events": {"usage": 50, "limit": 1000},
+                    "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
                     "survey_responses": {"usage": 10, "limit": 100},
                     "cdp_trigger_events": {"usage": 10, "limit": 100},
                 },
@@ -219,6 +220,7 @@ class TestBillingManager(BaseTest):
             "rows_exported": {"usage": 10, "limit": 1000, "todays_usage": 5},
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
+            "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
             "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},

@@ -120,4 +120,5 @@ def calculate_for_query_based_insight(
         query_status=response.get("query_status"),
         hogql=response.get("hogql"),
         types=response.get("types"),
+        resolved_date_range=response.get("resolved_date_range"),
     )

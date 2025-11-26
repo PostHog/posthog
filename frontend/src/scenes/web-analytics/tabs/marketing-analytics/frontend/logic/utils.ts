@@ -8,15 +8,26 @@ import {
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
-    NativeMarketingSource,
     NodeKind,
-    VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import { ManualLinkSourceType, PropertyMathType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 
+export type NativeMarketingSource = Extract<
+    ExternalDataSourceType,
+    'GoogleAds' | 'RedditAds' | 'LinkedinAds' | 'MetaAds' | 'TikTokAds' | 'BingAds'
+>
 export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
+
+export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = [
+    'GoogleAds',
+    'RedditAds',
+    'LinkedinAds',
+    'MetaAds',
+    'TikTokAds',
+    'BingAds',
+]
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
 export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
@@ -304,6 +315,36 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                     return {
                         math: 'hogql' as any,
                         math_hogql: 'SUM(toFloat(conversion))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            return null
+        },
+    },
+    BingAds: {
+        statsTableName: 'campaign_performance_report',
+        displayName: 'bing',
+        idField: 'campaign_id',
+        timestampField: 'time_period',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'conversions',
+            currencyColumn: 'currency_code',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                // If Bing Ads does not return conversions it won't be in the table.fields.
+                const hasConversionsColumn = table.fields && 'conversions' in table.fields
+                if (hasConversionsColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(toFloat(conversions))',
                     }
                 }
                 return {

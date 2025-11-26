@@ -11,11 +11,13 @@ from posthog.temporal.delete_recordings.activities import (
     group_recording_blocks,
     load_recording_blocks,
     load_recordings_with_person,
+    load_recordings_with_query,
 )
 from posthog.temporal.delete_recordings.types import (
     Recording,
     RecordingBlockGroup,
     RecordingsWithPersonInput,
+    RecordingsWithQueryInput,
     RecordingWithBlocks,
 )
 from posthog.temporal.delete_recordings.utils import batched
@@ -84,7 +86,7 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
     async def run(self, input: RecordingsWithPersonInput) -> None:
         session_ids = await workflow.execute_activity(
             load_recordings_with_person,
-            RecordingsWithPersonInput(distinct_ids=input.distinct_ids, team_id=input.team_id),
+            input,
             start_to_close_timeout=timedelta(minutes=5),
             schedule_to_close_timeout=timedelta(hours=3),
             retry_policy=common.RetryPolicy(
@@ -110,3 +112,44 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                             ),
                         )
                     )
+
+
+@workflow.defn(name="delete-recordings-with-query")
+class DeleteRecordingsWithQueryWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(input: list[str]) -> RecordingsWithQueryInput:
+        """Parse input from the management command CLI."""
+        loaded = json.loads(input[0])
+        return RecordingsWithQueryInput(**loaded)
+
+    @workflow.run
+    async def run(self, input: RecordingsWithQueryInput) -> None:
+        session_ids = await workflow.execute_activity(
+            load_recordings_with_query,
+            input,
+            start_to_close_timeout=timedelta(minutes=5),
+            schedule_to_close_timeout=timedelta(hours=3),
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=2,
+                initial_interval=timedelta(minutes=1),
+            ),
+        )
+
+        if not input.dry_run:
+            for batch in batched(session_ids, input.batch_size):
+                async with asyncio.TaskGroup() as delete_recordings:
+                    for session_id in batch:
+                        delete_recordings.create_task(
+                            workflow.execute_child_workflow(
+                                DeleteRecordingWorkflow.run,
+                                Recording(session_id=session_id, team_id=input.team_id),
+                                parent_close_policy=ParentClosePolicy.ABANDON,
+                                execution_timeout=timedelta(hours=3),
+                                run_timeout=timedelta(hours=1),
+                                task_timeout=timedelta(minutes=30),
+                                retry_policy=common.RetryPolicy(
+                                    maximum_attempts=2,
+                                    initial_interval=timedelta(minutes=1),
+                                ),
+                            )
+                        )

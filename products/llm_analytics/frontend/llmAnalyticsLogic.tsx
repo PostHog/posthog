@@ -11,7 +11,6 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,7 +18,15 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { isAnyPropertyFilters } from '~/queries/schema-guards'
-import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    LLMTrace,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    TraceQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
@@ -29,7 +36,6 @@ import {
     EventDefinitionType,
     HogQLMathType,
     InsightShortId,
-    ProductKey,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -1168,12 +1174,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => {
                 // Use the shared query template
-                // The SQL template uses Python's .format() escaping ({{ for literal {), so normalize those for HogQL
+                // Simple placeholder replacement - no escaping needed
                 const query = errorsQueryTemplate
-                    .replace(/\{\{/g, '{')
-                    .replace(/\}\}/g, '}')
-                    .replace('{orderBy}', errorsSort.column)
-                    .replace('{orderDirection}', errorsSort.direction)
+                    .replace('__ORDER_BY__', errorsSort.column)
+                    .replace('__ORDER_DIRECTION__', errorsSort.direction)
 
                 return {
                     kind: NodeKind.DataTableNode,

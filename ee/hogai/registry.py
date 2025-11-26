@@ -14,8 +14,6 @@ CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
 
 def _import_max_tools() -> None:
     """TRICKY: Dynamically import max_tools from all products"""
-    # Already imported
-
     for module_info in pkgutil.iter_modules(products.__path__):
         if module_info.name in ("conftest", "test"):
             continue  # We mustn't import test modules in prod

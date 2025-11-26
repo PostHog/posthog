@@ -11,7 +11,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { EarlyAccessFeatureType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { EarlyAccessFeatureType } from '~/types'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 

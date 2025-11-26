@@ -57,6 +57,7 @@ export type SettingSectionId =
     | 'user-danger-zone'
     | 'user-feature-previews'
     | 'mcp-server'
+    | 'product-logs'
 
 export type SettingId =
     | 'replay-triggers'
@@ -91,6 +92,7 @@ export type SettingId =
     | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
+    | 'error-tracking-releases'
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'

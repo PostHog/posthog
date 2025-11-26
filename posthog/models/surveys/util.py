@@ -1,4 +1,7 @@
 from enum import StrEnum
+from uuid import UUID
+
+from posthog.models.surveys.survey_response_archive import SurveyResponseArchive
 
 
 class SurveyEventName(StrEnum):
@@ -160,3 +163,24 @@ def get_unique_survey_event_uuids_sql_subquery(
     group_by_clause = ", ".join([*group_by_prefix_expressions, deduplication_group_by_key])
 
     return f"(SELECT argMax(uuid, timestamp) FROM events WHERE {where_clause} GROUP BY {group_by_clause})"
+
+
+def get_archived_response_uuids(survey_id: str | UUID | None, team_id: int) -> set[str]:
+    """
+    Get set of archived response UUIDs from PostgreSQL.
+
+    Args:
+        survey_id: UUID of the survey, or None to get all archived responses for the team
+        team_id: Team ID
+
+    Returns:
+        Set of archived response UUIDs as strings
+    """
+    filter_kwargs: dict[str, int | str | UUID] = {"team_id": team_id}
+    if survey_id is not None:
+        filter_kwargs["survey_id"] = survey_id
+
+    return {
+        str(uuid)
+        for uuid in SurveyResponseArchive.objects.filter(**filter_kwargs).values_list("response_uuid", flat=True)
+    }

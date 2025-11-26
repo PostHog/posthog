@@ -14,6 +14,7 @@ def hash_elements(elements) -> str:
         el_dict = model_to_dict(element)
         [el_dict.pop(key) for key in ["event", "id", "group"]]
         elements_list.append(el_dict)
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     return hashlib.md5(json.dumps(elements_list, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 

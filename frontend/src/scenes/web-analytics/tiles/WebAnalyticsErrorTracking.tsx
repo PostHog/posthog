@@ -6,7 +6,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/common'
@@ -14,9 +13,8 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
-import { ProductKey } from '~/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue

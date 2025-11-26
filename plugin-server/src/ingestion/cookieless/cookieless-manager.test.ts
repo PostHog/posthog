@@ -22,6 +22,7 @@ import {
     extractRootDomain,
     getRedisIdentifiesKey,
     hashToDistinctId,
+    isCalendarDateValid,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
 } from './cookieless-manager'
@@ -110,6 +111,59 @@ describe('CookielessManager', () => {
             const date = new Date('2025-01-01T12:00:00Z').getTime()
             const result = toYYYYMMDDInTimezoneSafe(date, 'Pacific/Tongatapu', 'UTC')
             expect(result).toEqual('2025-01-02')
+        })
+    })
+
+    describe('isCalendarDateValid', () => {
+        const fixedTime = new Date('2025-11-13T12:00:00Z')
+
+        beforeEach(() => {
+            jest.useFakeTimers({ now: fixedTime })
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('should accept today', () => {
+            // Fixed time: 2025-11-13 12:00 UTC
+            expect(isCalendarDateValid('2025-11-13')).toBe(true)
+        })
+
+        it('should accept yesterday', () => {
+            // Salt window for 2025-11-12: Nov 11 12:00 to Nov 15 14:00
+            // NOW (Nov 13 12:00) is within window
+            expect(isCalendarDateValid('2025-11-12')).toBe(true)
+        })
+
+        it('should accept 3 days ago (within 72h + timezone buffer)', () => {
+            // Salt window for 2025-11-10: Nov 9 12:00 to Nov 13 14:00
+            // NOW (Nov 13 12:00) is within window
+            expect(isCalendarDateValid('2025-11-10')).toBe(true)
+        })
+
+        it('should reject 4 days ago (salt window expired)', () => {
+            // Salt window for 2025-11-09: Nov 8 12:00 to Nov 12 14:00
+            // NOW (Nov 13 12:00) is after window ended
+            expect(isCalendarDateValid('2025-11-09')).toBe(false)
+        })
+
+        it('should reject 5 days ago (salt window expired)', () => {
+            // Salt window for 2025-11-08: Nov 7 12:00 to Nov 11 14:00
+            // NOW (Nov 13 12:00) is well after window ended
+            expect(isCalendarDateValid('2025-11-08')).toBe(false)
+        })
+
+        it('should reject tomorrow-ish dates', () => {
+            // Salt window for 2025-11-08: Nov 7 12:00 to Nov 11 14:00
+            // NOW (Nov 13 12:00) is well after window ended
+            expect(isCalendarDateValid('2025-11-15')).toBe(false)
+        })
+
+        it('should reject invalid date format', () => {
+            expect(isCalendarDateValid('not-a-date')).toBe(false)
+            expect(isCalendarDateValid('2025/01/01')).toBe(false)
+            expect(isCalendarDateValid('2025-13-01')).toBe(false)
         })
     })
 

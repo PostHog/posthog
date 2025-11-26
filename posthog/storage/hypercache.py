@@ -3,7 +3,8 @@ import time
 from collections.abc import Callable
 from typing import Optional
 
-from django.core.cache import cache
+from django.conf import settings
+from django.core.cache import cache, caches
 
 import structlog
 from posthoganalytics import capture_exception
@@ -18,6 +19,28 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 DEFAULT_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days
+
+
+def get_cache_writer_url(cache_alias: str) -> str:
+    """
+    Get writer Redis URL from cache alias.
+
+    Django cache backends can have multiple URLs (writer + readers). This extracts
+    the writer URL (first URL if multiple).
+
+    Args:
+        cache_alias: Django cache alias (e.g., 'flags_cache')
+
+    Returns:
+        Redis URL string for the writer
+    """
+    location = settings.CACHES[cache_alias]["LOCATION"]
+    if isinstance(location, list):
+        return location[0]
+    elif isinstance(location, str):
+        return location
+    else:
+        raise TypeError(f"Unsupported LOCATION type for cache alias '{cache_alias}': {type(location)}")
 
 
 CACHE_SYNC_COUNTER = Counter(
@@ -65,6 +88,8 @@ class HyperCache:
         token_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
+        cache_alias: Optional[str] = None,
+        batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
     ):
         self.namespace = namespace
         self.value = value
@@ -72,6 +97,15 @@ class HyperCache:
         self.token_based = token_based
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
+        self.batch_load_fn = batch_load_fn
+
+        # Derive cache_client and redis_url from cache_alias (single source of truth)
+        if cache_alias:
+            self.cache_client = caches[cache_alias]
+            self.redis_url = get_cache_writer_url(cache_alias)
+        else:
+            self.cache_client = cache
+            self.redis_url = settings.REDIS_URL
 
     @staticmethod
     def team_from_key(key: KeyType) -> Team:
@@ -98,7 +132,7 @@ class HyperCache:
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
         cache_key = self.get_cache_key(key)
-        data = cache.get(cache_key)
+        data = self.cache_client.get(cache_key)
 
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
@@ -108,7 +142,6 @@ class HyperCache:
             else:
                 return json.loads(data), "redis"
 
-        # Fallback to s3
         try:
             data = object_storage.read(cache_key)
             if data:
@@ -131,14 +164,14 @@ class HyperCache:
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
-    def update_cache(self, key: KeyType) -> bool:
+    def update_cache(self, key: KeyType, ttl: Optional[int] = None) -> bool:
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
         start_time = time.time()
         success = False
         try:
             data = self.load_fn(key)
-            self.set_cache_value(key, data)
+            self.set_cache_value(key, data, ttl=ttl)
             success = True
             return True
         except Exception as e:
@@ -153,9 +186,11 @@ class HyperCache:
             )
             CACHE_SYNC_COUNTER.labels(result=result, namespace=self.namespace, value=self.value).inc()
 
-    def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
-        self._set_cache_value_redis(key, data)
-        self._set_cache_value_s3(key, data)
+    def set_cache_value(
+        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+    ) -> None:
+        self._set_cache_value_redis(key, data, ttl=ttl)
+        self._set_cache_value_s3(key, data, ttl=ttl)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
@@ -163,18 +198,28 @@ class HyperCache:
         """
         kinds = kinds or ["redis", "s3"]
         if "redis" in kinds:
-            cache.delete(self.get_cache_key(key))
+            self.cache_client.delete(self.get_cache_key(key))
         if "s3" in kinds:
             object_storage.delete(self.get_cache_key(key))
 
-    def _set_cache_value_redis(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
+    def _set_cache_value_redis(
+        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+    ):
         key = self.get_cache_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
-            cache.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=DEFAULT_CACHE_MISS_TTL)
+            self.cache_client.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
         else:
-            cache.set(key, json.dumps(data), timeout=DEFAULT_CACHE_TTL)
+            timeout = ttl if ttl is not None else self.cache_ttl
+            self.cache_client.set(key, json.dumps(data), timeout=timeout)
 
-    def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing):
+    def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):
+        """
+        Write cache value to S3.
+
+        Note: S3 uses fixed lifecycle policies regardless of Redis TTL.
+        Custom TTLs only affect Redis expiration. If you need aligned S3/Redis TTLs,
+        configure S3 bucket lifecycle rules to match your expected TTL range.
+        """
         key = self.get_cache_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
             object_storage.delete(key)

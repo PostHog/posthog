@@ -1,5 +1,6 @@
 import time
 import asyncio
+from typing import cast
 
 from django.conf import settings
 
@@ -11,6 +12,9 @@ from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.client import query_with_columns
+from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
 
@@ -23,6 +27,8 @@ class EvaluationRunRequestSerializer(serializers.Serializer):
     evaluation_id = serializers.UUIDField(required=True)
     target_event_id = serializers.UUIDField(required=True)
     timestamp = serializers.DateTimeField(required=True)
+    event = serializers.CharField(required=True)
+    distinct_id = serializers.CharField(required=False, allow_null=True)
 
 
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -42,7 +48,9 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         evaluation_id = str(serializer.validated_data["evaluation_id"])
         target_event_id = str(serializer.validated_data["target_event_id"])
-        timestamp = serializer.validated_data["timestamp"].isoformat()
+        timestamp = serializer.validated_data["timestamp"]
+        event = serializer.validated_data["event"]
+        distinct_id = serializer.validated_data.get("distinct_id")
 
         # Verify evaluation exists and belongs to this team
         try:
@@ -50,11 +58,53 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except Evaluation.DoesNotExist:
             return Response({"error": f"Evaluation {evaluation_id} not found"}, status=404)
 
+        # Fetch event data from ClickHouse efficiently using available index keys
+        # The compound index is (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
+        where_clauses = [
+            "team_id = %(team_id)s",
+            "toDate(timestamp) = toDate(%(timestamp)s)",
+            "event = %(event)s",
+            "uuid = %(event_id)s",
+        ]
+        params = {
+            "team_id": self.team_id,
+            "event_id": target_event_id.replace("-", ""),
+            "timestamp": timestamp,
+            "event": event,
+        }
+
+        if distinct_id:
+            where_clauses.append("distinct_id = %(distinct_id)s")
+            params["distinct_id"] = distinct_id
+
+        query_result = query_with_columns(
+            f"""
+            SELECT
+                uuid,
+                event,
+                properties,
+                timestamp,
+                team_id,
+                distinct_id,
+                elements_chain,
+                created_at,
+                person_id
+            FROM events
+            WHERE {" AND ".join(where_clauses)}
+            LIMIT 1
+            """,
+            params,
+            team_id=self.team_id,
+        )
+        if len(query_result) == 0:
+            return Response({"error": f"Event {target_event_id} not found"}, status=404)
+
+        event_data = query_result[0]
+
         # Build workflow inputs
         inputs = RunEvaluationInputs(
             evaluation_id=evaluation_id,
-            target_event_id=target_event_id,
-            timestamp=timestamp,
+            event_data=event_data,
         )
 
         # Generate unique workflow ID
@@ -80,6 +130,20 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 evaluation_id=evaluation_id,
                 target_event_id=target_event_id,
                 team_id=self.team_id,
+            )
+
+            # Track evaluation run triggered
+            report_user_action(
+                cast(User, request.user),
+                "llma evaluation run triggered",
+                {
+                    "evaluation_id": evaluation_id,
+                    "evaluation_name": evaluation.name,
+                    "target_event_id": target_event_id,
+                    "workflow_id": workflow_id,
+                    "trigger_type": "manual",
+                },
+                self.team,
             )
 
             return Response(

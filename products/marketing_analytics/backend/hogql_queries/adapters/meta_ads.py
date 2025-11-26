@@ -61,6 +61,11 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         field_expr = ast.Field(chain=[campaign_table_name, field_name])
         return ast.Call(name="toString", args=[field_expr])
 
+    def _get_campaign_id_field(self) -> ast.Expr:
+        campaign_table_name = self.config.campaign_table.name
+        field_expr = ast.Field(chain=[campaign_table_name, "id"])
+        return ast.Call(name="toString", args=[field_expr])
+
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         sum = ast.Call(

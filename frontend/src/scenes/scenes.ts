@@ -51,12 +51,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'annotation',
     },
     [Scene.BillingAuthorizationStatus]: {
-        hideProjectNotice: true,
         organizationBased: true,
         defaultDocsPath: '/pricing',
     },
     [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
-    [Scene.Billing]: { hideProjectNotice: true, organizationBased: true, defaultDocsPath: '/pricing' },
+    [Scene.Billing]: { organizationBased: true, defaultDocsPath: '/pricing' },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
@@ -238,6 +237,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
     },
+    [Scene.Feed]: {
+        projectBased: true,
+        name: 'Feed',
+        description: 'Stay updated with recent activities and changes in your project.',
+        iconType: 'feed',
+    },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
     [Scene.Group]: {
         projectBased: true,
@@ -284,6 +289,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
+    [Scene.Coupons]: { name: 'Coupons', organizationBased: true, layout: 'app-container' },
     [Scene.Link]: { projectBased: true },
     [Scene.Links]: { projectBased: true, name: 'Links' },
     [Scene.LiveEvents]: {
@@ -304,7 +310,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Search',
         iconType: 'search',
         hideProjectNotice: true,
-        layout: 'app-raw',
+        layout: 'app-raw-no-header',
     },
     [Scene.Notebook]: {
         projectBased: true,
@@ -356,6 +362,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
     [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
+    [Scene.UseCaseSelection]: { projectBased: true, name: 'Use case selection', layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
         organizationBased: true,
@@ -423,14 +430,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Revenue analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/revenue-analytics',
-    },
-    [Scene.SQLEditor]: {
-        projectBased: true,
-        name: 'SQL editor',
-        defaultDocsPath: '/docs/cdp/sources',
-        layout: 'app-raw-no-header',
-        hideProjectNotice: true,
-        description: 'Write and execute SQL queries against your data warehouse',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -594,6 +593,10 @@ export const redirects: Record<
     '/saved_insights': urls.savedInsights(),
     '/settings': urls.settings(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
+
+    '/max': (_params, searchParams, hashParams) => combineUrl(urls.ai(), searchParams, hashParams).url,
+    '/max/history': (_params, searchParams, hashParams) => combineUrl(urls.aiHistory(), searchParams, hashParams).url,
+
     ...productRedirects,
 }
 
@@ -677,8 +680,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
-    [urls.maxHistory()]: [Scene.Max, 'maxHistory'],
-    [urls.max()]: [Scene.Max, 'max'],
+    [urls.feed()]: [Scene.Feed, 'feed'],
+    [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
+    [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
     [urls.organizationBilling()]: [Scene.Billing, 'organizationBilling'],
     [urls.organizationBillingSection(':section' as BillingSectionId)]: [
@@ -709,6 +713,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.passwordReset()]: [Scene.PasswordReset, 'passwordReset'],
     [urls.passwordResetComplete(':uuid', ':token')]: [Scene.PasswordResetComplete, 'passwordResetComplete'],
     [urls.products()]: [Scene.Products, 'products'],
+    [urls.useCaseSelection()]: [Scene.UseCaseSelection, 'useCaseSelection'],
     [urls.onboarding(':productKey')]: [Scene.Onboarding, 'onboarding'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
@@ -732,6 +737,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
