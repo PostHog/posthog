@@ -161,7 +161,7 @@ class FunnelEventQuery:
             # TODO: Implement where conditions for data warehouse sources
             node = steps[0][1]
 
-            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE)
+            all_step_cols, all_exclusions = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name)
 
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])),
@@ -221,7 +221,9 @@ class FunnelEventQuery:
             ),
         )
 
-    def _get_funnel_cols(self, source_kind: SourceTableKind) -> tuple[list[ast.Expr], list[list[ExclusionEntityNode]]]:
+    def _get_funnel_cols(
+        self, source_kind: SourceTableKind, table_name
+    ) -> tuple[list[ast.Expr], list[list[ExclusionEntityNode]]]:
         series, funnelsFilter = self.context.query.series, self.context.funnelsFilter
 
         all_step_cols: list[ast.Expr] = []
@@ -229,7 +231,7 @@ class FunnelEventQuery:
 
         # step cols
         for index, entity in enumerate(series):
-            step_col = self._get_step_col(source_kind, entity, index)
+            step_col = self._get_step_col(source_kind, table_name, entity, index)
             all_step_cols.append(step_col)
             all_exclusions.append([])
 
@@ -240,7 +242,7 @@ class FunnelEventQuery:
                     all_exclusions[i].append(excluded_entity)
 
             for index, exclusions in enumerate(all_exclusions):
-                exclusion_col_expr = self._get_exclusions_col(source_kind, exclusions, index)
+                exclusion_col_expr = self._get_exclusions_col(source_kind, table_name, exclusions, index)
                 all_step_cols.append(exclusion_col_expr)
 
         # breakdown (attribution) col
@@ -254,24 +256,26 @@ class FunnelEventQuery:
     def _get_step_col(
         self,
         source_kind: SourceTableKind,
+        table_name: str,
         entity: EntityNode,
         index: int,
     ) -> ast.Expr:
         if entity_source_mismatch(entity, source_kind):
             return parse_expr(f"0 as step_{index}")
 
-        condition = self._build_step_query(source_kind, entity, index)
+        condition = self._build_step_query(source_kind, table_name, entity, index)
         return parse_expr(f"if({{condition}}, 1, 0) as step_{index}", placeholders={"condition": condition})
 
     def _get_exclusions_col(
         self,
         source_kind: SourceTableKind,
+        table_name: str,
         exclusions: list[ExclusionEntityNode],
         index: int,
     ) -> ast.Expr:
         if is_data_warehouse_source(source_kind):
             return parse_expr(f"0 as exclusion_{index}")
-        conditions = [self._build_step_query(source_kind, exclusion, index) for exclusion in exclusions]
+        conditions = [self._build_step_query(source_kind, table_name, exclusion, index) for exclusion in exclusions]
         return parse_expr(
             f"if({{condition}}, 1, 0) as exclusion_{index}", placeholders={"condition": ast.Or(exprs=conditions)}
         )
@@ -279,6 +283,7 @@ class FunnelEventQuery:
     def _build_step_query(
         self,
         source_kind: SourceTableKind,
+        table_name: str,
         entity: EntityNode | ExclusionEntityNode,
         index: int,
     ) -> ast.Expr:
@@ -292,9 +297,10 @@ class FunnelEventQuery:
                 raise ValidationError(f"Action ID {entity.id} does not exist!")
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
-            # TODO: implement: if table name matches, then yes
-            # if(equals(event, 'payment_succeeded'), 1, 0) AS step_1
-            event_expr = ast.Constant(value=1)
+            if is_data_warehouse_source(source_kind) and table_name == entity.table_name:
+                event_expr = ast.Constant(value=1)
+            else:
+                event_expr = ast.Constant(value=0)
         elif entity.event is None:
             # all events
             if is_data_warehouse_source(source_kind):
