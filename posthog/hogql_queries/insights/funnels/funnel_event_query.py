@@ -1,6 +1,6 @@
 from collections import defaultdict
 from enum import Enum, auto
-from typing import Optional, Union
+from typing import Optional, TypeGuard, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -43,7 +43,7 @@ def is_data_warehouse_source(source_kind: SourceTableKind) -> bool:
     return source_kind is SourceTableKind.DATA_WAREHOUSE
 
 
-def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> bool:
+def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[EventsNode | FunnelExclusionEventsNode]:
     return (
         isinstance(entity, EventsNode)
         or isinstance(entity, FunnelExclusionEventsNode)
@@ -52,7 +52,7 @@ def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> bool:
     )
 
 
-def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> bool:
+def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[DataWarehouseNode]:
     return isinstance(entity, DataWarehouseNode)
 
 
