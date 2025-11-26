@@ -87,7 +87,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                 posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled, stage)
 
                 // Track product intent if user is opting in and payload contains product_intent
-                // The format on the payload should be: { product_intent: { product_key: ProductKey, intent_context: ProductIntentContext, metadata: Record<string, unknown> } }
+                // The format on the payload should be: { product_intent: ProductKey }
                 if (enabled) {
                     const feature = values.rawEarlyAccessFeatures.find((f) => f.flagKey === flagKey)
 
