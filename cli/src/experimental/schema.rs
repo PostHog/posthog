@@ -41,7 +41,8 @@ impl Language {
         match self {
             Language::TypeScript => "posthog-typed.ts",
             Language::Golang => "posthog-typed.go",
-            Language::Python => "posthog-typed.py",
+            // Python uses underscore because hyphens aren't valid in Python module names
+            Language::Python => "posthog_typed.py",
         }
     }
 
@@ -82,16 +83,26 @@ You can add optional properties through the option functions:
 1. Save the generated file in your project (if not generated there already):
    mv {0} <your-project>/posthog_typed.py
 
-2. Import `capture` from the typed module in files where you track events:
-   from posthog_typed import capture
+2. Use posthog_typed.capture for type-safe event tracking:
+   import posthog_typed
 
-   capture("event_name", "user_123", {{"property": "value"}})
+   posthog_typed.capture("event_name", "user_123", {{"property": "value"}})
 
-Type checkers (mypy, pyright) will validate event names and properties.
+3. Use posthog.capture for untyped/dynamic events:
+   import posthog
 
-To bypass type checking for a specific call, use capture_raw:
-   from posthog_typed import capture_raw
-   capture_raw("dynamic_event", "user_123", {{"anything": "goes"}})
+   posthog.capture("dynamic_event", "user_123", {{"anything": "goes"}})
+
+Your editor will automatically validate posthog_typed.capture calls.
+
+Alternative: If you only use capture() and want a cleaner import:
+   import posthog_typed as posthog
+
+   posthog.capture("event_name", "user_123", {{"property": "value"}})
+
+Note: This pattern means you won't have access to other SDK methods
+(identify, group, feature_enabled, etc.) unless you also import the
+original posthog module separately.
 "#,
                 output_path
             ),
