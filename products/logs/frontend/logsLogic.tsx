@@ -32,7 +32,7 @@ const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
-const DEFAULT_LOGS_PAGE_SIZE = 100
+const DEFAULT_LOGS_PAGE_SIZE = 100 as number
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 const parseLogAttributes = (logs: LogMessage[]): void => {
@@ -187,9 +187,16 @@ export const logsLogic = kea<logsLogicType>([
         unpinLog: (logId: string) => ({ logId }),
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
+        setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
     }),
 
     reducers({
+        logsPageSize: [
+            DEFAULT_LOGS_PAGE_SIZE,
+            {
+                setLogsPageSize: (_, { logsPageSize }) => logsPageSize,
+            },
+        ],
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
             {
@@ -269,6 +276,16 @@ export const logsLogic = kea<logsLogicType>([
                 fetchLogs: () => true,
                 fetchLogsSuccess: () => false,
                 fetchLogsFailure: () => true,
+                loadMoreLogs: () => true,
+                loadMoreLogsSuccess: () => false,
+                loadMoreLogsFailure: () => true,
+            },
+        ],
+        hasLoadedMoreLogs: [
+            false as boolean,
+            {
+                fetchLogsSuccess: () => false,
+                loadMoreLogsSuccess: () => true,
             },
         ],
         sparklineLoading: [
@@ -326,7 +343,7 @@ export const logsLogic = kea<logsLogicType>([
 
                     const response = await api.logs.query({
                         query: {
-                            limit: DEFAULT_LOGS_PAGE_SIZE,
+                            limit: values.logsPageSize,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
@@ -368,7 +385,7 @@ export const logsLogic = kea<logsLogicType>([
                     await breakpoint(300)
                     const response = await api.logs.query({
                         query: {
-                            limit: DEFAULT_LOGS_PAGE_SIZE,
+                            limit: values.logsPageSize,
                             orderBy: values.orderBy,
                             dateRange,
                             searchTerm: values.searchTerm,
@@ -640,6 +657,11 @@ export const logsLogic = kea<logsLogicType>([
                 if (logToPin) {
                     actions.pinLog(logToPin)
                 }
+            }
+        },
+        setLogsPageSize: () => {
+            if (!values.hasLoadedMoreLogs) {
+                actions.runQuery()
             }
         },
     })),
