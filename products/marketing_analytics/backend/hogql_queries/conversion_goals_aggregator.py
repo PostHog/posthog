@@ -124,6 +124,8 @@ class ConversionGoalsAggregator:
         )
 
         # Now apply campaign name mappings by wrapping in another SELECT
+        # We need to re-aggregate after mapping because multiple different utm_campaign values
+        # may map to the same campaign_id or campaign_name, and we want them consolidated
         campaign_field_expr = ast.Field(chain=[self.config.campaign_field])
         id_field_expr = ast.Field(chain=[self.config.id_field])
         source_field_expr = ast.Field(chain=[self.config.source_field])
@@ -131,16 +133,20 @@ class ConversionGoalsAggregator:
             campaign_field_expr, id_field_expr, source_field_expr
         )
 
-        # Build the outer select - only alias if the expression was actually mapped
-        # (i.e., it's not just the original field reference)
+        # Check if any mappings were actually applied
+        has_campaign_mapping = mapped_campaign_expr != campaign_field_expr
+        has_id_mapping = mapped_id_expr != id_field_expr
+        has_any_mapping = has_campaign_mapping or has_id_mapping
+
+        # Build the outer select with appropriate aliasing
         campaign_select: ast.Expr
-        if mapped_campaign_expr != campaign_field_expr:
+        if has_campaign_mapping:
             campaign_select = ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr)
         else:
             campaign_select = ast.Alias(alias=self.config.campaign_field, expr=campaign_field_expr)
 
         id_select: ast.Expr
-        if mapped_id_expr != id_field_expr:
+        if has_id_mapping:
             id_select = ast.Alias(alias=self.config.id_field, expr=mapped_id_expr)
         else:
             id_select = ast.Field(chain=[self.config.id_field])
@@ -153,12 +159,46 @@ class ConversionGoalsAggregator:
 
         # Add conversion goal columns
         for processor in self.processors:
-            outer_select.append(ast.Field(chain=[self.config.get_conversion_goal_column_name(processor.index)]))
+            col_name = self.config.get_conversion_goal_column_name(processor.index)
+            outer_select.append(ast.Field(chain=[col_name]))
 
-        wrapped_query = ast.SelectQuery(
+        # First, create a subquery that applies the mapping
+        mapping_subquery = ast.SelectQuery(
             select=outer_select,
             select_from=ast.JoinExpr(table=final_query),
         )
+
+        # If we have mappings, we need to wrap in another SELECT with GROUP BY
+        # to consolidate rows that now have the same mapped values
+        if has_any_mapping:
+            # Build the final aggregation query that groups by the mapped values
+            final_select: list[ast.Expr] = [
+                ast.Field(chain=[self.config.campaign_field]),
+                ast.Field(chain=[self.config.id_field]),
+                ast.Field(chain=[self.config.source_field]),
+            ]
+
+            # Sum the conversion goal columns
+            for processor in self.processors:
+                col_name = self.config.get_conversion_goal_column_name(processor.index)
+                final_select.append(
+                    ast.Alias(
+                        alias=col_name,
+                        expr=ast.Call(name="sum", args=[ast.Field(chain=[col_name])]),
+                    )
+                )
+
+            wrapped_query = ast.SelectQuery(
+                select=final_select,
+                select_from=ast.JoinExpr(table=mapping_subquery),
+                group_by=[
+                    ast.Field(chain=[self.config.campaign_field]),
+                    ast.Field(chain=[self.config.id_field]),
+                    ast.Field(chain=[self.config.source_field]),
+                ],
+            )
+        else:
+            wrapped_query = mapping_subquery
 
         return ast.CTE(name=UNIFIED_CONVERSION_GOALS_CTE_ALIAS, expr=wrapped_query, cte_type="subquery")
 
