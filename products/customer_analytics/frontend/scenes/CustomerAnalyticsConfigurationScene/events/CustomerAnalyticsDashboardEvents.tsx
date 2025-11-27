@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo, IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonLabel, Link } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { urls } from 'scenes/urls'
@@ -71,6 +73,7 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
     const { saveEvents, clearFilterSelections, clearEventsToHighlight } = useActions(
         customerAnalyticsDashboardEventsLogic
     )
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const handleSave = (): void => {
         saveEvents()
@@ -84,16 +87,24 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center gap-1 text-muted text-xs">
-                <IconInfo className="text-base" />
-                <span>
-                    To track multiple events as activity, you can{' '}
-                    <Link to={urls.createAction()} target="_blank">
-                        create an action
+            <p>
+                Need to combine multiple events into one definition?{' '}
+                <Link to={urls.createAction()} target="_blank">
+                    Create an action
+                </Link>{' '}
+                first, then select it here.
+            </p>
+            {featureFlags[FEATURE_FLAGS.SCHEMA_MANAGEMENT] && (
+                <p>
+                    Don't have events yet? You can{' '}
+                    <Link to={urls.eventDefinitions()} target="_blank">
+                        create event definitions
                     </Link>{' '}
-                    that combines them.
-                </span>
-            </div>
+                    upfront and configure your dashboard now.
+                    <br />
+                    Metrics will populate once you start capturing events.
+                </p>
+            )}
 
             <div className="space-y-2">
                 {eventSelectors.map((eventSelector, index) => (
