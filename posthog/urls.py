@@ -146,48 +146,6 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     )
 
 
-@csrf_exempt
-def proxy_logs_to_capture_service(request: HttpRequest) -> HttpResponse:
-    """
-    Proxy OTLP logs to the capture-logs Rust service.
-
-    This allows OpenTelemetry SDKs to send logs to /i/v1/logs in local dev,
-    which then forwards to the capture-logs service.
-
-    Note: Using Docker container IP directly since Django runs on host.
-    """
-    import requests
-
-    # Forward to capture-logs service (exposed on host port 4318)
-    capture_logs_url = "http://localhost:4318/v1/logs"
-
-    try:
-        # Forward the request with all headers and body
-        response = requests.post(
-            capture_logs_url,
-            data=request.body,
-            headers={
-                "Content-Type": request.META.get("CONTENT_TYPE", ""),
-                "Authorization": request.META.get("HTTP_AUTHORIZATION", ""),
-            },
-            timeout=10,
-        )
-
-        # Return the response from capture-logs
-        return HttpResponse(
-            response.content,
-            status=response.status_code,
-            content_type=response.headers.get("Content-Type", "application/json"),
-        )
-    except Exception:
-        logger.exception("Error proxying logs to capture service")
-        return HttpResponse(
-            b'{"error": "Failed to forward logs"}',
-            status=500,
-            content_type="application/json",
-        )
-
-
 urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Optional UI:
@@ -215,8 +173,6 @@ urlpatterns = [
     path("api/projects/<int:project_id>/ai/otel/traces", csrf_exempt(otel_traces_endpoint)),
     # OpenTelemetry logs ingestion for LLM Analytics
     path("api/projects/<int:project_id>/ai/otel/logs", csrf_exempt(otel_logs_endpoint)),
-    # OpenTelemetry logs proxy to capture-logs service (legacy)
-    path("i/v1/logs", proxy_logs_to_capture_service),
     path("api/environments/<int:team_id>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
