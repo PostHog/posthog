@@ -3,12 +3,124 @@
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
 
-@theme {
+@theme inline {
+    /* Colors */
+    --black: black;
+    --white: white;
+
+    /* Main application background and foreground */
+    --background: var(--color-posthog-3000-50); /* => --color-bg-primary */
+    --foreground: var(--color-neutral-950); /* => --color-text-primary */
+
+    /* Card background and foreground */
+    --card: var(--color-white); /* => --color-bg-surface-primary */
+    --card-foreground: var(--color-neutral-950);
+
+    /* Brand color for primary actions (buttons, highlights) */
+    --primary: var(--color-brand-primary);
+    --primary-foreground: var(--color-brand-primary-foreground);
+
+    /* Subdued background for less important elements */
+    --muted: var(--color-posthog-3000-150); /* => --color-bg-surface-tertiary */
+    --muted-foreground: var(--color-neutral-950);
+
+    /* Highlight color for active or focused elements */
+    --accent: var(--black) --accent-foreground: var(--white);
+
+    /* Info color for informative messages */
+    --info: var(--color-blue-50);
+    --info-foreground: var(--color-blue-950);
+
+    /* Warning color for warnings and cautions */
+    --warning: var(--color-yellow-50);
+    --warning-foreground: var(--color-yellow-950);
+
+    /* Destructive color for errors and critical actions */
+    --destructive: var(--color-red-50);
+    --destructive-foreground: var(--color-red-950);
+
+    --border: var(--color-posthog-3000-200);
+    --border-muted: var(--color-posthog-3000-400);
+    --border-strong: var(--color-posthog-3000-400);
+
+    --ring: var(--primary);
+    --ring-muted: var(--primary); /* TODO: what is this? */
+
+    /* Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal */
+    --data-color-1: #1d4aff;
+    --data-color-1-hover: #1a3cf6;
+    --data-color-2: #621da6;
+    --data-color-3: #42827e;
+    --data-color-4: #ce0e74;
+    --data-color-5: #f14f58;
+    --data-color-6: #7c440e;
+    --data-color-7: #529a0a;
+    --data-color-8: #0476fb;
+    --data-color-9: #fe729e;
+    --data-color-10: #35416b;
+    --data-color-11: #41cbc4;
+    --data-color-12: #b64b02;
+    --data-color-13: #e4a604;
+    --data-color-14: #a56eff;
+    --data-color-15: #30d5c8;
+
+    /* Lifecycle series (compiled) */
+    --color-lifecycle-new: #1d4aff;
+    --color-lifecycle-returning: #388600;
+    --color-lifecycle-resurrecting: #a56eff;
+    --color-lifecycle-dormant: #db3707;
+    --color-lifecycle-new-hover: #0024b6;
+    --color-lifecycle-returning-hover: #254d08;
+    --color-lifecycle-resurrecting-hover: #6608ff;
+    --color-lifecycle-dormant-hover: #781e04;
+
+    /* Revenue analytics MRR series (compiled) */
+    --color-revenue-analytics-new: #388600;
+    --color-revenue-analytics-expansion: #1d4aff;
+    --color-revenue-analytics-contraction: #ffa500;
+    --color-revenue-analytics-churn: #db3707;
+    --color-revenue-analytics-new-hover: #254d08;
+    --color-revenue-analytics-expansion-hover: #0024b6;
+    --color-revenue-analytics-contraction-hover: #a26c07;
+    --color-revenue-analytics-churn-hover: #781e04;
+
+    /* Breakpoint variables */
+    --breakpoint-sm: 576px;
+    --breakpoint-md: 768px;
+    --breakpoint-lg: 992px;
+    --breakpoint-xl: 1200px;
+    --breakpoint-xxl: 1600px;
+
+    /* Text / font sizes */
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;
 
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-sans:
+        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-title:
+        'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-button:
+        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-mono:
+        'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono',
+        monospace;
+
+    /* Spacing */
     --spacing-button-padding-x: 7px; /* Match the padding of the button primitives base size (6px) + 1px border */
 
+    /* Radius variables */
+    --radius: 0.375rem;
+    --radius-sm: 0.25rem;
+    --radius-base: var(--radius);
+    --radius-lg: 0.625rem;
+    --radius-full: 9999px;
+
+    /* Animations */
     --animate-input-focus-pulse: inputFocusPulse 1s ease-in-out forwards;
 
     @keyframes inputFocusPulse {
