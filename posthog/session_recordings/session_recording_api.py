@@ -87,6 +87,7 @@ from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
+from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -1241,10 +1242,21 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
-
+        session_id = str(recording.session_id)
+        # Track streaming summary start (no completion tracking for streaming)
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=user,
+            team=self.team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            is_streaming=True,
+            session_ids=[session_id],
+            video_validation_enabled=None,  # Not checked for streaming endpoint
+        )
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
-        session_id = recording.session_id
         return StreamingHttpResponse(
             stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
             content_type=ServerSentEventRenderer.media_type,

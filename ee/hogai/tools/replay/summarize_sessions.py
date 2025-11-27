@@ -27,6 +27,11 @@ from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStr
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.stringify import SessionGroupSummaryStringifier
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.tracking import (
+    capture_session_summary_generated,
+    capture_session_summary_started,
+    generate_tracking_id,
+)
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.state import prepare_reasoning_progress_message
@@ -298,39 +303,86 @@ class SummarizeSessionsTool(MaxTool):
         # No sessions found
         if not session_ids:
             return "No sessions were found matching the specified criteria.", None
-
-        # Summarize the sessions
-        summaries_content, session_group_summary_id = await self._summarize_sessions(
-            session_ids=session_ids,
-            summary_title=summary_title,
+        # We have session IDs - start tracking
+        summary_type: Literal["single", "group"] = (
+            "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
         )
-
-        # Build messages artifact for group summaries (with "Open report" button)
-        if session_group_summary_id:
-            messages = [
-                AssistantMessage(
-                    meta={
-                        "form": {
-                            "options": [
-                                {
-                                    "value": "Open report",
-                                    "href": f"/session-summaries/{session_group_summary_id}",
-                                    "variant": "primary",
-                                }
-                            ]
-                        }
-                    },
-                    content=f"Report complete: {summary_title or 'Sessions summary'}",
-                    id=str(uuid4()),
-                ),
-                AssistantToolCallMessage(
-                    content=summaries_content, tool_call_id=self._state.root_tool_call_id or "unknown", id=str(uuid4())
-                ),
-            ]
-            # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
-            return "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
-
-        return summaries_content, None
+        video_validation_enabled = self._has_video_validation_feature_flag()
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+        )
+        try:
+            # Summarize the sessions
+            summaries_content, session_group_summary_id = await self._summarize_sessions(
+                session_ids=session_ids,
+                summary_title=summary_title,
+            )
+            # Build messages artifact for group summaries (with "Open report" button)
+            content, artifact = None, None
+            if session_group_summary_id:
+                messages = [
+                    AssistantMessage(
+                        meta={
+                            "form": {
+                                "options": [
+                                    {
+                                        "value": "Open report",
+                                        "href": f"/session-summaries/{session_group_summary_id}",
+                                        "variant": "primary",
+                                    }
+                                ]
+                            }
+                        },
+                        content=f"Report complete: {summary_title or 'Sessions summary'}",
+                        id=str(uuid4()),
+                    ),
+                    AssistantToolCallMessage(
+                        content=summaries_content,
+                        tool_call_id=self._state.root_tool_call_id or "unknown",
+                        id=str(uuid4()),
+                    ),
+                ]
+                # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
+                content, artifact = "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
+            else:
+                content, artifact = summaries_content, None
+        except Exception as err:
+            # The session summarization failed
+            capture_session_summary_generated(
+                user=self._user,
+                team=self._team,
+                tracking_id=tracking_id,
+                summary_source="chat",
+                summary_type=summary_type,
+                is_streaming=False,
+                session_ids=session_ids,
+                video_validation_enabled=video_validation_enabled,
+                success=False,
+                error_type=type(err).__name__,
+                error_message=str(err),
+            )
+            raise
+        # The session successfully summarized
+        capture_session_summary_generated(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+            success=True,
+        )
+        return content, artifact
 
     def _has_video_validation_feature_flag(self) -> bool | None:
         """
