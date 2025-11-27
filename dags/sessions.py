@@ -1,6 +1,6 @@
 import time
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from clickhouse_driver import Client
@@ -80,7 +80,6 @@ def tags_for_sessions_partition(partition_key: str) -> dict[str, str]:
     - 2025-11-01 vs 2025-11-02: Both have 202511 in _0 → blocked
     - 2025-10-01 vs 2025-11-01 vs 2025-12-01: Different values in both → allowed
     """
-    from datetime import datetime
 
     date = datetime.strptime(partition_key, "%Y-%m-%d")
     prev_date = date - timedelta(days=1)
