@@ -363,7 +363,7 @@ def cache_github_sdk_versions_job():
 
 cache_github_sdk_versions_schedule = dagster.ScheduleDefinition(
     job=cache_github_sdk_versions_job,
-    cron_schedule="0 0 * * *",  # Every day at midnight
+    cron_schedule="30 * * * *",  # Every hour at half past the hour
     execution_timezone="UTC",
     name="cache_github_sdk_versions_schedule",
 )
