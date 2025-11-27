@@ -194,7 +194,6 @@ class TaskRun(models.Model):
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NOT_STARTED)
 
-    log_storage_path = models.CharField(max_length=500, blank=True, null=True, help_text="S3 path to log file")
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
     # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.
@@ -230,11 +229,7 @@ class TaskRun(models.Model):
         return f"Run for {self.task.title} - {self.get_status_display()}"
 
     @property
-    def has_s3_logs(self) -> bool:
-        """Check if logs are stored in S3"""
-        return bool(self.log_storage_path)
-
-    def get_log_s3_path(self) -> str:
+    def log_url(self) -> str:
         """Generate S3 path for this run's logs"""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}/run_{self.id}.jsonl"
@@ -247,34 +242,28 @@ class TaskRun(models.Model):
     def append_log(self, entries: list[dict]):
         """Append log entries to S3 storage."""
 
-        if not self.log_storage_path:
-            self.log_storage_path = self.get_log_s3_path()
-            self.save(update_fields=["log_storage_path"])
-
         existing_content = ""
         is_new_file = False
         try:
-            existing_content = object_storage.read(self.log_storage_path) or ""
+            existing_content = object_storage.read(self.log_url) or ""
         except Exception as e:
-            # File doesn't exist yet, that's fine for first write so we just ignore the error
             is_new_file = True
             logger.debug(
                 "task_run.no_existing_logs",
                 task_run_id=str(self.id),
-                log_storage_path=self.log_storage_path,
+                log_url=self.log_url,
                 error=str(e),
             )
 
         new_lines = "\n".join(json.dumps(entry) for entry in entries)
         content = existing_content + ("\n" if existing_content else "") + new_lines
 
-        object_storage.write(self.log_storage_path, content)
+        object_storage.write(self.log_url, content)
 
-        # Tag new files with 30-day TTL for S3 lifecycle management
         if is_new_file:
             try:
                 object_storage.tag(
-                    self.log_storage_path,
+                    self.log_url,
                     {
                         "ttl_days": "30",
                         "team_id": str(self.team_id),
@@ -284,7 +273,7 @@ class TaskRun(models.Model):
                 logger.warning(
                     "task_run.failed_to_tag_logs",
                     task_run_id=str(self.id),
-                    log_storage_path=self.log_storage_path,
+                    log_url=self.log_url,
                     error=str(e),
                 )
 

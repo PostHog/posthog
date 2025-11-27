@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tasks", "0015_task_soft_delete"),
+        ("tasks", "0016_task_soft_delete"),
     ]
 
     operations = [

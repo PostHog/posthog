@@ -1,5 +1,3 @@
-from typing import Optional
-
 from django.utils import timezone
 
 from rest_framework import serializers
@@ -158,12 +156,9 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "completed_at",
         ]
 
-    def get_log_url(self, obj: TaskRun) -> Optional[str]:
+    def get_log_url(self, obj: TaskRun) -> str:
         """Return presigned S3 URL for log access."""
-
-        if obj.log_storage_path:
-            return object_storage.get_presigned_url(obj.log_storage_path, expiration=3600)
-        return None
+        return object_storage.get_presigned_url(obj.log_url, expiration=3600)
 
     def validate_task(self, value):
         team = self.context.get("team")

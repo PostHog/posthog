@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tasks", "0013_taskrun_artifacts"),
+        ("tasks", "0014_make_fields_nullable_before_removal"),
     ]
 
     operations = [
