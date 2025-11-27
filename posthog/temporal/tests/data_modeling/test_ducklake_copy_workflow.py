@@ -4,6 +4,7 @@ import pytest
 
 from django.test import override_settings
 
+import posthog.ducklake.verification.config as verification_config
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling import ducklake_copy_workflow as ducklake_module
@@ -72,6 +73,97 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     assert "person_id" in model_metadata.key_columns
     assert "person_id" in model_metadata.non_nullable_columns
     assert "optional_col" not in model_metadata.non_nullable_columns
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_overrides(
+    activity_environment, ateam, monkeypatch, request
+):
+    override_label = "override_only_model"
+    inherited_label = "inherits_defaults_model"
+    override_config = {
+        "defaults": {
+            "queries": [
+                {
+                    "name": "default_row_check",
+                    "sql": "SELECT COUNT(*) FROM {ducklake_table}",
+                    "tolerance": 0,
+                }
+            ]
+        },
+        "models": {
+            override_label: {
+                "inherit_defaults": False,
+                "queries": [
+                    {"name": "override_only_check", "sql": "SELECT 1", "tolerance": 5},
+                ],
+            },
+            inherited_label: {
+                "queries": [
+                    {"name": "inherited_extra_check", "sql": "SELECT 2", "tolerance": 2},
+                ],
+            },
+        },
+    }
+    monkeypatch.setattr(verification_config, "_load_verification_yaml", lambda: override_config)
+    verification_config._get_data_modeling_verification_config.cache_clear()
+    request.addfinalizer(verification_config._get_data_modeling_verification_config.cache_clear)
+
+    override_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="override_model",
+        query={"query": "SELECT 1", "kind": "HogQLQuery"},
+    )
+    inherit_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="inherit_model",
+        query={"query": "SELECT 1", "kind": "HogQLQuery"},
+    )
+    for saved_query in (override_query, inherit_query):
+        saved_query.columns = {
+            "person_id": {"type": "UUID"},
+        }
+        await database_sync_to_async(saved_query.save)(update_fields=["columns"])
+
+    def _table_resources(saved_query):
+        table_uri = f"s3://source/team_{ateam.pk}_model_{saved_query.id.hex}/modeling/{saved_query.normalized_name}"
+        return table_uri, [f"{table_uri}/part-0.parquet"]
+
+    override_table_uri, override_files = _table_resources(override_query)
+    inherit_table_uri, inherit_files = _table_resources(inherit_query)
+
+    inputs = DataModelingDuckLakeCopyInputs(
+        team_id=ateam.pk,
+        job_id=uuid.uuid4().hex,
+        models=[
+            DuckLakeCopyModelInput(
+                model_label=override_label,
+                saved_query_id=str(override_query.id),
+                table_uri=override_table_uri,
+                file_uris=override_files,
+            ),
+            DuckLakeCopyModelInput(
+                model_label=inherited_label,
+                saved_query_id=str(inherit_query.id),
+                table_uri=inherit_table_uri,
+                file_uris=inherit_files,
+            ),
+        ],
+    )
+
+    metadata = await activity_environment.run(prepare_data_modeling_ducklake_metadata_activity, inputs)
+
+    assert len(metadata) == 2
+    override_metadata = next(item for item in metadata if item.model_label == override_label)
+    inherit_metadata = next(item for item in metadata if item.model_label == inherited_label)
+
+    assert [query.name for query in override_metadata.verification_queries] == ["override_only_check"]
+    assert override_metadata.verification_queries[0].tolerance == 5.0
+    assert [query.name for query in inherit_metadata.verification_queries] == [
+        "default_row_check",
+        "inherited_extra_check",
+    ]
 
 
 @pytest.mark.asyncio
@@ -259,6 +351,73 @@ async def test_verify_ducklake_copy_activity_reports_failures(monkeypatch, activ
 
     assert len(results) == 1
     assert results[0].passed is False
+    assert fake_conn.closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("observed", "expected", "tolerance", "should_pass"),
+    [
+        (101.0, 100.0, 2.0, True),
+        (110.0, 100.0, 5.0, False),
+    ],
+)
+async def test_verify_ducklake_copy_activity_respects_tolerance(
+    monkeypatch, activity_environment, observed, expected, tolerance, should_pass
+):
+    class FakeDuckDBConnection:
+        def __init__(self, value: float):
+            self.value = value
+            self.closed = False
+            self.sql_statements: list[str] = []
+
+        def execute(self, statement: str, params: list | None = None):
+            self.sql_statements.append(statement)
+            return self
+
+        def sql(self, statement: str):
+            self.sql_statements.append(statement)
+
+        def fetchone(self):
+            return (self.value,)
+
+        def close(self):
+            self.closed = True
+
+    fake_conn = FakeDuckDBConnection(observed)
+    monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
+    monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
+    monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
+    monkeypatch.setattr(ducklake_module, "_run_key_cardinality_verifications", lambda *args, **kwargs: [])
+    monkeypatch.setattr(ducklake_module, "_run_non_nullable_verifications", lambda *args, **kwargs: [])
+
+    metadata = DuckLakeCopyModelMetadata(
+        model_label="model_tolerance",
+        saved_query_id=str(uuid.uuid4()),
+        saved_query_name="ducklake_model",
+        normalized_name="ducklake_model",
+        source_glob_uri="s3://source/table/**/*.parquet",
+        source_table_uri="s3://source/table",
+        schema_name="data_modeling_team_1",
+        table_name="model_tolerance",
+        verification_queries=[
+            DuckLakeCopyVerificationQuery(
+                name="row_difference",
+                sql="SELECT 1",
+                tolerance=tolerance,
+                expected_value=expected,
+            )
+        ],
+    )
+    inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-tolerance", model=metadata)
+
+    results = activity_environment.run(verify_ducklake_copy_activity, inputs)
+
+    assert len(results) == 1
+    assert results[0].passed is should_pass
+    assert results[0].tolerance == tolerance
+    assert results[0].expected_value == expected
     assert fake_conn.closed is True
 
 
