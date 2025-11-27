@@ -226,7 +226,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                 },
                 {
                     title: 'Payment event',
-                    caption: 'Tracks when users complete a payment. Used to caculate free-to-paid conversion',
+                    caption: 'Tracks when users complete a payment. Used to calculate free-to-paid conversion',
                     filters: paymentEventFilters,
                     setFilters: actions.setPaymentEventSelection,
                 },
