@@ -131,12 +131,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
-        OBJECT_STORAGE_ENABLED: true,
-        OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
-        OBJECT_STORAGE_REGION: 'us-east-1',
-        OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
-        OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
-        OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
@@ -362,6 +356,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_LOGS_INGESTION_OVERFLOW,
         LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
         LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
+        LOGS_REDIS_HOST: '127.0.0.1',
+        LOGS_REDIS_PORT: 6479,
+        LOGS_REDIS_PASSWORD: '',
+        LOGS_REDIS_TLS: isProdEnv() ? true : false,
+        LOGS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        LOGS_LIMITER_DISABLED_FOR_TEAMS: '',
+        LOGS_LIMITER_BUCKET_SIZE_KB: 10000, // 10MB burst
+        LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: 1000, // 1MB/second refill rate
+        LOGS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
+        LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
+        LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
     }
 }
 

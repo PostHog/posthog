@@ -44,6 +44,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ custom_prop: 'new_value' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
                 expect(mockPersonProfileUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalled()
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
@@ -63,6 +64,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toUnset).toEqual(['prop_to_remove'])
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
@@ -80,6 +82,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ new_prop: 'value' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
@@ -97,6 +100,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ first_seen: '2024-01-01' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
@@ -114,6 +118,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $browser: 'Chrome' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
         })
@@ -135,6 +140,7 @@ describe('person-update', () => {
 
                     expect(result.hasChanges).toBe(true)
                     expect(result.toSet).toEqual({ [propertyName]: 'new_value' })
+                    expect(result.shouldForceUpdate).toBe(false)
                     // At event level, this property would be marked as ignored (outcome: 'ignored')
                     // but it's still included in toSet for batch-level filtering
                     expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
@@ -162,6 +168,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $geoip_city_name: 'San Francisco' })
+                expect(result.shouldForceUpdate).toBe(false)
                 // At event level, geoip properties would be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
@@ -183,6 +190,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $browser: 'Chrome' })
+                expect(result.shouldForceUpdate).toBe(false)
                 // At event level, $browser would be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
@@ -213,6 +221,7 @@ describe('person-update', () => {
                 const result = computeEventPropertyUpdates(event, personProperties)
 
                 expect(result.hasChanges).toBe(true)
+                expect(result.shouldForceUpdate).toBe(false)
                 // At event level, all these properties would be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$browser' })
@@ -240,6 +249,7 @@ describe('person-update', () => {
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({})
                 expect(result.toUnset).toEqual([])
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
@@ -258,6 +268,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({})
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
             })
 
@@ -275,6 +286,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({})
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
             })
 
@@ -292,6 +304,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(false)
                 expect(result.toUnset).toEqual([])
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'no_change' })
             })
         })
@@ -311,6 +324,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $browser: 'Chrome' })
+                expect(result.shouldForceUpdate).toBe(true)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
@@ -327,7 +341,24 @@ describe('person-update', () => {
                 const result = computeEventPropertyUpdates(event, personProperties)
 
                 expect(result.hasChanges).toBe(true)
+                expect(result.shouldForceUpdate).toBe(true)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            })
+
+            it('should set shouldForceUpdate to false for non-person events', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $browser: 'Chrome' },
+                    },
+                } as any
+
+                const personProperties = { $browser: 'Firefox' }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.shouldForceUpdate).toBe(false)
             })
         })
 
@@ -346,6 +377,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(false)
                 expect(result.toSet).toEqual({})
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'unsupported' })
             })
 
@@ -362,6 +394,7 @@ describe('person-update', () => {
                 const result = computeEventPropertyUpdates(event, personProperties)
 
                 expect(result.hasChanges).toBe(false)
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'unsupported' })
             })
         })
@@ -381,6 +414,7 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ custom_prop: 'new_value', $browser: 'Chrome' })
+                expect(result.shouldForceUpdate).toBe(false)
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
         })
@@ -392,6 +426,7 @@ describe('person-update', () => {
                 hasChanges: true,
                 toSet: { name: 'John', email: 'john@example.com' },
                 toUnset: ['old_prop'],
+                shouldForceUpdate: false,
             }
 
             const person = {
@@ -416,6 +451,7 @@ describe('person-update', () => {
                 hasChanges: true,
                 toSet: { name: 'John' },
                 toUnset: [],
+                shouldForceUpdate: false,
             }
 
             const person = {
@@ -440,6 +476,7 @@ describe('person-update', () => {
                 hasChanges: false,
                 toSet: { name: 'John' },
                 toUnset: [],
+                shouldForceUpdate: false,
             }
 
             const person = {
