@@ -93,11 +93,11 @@ graph TB
 
 The workflow uses **three separate activities** with independent timeouts and retry policies:
 
-| Activity | Purpose | Timeout | Retries | Data Size |
-|----------|---------|---------|---------|-----------|
-| `perform_clustering_compute_activity` | Fetch embeddings, k-means, distances | 120s | 3 | ~250 KB output |
-| `generate_cluster_labels_activity` | LLM-based cluster labeling | 300s | 2 | ~4 KB output |
-| `emit_cluster_events_activity` | Write results to ClickHouse | 60s | 3 | ~100 KB output |
+| Activity                              | Purpose                              | Timeout | Retries | Data Size      |
+| ------------------------------------- | ------------------------------------ | ------- | ------- | -------------- |
+| `perform_clustering_compute_activity` | Fetch embeddings, k-means, distances | 120s    | 3       | ~250 KB output |
+| `generate_cluster_labels_activity`    | LLM-based cluster labeling           | 300s    | 2       | ~4 KB output   |
+| `emit_cluster_events_activity`        | Write results to ClickHouse          | 60s     | 3       | ~100 KB output |
 
 **Benefits:**
 
@@ -262,20 +262,20 @@ ALLOWED_TEAM_IDS: list[int] = [
 
 Key constants in `constants.py`:
 
-| Constant | Default | Description |
-|----------|---------|-------------|
-| `DEFAULT_LOOKBACK_DAYS` | 7 | Days of trace history to analyze |
-| `DEFAULT_MAX_SAMPLES` | 1000 | Maximum traces to sample |
-| `DEFAULT_MIN_K` | 2 | Minimum clusters to test |
-| `DEFAULT_MAX_K` | 10 | Maximum clusters to test |
-| `MIN_TRACES_FOR_CLUSTERING` | 20 | Minimum traces required |
-| `COMPUTE_ACTIVITY_TIMEOUT` | 120s | Clustering compute timeout |
-| `LLM_ACTIVITY_TIMEOUT` | 300s | LLM labeling timeout |
-| `EMIT_ACTIVITY_TIMEOUT` | 60s | Event emission timeout |
-| `DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING` | 7 | Representatives for LLM |
-| `LABELING_LLM_MODEL` | gpt-5.1 | OpenAI model for labeling |
-| `LABELING_LLM_TIMEOUT` | 240.0 | LLM request timeout (seconds) |
-| `LLMA_TRACE_DOCUMENT_TYPE` | llm-trace-summary | Document type filter for embeddings |
+| Constant                                  | Default           | Description                         |
+| ----------------------------------------- | ----------------- | ----------------------------------- |
+| `DEFAULT_LOOKBACK_DAYS`                   | 7                 | Days of trace history to analyze    |
+| `DEFAULT_MAX_SAMPLES`                     | 1000              | Maximum traces to sample            |
+| `DEFAULT_MIN_K`                           | 2                 | Minimum clusters to test            |
+| `DEFAULT_MAX_K`                           | 10                | Maximum clusters to test            |
+| `MIN_TRACES_FOR_CLUSTERING`               | 20                | Minimum traces required             |
+| `COMPUTE_ACTIVITY_TIMEOUT`                | 120s              | Clustering compute timeout          |
+| `LLM_ACTIVITY_TIMEOUT`                    | 300s              | LLM labeling timeout                |
+| `EMIT_ACTIVITY_TIMEOUT`                   | 60s               | Event emission timeout              |
+| `DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING` | 7                 | Representatives for LLM             |
+| `LABELING_LLM_MODEL`                      | gpt-5.1           | OpenAI model for labeling           |
+| `LABELING_LLM_TIMEOUT`                    | 240.0             | LLM request timeout (seconds)       |
+| `LLMA_TRACE_DOCUMENT_TYPE`                | llm-trace-summary | Document type filter for embeddings |
 
 ## Processing Flow
 
