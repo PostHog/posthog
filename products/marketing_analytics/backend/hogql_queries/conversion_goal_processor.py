@@ -707,6 +707,12 @@ class ConversionGoalProcessor:
                 expr=self._build_attribution_expr("conversion_campaign", "fallback_campaign"),
             ),
             ast.Alias(
+                alias="campaign_id",
+                # Campaign IDs don't exist in event data, only in marketing platform data
+                # Use "-" as placeholder to indicate not applicable
+                expr=ast.Constant(value="-"),
+            ),
+            ast.Alias(
                 alias="source_name",
                 expr=self._build_attribution_expr("conversion_source", "fallback_source"),
             ),
@@ -795,6 +801,10 @@ class ConversionGoalProcessor:
             ast.Alias(
                 alias=self.config.campaign_field,
                 expr=self._build_organic_default_expr("campaign_name", self.config.organic_campaign),
+            ),
+            ast.Alias(
+                alias=self.config.id_field,
+                expr=self._build_organic_default_expr("campaign_id", "-"),
             ),
             ast.Alias(
                 alias=self.config.source_field,
