@@ -102,10 +102,9 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
     )
     if summary_data.error_msg is not None:
         # If we weren't able to collect the required data - retry
-        logger.exception(
+        temporalio.activity.logger.exception(
             f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
-            session_id=inputs.session_id,
-            user_id=inputs.user_id,
+            extra={"session_id": inputs.session_id, "user_id": inputs.user_id, "signals_type": "session-summaries"},
         )
         raise ExceptionToRetry()
     input_data = prepare_single_session_summary_input(
@@ -136,7 +135,11 @@ def _store_final_summary_in_db_from_activity(
     # Getting the user explicitly from the DB as we can't pass models between activities
     user = User.objects.get(id=inputs.user_id)
     if not user:
-        raise ValueError(f"User with id {inputs.user_id} not found, when trying to add session summary")
+        msg = f"User with id {inputs.user_id} not found, when trying to add session summary for session {inputs.session_id}"
+        temporalio.activity.logger.error(
+            msg, extra={"user_id": inputs.user_id, "session_id": inputs.session_id, "signals_type": "session-summaries"}
+        )
+        raise ValueError(msg)
     # Disable thread-sensitive as the summary could be pretty heavy and it's a write
     SingleSessionSummary.objects.add_summary(
         session_id=inputs.session_id,
@@ -185,10 +188,11 @@ async def get_llm_single_session_summary_activity(
     )
     if llm_input_raw is None:
         # No reason to retry activity, as the input data is not in Redis
-        raise ApplicationError(
-            f"No LLM input found for session {inputs.session_id} when summarizing",
-            non_retryable=True,
+        msg = f"No LLM input found for session {inputs.session_id} when summarizing"
+        temporalio.activity.logger.error(
+            msg, extra={"session_id": inputs.session_id, "signals_type": "session-summaries"}
         )
+        raise ApplicationError(msg, non_retryable=True)
     llm_input = cast(
         SingleSessionSummaryLlmInputs,
         llm_input_raw,
@@ -236,10 +240,11 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         return json.dumps(ready_summary.summary)
     # If not - summarize and stream through Redis
     if not inputs.redis_key_base:
-        raise ApplicationError(
-            f"Redis key base was not provided when summarizing session {inputs.session_id}: {inputs}",
-            non_retryable=True,
+        msg = f"Redis key base was not provided when summarizing session {inputs.session_id}: {inputs}"
+        temporalio.activity.logger.error(
+            msg, extra={"session_id": inputs.session_id, "signals_type": "session-summaries"}
         )
+        raise ApplicationError(msg, non_retryable=True)
     # Creating client on each activity as we can't pass it in as an argument, and need it for both getting and storing data
     redis_client, redis_input_key, redis_output_key = get_redis_state_client(
         key_base=inputs.redis_key_base,
@@ -248,10 +253,11 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         state_id=inputs.session_id,
     )
     if not redis_input_key or not redis_output_key:
-        raise ApplicationError(
-            f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {inputs.session_id}: {inputs}",
-            non_retryable=True,
+        msg = f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {inputs.session_id}: {inputs}"
+        temporalio.activity.logger.error(
+            msg, extra={"session_id": inputs.session_id, "signals_type": "session-summaries"}
         )
+        raise ApplicationError(msg, non_retryable=True)
     llm_input_raw = await get_data_class_from_redis(
         redis_client=redis_client,
         redis_key=redis_input_key,
@@ -260,10 +266,11 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     )
     if llm_input_raw is None:
         # No reason to retry activity, as the input data is not in Redis
-        raise ApplicationError(
-            f"No LLM input found for session {inputs.session_id} when summarizing",
-            non_retryable=True,
+        msg = f"No LLM input found for session {inputs.session_id} when summarizing (stream)"
+        temporalio.activity.logger.error(
+            msg, extra={"session_id": inputs.session_id, "signals_type": "session-summaries"}
         )
+        raise ApplicationError(msg, non_retryable=True)
     llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
     last_summary_state_str = ""
     temporalio.activity.heartbeat()
@@ -416,6 +423,7 @@ def _clean_up_redis(redis_client: Redis, redis_input_key: str, redis_output_key:
             "Failed to clean up Redis keys for session summary",
             redis_input_key=redis_input_key,
             redis_output_key=redis_output_key,
+            signals_type="session-summaries",
         )
 
 
@@ -453,10 +461,9 @@ def _prepare_execution(
         key_base=redis_key_base, label=StateActivitiesEnum.SESSION_SUMMARY, state_id=session_id
     )
     if not redis_input_key or not redis_output_key:
-        raise ApplicationError(
-            f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {session_id}: {session_id}",
-            non_retryable=True,
-        )
+        msg = f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {session_id}: {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ApplicationError(msg, non_retryable=True)
     session_input = SingleSessionSummaryInputs(
         session_id=session_id,
         user_id=user_id,
@@ -505,9 +512,9 @@ async def execute_summarize_session(
         extra_summary_context=extra_summary_context,
     )
     if not summary_row:
-        raise ValueError(
-            f"No ready summary found in DB when generating single session summary for session {session_id}"
-        )
+        msg = f"No ready summary found in DB when generating single session summary for session {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     summary = summary_row.summary
     return summary
 
@@ -576,9 +583,9 @@ def execute_summarize_session_stream(
                 redis_data_str = decompress_redis_data(redis_data_raw)
                 redis_data = json.loads(redis_data_str)
             except Exception as e:
-                raise ValueError(
-                    f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when generating single session summary: {e}"
-                )
+                msg = f"Failed to parse Redis output data ({redis_data_raw}) for key {redis_output_key} when generating single session summary: {e}"
+                logger.exception(msg, redis_output_key=redis_output_key, signals_type="session-summaries")
+                raise ValueError(msg)
             last_summary_state = redis_data.get("last_summary_state")
             if not last_summary_state:
                 continue  # No data stored yet

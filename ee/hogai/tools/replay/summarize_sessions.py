@@ -389,7 +389,8 @@ class SummarizeSessionsTool(MaxTool):
         except Exception as e:
             logger.exception(
                 f"Error getting session ids for session summarization with filters query "
-                f"({replay_filters.model_dump_json(exclude_none=True)}): {e}"
+                f"({replay_filters.model_dump_json(exclude_none=True)}): {e}",
+                signals_type="session-summaries",
             )
             return None
         # Extract session IDs
@@ -454,37 +455,43 @@ class SummarizeSessionsTool(MaxTool):
             # Max "reasoning" text update message
             if update_type == SessionSummaryStreamUpdate.UI_STATUS:
                 if not isinstance(data, str):
-                    raise TypeError(
+                    msg = (
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
                         f"(expected: str)"
                     )
+                    logger.error(msg, signals_type="session-summaries")
+                    raise TypeError(msg)
                 # Status message - stream to user
                 self._stream_progress(progress_message=data)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                 if not isinstance(data, tuple) or len(data) != 2:
-                    raise ValueError(
+                    msg = (
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
                         f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str])"
                     )
+                    logger.error(msg, signals_type="session-summaries")
+                    raise ValueError(msg)
                 summary, session_group_summary_id = data
                 if not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
-                    raise ValueError(
+                    msg = (  # type: ignore[unreachable]
                         f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
                         f"(expected: EnrichedSessionGroupSummaryPatternsList)"
                     )
+                    logger.error(msg, signals_type="session-summaries")
+                    raise ValueError(msg)
                 # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                 stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                 summary_str = stringifier.stringify_patterns()
                 return summary_str, session_group_summary_id
             else:
-                raise ValueError(
-                    f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."
-                )
+                msg = f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."  # type: ignore[unreachable]
+                logger.error(msg, signals_type="session-summaries")
+                raise ValueError(msg)
         else:
-            raise ValueError(
-                f"No summary was generated from session group summarization (session_ids: {logging_session_ids(session_ids)})"
-            )
+            msg = f"No summary was generated from session group summarization (session_ids: {logging_session_ids(session_ids)})"
+            logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
 
     async def _summarize_sessions(
         self,
