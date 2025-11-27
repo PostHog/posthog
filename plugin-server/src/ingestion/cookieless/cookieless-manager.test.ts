@@ -172,10 +172,10 @@ describe('CookielessManager', () => {
         let organizationId: string
         let teamId: number
         let team: Team
-        const now = new Date('2025-01-10T11:00:00')
-        const aBitLater = new Date('2025-01-10T11:10:00')
-        const muchLater = new Date('2025-01-10T19:00:00')
-        const differentDay = new Date('2025-01-11T11:00:00')
+        const now = new Date('2025-01-10T11:00:00Z')
+        const aBitLater = new Date('2025-01-10T11:10:00Z')
+        const muchLater = new Date('2025-01-10T19:00:00Z')
+        const differentDay = new Date('2025-01-11T11:00:00Z')
         const userAgent = 'Test User Agent'
         const identifiedDistinctId = 'identified@example.com'
         let event: PluginEvent
