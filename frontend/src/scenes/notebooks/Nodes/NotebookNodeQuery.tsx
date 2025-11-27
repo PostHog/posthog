@@ -140,7 +140,7 @@ const Component = ({
 
 type NotebookNodeQueryAttributes = {
     query: QuerySchema
-    /* Wether canvasFiltersOverride is applied, as we should apply it only once  */
+    /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
 }
 
