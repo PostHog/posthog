@@ -27,6 +27,11 @@ from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStr
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.stringify import SessionGroupSummaryStringifier
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.tracking import (
+    capture_session_summary_generated,
+    capture_session_summary_started,
+    generate_tracking_id,
+)
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.state import prepare_reasoning_progress_message
@@ -298,39 +303,86 @@ class SummarizeSessionsTool(MaxTool):
         # No sessions found
         if not session_ids:
             return "No sessions were found matching the specified criteria.", None
-
-        # Summarize the sessions
-        summaries_content, session_group_summary_id = await self._summarize_sessions(
-            session_ids=session_ids,
-            summary_title=summary_title,
+        # We have session IDs - start tracking
+        summary_type: Literal["single", "group"] = (
+            "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
         )
-
-        # Build messages artifact for group summaries (with "Open report" button)
-        if session_group_summary_id:
-            messages = [
-                AssistantMessage(
-                    meta={
-                        "form": {
-                            "options": [
-                                {
-                                    "value": "Open report",
-                                    "href": f"/session-summaries/{session_group_summary_id}",
-                                    "variant": "primary",
-                                }
-                            ]
-                        }
-                    },
-                    content=f"Report complete: {summary_title or 'Sessions summary'}",
-                    id=str(uuid4()),
-                ),
-                AssistantToolCallMessage(
-                    content=summaries_content, tool_call_id=self._state.root_tool_call_id or "unknown", id=str(uuid4())
-                ),
-            ]
-            # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
-            return "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
-
-        return summaries_content, None
+        video_validation_enabled = self._has_video_validation_feature_flag()
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+        )
+        try:
+            # Summarize the sessions
+            summaries_content, session_group_summary_id = await self._summarize_sessions(
+                session_ids=session_ids,
+                summary_title=summary_title,
+            )
+            # Build messages artifact for group summaries (with "Open report" button)
+            content, artifact = None, None
+            if session_group_summary_id:
+                messages = [
+                    AssistantMessage(
+                        meta={
+                            "form": {
+                                "options": [
+                                    {
+                                        "value": "Open report",
+                                        "href": f"/session-summaries/{session_group_summary_id}",
+                                        "variant": "primary",
+                                    }
+                                ]
+                            }
+                        },
+                        content=f"Report complete: {summary_title or 'Sessions summary'}",
+                        id=str(uuid4()),
+                    ),
+                    AssistantToolCallMessage(
+                        content=summaries_content,
+                        tool_call_id=self._state.root_tool_call_id or "unknown",
+                        id=str(uuid4()),
+                    ),
+                ]
+                # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
+                content, artifact = "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
+            else:
+                content, artifact = summaries_content, None
+        except Exception as err:
+            # The session summarization failed
+            capture_session_summary_generated(
+                user=self._user,
+                team=self._team,
+                tracking_id=tracking_id,
+                summary_source="chat",
+                summary_type=summary_type,
+                is_streaming=False,
+                session_ids=session_ids,
+                video_validation_enabled=video_validation_enabled,
+                success=False,
+                error_type=type(err).__name__,
+                error_message=str(err),
+            )
+            raise
+        # The session successfully summarized
+        capture_session_summary_generated(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+            success=True,
+        )
+        return content, artifact
 
     def _has_video_validation_feature_flag(self) -> bool | None:
         """
@@ -389,7 +441,8 @@ class SummarizeSessionsTool(MaxTool):
         except Exception as e:
             logger.exception(
                 f"Error getting session ids for session summarization with filters query "
-                f"({replay_filters.model_dump_json(exclude_none=True)}): {e}"
+                f"({replay_filters.model_dump_json(exclude_none=True)}): {e}",
+                signals_type="session-summaries",
             )
             return None
         # Extract session IDs
@@ -454,37 +507,43 @@ class SummarizeSessionsTool(MaxTool):
             # Max "reasoning" text update message
             if update_type == SessionSummaryStreamUpdate.UI_STATUS:
                 if not isinstance(data, str):
-                    raise TypeError(
+                    msg = (
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.UI_STATUS}: {type(data)} "
                         f"(expected: str)"
                     )
+                    logger.error(msg, signals_type="session-summaries")
+                    raise TypeError(msg)
                 # Status message - stream to user
                 self._stream_progress(progress_message=data)
             # Final summary result
             elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                 if not isinstance(data, tuple) or len(data) != 2:
-                    raise ValueError(
+                    msg = (
                         f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
                         f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str])"
                     )
+                    logger.error(msg, signals_type="session-summaries")
+                    raise ValueError(msg)
                 summary, session_group_summary_id = data
                 if not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
-                    raise ValueError(
+                    msg = (  # type: ignore[unreachable]
                         f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
                         f"(expected: EnrichedSessionGroupSummaryPatternsList)"
                     )
+                    logger.error(msg, signals_type="session-summaries")
+                    raise ValueError(msg)
                 # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                 stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                 summary_str = stringifier.stringify_patterns()
                 return summary_str, session_group_summary_id
             else:
-                raise ValueError(
-                    f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."
-                )
+                msg = f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."  # type: ignore[unreachable]
+                logger.error(msg, signals_type="session-summaries")
+                raise ValueError(msg)
         else:
-            raise ValueError(
-                f"No summary was generated from session group summarization (session_ids: {logging_session_ids(session_ids)})"
-            )
+            msg = f"No summary was generated from session group summarization (session_ids: {logging_session_ids(session_ids)})"
+            logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
 
     async def _summarize_sessions(
         self,

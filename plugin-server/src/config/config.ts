@@ -335,13 +335,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_MERGE_ASYNC_ENABLED: false,
         // Batch size for sync person merge processing (0 = unlimited, process all distinct IDs in one query)
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
-        // Enable person table cutover migration
-        PERSON_TABLE_CUTOVER_ENABLED: false,
-        // New person table name for cutover migration
-        PERSON_NEW_TABLE_NAME: 'posthog_person_new',
-        // Person ID offset threshold - person IDs >= this value route to new table
-        // Default is max safe integer to ensure cutover doesn't activate accidentally
-        PERSON_NEW_TABLE_ID_OFFSET: Number.MAX_SAFE_INTEGER,
 
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
@@ -369,6 +362,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_LOGS_INGESTION_OVERFLOW,
         LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
         LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
+        LOGS_REDIS_HOST: '127.0.0.1',
+        LOGS_REDIS_PORT: 6479,
+        LOGS_REDIS_PASSWORD: '',
+        LOGS_REDIS_TLS: isProdEnv() ? true : false,
+        LOGS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        LOGS_LIMITER_DISABLED_FOR_TEAMS: '',
+        LOGS_LIMITER_BUCKET_SIZE_KB: 10000, // 10MB burst
+        LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: 1000, // 1MB/second refill rate
+        LOGS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
+        LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
+        LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
     }
 }
 

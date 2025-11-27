@@ -235,6 +235,17 @@ export type LogsIngestionConsumerConfig = {
     LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: string
     LOGS_INGESTION_CONSUMER_DLQ_TOPIC: string
     LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
+    LOGS_REDIS_HOST: string
+    LOGS_REDIS_PORT: number
+    LOGS_REDIS_PASSWORD: string
+    LOGS_REDIS_TLS: boolean
+    LOGS_LIMITER_ENABLED_TEAMS: string
+    LOGS_LIMITER_DISABLED_FOR_TEAMS: string
+    LOGS_LIMITER_BUCKET_SIZE_KB: number
+    LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: number
+    LOGS_LIMITER_TTL_SECONDS: number
+    LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
+    LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
 /**
@@ -274,12 +285,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_MERGE_ASYNC_ENABLED: boolean
     // Batch size for sync person merge processing (0 = unlimited)
     PERSON_MERGE_SYNC_BATCH_SIZE: number
-    // Enable person table cutover migration
-    PERSON_TABLE_CUTOVER_ENABLED: boolean
-    // New person table name for cutover migration
-    PERSON_NEW_TABLE_NAME: string
-    // Person ID offset threshold - person IDs >= this value route to new table
-    PERSON_NEW_TABLE_ID_OFFSET: number
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
@@ -1012,8 +1017,6 @@ export interface RawPerson extends BasePerson {
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
-    /** Internal flag to track which table this person exists in during cutover migration */
-    __useNewTable?: boolean
 }
 
 /** Mutable fields that can be updated on a Person via updatePerson. */
