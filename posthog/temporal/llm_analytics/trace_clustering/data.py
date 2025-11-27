@@ -106,7 +106,7 @@ def fetch_trace_summaries(
         workload=Workload.OFFLINE,
     )
 
-    trace_summaries = {
+    trace_summaries: TraceSummaries = {
         row[0]: {
             "title": row[1],
             "flow_diagram": row[2],
