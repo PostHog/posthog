@@ -29,27 +29,22 @@ def fetch_trace_embeddings_for_clustering(
     Returns:
         Tuple of (list of trace IDs, dict mapping trace_id -> embedding vector)
     """
-    # Use argMax to pick one embedding per document_id, preferring detailed over minimal
     query = """
-        SELECT
-            document_id,
-            argMax(embedding, rendering = %(detailed_rendering)s) as embedding
+        SELECT document_id, embedding
         FROM posthog_document_embeddings
         WHERE team_id = %(team_id)s
             AND timestamp >= %(start_dt)s
             AND timestamp < %(end_dt)s
             AND document_type = %(document_type)s
-            AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
+            AND rendering = %(rendering)s
             AND length(embedding) > 0
-        GROUP BY document_id
     """
     params = {
         "team_id": team_id,
         "start_dt": window_start,
         "end_dt": window_end,
         "document_type": constants.LLMA_TRACE_DOCUMENT_TYPE,
-        "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
-        "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+        "rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
     }
 
     if max_samples and max_samples > 0:

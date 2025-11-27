@@ -52,8 +52,7 @@ COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 # Event properties
 EVENT_NAME = "$ai_trace_clusters"
 
-# Rendering types for embeddings (from trace_summarization)
-LLMA_TRACE_MINIMAL_RENDERING = "llma_trace_minimal"
+# Rendering type for clustering (only use detailed embeddings)
 LLMA_TRACE_DETAILED_RENDERING = "llma_trace_detailed"
 
 # Document type for LLM trace summaries

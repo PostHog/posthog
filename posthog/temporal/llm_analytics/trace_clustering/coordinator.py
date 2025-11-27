@@ -61,7 +61,7 @@ def query_teams_with_embeddings(lookback_days: int, min_embeddings: int) -> list
         FROM posthog_document_embeddings
         WHERE timestamp >= %(start_dt)s
             AND timestamp < %(end_dt)s
-            AND rendering IN (%(minimal_rendering)s, %(detailed_rendering)s)
+            AND rendering = %(rendering)s
             AND length(embedding) > 0
         GROUP BY team_id
         HAVING embedding_count >= %(min_embeddings)s
@@ -70,8 +70,7 @@ def query_teams_with_embeddings(lookback_days: int, min_embeddings: int) -> list
         {
             "start_dt": start_dt,
             "end_dt": end_dt,
-            "minimal_rendering": constants.LLMA_TRACE_MINIMAL_RENDERING,
-            "detailed_rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+            "rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
             "min_embeddings": min_embeddings,
         },
         workload=Workload.OFFLINE,
