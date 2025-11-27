@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonCard, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -52,6 +53,10 @@ export function ConversationsAnalyticsScene(): JSX.Element {
         ],
         []
     )
+    const [dateRange, setDateRange] = useState<{ dateFrom: string | null; dateTo: string | null }>({
+        dateFrom: '-14d',
+        dateTo: null,
+    })
 
     return (
         <SceneContent className="space-y-5">
@@ -62,6 +67,14 @@ export function ConversationsAnalyticsScene(): JSX.Element {
                     Track AI containment, escalation reasons, SLA breaches, and agent vs AI performance.
                 </p>
             </section>
+
+            <div className="w-fit">
+                <DateFilter
+                    dateFrom={dateRange.dateFrom}
+                    dateTo={dateRange.dateTo}
+                    onChange={(dateFrom, dateTo) => setDateRange({ dateFrom, dateTo })}
+                />
+            </div>
 
             <div className="grid gap-4 lg:grid-cols-3">
                 <LemonCard hoverEffect={false} className="lg:col-span-2">

@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconBrowser, IconComment } from '@posthog/icons'
 import { LemonCard, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -57,6 +59,10 @@ export function ConversationsTicketsScene(): JSX.Element {
     const { filteredTickets, metrics, statusFilter, channelFilter, resolutionFilter, slaFilter } = useValues(logic)
     const { setStatusFilter, setChannelFilter, setResolutionFilter, setSlaFilter } = useActions(logic)
     const { push } = useActions(router)
+    const [dateRange, setDateRange] = useState<{ dateFrom: string | null; dateTo: string | null }>({
+        dateFrom: '-7d',
+        dateTo: null,
+    })
 
     return (
         <SceneContent className="space-y-5">
@@ -87,7 +93,12 @@ export function ConversationsTicketsScene(): JSX.Element {
                 </LemonCard>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3 items-center">
+                <DateFilter
+                    dateFrom={dateRange.dateFrom}
+                    dateTo={dateRange.dateTo}
+                    onChange={(dateFrom, dateTo) => setDateRange({ dateFrom, dateTo })}
+                />
                 <LemonSelect
                     value={statusFilter}
                     onChange={(value) => value && setStatusFilter(value as TicketStatus | 'all')}

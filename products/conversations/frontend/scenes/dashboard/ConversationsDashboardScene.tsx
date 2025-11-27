@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconBrowser, IconClock, IconComment } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,11 +16,7 @@ import { configChanges } from '../../data/configChanges'
 import { escalationTickets } from '../../data/escalations'
 import { conversationsKpis } from '../../data/kpis'
 import { ticketPods } from '../../data/ticketPods'
-import {
-    type ChannelFilter,
-    type TimeRange,
-    conversationsDashboardSceneLogic,
-} from './conversationsDashboardSceneLogic'
+import { type ChannelFilter, conversationsDashboardSceneLogic } from './conversationsDashboardSceneLogic'
 
 const channelIcon: Record<string, JSX.Element> = {
     widget: <IconBrowser />,
@@ -31,12 +29,6 @@ export const scene: SceneExport = {
     logic: conversationsDashboardSceneLogic,
 }
 
-const timeRangeOptions = [
-    { value: '24h', label: 'Last 24h' },
-    { value: '7d', label: 'Last 7d' },
-    { value: '30d', label: 'Last 30d' },
-]
-
 const channelOptions = [
     { value: 'all', label: 'All channels' },
     { value: 'widget', label: 'Widget' },
@@ -46,8 +38,12 @@ const channelOptions = [
 
 export function ConversationsDashboardScene(): JSX.Element {
     const logic = conversationsDashboardSceneLogic()
-    const { timeRange, channelFilter } = useValues(logic)
-    const { setTimeRange, setChannelFilter } = useActions(logic)
+    const { channelFilter } = useValues(logic)
+    const { setChannelFilter } = useActions(logic)
+    const [dateRange, setDateRange] = useState<{ dateFrom: string | null; dateTo: string | null }>({
+        dateFrom: '-7d',
+        dateTo: null,
+    })
 
     return (
         <SceneContent className="space-y-5">
@@ -59,12 +55,11 @@ export function ConversationsDashboardScene(): JSX.Element {
                 </p>
             </section>
 
-            <div className="flex flex-wrap gap-3">
-                <LemonSelect
-                    value={timeRange}
-                    onChange={(value) => value && setTimeRange(value as TimeRange)}
-                    options={timeRangeOptions}
-                    placeholder="Time range"
+            <div className="flex flex-wrap gap-3 items-center">
+                <DateFilter
+                    dateFrom={dateRange.dateFrom}
+                    dateTo={dateRange.dateTo}
+                    onChange={(dateFrom, dateTo) => setDateRange({ dateFrom, dateTo })}
                 />
                 <LemonSelect
                     value={channelFilter}
