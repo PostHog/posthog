@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable no-console */
 import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -193,6 +194,9 @@ const productFolders = discoverProductFolders()
 const groupedSchemas = buildGroupedSchemasByTag(schema)
 const tmpDir = createTempDir()
 
+console.log('🔪 Slicing OpenAPI schema by explicit tags...')
+console.log(`   Found ${groupedSchemas.size} tags, ${productFolders.size} product folders\n`)
+
 let generated = 0
 let failed = 0
 for (const [tag, groupedSchema] of groupedSchemas.entries()) {
@@ -207,9 +211,12 @@ for (const [tag, groupedSchema] of groupedSchemas.entries()) {
     const tempFile = path.join(tmpDir, `${tag.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`)
     fs.writeFileSync(tempFile, JSON.stringify(groupedSchema, null, 2))
 
+    console.log(`📦 ${tag}`)
+    console.log(`   ${pathCount} endpoints, ${schemaCount} schemas`)
+
     try {
         generateTypesForSchema(tempFile, outputDir, tag, tmpDir)
-
+        console.log(`   → ${path.relative(repoRoot, outputDir)}/index.ts ✓\n`)
         generated++
     } catch (err) {
         console.error(`   ⚠️  Failed: ${err.message}\n`)
@@ -221,3 +228,4 @@ for (const [tag, groupedSchema] of groupedSchemas.entries()) {
 fs.rmSync(tmpDir, { recursive: true, force: true })
 
 // Summary
+console.log(`Done! Generated ${generated} API client(s)${failed > 0 ? `, ${failed} failed` : ''}`)
