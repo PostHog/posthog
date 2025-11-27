@@ -83,17 +83,17 @@ You can add optional properties through the option functions:
 1. Save the generated file in your project (if not generated there already):
    mv {0} <your-project>/posthog_typed.py
 
-2. Use posthog_typed.capture for type-safe event tracking:
+2. Migrate towards `posthog_typed.capture` for type-safe event tracking:
+   import posthog
    import posthog_typed
 
+   # posthog.capture(...) then becomes posthog_typed.capture(...):
    posthog_typed.capture("event_name", "user_123", {{"property": "value"}})
 
 3. Use posthog.capture for untyped/dynamic events:
    import posthog
 
    posthog.capture("dynamic_event", "user_123", {{"anything": "goes"}})
-
-Your editor will automatically validate posthog_typed.capture calls.
 
 Alternative: If you only use capture() and want a cleaner import:
    import posthog_typed as posthog
@@ -102,7 +102,8 @@ Alternative: If you only use capture() and want a cleaner import:
 
 Note: This pattern means you won't have access to other SDK methods
 (identify, group, feature_enabled, etc.) unless you also import the
-original posthog module separately.
+original posthog module separately. But this way you only need to
+update the import.
 "#,
                 output_path
             ),

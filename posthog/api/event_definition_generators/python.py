@@ -78,24 +78,27 @@ Provides type-safe event tracking with validated event names and properties.
 
 USAGE GUIDE
 ===========
-1. Save this file as `posthog_typed.py` in your project
-2. Use posthog_typed.capture for type-safe event tracking:
+1. Save the generated file in your project (if not generated there already):
+2. Migrate towards `posthog_typed.capture` for type-safe event tracking:
+   import posthog
    import posthog_typed
-   posthog_typed.capture("file_uploaded", "user_123", {{"file_name": "test.txt"}})
+
+   # posthog.capture(...) then becomes posthog_typed.capture(...):
+   posthog_typed.capture("event_name", "user_123", {{"property": "value"}})
 3. Use posthog.capture for untyped/dynamic events:
    import posthog
-   posthog.capture("dynamic_event", "user_123", {{"any": "data"}})
-Your editor will automatically validate posthog_typed.capture calls:
-- Event names match defined events
-- Required properties are provided
-- Property types match the schema
-ALTERNATIVE: If you only use capture() and want a cleaner import:
-   import posthog_typed as posthog
-   posthog.capture("file_uploaded", "user_123", {{"file_name": "test.txt"}})
-Note: This pattern means you won't have access to other SDK methods (identify,
-group, feature_enabled, etc.) unless you also import the original posthog module.
 
-TODO something about: from posthog_typed import EventName!! Dat mensen dit kunnen importeren
+   posthog.capture("dynamic_event", "user_123", {{"anything": "goes"}})
+
+Alternative: If you only use capture() and want a cleaner import:
+   import posthog_typed as posthog
+
+   posthog.capture("event_name", "user_123", {{"property": "value"}})
+
+Note: This pattern means you won't have access to other SDK methods
+(identify, group, feature_enabled, etc.) unless you also import the
+original posthog module separately. But this way you only need to
+update the import.
 """
 {datetime_import}from typing import Any, Dict, Literal, Optional, TypedDict, overload
 
