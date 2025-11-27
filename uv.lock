@@ -1336,7 +1336,7 @@ wheels = [
 
 [[package]]
 name = "datamodel-code-generator"
-version = "0.28.5"
+version = "0.36.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "argcomplete" },
@@ -1349,9 +1349,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/65/19/d9d922913b86e9df48bfd4f959f3b215cd16c9fd563b4d0b1b6b31d3703b/datamodel_code_generator-0.28.5.tar.gz", hash = "sha256:20e8b817d301d2d0bb15f436e81c97b25ad1c2ef922c99249c2444141ae15a6a", size = 444237, upload-time = "2025-03-24T17:36:33.471Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/4a/3d17b5ca93e3296af39e33464f357c278d01c65786f537784d292e3c719a/datamodel_code_generator-0.36.0.tar.gz", hash = "sha256:1a70d0fa7648551d48b800dbe9b249582b9362eac084f01a643534338ccc3fdf", size = 390410, upload-time = "2025-11-26T17:14:08.443Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/af/fdb43505db1accf89c4551eacedd3bc756b7bf57b190b87c29c75fee2555/datamodel_code_generator-0.28.5-py3-none-any.whl", hash = "sha256:f899c1da5af04b5d5b6e3edbd718c1bf3a00fc4b2fe8210cef609d93a9983e9e", size = 117290, upload-time = "2025-03-24T17:36:31.73Z" },
+    { url = "https://files.pythonhosted.org/packages/04/24/471d91e77895d03109354efe5ba7f5c2c4fadecfc030f975bfb320029169/datamodel_code_generator-0.36.0-py3-none-any.whl", hash = "sha256:7d9b11cbf309b65cc9d13560ee22a75feb8d7e63ed8e305fe58dee6150eb6f5b", size = 127352, upload-time = "2025-11-26T17:14:06.816Z" },
 ]
 
 [[package]]
@@ -4807,7 +4807,7 @@ dev = [
     { name = "braintrust", specifier = "==0.2.4" },
     { name = "braintrust-langchain", specifier = "==0.0.4" },
     { name = "dagster-dg-cli", specifier = ">=1.10.18" },
-    { name = "datamodel-code-generator", specifier = "==0.28.5" },
+    { name = "datamodel-code-generator", specifier = "~=0.36.0" },
     { name = "debugpy", specifier = ">=1.8.0" },
     { name = "deepdiff", specifier = ">=8.6.1" },
     { name = "django-linear-migrations", specifier = "~=2.17.0" },

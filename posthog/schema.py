@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
 
 class SchemaRoot(RootModel[Any]):
@@ -1012,8 +1011,8 @@ class DateRange(BaseModel):
     )
 
 
-class DatetimeDay(RootModel[datetime]):
-    root: datetime
+class DatetimeDay(RootModel[AwareDatetime]):
+    root: AwareDatetime
 
 
 class DeepResearchType(StrEnum):
@@ -1093,7 +1092,7 @@ class EmbeddedDocument(BaseModel):
     document_id: str
     document_type: str
     product: str
-    timestamp: datetime
+    timestamp: AwareDatetime
 
 
 class EmbeddingModelName(StrEnum):
@@ -1110,7 +1109,7 @@ class EmbeddingRecord(BaseModel):
     model_name: EmbeddingModelName
     product: str
     rendering: str
-    timestamp: datetime
+    timestamp: AwareDatetime
 
 
 class EmptyPropertyFilter(BaseModel):
@@ -2622,8 +2621,8 @@ class ResolvedDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: datetime
-    date_to: datetime
+    date_from: AwareDatetime
+    date_to: AwareDatetime
 
 
 class ResultCustomizationBase(BaseModel):
@@ -4527,7 +4526,7 @@ class DayItem(BaseModel):
         extra="forbid",
     )
     label: str
-    value: str | datetime | int
+    value: str | AwareDatetime | int
 
 
 class InsightThreshold(BaseModel):
@@ -4598,12 +4597,12 @@ class LogMessage(BaseModel):
     event_name: str
     instrumentation_scope: str
     level: LogSeverityLevel
-    observed_timestamp: datetime
+    observed_timestamp: AwareDatetime
     resource_attributes: Any
     severity_number: float
     severity_text: LogSeverityLevel
     span_id: str
-    timestamp: datetime
+    timestamp: AwareDatetime
     trace_id: str
     uuid: str
 
@@ -4680,13 +4679,17 @@ class MaxExperimentSummaryContext(BaseModel):
     variants: list[str]
 
 
+class NotebookInfo(RootModel[DeepResearchNotebook]):
+    root: DeepResearchNotebook
+
+
 class NotebookUpdateMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     content: ProsemirrorJSONContent
-    conversation_notebooks: list[DeepResearchNotebook] | None = None
-    current_run_notebooks: list[DeepResearchNotebook] | None = None
+    conversation_notebooks: list[NotebookInfo] | None = None
+    current_run_notebooks: list[NotebookInfo] | None = None
     id: str | None = None
     notebook_id: str
     notebook_type: Literal["deep_research"] = "deep_research"
@@ -4802,7 +4805,7 @@ class QueryStatus(BaseModel):
         ),
     )
     dashboard_id: int | None = None
-    end_time: datetime | None = Field(
+    end_time: AwareDatetime | None = Field(
         default=None, description="When did the query execution task finish (whether successfully or not)."
     )
     error: bool | None = Field(
@@ -4812,17 +4815,17 @@ class QueryStatus(BaseModel):
         ),
     )
     error_message: str | None = None
-    expiration_time: datetime | None = None
+    expiration_time: AwareDatetime | None = None
     id: str
     insight_id: int | None = None
     labels: list[str] | None = None
-    pickup_time: datetime | None = Field(
+    pickup_time: AwareDatetime | None = Field(
         default=None, description="When was the query execution task picked up by a worker."
     )
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: ClickhouseQueryProgress | None = None
     results: Any | None = None
-    start_time: datetime | None = Field(default=None, description="When was query execution task enqueued.")
+    start_time: AwareDatetime | None = Field(default=None, description="When was query execution task enqueued.")
     task_id: str | None = None
     team_id: int
 
@@ -5552,7 +5555,7 @@ class TestCachedBasicQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -5562,9 +5565,9 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6458,7 +6461,7 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6468,9 +6471,9 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6490,7 +6493,7 @@ class CachedActorsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6502,11 +6505,11 @@ class CachedActorsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6528,7 +6531,7 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6539,9 +6542,9 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6561,7 +6564,7 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6572,10 +6575,10 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6596,7 +6599,7 @@ class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6606,9 +6609,9 @@ class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6628,7 +6631,7 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6639,10 +6642,10 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6663,7 +6666,7 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6673,9 +6676,9 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6695,7 +6698,7 @@ class CachedEventsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6707,10 +6710,10 @@ class CachedEventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6732,15 +6735,15 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     date_range: DateRange
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6755,7 +6758,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6767,10 +6770,10 @@ class CachedFunnelCorrelationResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6792,7 +6795,7 @@ class CachedFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6803,9 +6806,9 @@ class CachedFunnelsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     isUdf: bool | None = None
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6825,7 +6828,7 @@ class CachedGroupsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6838,10 +6841,10 @@ class CachedGroupsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
     kind: Literal["GroupsQuery"] = "GroupsQuery"
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6863,7 +6866,7 @@ class CachedLifecycleQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6873,9 +6876,9 @@ class CachedLifecycleQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6895,7 +6898,7 @@ class CachedLogsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6907,10 +6910,10 @@ class CachedLogsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6931,7 +6934,7 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6941,9 +6944,9 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6964,7 +6967,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6976,10 +6979,10 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7002,7 +7005,7 @@ class CachedPathsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7012,9 +7015,9 @@ class CachedPathsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7034,7 +7037,7 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7045,9 +7048,9 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7067,7 +7070,7 @@ class CachedRevenueAnalyticsMRRQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7078,9 +7081,9 @@ class CachedRevenueAnalyticsMRRQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7100,7 +7103,7 @@ class CachedRevenueAnalyticsMetricsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7111,9 +7114,9 @@ class CachedRevenueAnalyticsMetricsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7133,7 +7136,7 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7143,9 +7146,9 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7165,7 +7168,7 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7176,9 +7179,9 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7198,7 +7201,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7210,10 +7213,10 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7235,7 +7238,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7247,10 +7250,10 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7272,7 +7275,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7284,10 +7287,10 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7309,7 +7312,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7321,10 +7324,10 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7352,7 +7355,7 @@ class CachedSessionsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7364,10 +7367,10 @@ class CachedSessionsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7389,7 +7392,7 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7400,9 +7403,9 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7422,7 +7425,7 @@ class CachedStickinessQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7432,9 +7435,9 @@ class CachedStickinessQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7454,13 +7457,13 @@ class CachedSuggestedQuestionsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7474,7 +7477,7 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7484,9 +7487,9 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7506,7 +7509,7 @@ class CachedTraceQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7518,10 +7521,10 @@ class CachedTraceQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7542,7 +7545,7 @@ class CachedTracesQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7554,10 +7557,10 @@ class CachedTracesQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7578,7 +7581,7 @@ class CachedTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7589,9 +7592,9 @@ class CachedTrendsQueryResponse(BaseModel):
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7611,7 +7614,7 @@ class CachedUsageMetricsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7621,9 +7624,9 @@ class CachedUsageMetricsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7643,7 +7646,7 @@ class CachedVectorSearchQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7653,9 +7656,9 @@ class CachedVectorSearchQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7675,7 +7678,7 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7687,10 +7690,10 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7713,7 +7716,7 @@ class CachedWebGoalsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7725,10 +7728,10 @@ class CachedWebGoalsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7751,7 +7754,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7763,9 +7766,9 @@ class CachedWebOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7787,7 +7790,7 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7798,10 +7801,10 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7821,7 +7824,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7833,10 +7836,10 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7860,7 +7863,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7870,9 +7873,9 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8958,11 +8961,11 @@ class ErrorTrackingIssue(BaseModel):
     description: str | None = None
     external_issues: list[ErrorTrackingExternalReference] | None = None
     first_event: FirstEvent | None = None
-    first_seen: datetime
+    first_seen: AwareDatetime
     function: str | None = None
     id: str
     last_event: LastEvent | None = None
-    last_seen: datetime
+    last_seen: AwareDatetime
     library: str | None = None
     name: str | None = None
     revenue: float | None = None
@@ -9040,7 +9043,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     cohort: ErrorTrackingIssueCohort | None = None
     description: str | None = None
     external_issues: list[ErrorTrackingExternalReference] | None = None
-    first_seen: datetime
+    first_seen: AwareDatetime
     id: str
     name: str | None = None
     status: Status4
@@ -9582,13 +9585,13 @@ class FunnelsQueryResponse(BaseModel):
 
 class GenericCachedQueryResponse(BaseModel):
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11463,7 +11466,7 @@ class RetentionResult(BaseModel):
     breakdown_value: str | float | None = Field(
         default=None, description="Optional breakdown value for retention cohorts"
     )
-    date: datetime
+    date: AwareDatetime
     label: str
     values: list[RetentionValue]
 
@@ -12251,7 +12254,7 @@ class CachedErrorTrackingQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12263,10 +12266,10 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -12287,7 +12290,7 @@ class CachedHogQLQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12301,11 +12304,11 @@ class CachedHogQLQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_metadata: dict[str, Any] | None = None
@@ -12330,7 +12333,7 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     breakdown: list[BreakdownItem] | None = None
     breakdowns: list[MultipleBreakdownOptions] | None = None
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12338,8 +12341,8 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     day: list[DayItem] | None = None
     interval: list[IntervalItem] | None = None
     is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12356,15 +12359,15 @@ class CachedNewExperimentQueryResponse(BaseModel):
     baseline: ExperimentStatsBaseValidated
     breakdown_results: list[ExperimentBreakdownResult] | None = None
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     clickhouse_sql: str | None = None
     hogql: str | None = None
     is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12378,7 +12381,7 @@ class CachedRetentionQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12388,9 +12391,9 @@ class CachedRetentionQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12410,7 +12413,7 @@ class CachedWebTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12424,11 +12427,11 @@ class CachedWebTrendsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_metadata: dict[str, Any] | None = None
@@ -12453,7 +12456,7 @@ class CachedWebVitalsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12463,9 +12466,9 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12596,9 +12599,9 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     description: str | None = None
     event: str
     external_issues: list[ErrorTrackingExternalReference] | None = None
-    first_seen: datetime
+    first_seen: AwareDatetime
     id: str
-    last_seen: datetime
+    last_seen: AwareDatetime
     library: str | None = None
     name: str | None = None
     odds_ratio: float
@@ -13349,7 +13352,7 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -13361,10 +13364,10 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -13385,7 +13388,7 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -13395,8 +13398,8 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     insight: list[dict[str, Any]]
     is_cached: bool
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     p_value: float
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
@@ -14422,7 +14425,7 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -14432,8 +14435,8 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     insight: list[list[dict[str, Any]]]
     is_cached: bool
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -14458,7 +14461,7 @@ class CachedExperimentQueryResponse(BaseModel):
         ),
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -14468,11 +14471,11 @@ class CachedExperimentQueryResponse(BaseModel):
     insight: list[dict[str, Any]] | None = None
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
         None
     )
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     p_value: float | None = None
     probability: dict[str, float] | None = None
     query_metadata: dict[str, Any] | None = None
@@ -14492,7 +14495,7 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -14500,9 +14503,9 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     insight: list[dict[str, Any]]
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     p_value: float
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None

@@ -13,20 +13,6 @@ datamodel-codegen \
     --set-default-enum-member --capitalise-enum-members \
     --wrap-string-literal
 
-# Format schema.py
+# Format and lint
 ruff format posthog/schema.py
-
-# Check schema.py and autofix
 ruff check --fix posthog/schema.py
-
-# Replace class Foo(str, Enum) with class Foo(StrEnum) for proper handling in format strings in python 3.11
-# Remove this when https://github.com/koxudaxi/datamodel-code-generator/issues/1313 is resolved
-if sed --version 2>&1 | grep -q GNU; then
-    # GNU sed
-    sed -i -e 's/str, Enum/StrEnum/g' posthog/schema.py
-    sed -i 's/from enum import Enum/from enum import Enum, StrEnum/g' posthog/schema.py
-else
-    # BSD/macOS sed
-    sed -i '' -e 's/str, Enum/StrEnum/g' posthog/schema.py
-    sed -i '' 's/from enum import Enum/from enum import Enum, StrEnum/g' posthog/schema.py
-fi
