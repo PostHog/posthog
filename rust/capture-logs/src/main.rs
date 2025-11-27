@@ -36,7 +36,7 @@ async fn shutdown() {
 
 fn setup_tracing() {
     let log_layer = tracing_subscriber::fmt::layer()
-        .json()
+        .json().with_span_list(false)
         .with_filter(EnvFilter::from_default_env());
     tracing_subscriber::registry().with(log_layer).init();
 }
