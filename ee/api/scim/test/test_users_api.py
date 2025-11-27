@@ -195,9 +195,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         scim_user = SCIMProvisionedUser.objects.get(user=existing_user, organization_domain=self.domain)
         assert scim_user.active is True
 
-    def test_repeated_post_does_not_create_duplicate_user(self):
-        # In case the IdP failed to match user by id, it can send POST request to create a new user.
-        # The user should be merged with existing one by email, not create a duplicate.
+    def test_repeated_post_returns_409_for_already_provisioned_user(self):
         user_data_first = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
             "userName": "repeat@example.com",
@@ -213,7 +211,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED
         first_user = User.objects.get(email="repeat@example.com")
 
-        # IdP sends POST request again with same email
+        # IdP sends POST request again with same email - should fail with 409
         user_data_second = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
             "userName": "repeat@example.com",
@@ -226,14 +224,14 @@ class TestSCIMUsersAPI(APILicensedTest):
             f"/scim/v2/{self.domain.id}/Users", data=user_data_second, content_type="application/scim+json"
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        assert response.status_code == status.HTTP_409_CONFLICT
 
         # Should NOT create duplicate user
         assert User.objects.filter(email="repeat@example.com").count() == 1
 
-        # User should be updated with new data from second POST
+        # User should NOT be updated (still has first POST data)
         first_user.refresh_from_db()
-        assert first_user.first_name == "Second"
+        assert first_user.first_name == "First"
         assert first_user.last_name == "Time"
 
         # User should have only one membership
