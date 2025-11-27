@@ -96,7 +96,7 @@ def get_team_data(team_id: int, force_refresh: bool) -> dict[str, Any] | None:
 def get_github_sdk_data() -> dict[str, Any]:
     redis_client = get_client()
 
-    data = {}
+    data: dict[str, Any] = {}
     for sdk_type in SDK_TYPES:
         cache_key = f"github:sdk_versions:{sdk_type}"
         cached_data = redis_client.get(cache_key)
