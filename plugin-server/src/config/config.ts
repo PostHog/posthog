@@ -131,12 +131,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
-        OBJECT_STORAGE_ENABLED: true,
-        OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
-        OBJECT_STORAGE_REGION: 'us-east-1',
-        OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
-        OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
-        OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
         PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
