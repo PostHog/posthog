@@ -682,6 +682,31 @@
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.2
   '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.3
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.4
+  '''
   SELECT source.id,
          source.id AS id,
          1
@@ -752,7 +777,32 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.3
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.5
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.6
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.7
   '''
   SELECT source.id,
          source.id AS id,
@@ -822,6 +872,31 @@
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.8
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000003']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestFOSSFunnelUDF.test_funnel_with_property_groups.9
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000003']
+  GROUP BY person_id
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_static_cohort_step_filter
