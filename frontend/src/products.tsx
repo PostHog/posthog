@@ -40,6 +40,22 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
+    ConversationsDashboard: () =>
+        import('../../products/conversations/frontend/scenes/dashboard/ConversationsDashboardScene'),
+    ConversationsTickets: () =>
+        import('../../products/conversations/frontend/scenes/tickets/ConversationsTicketsScene'),
+    ConversationsTicketDetail: () =>
+        import('../../products/conversations/frontend/scenes/ticket/ConversationsTicketScene'),
+    ConversationsAnalytics: () =>
+        import('../../products/conversations/frontend/scenes/analytics/ConversationsAnalyticsScene'),
+    ConversationsContent: () =>
+        import('../../products/conversations/frontend/scenes/content/ConversationsContentScene'),
+    ConversationsGuidance: () =>
+        import('../../products/conversations/frontend/scenes/guidance/ConversationsGuidanceScene'),
+    ConversationsPlayground: () =>
+        import('../../products/conversations/frontend/scenes/playground/ConversationsPlaygroundScene'),
+    ConversationsSettings: () =>
+        import('../../products/conversations/frontend/scenes/settings/ConversationsSettingsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
@@ -96,6 +112,14 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/conversations': ['ConversationsDashboard', 'conversationsDashboard'],
+    '/conversations/tickets': ['ConversationsTickets', 'conversationsTickets'],
+    '/conversations/tickets/:ticketId': ['ConversationsTicketDetail', 'conversationsTicketDetail'],
+    '/conversations/analytics': ['ConversationsAnalytics', 'conversationsAnalytics'],
+    '/conversations/content': ['ConversationsContent', 'conversationsContent'],
+    '/conversations/guidance': ['ConversationsGuidance', 'conversationsGuidance'],
+    '/conversations/playground': ['ConversationsPlayground', 'conversationsPlayground'],
+    '/conversations/settings': ['ConversationsSettings', 'conversationsSettings'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
@@ -197,6 +221,14 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Action',
         iconType: 'action',
     },
+    ConversationsDashboard: { name: 'Conversations overview', projectBased: true },
+    ConversationsTickets: { name: 'Ticket list', projectBased: true },
+    ConversationsTicketDetail: { name: 'Ticket detail', projectBased: true },
+    ConversationsAnalytics: { name: 'Resolution analytics', projectBased: true },
+    ConversationsContent: { name: 'Knowledge content', projectBased: true },
+    ConversationsGuidance: { name: 'Guidance + guardrails', projectBased: true },
+    ConversationsPlayground: { name: 'Playground', projectBased: true },
+    ConversationsSettings: { name: 'Conversations settings', projectBased: true },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -407,6 +439,14 @@ export const productUrls = {
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
+    conversationsDashboard: (): string => '/conversations',
+    conversationsTickets: (): string => '/conversations/tickets',
+    conversationsTicketDetail: (ticketId: string | number): string => `/conversations/tickets/${ticketId}`,
+    conversationsAnalytics: (): string => '/conversations/analytics',
+    conversationsContent: (): string => '/conversations/content',
+    conversationsGuidance: (): string => '/conversations/guidance',
+    conversationsPlayground: (): string => '/conversations/playground',
+    conversationsSettings: (): string => '/conversations/settings',
     customerAnalytics: (): string => '/customer_analytics',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
