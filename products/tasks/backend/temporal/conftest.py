@@ -97,6 +97,7 @@ def test_task_run(test_task):
     """Create a test task run."""
     task_run = TaskRun.objects.create(
         task=test_task,
+        team=test_task.team,
         status=TaskRun.Status.QUEUED,
     )
 
