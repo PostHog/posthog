@@ -49,7 +49,7 @@ SDK_TYPES: list[SdkTypes] = [
 
 
 # Using lambda here to be able to define this before defining the functions
-SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], Optional[dict[str, Any]]]] = {
+SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "web": lambda: fetch_web_sdk_data(),
     "posthog-python": lambda: fetch_python_sdk_data(),
     "posthog-node": lambda: fetch_node_sdk_data(),
@@ -73,7 +73,7 @@ def fetch_github_data_for_sdk(lib_name: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str] | None = None) -> Optional[dict[str, Any]]:
+def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str] | None = None) -> dict[str, Any]:
     """Helper function to fetch SDK data from GitHub releases API."""
 
     # By default we'll include anything in the list if not specified
@@ -82,7 +82,7 @@ def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str] | None = Non
 
     releases = fetch_releases_from_repo(repo)
     if not releases:
-        return None
+        return {}
 
     latest_version = None
     release_dates = {}
@@ -120,7 +120,7 @@ def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str] | None = Non
             release_dates[version] = created_at
 
     if not latest_version:
-        return None
+        return {}
 
     return {"latestVersion": latest_version, "releaseDates": release_dates}
 
@@ -176,7 +176,7 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
     return local_releases_cache[repo]
 
 
-def fetch_web_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_web_sdk_data() -> dict[str, Any]:
     """Fetch Web SDK data from GitHub releases API"""
 
     # Newer versions in `posthog-js` use a monorepo approach where we prefix tags with `posthog-js@`
@@ -184,12 +184,12 @@ def fetch_web_sdk_data() -> Optional[dict[str, Any]]:
     return fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-js@", "v"])
 
 
-def fetch_python_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_python_sdk_data() -> dict[str, Any]:
     """Fetch Python SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-python", tag_prefixes=["v"])
 
 
-def fetch_node_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_node_sdk_data() -> dict[str, Any]:
     """Fetch Node.js SDK data from GitHub releases API"""
 
     # `posthog-node` was originally developed on the `posthog-js-lite` repo, but was later moved to the `posthog-js` monorepo
@@ -207,7 +207,7 @@ def fetch_node_sdk_data() -> Optional[dict[str, Any]]:
     }
 
 
-def fetch_react_native_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_react_native_sdk_data() -> dict[str, Any]:
     """Fetch React Native SDK data from GitHub releases API"""
 
     # `posthog-react-native` was originally developed on the `posthog-js-lite` repo, but was later moved to the `posthog-js` monorepo
@@ -225,42 +225,42 @@ def fetch_react_native_sdk_data() -> Optional[dict[str, Any]]:
     }
 
 
-def fetch_flutter_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_flutter_sdk_data() -> dict[str, Any]:
     """Fetch Flutter SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-flutter", tag_prefixes=["v"])
 
 
-def fetch_ios_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_ios_sdk_data() -> dict[str, Any]:
     """Fetch iOS SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-ios")
 
 
-def fetch_android_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_android_sdk_data() -> dict[str, Any]:
     """Fetch Android SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-android", tag_prefixes=["android-v", re.compile(r"[0-9]")])
 
 
-def fetch_go_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_go_sdk_data() -> dict[str, Any]:
     """Fetch Go SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-go", tag_prefixes=["v"])
 
 
-def fetch_php_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_php_sdk_data() -> dict[str, Any]:
     """Fetch PHP SDK data from History.md with release dates"""
     return fetch_sdk_data_from_releases("PostHog/posthog-php")
 
 
-def fetch_ruby_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_ruby_sdk_data() -> dict[str, Any]:
     """Fetch Ruby SDK data from CHANGELOG.md with release dates"""
     return fetch_sdk_data_from_releases("PostHog/posthog-ruby")
 
 
-def fetch_elixir_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_elixir_sdk_data() -> dict[str, Any]:
     """Fetch Elixir SDK data from CHANGELOG.md with release dates"""
     return fetch_sdk_data_from_releases("PostHog/posthog-elixir", tag_prefixes=["v"])
 
 
-def fetch_dotnet_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_dotnet_sdk_data() -> dict[str, Any]:
     """Fetch .NET SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-dotnet", tag_prefixes=["v"])
 
