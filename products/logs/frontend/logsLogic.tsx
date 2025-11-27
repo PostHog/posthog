@@ -446,7 +446,8 @@ export const logsLogic = kea<logsLogicType>([
         ],
     })),
 
-    selectors(() => ({
+    selectors(({ props }) => ({
+        tabId: [() => [], () => props.tabId as string],
         utcDateRange: [
             (s) => [s.dateRange],
             (dateRange) => ({

@@ -317,7 +317,7 @@ function LogsTable({
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const { expandedAttributeBreaksdowns } = useValues(logsLogic)
+    const { expandedAttributeBreaksdowns, tabId } = useValues(logsLogic)
     const { addFilter, toggleAttributeBreakdown } = useActions(logsLogic)
 
     const attributes = log.attributes
@@ -386,7 +386,9 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                 noIndent: true,
                 showRowExpansionToggle: false,
                 isRowExpanded: (record) => expandedAttributeBreaksdowns.includes(record.key),
-                expandedRowRender: (record) => <AttributeBreakdowns attribute={record.key} addFilter={addFilter} />,
+                expandedRowRender: (record) => (
+                    <AttributeBreakdowns attribute={record.key} addFilter={addFilter} tabId={tabId} />
+                ),
             }}
         />
     )
