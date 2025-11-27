@@ -358,6 +358,7 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setHasMoreLogsToLoad: (_, { hasMoreLogsToLoad }) => hasMoreLogsToLoad,
                 clearLogs: () => true,
+                truncateLogs: () => true,
             },
         ],
     }),
