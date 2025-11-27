@@ -4,13 +4,16 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
+import { LLMASessionFeedbackDisplay } from './LLMASessionFeedbackDisplay'
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
@@ -32,6 +35,9 @@ export function LLMAnalyticsSessionScene(): JSX.Element {
 }
 
 function SessionSceneWrapper(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
+
     const {
         traces,
         responseLoading,
@@ -85,6 +91,7 @@ function SessionSceneWrapper(): JSX.Element {
                                     {sessionStats.totalLatency.toFixed(2)}s
                                 </LemonTag>
                             )}
+                            {showFeedback && <LLMASessionFeedbackDisplay sessionId={sessionId} />}
                         </header>
                     </div>
                     <div className="bg-surface-primary border rounded p-4">

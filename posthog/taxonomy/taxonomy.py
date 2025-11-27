@@ -1982,6 +1982,26 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The text provided by the user for feedback on the LLM trace.",
             "examples": ['"The response was helpful, but it did not use the provided context."'],
         },
+        "$ai_feedback_rating": {
+            "label": "AI Feedback Rating",
+            "description": "User rating for AI response quality.",
+            "examples": ["good", "okay", "bad", "dismissed", "implicit_dismiss"],
+        },
+        "$ai_feedback_trigger_type": {
+            "label": "AI Feedback Trigger Type",
+            "description": "What triggered the feedback prompt to appear.",
+            "examples": ["message_interval", "random_sample", "manual", "retry", "cancel"],
+        },
+        "$ai_conversation_id": {
+            "label": "AI Conversation ID",
+            "description": "Unique identifier for the AI conversation.",
+            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_support_ticket_id": {
+            "label": "AI Support Ticket ID",
+            "description": "Zendesk support ticket ID linked to AI feedback.",
+            "examples": ["12345"],
+        },
         "$ai_parent_id": {
             "label": "AI Parent ID (LLM)",
             "description": "The parent span ID of a span or generation, used to group a trace into a tree view.",

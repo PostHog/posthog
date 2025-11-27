@@ -96,22 +96,23 @@ import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive, traceId, retryCount, cancelCount } = useValues(maxThreadLogic)
-    const { resetRetryCount, resetCancelCount } = useActions(maxThreadLogic)
 
     // Only use feedback logic when we have a valid conversationId
     const feedbackLogicProps = useMemo(() => (conversationId ? { conversationId } : null), [conversationId])
-    const { isPromptVisible, currentTriggerType, messageInterval } = useValues(
+    const { isPromptVisible, isDetailedFeedbackVisible, currentTriggerType, messageInterval } = useValues(
         feedbackLogicProps ? feedbackPromptLogic(feedbackLogicProps) : feedbackPromptLogic.build({ conversationId: '' })
     )
     const {
-        hidePrompt,
-        recordFeedbackShown,
         checkShouldShowPrompt,
         submitImplicitDismiss,
+        submitDetailedFeedbackDismiss,
+        hideDetailedFeedback,
+        recordFeedbackShown,
         setLastTriggeredIntervalIndex,
     } = useActions(
         feedbackLogicProps ? feedbackPromptLogic(feedbackLogicProps) : feedbackPromptLogic.build({ conversationId: '' })
     )
+    const { resetRetryCount, resetCancelCount } = useActions(maxThreadLogic)
 
     const prevMessageCountRef = useRef(threadGrouped.length)
     const prevStreamingActiveRef = useRef(streamingActive)
@@ -135,6 +136,11 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             submitImplicitDismiss(conversationId, currentTriggerType, traceId)
         }
 
+        // If detailed feedback form is visible and user sends a new message, submit "bad" rating and dismiss
+        if (isDetailedFeedbackVisible && humanMessageCount > prevCount && streamingActive) {
+            submitDetailedFeedbackDismiss(conversationId, currentTriggerType, traceId)
+        }
+
         prevMessageCountRef.current = humanMessageCount
         prevStreamingActiveRef.current = streamingActive
     }, [
@@ -142,27 +148,15 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         streamingActive,
         checkShouldShowPrompt,
         isPromptVisible,
+        isDetailedFeedbackVisible,
         submitImplicitDismiss,
+        submitDetailedFeedbackDismiss,
         conversationId,
         currentTriggerType,
         traceId,
         retryCount,
         cancelCount,
     ])
-
-    const handleFeedbackComplete = (): void => {
-        hidePrompt()
-    }
-
-    const handleRecordCooldown = (): void => {
-        recordFeedbackShown()
-        resetRetryCount()
-        resetCancelCount()
-        // Set the interval index to current level so we don't re-trigger at the same message count
-        const humanMessageCount = threadGrouped.filter((m) => m.type === 'human').length
-        const currentIntervalIndex = Math.floor(humanMessageCount / messageInterval)
-        setLastTriggeredIntervalIndex(currentIntervalIndex)
-    }
 
     return (
         <div
@@ -199,12 +193,24 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         )
                     })}
                     {conversationId && isPromptVisible && !streamingActive && (
+                        <MessageTemplate type="ai">
+                            <span className="text-xs text-muted">How is PostHog AI doing? (optional)</span>
+                        </MessageTemplate>
+                    )}
+                    {conversationId && isDetailedFeedbackVisible && !streamingActive && (
                         <FeedbackPrompt
                             conversationId={conversationId}
                             traceId={traceId}
                             triggerType={currentTriggerType}
-                            onComplete={handleFeedbackComplete}
-                            onRecordCooldown={handleRecordCooldown}
+                            onComplete={() => {
+                                resetRetryCount()
+                                resetCancelCount()
+                                const humanMessageCount = threadGrouped.filter((m) => m.type === 'human').length
+                                const currentIntervalIndex = Math.floor(humanMessageCount / messageInterval)
+                                setLastTriggeredIntervalIndex(currentIntervalIndex)
+                                hideDetailedFeedback()
+                            }}
+                            onRecordCooldown={recordFeedbackShown}
                         />
                     )}
                 </>

@@ -33,12 +33,12 @@ from posthog.temporal.ai.chat_agent import (
 from posthog.utils import get_instance_region
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.hogai.api.serializers import ConversationFeedbackSerializer, ConversationSerializer
+from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types.base import AssistantMode
-from ee.models.assistant import Conversation, ConversationFeedback
+from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
@@ -265,57 +265,3 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(detail=True, methods=["POST"])
-    def feedback(self, request: Request, *args, **kwargs):
-        conversation = self.get_object()
-
-        if conversation.user != request.user:
-            return Response(
-                {"error": "Cannot submit feedback for other users' conversations"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        serializer = ConversationFeedbackSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        feedback = ConversationFeedback.objects.create(
-            conversation=conversation,
-            user=cast(User, request.user),
-            team=conversation.team,
-            **serializer.validated_data,
-        )
-
-        return Response(
-            ConversationFeedbackSerializer(feedback).data,
-            status=status.HTTP_201_CREATED,
-        )
-
-    @action(detail=True, methods=["PATCH"], url_path="feedback/(?P<feedback_id>[^/.]+)")
-    def update_feedback(self, request: Request, feedback_id: str, *args, **kwargs):
-        conversation = self.get_object()
-
-        if conversation.user != request.user:
-            return Response(
-                {"error": "Cannot update feedback for other users' conversations"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            feedback = ConversationFeedback.objects.get(id=feedback_id, conversation=conversation)
-        except ConversationFeedback.DoesNotExist:
-            return Response(
-                {"error": "Feedback not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Only allow updating support_ticket_id
-        support_ticket_id = request.data.get("support_ticket_id")
-        if support_ticket_id:
-            feedback.support_ticket_id = support_ticket_id
-            feedback.save(update_fields=["support_ticket_id"])
-
-        return Response(
-            ConversationFeedbackSerializer(feedback).data,
-            status=status.HTTP_200_OK,
-        )

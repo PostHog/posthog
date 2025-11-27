@@ -1,7 +1,6 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 
@@ -54,9 +53,20 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
         }),
         showPrompt: (triggerType: FeedbackTriggerType) => ({ triggerType }),
         hidePrompt: true,
+        showDetailedFeedback: true,
+        hideDetailedFeedback: true,
         recordFeedbackShown: true,
         setLastTriggeredIntervalIndex: (index: number) => ({ index }),
         submitImplicitDismiss: (conversationId: string, triggerType: FeedbackTriggerType, traceId: string | null) => ({
+            conversationId,
+            triggerType,
+            traceId,
+        }),
+        submitDetailedFeedbackDismiss: (
+            conversationId: string,
+            triggerType: FeedbackTriggerType,
+            traceId: string | null
+        ) => ({
             conversationId,
             triggerType,
             traceId,
@@ -68,6 +78,15 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
             false,
             {
                 showPrompt: () => true,
+                hidePrompt: () => false,
+                showDetailedFeedback: () => false,
+            },
+        ],
+        isDetailedFeedbackVisible: [
+            false,
+            {
+                showDetailedFeedback: () => true,
+                hideDetailedFeedback: () => false,
                 hidePrompt: () => false,
             },
         ],
@@ -159,19 +178,28 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
             localStorage.setItem(STORAGE_KEY, Date.now().toString())
         },
 
-        submitImplicitDismiss: async ({ conversationId, triggerType, traceId }) => {
-            try {
-                await api.create(`api/environments/@current/conversations/${conversationId}/feedback/`, {
-                    rating: 'implicit_dismiss',
-                    feedback_text: '',
-                    trigger_type: triggerType,
-                    trace_id: traceId || '',
-                })
-            } catch (e) {
-                console.error('Failed to record implicit dismiss:', e)
-            }
+        submitImplicitDismiss: ({ conversationId, triggerType, traceId }) => {
+            posthog.capture('posthog_ai_feedback_submitted', {
+                $ai_conversation_id: conversationId,
+                $ai_session_id: conversationId,
+                $ai_trace_id: traceId,
+                $ai_feedback_rating: 'implicit_dismiss',
+                $ai_feedback_trigger_type: triggerType,
+            })
             actions.recordFeedbackShown()
             actions.hidePrompt()
+        },
+
+        submitDetailedFeedbackDismiss: ({ conversationId, triggerType, traceId }) => {
+            posthog.capture('posthog_ai_feedback_submitted', {
+                $ai_conversation_id: conversationId,
+                $ai_session_id: conversationId,
+                $ai_trace_id: traceId,
+                $ai_feedback_rating: 'bad',
+                $ai_feedback_trigger_type: triggerType,
+            })
+            actions.recordFeedbackShown()
+            actions.hideDetailedFeedback()
         },
     })),
 ])

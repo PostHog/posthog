@@ -12,7 +12,7 @@ from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
-from ee.models.assistant import Conversation, ConversationFeedback
+from ee.models.assistant import Conversation
 
 _conversation_fields = ["id", "status", "title", "user", "created_at", "updated_at", "type"]
 
@@ -107,22 +107,3 @@ class ConversationSerializer(ConversationMinimalSerializer):
     def get_has_unsupported_content(self, conversation: Conversation) -> bool:
         _, has_unsupported_content = self._get_messages_with_flag(conversation)
         return has_unsupported_content
-
-
-class ConversationFeedbackSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ConversationFeedback
-        fields = ["id", "rating", "feedback_text", "trigger_type", "trace_id", "support_ticket_id", "created_at"]
-        read_only_fields = ["id", "created_at"]
-
-    def validate_rating(self, value: str) -> str:
-        allowed = [choice[0] for choice in ConversationFeedback.Rating.choices]
-        if value not in allowed:
-            raise serializers.ValidationError(f"Rating must be one of: {allowed}")
-        return value
-
-    def validate_trigger_type(self, value: str) -> str:
-        allowed = [choice[0] for choice in ConversationFeedback.TriggerType.choices]
-        if value not in allowed:
-            raise serializers.ValidationError(f"Trigger type must be one of: {allowed}")
-        return value

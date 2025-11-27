@@ -19,6 +19,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
+import { FeedbackDisplay } from './FeedbackDisplay'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { ToolsDisplay } from './ToolsDisplay'
 
@@ -57,6 +58,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { setQuestion } = useActions(maxLogic)
     const {
         conversation,
+        conversationId,
         threadLoading,
         inputDisabled,
         submissionDisabledReason,
@@ -211,6 +213,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
+                {!isSharedThread && conversationId && (
+                    <FeedbackDisplay isFloating={isThreadVisible} conversationId={conversationId} />
+                )}
                 {!isSharedThread && (
                     <ToolsDisplay
                         isFloating={isThreadVisible}
