@@ -31,6 +31,7 @@ import {
     InsightSceneSource,
     InsightShortId,
     InsightType,
+    PersonsTabType,
     RecordingUniversalFilters,
     ReplayTabs,
 } from './types'
@@ -524,10 +525,14 @@ export const productUrls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
-    personByDistinctId: (id: string, encode: boolean = true): string =>
-        encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
-    personByUUID: (uuid: string, encode: boolean = true): string =>
-        encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
+    personByDistinctId: (id: string, encode: boolean = true, activeTab?: PersonsTabType): string => {
+        const path = encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`
+        return activeTab ? `${path}#activeTab=${activeTab}` : path
+    },
+    personByUUID: (uuid: string, encode: boolean = true, activeTab?: PersonsTabType): string => {
+        const path = encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`
+        return activeTab ? `${path}#activeTab=${activeTab}` : path
+    },
     persons: (): string => '/persons',
     insights: (): string => '/insights',
     insightNew: ({

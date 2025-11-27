@@ -12,7 +12,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { urls } from 'scenes/urls'
 
 import { SessionData } from '~/queries/schema/schema-general'
-import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, PersonsTabType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
@@ -41,7 +41,7 @@ const getLinkTextAndUrl = (session: SessionData): { text: string; url: string } 
     } else if (session.person_id) {
         return {
             text: session.person_id,
-            url: getEventsUrl('person_id', session.person_id),
+            url: urls.personByUUID(session.person_id, true, PersonsTabType.EVENTS),
         }
     }
     return {
