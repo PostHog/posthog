@@ -7,6 +7,7 @@ from unittest import mock
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from rest_framework import status
+from rest_framework.response import Response
 
 from posthog.schema import DataWarehouseSyncInterval
 
@@ -14,8 +15,9 @@ from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
-from products.data_warehouse.backend.models import DataWarehouseModelPath
+from products.data_warehouse.backend.models import DataWarehouseModelPath, DataWarehouseTable
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.endpoints.backend.api import EndpointViewSet
 from products.endpoints.backend.models import Endpoint
 
 pytestmark = [pytest.mark.django_db]
@@ -278,6 +280,50 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("status", response_data["materialization"])
         self.assertIn("sync_frequency", response_data["materialization"])
         self.assertEqual(response_data["materialization"]["sync_frequency"], "12hour")
+
+    def test_materialized_endpoint_applies_filters_override(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="materialized_filters_endpoint",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="materialized_filters_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+        endpoint = Endpoint.objects.create(
+            name="materialized_filters_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            saved_query=saved_query,
+        )
+
+        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {
+                    "filters_override": {
+                        "properties": [{"type": "event", "key": "$lib", "operator": "exact", "value": "$web"}]
+                    }
+                },
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            query_request_data = mock_exec.call_args[0][0]
+            query_payload = query_request_data["query"]
+            query_sql = query_payload["query"].lower()
+
+            self.assertIn("where", query_sql)
+            self.assertIn("$lib", query_sql)
+            self.assertEqual(query_payload["kind"], "HogQLQuery")
 
 
 @pytest.mark.asyncio

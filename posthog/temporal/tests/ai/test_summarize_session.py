@@ -157,9 +157,7 @@ class TestFetchSessionDataActivity:
                 return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ),
         ):
-            with patch(
-                "posthog.temporal.ai.session_summary.summarize_session.logger.exception"
-            ) as mock_logger_exception:
+            with patch("temporalio.activity.logger.exception") as mock_logger_exception:
                 # Call the activity and expect an ExceptionToRetry to be raised
                 with pytest.raises(ExceptionToRetry):
                     await fetch_session_data_activity(input_data)

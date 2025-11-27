@@ -1578,7 +1578,7 @@ class TestPatternExtractionChunking:
             patch(
                 "posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings"
             ) as mock_estimate,
-            patch("posthog.temporal.ai.session_summary.activities.patterns.logger") as mock_logger,
+            patch("temporalio.activity.logger") as mock_logger,
         ):
             mock_estimate.side_effect = [1000, 500, 160000, 250000, 600]
 

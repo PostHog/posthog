@@ -94,7 +94,10 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
-    const isAiSummaryEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test'
+    const isAiSummaryEnabled =
+        featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test' &&
+        usesNewQueryRunner &&
+        hasMinimumExposureForResults
 
     return (
         <>
