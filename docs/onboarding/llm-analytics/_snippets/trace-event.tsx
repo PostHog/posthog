@@ -2,7 +2,7 @@ import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
 import React from 'react'
 
 export const TraceEvent = (): JSX.Element => {
-    const { Markdown, dedent } = useMDXComponents()
+    const { Markdown, dedent, CodeBlock } = useMDXComponents()
 
     return (
         <>
@@ -59,8 +59,20 @@ export const TraceEvent = (): JSX.Element => {
                             <p>
                                 The input of the whole trace
                                 <br />
-                                Example: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify([{"role": "user", "content": "What's the weather in SF?"}], null, 2)}</pre> or any JSON-serializable state
+                                Example:
                             </p>
+                            <CodeBlock
+                                language="json"
+                                code={dedent`
+                                    [
+                                      {
+                                        "role": "user",
+                                        "content": "What's the weather in SF?"
+                                      }
+                                    ]
+                                `}
+                            />
+                            <p>or any JSON-serializable state</p>
                         </td>
                     </tr>
                     <tr>
@@ -71,8 +83,20 @@ export const TraceEvent = (): JSX.Element => {
                             <p>
                                 The output of the whole trace
                                 <br />
-                                Example: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify([{"role": "assistant", "content": "The weather in San Francisco is..."}], null, 2)}</pre> or any JSON-serializable state
+                                Example:
                             </p>
+                            <CodeBlock
+                                language="json"
+                                code={dedent`
+                                    [
+                                      {
+                                        "role": "assistant",
+                                        "content": "The weather in San Francisco is..."
+                                      }
+                                    ]
+                                `}
+                            />
+                            <p>or any JSON-serializable state</p>
                         </td>
                     </tr>
                     <tr>

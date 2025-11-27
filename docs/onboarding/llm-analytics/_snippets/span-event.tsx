@@ -2,7 +2,7 @@ import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
 import React from 'react'
 
 export const SpanEvent = (): JSX.Element => {
-    const { Markdown, dedent } = useMDXComponents()
+    const { Markdown, dedent, CodeBlock } = useMDXComponents()
 
     return (
         <>
@@ -95,8 +95,17 @@ export const SpanEvent = (): JSX.Element => {
                             <p>
                                 The input state of the span
                                 <br />
-                                Example: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify({"query": "search for documents about hedgehogs"}, null, 2)}</pre> or any JSON-serializable state
+                                Example:
                             </p>
+                            <CodeBlock
+                                language="json"
+                                code={dedent`
+                                    {
+                                      "query": "search for documents about hedgehogs"
+                                    }
+                                `}
+                            />
+                            <p>or any JSON-serializable state</p>
                         </td>
                     </tr>
                     <tr>
@@ -107,8 +116,18 @@ export const SpanEvent = (): JSX.Element => {
                             <p>
                                 The output state of the span
                                 <br />
-                                Example: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify({"results": ["doc1", "doc2"], "count": 2}, null, 2)}</pre> or any JSON-serializable state
+                                Example:
                             </p>
+                            <CodeBlock
+                                language="json"
+                                code={dedent`
+                                    {
+                                      "results": ["doc1", "doc2"],
+                                      "count": 2
+                                    }
+                                `}
+                            />
+                            <p>or any JSON-serializable state</p>
                         </td>
                     </tr>
                     <tr>
@@ -139,8 +158,17 @@ export const SpanEvent = (): JSX.Element => {
                             <p>
                                 <em>(Optional)</em> The error message or object if the span failed
                                 <br />
-                                Example: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify({"message": "Connection timeout", "code": "TIMEOUT"}, null, 2)}</pre>
+                                Example:
                             </p>
+                            <CodeBlock
+                                language="json"
+                                code={dedent`
+                                    {
+                                      "message": "Connection timeout",
+                                      "code": "TIMEOUT"
+                                    }
+                                `}
+                            />
                         </td>
                     </tr>
                     </tbody>

@@ -2,7 +2,7 @@ import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
 import React from 'react'
 
 export const GenerationEvent = (): JSX.Element => {
-    const { Markdown, dedent } = useMDXComponents()
+    const { Markdown, dedent, CodeBlock } = useMDXComponents()
 
     return (
         <>
@@ -111,8 +111,37 @@ export const GenerationEvent = (): JSX.Element => {
                             <p>
                                 List of messages sent to the LLM. Each message should have a <code>role</code> property with one of: <code>"user"</code>, <code>"system"</code>, or <code>"assistant"</code>
                                 <br />
-                                Example: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify([{"role": "user", "content": [{"type": "text", "text": "What's in this image?"}, {"type": "image", "image": "https://example.com/image.jpg"}, {"type": "function", "function": {"name": "get_weather", "arguments": {"location": "San Francisco"}}}]}], null, 2)}</pre>
+                                Example:
                             </p>
+                            <CodeBlock
+                                language="json"
+                                code={dedent`
+                                    [
+                                      {
+                                        "role": "user",
+                                        "content": [
+                                          {
+                                            "type": "text",
+                                            "text": "What's in this image?"
+                                          },
+                                          {
+                                            "type": "image",
+                                            "image": "https://example.com/image.jpg"
+                                          },
+                                          {
+                                            "type": "function",
+                                            "function": {
+                                              "name": "get_weather",
+                                              "arguments": {
+                                                "location": "San Francisco"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                `}
+                            />
                         </td>
                     </tr>
                     <tr>
@@ -131,8 +160,33 @@ export const GenerationEvent = (): JSX.Element => {
                             <p>
                                 List of response choices from the LLM. Each choice should have a <code>role</code> property with one of: <code>"user"</code>, <code>"system"</code>, or <code>"assistant"</code>
                                 <br />
-                                Example: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify([{"role": "assistant", "content": [{"type": "text", "text": "I can see a hedgehog in the image."}, {"type": "function", "function": {"name": "get_weather", "arguments": {"location": "San Francisco"}}}]}], null, 2)}</pre>
+                                Example:
                             </p>
+                            <CodeBlock
+                                language="json"
+                                code={dedent`
+                                    [
+                                      {
+                                        "role": "assistant",
+                                        "content": [
+                                          {
+                                            "type": "text",
+                                            "text": "I can see a hedgehog in the image."
+                                          },
+                                          {
+                                            "type": "function",
+                                            "function": {
+                                              "name": "get_weather",
+                                              "arguments": {
+                                                "location": "San Francisco"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                `}
+                            />
                         </td>
                     </tr>
                     <tr>
@@ -425,8 +479,22 @@ export const GenerationEvent = (): JSX.Element => {
                             <p>
                                 <em>(Optional)</em> Tools/functions available to the LLM
                                 <br />
-                                Example: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify([{"type": "function", "function": {"name": "get_weather", "parameters": {}}}], null, 2)}</pre>
+                                Example:
                             </p>
+                            <CodeBlock
+                                language="json"
+                                code={dedent`
+                                    [
+                                      {
+                                        "type": "function",
+                                        "function": {
+                                          "name": "get_weather",
+                                          "parameters": {}
+                                        }
+                                      }
+                                    ]
+                                `}
+                            />
                         </td>
                     </tr>
                     </tbody>
