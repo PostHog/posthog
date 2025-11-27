@@ -28,7 +28,7 @@ class PythonGenerator(EventDefinitionGenerator):
             properties = schema_map.get(str(event_def.id), [])
             event_name = event_def.name
 
-            if any(prop.property_type == "DateTime" for prop in properties) and not datetime_import:
+            if not datetime_import and any(prop.property_type == "DateTime" for prop in properties):
                 datetime_import = "from datetime import datetime\n"
 
             capture_method = self._generate_capture_method(event_name, properties)
