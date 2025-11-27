@@ -264,8 +264,6 @@ services:
             KAFKA_HOSTS: kafka:9092
             JWT_SECRET: '<randomly generated secret key>'
             KAFKA_TOPIC: logs_ingestion
-        ports:
-            - '4318:4318'
         networks:
             - otel_network
             - default

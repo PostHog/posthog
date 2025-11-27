@@ -124,9 +124,15 @@ Determines event type based on span characteristics:
 - `$ai_trace`: Root spans (no parent) for v2 frameworks
 - `$ai_span`: All other spans, including root spans from v1 frameworks
 
-**v1 Detection**: Checks for `prompt` or `completion` attributes OR framework scope name (e.g., `@mastra/otel`). v1 spans bypass the event merger.
+**Pattern Detection**: Uses `OtelInstrumentationPattern` enum to determine routing:
 
-**Event Type Logic**: For v1 frameworks like Mastra, root spans are marked as `$ai_span` (not `$ai_trace`) to ensure they appear in the tree hierarchy. This is necessary because `TraceQueryRunner` filters out `$ai_trace` events from the events array.
+1. Provider declares pattern via `get_instrumentation_pattern()` (most reliable)
+2. Span has `prompt` or `completion` attributes (indicates V1 data present)
+3. Default to V2 (safer - waits for logs rather than sending incomplete)
+
+V1 spans bypass the event merger and are sent immediately.
+
+**Event Type Logic**: For V1 frameworks, root spans are marked as `$ai_span` (not `$ai_trace`) to ensure they appear in the tree hierarchy. This is necessary because `TraceQueryRunner` filters out `$ai_trace` events from the events array.
 
 ### logs_transformer.py
 
@@ -153,12 +159,16 @@ Attribute extraction modules implementing semantic conventions:
 
 **posthog_native.py**: Extracts PostHog-specific attributes prefixed with `posthog.ai.*`. These take precedence in the waterfall.
 
-**genai.py**: Extracts OpenTelemetry GenAI semantic convention attributes (`gen_ai.*`). Handles indexed message fields by collecting attributes like `gen_ai.prompt.0.role` into structured message arrays. Supports provider-specific transformations for frameworks that use custom OTEL formats.
+**genai.py**: Extracts OpenTelemetry GenAI semantic convention attributes (`gen_ai.*`). Handles indexed message fields by collecting attributes like `gen_ai.prompt.0.role` into structured message arrays. Provides `detect_provider()` function for centralized provider detection. Supports provider-specific transformations for frameworks that use custom OTEL formats.
 
 **providers/**: Framework-specific transformers for handling custom OTEL formats:
 
-- **base.py**: Abstract base class defining the provider transformer interface (`can_handle()`, `transform_prompt()`, `transform_completion()`)
-- **mastra.py**: Transforms Mastra's wrapped message format (e.g., `{"messages": [...]}` for input, `{"text": "...", "files": [], ...}` for output) into standard PostHog format. Detected by instrumentation scope name `@mastra/otel`.
+- **base.py**: Abstract base class defining the provider transformer interface:
+  - `can_handle()`: Detect if transformer handles this span
+  - `transform_prompt()`: Transform provider-specific prompt format
+  - `transform_completion()`: Transform provider-specific completion format
+  - `get_instrumentation_pattern()`: Declare V1 or V2 pattern (returns `OtelInstrumentationPattern` enum)
+- **mastra.py**: Transforms Mastra's wrapped message format (e.g., `{"messages": [...]}` for input, `{"text": "...", "files": [], ...}` for output) into standard PostHog format. Detected by instrumentation scope name `@mastra/otel`. Declares `V1_ATTRIBUTES` pattern.
 
 ## Event Schema
 
@@ -195,13 +205,13 @@ All events conform to the PostHog LLM Analytics schema:
 
 ## API Endpoints
 
-**Traces**: `POST /api/projects/{project_id}/ai/otel/v1/traces`
+**Traces**: `POST /api/projects/{project_id}/ai/otel/traces`
 
 - Content-Type: `application/x-protobuf`
 - Authorization: `Bearer {project_api_key}`
 - Accepts OTLP trace payloads
 
-**Logs**: `POST /api/projects/{project_id}/ai/otel/v1/logs`
+**Logs**: `POST /api/projects/{project_id}/ai/otel/logs`
 
 - Content-Type: `application/x-protobuf`
 - Authorization: `Bearer {project_api_key}`
@@ -228,12 +238,12 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 
 trace_exporter = OTLPSpanExporter(
-    endpoint=f"{posthog_host}/api/projects/{project_id}/ai/otel/v1/traces",
+    endpoint=f"{posthog_host}/api/projects/{project_id}/ai/otel/traces",
     headers={"Authorization": f"Bearer {api_key}"}
 )
 
 log_exporter = OTLPLogExporter(
-    endpoint=f"{posthog_host}/api/projects/{project_id}/ai/otel/v1/logs",
+    endpoint=f"{posthog_host}/api/projects/{project_id}/ai/otel/logs",
     headers={"Authorization": f"Bearer {api_key}"}
 )
 ```
@@ -252,14 +262,15 @@ The merger returns None on first arrival rather than blocking. This prevents the
 
 v2 can send multiple log events in a single HTTP request. The ingestion layer groups these by (trace_id, span_id) and accumulates their properties before calling the merger. This prevents race conditions where partial log data gets merged before all logs arrive.
 
-### v1/v2 Detection
+### Pattern Detection via Provider Transformers
 
-Rather than requiring explicit configuration, the transformer auto-detects instrumentation version by:
+Rather than hardcoding framework names, the transformer uses a layered detection approach:
 
-1. Checking for `prompt` or `completion` attributes (after extraction)
-2. Detecting framework via instrumentation scope name (e.g., `@mastra/otel`)
+1. **Provider declaration** (most reliable): Providers implement `get_instrumentation_pattern()` returning `OtelInstrumentationPattern.V1_ATTRIBUTES` or `V2_TRACES_AND_LOGS`
+2. **Content detection** (fallback): Span has `prompt` or `completion` attributes after extraction
+3. **Safe default**: Unknown providers default to V2 (waits for logs rather than sending incomplete events)
 
-This allows both patterns to coexist without configuration, and supports frameworks that don't follow standard attribute conventions.
+This allows both patterns to coexist without configuration, and new providers only need to declare their pattern in one place.
 
 ### Provider Transformers
 
@@ -267,9 +278,9 @@ Some frameworks (like Mastra) wrap OTEL data in custom structures that don't mat
 
 **Example**: Mastra wraps prompts as `{"messages": [{"role": "user", "content": [...]}]}` where content is an array of `{"type": "text", "text": "..."}` objects. The Mastra transformer unwraps this into standard `[{"role": "user", "content": "..."}]` format.
 
-### Event Type Determination for v1 Frameworks
+### Event Type Determination for V1 Frameworks
 
-v1 frameworks create root spans that should appear in the tree hierarchy alongside their children. These root spans are marked as `$ai_span` (not `$ai_trace`) because `TraceQueryRunner` filters out `$ai_trace` events from the events array. This ensures v1 framework traces display correctly with proper parent-child relationships in the UI.
+V1 frameworks create root spans that should appear in the tree hierarchy alongside their children. The `determine_event_type()` function checks `provider.get_instrumentation_pattern()` and marks V1 root spans as `$ai_span` (not `$ai_trace`) because `TraceQueryRunner` filters out `$ai_trace` events from the events array. This ensures V1 framework traces display correctly with proper parent-child relationships in the UI.
 
 ### TTL-Based Cleanup
 
@@ -282,8 +293,9 @@ The event merger uses 60-second TTL on cache entries. This automatically cleans 
 Create a new transformer in `conventions/providers/`:
 
 ```python
-from .base import ProviderTransformer
+from .base import OtelInstrumentationPattern, ProviderTransformer
 from typing import Any
+import json
 
 class CustomFrameworkTransformer(ProviderTransformer):
     """Transform CustomFramework's OTEL format."""
@@ -292,6 +304,12 @@ class CustomFrameworkTransformer(ProviderTransformer):
         """Detect CustomFramework by scope name or attributes."""
         scope_name = scope.get("name", "")
         return scope_name == "custom-framework-scope"
+
+    def get_instrumentation_pattern(self) -> OtelInstrumentationPattern:
+        """Declare V1 or V2 pattern - determines event routing."""
+        # V1: All data in span attributes, send immediately
+        # V2: Metadata in spans, content in logs, requires merge
+        return OtelInstrumentationPattern.V1_ATTRIBUTES
 
     def transform_prompt(self, prompt: Any) -> Any:
         """Transform wrapped prompt format to standard."""
@@ -368,6 +386,67 @@ Extend `build_event_properties()` in `transformer.py` to map additional attribut
 - **Latency**: v1 has single-pass latency, v2 has cache lookup latency
 - **Memory**: Redis cache bounded by TTL (60s max retention)
 - **Concurrency**: Simple Redis operations enable fast merging with minimal race condition risk
+
+## Provider Reference
+
+Different LLM frameworks implement OTEL instrumentation with their own nuances. This section documents known provider behaviors to help understand what to expect from each.
+
+### Mastra (`@mastra/otel`)
+
+**Detection**: Instrumentation scope name `@mastra/otel` or `mastra.*` attribute prefix
+
+**OTEL Pattern**: `V1_ATTRIBUTES` (all data in span attributes)
+
+**Key Behaviors**:
+
+- **No conversation history accumulation**: Each `agent.generate()` call creates a separate, independent trace. The `gen_ai.prompt` only contains that specific call's input (typically system message + current user message), not the accumulated conversation history from previous turns.
+- **Wrapped message format**: Prompts are JSON-wrapped as `{"messages": [{"role": "user", "content": [{"type": "text", "text": "..."}]}]}` where content is an array of typed objects.
+- **Wrapped completion format**: Completions are JSON-wrapped as `{"text": "...", "files": [], "warnings": [], ...}`.
+- **Multi-turn traces**: In a multi-turn conversation, you'll see multiple separate traces (one per `agent.generate()` call), each showing only that turn's input/output.
+
+**Implications for PostHog**:
+
+- Each turn appears as a separate trace in LLM Analytics
+- To see full conversation context, users need to look at the sequence of traces
+- The Mastra transformer unwraps the custom JSON format into standard PostHog message arrays
+
+**Example**: A 4-turn conversation produces 4 traces, where turn 4's input only shows "Thanks, bye!" (not the previous greeting, weather query, and joke request).
+
+### OpenTelemetry Instrumentation OpenAI v1 (`opentelemetry-instrumentation-openai`)
+
+**Detection**: Span attributes with indexed prompt/completion fields (no custom provider transformer needed - uses standard GenAI conventions)
+
+**OTEL Pattern**: `V1_ATTRIBUTES` (all data in span attributes)
+
+**Key Behaviors**:
+
+- **Full conversation in each call**: The `gen_ai.prompt.*` attributes contain all messages passed to the API call
+- **Indexed attributes**: Messages use `gen_ai.prompt.0.role`, `gen_ai.prompt.0.content`, etc.
+- **Direct attribute format**: No JSON wrapping, values are stored directly as span attributes
+
+**Implications for PostHog**:
+
+- If the application maintains conversation state, later turns show full history
+- Each trace is self-contained with complete context
+
+### OpenTelemetry Instrumentation OpenAI v2 (`opentelemetry-instrumentation-openai-v2`)
+
+**Detection**: Spans without prompt/completion attributes, accompanied by OTEL log events (no custom provider transformer needed - detected by absence of V1 content)
+
+**OTEL Pattern**: `V2_TRACES_AND_LOGS` (traces + logs separated)
+
+**Key Behaviors**:
+
+- **Split data model**: Traces contain metadata (model, tokens, timing), logs contain message content
+- **Log events**: Uses `gen_ai.user.message`, `gen_ai.assistant.message`, `gen_ai.tool.message`, etc.
+- **Full conversation in each call**: Like v1, if the app maintains state, messages accumulate
+- **Requires merge**: PostHog's event merger combines traces and logs into complete events
+
+**Implications for PostHog**:
+
+- Slightly higher latency due to merge process
+- Supports streaming better than v1
+- Both traces and logs endpoints must be configured
 
 ## References
 

@@ -8,8 +8,8 @@ Supports both OpenAI instrumentation versions:
 - v2 (opentelemetry-instrumentation-openai-v2): Sends metadata as spans, message content as logs
 
 Endpoints:
-- POST /api/projects/:project_id/ai/otel/v1/traces - Required for all instrumentation
-- POST /api/projects/:project_id/ai/otel/v1/logs - Required for v2 instrumentation with message content
+- POST /api/projects/:project_id/ai/otel/traces - Required for all instrumentation
+- POST /api/projects/:project_id/ai/otel/logs - Required for v2 instrumentation with message content
 
 Content-Type: application/x-protobuf
 Authorization: Bearer <project_token>
@@ -136,7 +136,7 @@ class ProjectTokenAuthentication(authentication.BaseAuthentication):
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
     exporter = OTLPSpanExporter(
-        endpoint="https://app.posthog.com/api/projects/{project_id}/ai/otel/v1/traces",
+        endpoint="https://app.posthog.com/api/projects/{project_id}/ai/otel/traces",
         headers={"Authorization": "Bearer phc_your_project_token"}
     )
     ```
@@ -470,7 +470,7 @@ def capture_events(events: list[dict[str, Any]], team: Team) -> None:
     from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 
     exporter = OTLPLogExporter(
-        endpoint="https://app.posthog.com/api/projects/{project_id}/ai/otel/v1/logs",
+        endpoint="https://app.posthog.com/api/projects/{project_id}/ai/otel/logs",
         headers={"Authorization": "Bearer phc_your_project_token"}
     )
     ```
@@ -713,6 +713,17 @@ def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str
     for log_record in logs:
         trace_id = log_record.get("trace_id", "")
         span_id = log_record.get("span_id", "")
+
+        # Debug logging for ingestion parity validation
+        logger.debug(
+            "otel_log_received",
+            trace_id=trace_id,
+            span_id=span_id,
+            event_name=log_record.get("attributes", {}).get("event.name"),
+            body_keys=list(log_record.get("body", {}).keys()) if isinstance(log_record.get("body"), dict) else None,
+            body_content_preview=str(log_record.get("body", {}))[:200] if log_record.get("body") else None,
+        )
+
         if trace_id and span_id:
             logs_by_span[(trace_id, span_id)].append(log_record)
         else:

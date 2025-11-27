@@ -4,12 +4,28 @@ Mastra provider transformer.
 Handles Mastra's OTEL format which wraps messages in custom structures:
 - Input: {"messages": [{"role": "user", "content": [...]}]}
 - Output: {"files": [], "text": "...", "warnings": [], ...}
+
+Provider Behavior Notes:
+------------------------
+Mastra uses the @mastra/otel instrumentation scope and sends OTEL data in v1 pattern
+(all data in span attributes, no separate log events).
+
+Key characteristic: Mastra does NOT accumulate conversation history across calls.
+Each `agent.generate()` call creates a separate, independent trace containing only
+that turn's input (system message + current user message) and output. This means:
+
+- A 4-turn conversation produces 4 separate traces
+- Turn 4's trace only shows "Thanks, bye!" as input, not previous turns
+- To see full conversation context, users must look at the sequence of traces
+
+This is expected Mastra behavior, not a limitation of our ingestion. The framework
+treats each generate() call as an independent operation.
 """
 
 import json
 from typing import Any
 
-from .base import ProviderTransformer
+from .base import OtelInstrumentationPattern, ProviderTransformer
 
 
 class MastraTransformer(ProviderTransformer):
@@ -35,6 +51,10 @@ class MastraTransformer(ProviderTransformer):
         # Fallback: check for mastra-prefixed attributes
         attributes = span.get("attributes", {})
         return any(key.startswith("mastra.") for key in attributes.keys())
+
+    def get_instrumentation_pattern(self) -> OtelInstrumentationPattern:
+        """Mastra uses v1 pattern - all data in span attributes."""
+        return OtelInstrumentationPattern.V1_ATTRIBUTES
 
     def transform_prompt(self, prompt: Any) -> Any:
         """

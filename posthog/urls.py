@@ -212,9 +212,9 @@ urlpatterns = [
     *ee_urlpatterns,
     # api
     # OpenTelemetry traces ingestion for LLM Analytics
-    path("api/projects/<int:project_id>/ai/otel/v1/traces", csrf_exempt(otel_traces_endpoint)),
+    path("api/projects/<int:project_id>/ai/otel/traces", csrf_exempt(otel_traces_endpoint)),
     # OpenTelemetry logs ingestion for LLM Analytics
-    path("api/projects/<int:project_id>/ai/otel/v1/logs", csrf_exempt(otel_logs_endpoint)),
+    path("api/projects/<int:project_id>/ai/otel/logs", csrf_exempt(otel_logs_endpoint)),
     # OpenTelemetry logs proxy to capture-logs service (legacy)
     path("i/v1/logs", proxy_logs_to_capture_service),
     path("api/environments/<int:team_id>/progress/", progress),

@@ -12,8 +12,9 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from .conventions.genai import extract_genai_attributes, has_genai_attributes
+from .conventions.genai import detect_provider, extract_genai_attributes, has_genai_attributes
 from .conventions.posthog_native import extract_posthog_native_attributes, has_posthog_attributes
+from .conventions.providers import OtelInstrumentationPattern
 from .event_merger import cache_and_merge_properties
 
 OTEL_TRANSFORMER_VERSION = "1.0.0"
@@ -47,7 +48,22 @@ def transform_span_to_ai_event(
         - properties: AI event properties
         - uuid: Event UUID (for deduplication with log events)
     """
+    import structlog
+
+    logger = structlog.get_logger(__name__)
     baggage = baggage or {}
+
+    # Debug logging for ingestion parity validation
+    logger.debug(
+        "otel_span_received",
+        trace_id=span.get("trace_id"),
+        span_id=span.get("span_id"),
+        span_name=span.get("name"),
+        scope_name=scope.get("name"),
+        attributes_keys=list(span.get("attributes", {}).keys()),
+        has_prompt_attrs=any(k.startswith("gen_ai.prompt.") for k in span.get("attributes", {}).keys()),
+        has_completion_attrs=any(k.startswith("gen_ai.completion.") for k in span.get("attributes", {}).keys()),
+    )
 
     # Extract attributes using waterfall pattern
     posthog_attrs = extract_posthog_native_attributes(span)
@@ -59,17 +75,22 @@ def transform_span_to_ai_event(
     # Build AI event properties
     properties = build_event_properties(span, merged_attrs, resource, scope, baggage)
 
-    # Detect v1 vs v2 instrumentation:
-    # v1: Everything in span attributes (extracted as "prompt", "completion") - send immediately
-    # v2: Metadata in span, content in logs - use event merger
-    # Some frameworks (e.g., Mastra) are v1 but may have spans without prompt/completion (parent spans)
-    # Detect these by instrumentation scope name
-    scope_name = scope.get("name", "")
-    is_v1_framework = scope_name == "@mastra/otel"  # Mastra uses v1 (attributes in spans)
-    is_v1_span = bool(merged_attrs.get("prompt") or merged_attrs.get("completion")) or is_v1_framework
+    # Detect instrumentation pattern to determine event routing:
+    #
+    # V1_ATTRIBUTES: Everything in span attributes - send immediately
+    # V2_TRACES_AND_LOGS: Metadata in span, content in logs - use event merger
+    #
+    # Detection priority:
+    # 1. Provider declares pattern via get_instrumentation_pattern() - most reliable
+    # 2. Span has prompt/completion attributes - indicates V1 data present
+    # 3. Default to V2 (safer - waits for logs rather than sending incomplete)
+    provider = detect_provider(span, scope)
+    provider_pattern = provider.get_instrumentation_pattern() if provider else None
+    has_v1_content = bool(merged_attrs.get("prompt") or merged_attrs.get("completion"))
+    uses_v1_pattern = provider_pattern == OtelInstrumentationPattern.V1_ATTRIBUTES or has_v1_content
 
-    if not is_v1_span:
-        # v2 instrumentation - use event merger for bidirectional merge with logs
+    if not uses_v1_pattern:
+        # V2 instrumentation - use event merger for bidirectional merge with logs
         trace_id = span.get("trace_id", "")
         span_id = span.get("span_id", "")
         if trace_id and span_id:
@@ -359,17 +380,17 @@ def determine_event_type(span: dict[str, Any], attrs: dict[str, Any], scope: dic
         return "$ai_generation"
 
     # Check if span is root (no parent)
-    # For v1 frameworks (like Mastra), root spans should be $ai_span, not $ai_trace
+    # For V1 frameworks, root spans should be $ai_span, not $ai_trace
     # $ai_trace events get filtered out by TraceQueryRunner, breaking tree hierarchy
     if not span.get("parent_span_id"):
-        scope_name = scope.get("name", "")
-        is_v1_framework = scope_name == "@mastra/otel"
-        if is_v1_framework:
-            # v1 frameworks: root span should be $ai_span (will be included in tree)
-            return "$ai_span"
-        else:
-            # v2 frameworks: root is $ai_trace (separate from event tree)
-            return "$ai_trace"
+        provider = detect_provider(span, scope)
+        if provider:
+            pattern = provider.get_instrumentation_pattern()
+            if pattern == OtelInstrumentationPattern.V1_ATTRIBUTES:
+                # V1 frameworks: root span should be $ai_span (will be included in tree)
+                return "$ai_span"
+        # V2 frameworks or unknown: root is $ai_trace (separate from event tree)
+        return "$ai_trace"
 
     # Default to generic span
     return "$ai_span"

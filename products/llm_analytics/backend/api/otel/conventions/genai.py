@@ -11,9 +11,10 @@ Reference: https://opentelemetry.io/docs/specs/semconv/gen-ai/
 """
 
 from collections import defaultdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .providers import PROVIDER_TRANSFORMERS
+if TYPE_CHECKING:
+    from .providers.base import ProviderTransformer
 
 
 def has_genai_attributes(span: dict[str, Any]) -> bool:
@@ -65,6 +66,27 @@ def _extract_indexed_messages(attributes: dict[str, Any], prefix: str) -> list[d
     return messages if messages else None
 
 
+def detect_provider(span: dict[str, Any], scope: dict[str, Any] | None = None) -> "ProviderTransformer | None":
+    """
+    Detect which provider transformer handles this span.
+
+    Args:
+        span: Parsed OTEL span
+        scope: Instrumentation scope info
+
+    Returns:
+        Matching ProviderTransformer instance, or None if no provider matches
+    """
+    from .providers import PROVIDER_TRANSFORMERS
+
+    scope = scope or {}
+    for transformer_class in PROVIDER_TRANSFORMERS:
+        transformer = transformer_class()
+        if transformer.can_handle(span, scope):
+            return transformer
+    return None
+
+
 def extract_genai_attributes(span: dict[str, Any], scope: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Extract GenAI semantic convention attributes from span.
@@ -90,18 +112,14 @@ def extract_genai_attributes(span: dict[str, Any], scope: dict[str, Any] | None 
     result: dict[str, Any] = {}
 
     # Detect provider-specific transformer
-    provider_transformer = None
-    for transformer_class in PROVIDER_TRANSFORMERS:
-        transformer = transformer_class()
-        if transformer.can_handle(span, scope):
-            provider_transformer = transformer
-            logger.info(
-                "provider_transformer_detected",
-                provider=transformer.get_provider_name(),
-                scope_name=scope.get("name"),
-                span_name=span.get("name"),
-            )
-            break
+    provider_transformer = detect_provider(span, scope)
+    if provider_transformer:
+        logger.info(
+            "provider_transformer_detected",
+            provider=provider_transformer.get_provider_name(),
+            scope_name=scope.get("name"),
+            span_name=span.get("name"),
+        )
 
     # Model (prefer request, fallback to response, then system)
     model = (

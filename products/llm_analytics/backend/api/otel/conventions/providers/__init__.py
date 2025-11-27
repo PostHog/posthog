@@ -5,7 +5,7 @@ Each provider (Mastra, Langchain, LlamaIndex, etc.) handles their
 specific OTEL format quirks and normalizes to PostHog format.
 """
 
-from .base import ProviderTransformer
+from .base import OtelInstrumentationPattern, ProviderTransformer
 from .mastra import MastraTransformer
 
 # Registry of all available provider transformers
@@ -16,6 +16,7 @@ PROVIDER_TRANSFORMERS: list[type[ProviderTransformer]] = [
 ]
 
 __all__ = [
+    "OtelInstrumentationPattern",
     "ProviderTransformer",
     "MastraTransformer",
     "PROVIDER_TRANSFORMERS",
