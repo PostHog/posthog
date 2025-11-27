@@ -167,7 +167,7 @@ COPY ee ee/
 
 # Copy the built frontend assets and also the products.json file
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
-COPY frontend/src/products.json frontend/src/products.json
+COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
