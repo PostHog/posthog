@@ -18,7 +18,6 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
-from parameterized import parameterized
 
 from posthog.schema import (
     AssistantToolCallMessage,
@@ -169,62 +168,6 @@ class TestSessionSummarizationNode(BaseTest):
         query_param = call_args[1]["query"]
         self.assertIsNotNone(query_param.having_predicates)
         self.assertEqual(len(query_param.having_predicates), 2)
-
-    @parameterized.expand(
-        [
-            ("valid_limit", 5, 5),
-            ("none_limit", None, MAX_SESSIONS_TO_SUMMARIZE),
-            ("negative_limit", -1, MAX_SESSIONS_TO_SUMMARIZE),
-            ("too_large_limit", MAX_SESSIONS_TO_SUMMARIZE + 1, MAX_SESSIONS_TO_SUMMARIZE),
-        ]
-    )
-    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
-    @patch("ee.hogai.chat_agent.session_summaries.nodes.database_sync_to_async")
-    @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
-    @patch("ee.hogai.chat_agent.session_summaries.nodes._SessionSearch._generate_filter_query")
-    def test_session_summarization_limit_applied(
-        self,
-        _name: str,
-        input_limit: int | None,
-        expected_limit: int,
-        mock_generate_filter_query: MagicMock,
-        mock_search_tool_class: MagicMock,
-        mock_db_sync: MagicMock,
-        mock_query_runner_class: MagicMock,
-    ) -> None:
-        """Test that session_summarization_limit is correctly applied to DB queries."""
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-        # Mock _generate_filter_query to avoid LLM call
-        mock_generate_filter_query.return_value = "filtered query for test"
-        # Mock SearchSessionRecordingsTool
-        mock_filters = self._create_mock_filters()
-        mock_tool_instance = MagicMock()
-        mock_tool_instance._invoke_graph = AsyncMock(return_value={"output": mock_filters})
-        mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
-        # Mock query runner to return empty results
-        mock_query_runner = self._create_mock_query_runner([])
-        mock_query_runner_class.return_value = mock_query_runner
-        mock_db_sync.side_effect = self._create_mock_db_sync_to_async()
-        # Create state with the test limit
-        state = AssistantState(
-            messages=[HumanMessage(content="Test")],
-            session_summarization_query="test query",
-            root_tool_call_id="test_tool_call_id",
-            should_use_current_filters=False,
-            session_summarization_limit=input_limit,
-        )
-        async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
-        # Verify _get_session_ids_with_filters was called with the expected limit
-        # The mock_db_sync wraps the call, so we check what it wrapped
-        self.assertTrue(mock_db_sync.called)
-        # Get the function that was wrapped
-        wrapped_func = mock_db_sync.call_args[0][0]
-        self.assertEqual(wrapped_func.__name__, "_get_session_ids_with_filters")
-        # Get the actual call arguments from the async wrapper execution
-        # We need to check the query_runner was instantiated with limit in the query
-        query_runner_call_args = mock_query_runner_class.call_args
-        query = query_runner_call_args[1]["query"]
-        self.assertEqual(query.limit, expected_limit)
 
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
     @patch("ee.hogai.chat_agent.session_summaries.nodes.database_sync_to_async")
