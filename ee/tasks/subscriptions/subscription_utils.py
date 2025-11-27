@@ -1,5 +1,6 @@
 import time
 import asyncio
+import logging
 import datetime
 from typing import Union
 
@@ -10,6 +11,7 @@ from celery import chain
 from prometheus_client import Histogram
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
+from tenacity import before_sleep_log, retry, stop_after_attempt
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
@@ -187,7 +189,12 @@ async def generate_assets_async(
 
         # Create async tasks for each asset export
         async def export_single_asset(asset: ExportedAsset) -> None:
-            try:
+            @retry(
+                stop=stop_after_attempt(2),
+                before_sleep=before_sleep_log(logging.getLogger(__name__), logging.WARNING),
+                reraise=True,
+            )
+            async def _do_export():
                 logger.info(
                     "generate_assets_async.exporting_asset",
                     asset_id=asset.id,
@@ -198,6 +205,9 @@ async def generate_assets_async(
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
                     asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS
                 )
+
+            try:
+                await _do_export()
                 logger.info(
                     "generate_assets_async.asset_exported",
                     asset_id=asset.id,
