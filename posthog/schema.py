@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
 
 class SchemaRoot(RootModel[Any]):
     root: Any
 
 
-class AIEventType(str, Enum):
+class AIEventType(StrEnum):
     FIELD_AI_GENERATION = "$ai_generation"
     FIELD_AI_EMBEDDING = "$ai_embedding"
     FIELD_AI_SPAN = "$ai_span"
@@ -31,13 +30,13 @@ class MathGroupTypeIndex(float, Enum):
     NUMBER_4 = 4
 
 
-class AgentMode(str, Enum):
+class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
     SQL = "sql"
     SESSION_REPLAY = "session_replay"
 
 
-class AggregationAxisFormat(str, Enum):
+class AggregationAxisFormat(StrEnum):
     NUMERIC = "numeric"
     DURATION = "duration"
     DURATION_MS = "duration_ms"
@@ -46,27 +45,27 @@ class AggregationAxisFormat(str, Enum):
     CURRENCY = "currency"
 
 
-class AlertCalculationInterval(str, Enum):
+class AlertCalculationInterval(StrEnum):
     HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"
 
 
-class AlertConditionType(str, Enum):
+class AlertConditionType(StrEnum):
     ABSOLUTE_VALUE = "absolute_value"
     RELATIVE_INCREASE = "relative_increase"
     RELATIVE_DECREASE = "relative_decrease"
 
 
-class AlertState(str, Enum):
+class AlertState(StrEnum):
     FIRING = "Firing"
     NOT_FIRING = "Not firing"
     ERRORED = "Errored"
     SNOOZED = "Snoozed"
 
 
-class AssistantArrayPropertyFilterOperator(str, Enum):
+class AssistantArrayPropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
 
@@ -86,7 +85,7 @@ class AssistantDateRange(BaseModel):
     date_to: str | None = Field(default=None, description="ISO8601 date string.")
 
 
-class AssistantDateTimePropertyFilterOperator(str, Enum):
+class AssistantDateTimePropertyFilterOperator(StrEnum):
     IS_DATE_EXACT = "is_date_exact"
     IS_DATE_BEFORE = "is_date_before"
     IS_DATE_AFTER = "is_date_after"
@@ -106,7 +105,7 @@ class AssistantDurationRange(BaseModel):
     )
 
 
-class AssistantEventMultipleBreakdownFilterType(str, Enum):
+class AssistantEventMultipleBreakdownFilterType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
@@ -116,7 +115,7 @@ class AssistantEventMultipleBreakdownFilterType(str, Enum):
     REVENUE_ANALYTICS = "revenue_analytics"
 
 
-class AssistantEventType(str, Enum):
+class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
     CONVERSATION = "conversation"
@@ -135,7 +134,7 @@ class AssistantFormOption(BaseModel):
     variant: str | None = Field(default=None, description="'primary', 'secondary', or 'tertiary' - default 'secondary'")
 
 
-class AssistantFunnelsBreakdownType(str, Enum):
+class AssistantFunnelsBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     GROUP = "group"
@@ -147,12 +146,12 @@ class FunnelAggregateByHogQL(Enum):
     NONE_TYPE_NONE = None
 
 
-class AssistantFunnelsMath(str, Enum):
+class AssistantFunnelsMath(StrEnum):
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
 
-class AssistantGenerationStatusType(str, Enum):
+class AssistantGenerationStatusType(StrEnum):
     ACK = "ack"
     GENERATION_ERROR = "generation_error"
 
@@ -165,7 +164,7 @@ class AssistantGenericMultipleBreakdownFilter(BaseModel):
     type: AssistantEventMultipleBreakdownFilterType
 
 
-class AssistantGenericPropertyFilterType(str, Enum):
+class AssistantGenericPropertyFilterType(StrEnum):
     EVENT = "event"
     PERSON = "person"
     SESSION = "session"
@@ -183,7 +182,7 @@ class AssistantHogQLQuery(BaseModel):
     )
 
 
-class AssistantMessageType(str, Enum):
+class AssistantMessageType(StrEnum):
     HUMAN = "human"
     TOOL = "tool"
     CONTEXT = "context"
@@ -197,7 +196,7 @@ class AssistantMessageType(str, Enum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
-class AssistantNavigateUrl(str, Enum):
+class AssistantNavigateUrl(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
     ALERTS = "alerts"
@@ -235,29 +234,29 @@ class AssistantNavigateUrl(str, Enum):
     PERSONS = "persons"
 
 
-class AssistantNumericValuePropertyFilterOperator(str, Enum):
+class AssistantNumericValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     GT = "gt"
     LT = "lt"
 
 
-class MeanRetentionCalculation(str, Enum):
+class MeanRetentionCalculation(StrEnum):
     SIMPLE = "simple"
     WEIGHTED = "weighted"
     NONE = "none"
 
 
-class RetentionReference(str, Enum):
+class RetentionReference(StrEnum):
     TOTAL = "total"
     PREVIOUS = "previous"
 
 
-class AssistantSetPropertyFilterOperator(str, Enum):
+class AssistantSetPropertyFilterOperator(StrEnum):
     IS_SET = "is_set"
     IS_NOT_SET = "is_not_set"
 
 
-class AssistantStringOrBooleanValuePropertyFilterOperator(str, Enum):
+class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -266,7 +265,7 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(str, Enum):
     NOT_REGEX = "not_regex"
 
 
-class AssistantTool(str, Enum):
+class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
@@ -333,7 +332,7 @@ class AssistantTrendsDisplayType(RootModel[str | Any]):
     root: str | Any
 
 
-class Display(str, Enum):
+class Display(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
@@ -347,7 +346,7 @@ class Display(str, Enum):
     CALENDAR_HEATMAP = "CalendarHeatmap"
 
 
-class YAxisScaleType(str, Enum):
+class YAxisScaleType(StrEnum):
     LOG10 = "log10"
     LINEAR = "linear"
 
@@ -441,12 +440,12 @@ class AssistantUpdateEvent(BaseModel):
     tool_call_id: str
 
 
-class AttributionMode(str, Enum):
+class AttributionMode(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
 
 
-class AutocompleteCompletionItemKind(str, Enum):
+class AutocompleteCompletionItemKind(StrEnum):
     METHOD = "Method"
     FUNCTION = "Function"
     CONSTRUCTOR = "Constructor"
@@ -485,7 +484,7 @@ class BaseAssistantMessage(BaseModel):
     parent_tool_call_id: str | None = None
 
 
-class BaseMathType(str, Enum):
+class BaseMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
     WEEKLY_ACTIVE = "weekly_active"
@@ -495,26 +494,26 @@ class BaseMathType(str, Enum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
-class BillingSpendResponseBreakdownType(str, Enum):
+class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
     MULTIPLE = "multiple"
 
 
-class BillingUsageResponseBreakdownType(str, Enum):
+class BillingUsageResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
     MULTIPLE = "multiple"
 
 
-class BreakdownAttributionType(str, Enum):
+class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
     ALL_EVENTS = "all_events"
     STEP = "step"
 
 
-class BreakdownType(str, Enum):
+class BreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
@@ -566,12 +565,12 @@ class CalendarHeatmapFilter(BaseModel):
     dummy: str | None = None
 
 
-class CalendarHeatmapMathType(str, Enum):
+class CalendarHeatmapMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
 
 
-class MatchField(str, Enum):
+class MatchField(StrEnum):
     CAMPAIGN_NAME = "campaign_name"
     CAMPAIGN_ID = "campaign_id"
 
@@ -583,13 +582,13 @@ class CampaignFieldPreference(BaseModel):
     match_field: MatchField
 
 
-class ChartDisplayCategory(str, Enum):
+class ChartDisplayCategory(StrEnum):
     TIME_SERIES = "TimeSeries"
     CUMULATIVE_TIME_SERIES = "CumulativeTimeSeries"
     TOTAL_VALUE = "TotalValue"
 
 
-class ChartDisplayType(str, Enum):
+class ChartDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
@@ -604,13 +603,13 @@ class ChartDisplayType(str, Enum):
     CALENDAR_HEATMAP = "CalendarHeatmap"
 
 
-class DisplayType(str, Enum):
+class DisplayType(StrEnum):
     AUTO = "auto"
     LINE = "line"
     BAR = "bar"
 
 
-class YAxisPosition(str, Enum):
+class YAxisPosition(StrEnum):
     LEFT = "left"
     RIGHT = "right"
 
@@ -626,7 +625,7 @@ class ChartSettingsDisplay(BaseModel):
     yAxisPosition: YAxisPosition | None = None
 
 
-class Style(str, Enum):
+class Style(StrEnum):
     NONE = "none"
     NUMBER = "number"
     PERCENT = "percent"
@@ -659,7 +658,7 @@ class CompareFilter(BaseModel):
     )
 
 
-class ColorMode(str, Enum):
+class ColorMode(StrEnum):
     LIGHT = "light"
     DARK = "dark"
 
@@ -687,7 +686,7 @@ class ContextMessage(BaseModel):
     type: Literal["context"] = "context"
 
 
-class CountPerActorMathType(str, Enum):
+class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
     MAX_COUNT_PER_ACTOR = "max_count_per_actor"
@@ -698,7 +697,7 @@ class CountPerActorMathType(str, Enum):
     P99_COUNT_PER_ACTOR = "p99_count_per_actor"
 
 
-class CurrencyCode(str, Enum):
+class CurrencyCode(StrEnum):
     AED = "AED"
     AFN = "AFN"
     ALL = "ALL"
@@ -853,7 +852,7 @@ class CurrencyCode(str, Enum):
     ZMW = "ZMW"
 
 
-class CustomChannelField(str, Enum):
+class CustomChannelField(StrEnum):
     UTM_SOURCE = "utm_source"
     UTM_MEDIUM = "utm_medium"
     UTM_CAMPAIGN = "utm_campaign"
@@ -863,7 +862,7 @@ class CustomChannelField(str, Enum):
     HOSTNAME = "hostname"
 
 
-class CustomChannelOperator(str, Enum):
+class CustomChannelOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
     IS_SET = "is_set"
@@ -881,7 +880,7 @@ class CustomEventConversionGoal(BaseModel):
     customEventName: str
 
 
-class DataColorToken(str, Enum):
+class DataColorToken(StrEnum):
     PRESET_1 = "preset-1"
     PRESET_2 = "preset-2"
     PRESET_3 = "preset-3"
@@ -899,7 +898,7 @@ class DataColorToken(str, Enum):
     PRESET_15 = "preset-15"
 
 
-class DataTableNodeViewPropsContextType(str, Enum):
+class DataTableNodeViewPropsContextType(StrEnum):
     EVENT_DEFINITION = "event_definition"
     TEAM_COLUMNS = "team_columns"
 
@@ -918,7 +917,7 @@ class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
     root: Literal["revenue_analytics"] = "revenue_analytics"
 
 
-class DataWarehouseSyncInterval(str, Enum):
+class DataWarehouseSyncInterval(StrEnum):
     FIELD_5MIN = "5min"
     FIELD_30MIN = "30min"
     FIELD_1HOUR = "1hour"
@@ -937,7 +936,7 @@ class DataWarehouseViewLinkConfiguration(BaseModel):
     experiments_timestamp_key: str | None = None
 
 
-class DatabaseSchemaManagedViewTableKind(str, Enum):
+class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
     REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
@@ -968,7 +967,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class DatabaseSchemaTableType(str, Enum):
+class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
     SYSTEM = "system"
     DATA_WAREHOUSE = "data_warehouse"
@@ -979,7 +978,7 @@ class DatabaseSchemaTableType(str, Enum):
     ENDPOINT = "endpoint"
 
 
-class DatabaseSerializedFieldType(str, Enum):
+class DatabaseSerializedFieldType(StrEnum):
     INTEGER = "integer"
     FLOAT = "float"
     DECIMAL = "decimal"
@@ -1013,16 +1012,16 @@ class DateRange(BaseModel):
     )
 
 
-class DatetimeDay(RootModel[datetime]):
-    root: datetime
+class DatetimeDay(RootModel[AwareDatetime]):
+    root: AwareDatetime
 
 
-class DeepResearchType(str, Enum):
+class DeepResearchType(StrEnum):
     PLANNING = "planning"
     REPORT = "report"
 
 
-class DefaultChannelTypes(str, Enum):
+class DefaultChannelTypes(StrEnum):
     CROSS_NETWORK = "Cross Network"
     PAID_SEARCH = "Paid Search"
     PAID_SOCIAL = "Paid Social"
@@ -1043,29 +1042,29 @@ class DefaultChannelTypes(str, Enum):
     UNKNOWN = "Unknown"
 
 
-class DistanceFunc(str, Enum):
+class DistanceFunc(StrEnum):
     L1_DISTANCE = "L1Distance"
     L2_DISTANCE = "L2Distance"
     COSINE_DISTANCE = "cosineDistance"
 
 
-class OrderBy(str, Enum):
+class OrderBy(StrEnum):
     DISTANCE = "distance"
     TIMESTAMP = "timestamp"
 
 
-class OrderDirection(str, Enum):
+class OrderDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
 
 
-class DurationType(str, Enum):
+class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
     INACTIVE_SECONDS = "inactive_seconds"
 
 
-class Key(str, Enum):
+class Key(StrEnum):
     TAG_NAME = "tag_name"
     TEXT = "text"
     HREF = "href"
@@ -1094,10 +1093,10 @@ class EmbeddedDocument(BaseModel):
     document_id: str
     document_type: str
     product: str
-    timestamp: datetime
+    timestamp: AwareDatetime
 
 
-class EmbeddingModelName(str, Enum):
+class EmbeddingModelName(StrEnum):
     TEXT_EMBEDDING_3_SMALL_1536 = "text-embedding-3-small-1536"
     TEXT_EMBEDDING_3_LARGE_3072 = "text-embedding-3-large-3072"
 
@@ -1111,7 +1110,7 @@ class EmbeddingRecord(BaseModel):
     model_name: EmbeddingModelName
     product: str
     rendering: str
-    timestamp: datetime
+    timestamp: AwareDatetime
 
 
 class EmptyPropertyFilter(BaseModel):
@@ -1128,7 +1127,7 @@ class EndpointLastExecutionTimesRequest(BaseModel):
     names: list[str]
 
 
-class EntityType(str, Enum):
+class EntityType(StrEnum):
     ACTIONS = "actions"
     EVENTS = "events"
     DATA_WAREHOUSE = "data_warehouse"
@@ -1145,7 +1144,7 @@ class Population(BaseModel):
     success_only: float
 
 
-class Status(str, Enum):
+class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
     RESOLVED = "resolved"
@@ -1200,7 +1199,7 @@ class ErrorTrackingIssueAggregations(BaseModel):
     volume_buckets: list[VolumeBucket]
 
 
-class ErrorTrackingIssueAssigneeType(str, Enum):
+class ErrorTrackingIssueAssigneeType(StrEnum):
     USER = "user"
     ROLE = "role"
 
@@ -1213,7 +1212,7 @@ class ErrorTrackingIssueCohort(BaseModel):
     name: str
 
 
-class OrderBy1(str, Enum):
+class OrderBy1(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
     OCCURRENCES = "occurrences"
@@ -1222,12 +1221,12 @@ class OrderBy1(str, Enum):
     REVENUE = "revenue"
 
 
-class OrderDirection1(str, Enum):
+class OrderDirection1(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
 
 
-class Status2(str, Enum):
+class Status2(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
     RESOLVED = "resolved"
@@ -1243,7 +1242,7 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
     events: list[str]
 
 
-class RevenueEntity(str, Enum):
+class RevenueEntity(StrEnum):
     PERSON = "person"
     GROUP_0 = "group_0"
     GROUP_1 = "group_1"
@@ -1252,12 +1251,12 @@ class RevenueEntity(str, Enum):
     GROUP_4 = "group_4"
 
 
-class RevenuePeriod(str, Enum):
+class RevenuePeriod(StrEnum):
     ALL_TIME = "all_time"
     LAST_30_DAYS = "last_30_days"
 
 
-class Status4(str, Enum):
+class Status4(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
     RESOLVED = "resolved"
@@ -1274,7 +1273,7 @@ class EventDefinition(BaseModel):
     properties: dict[str, Any]
 
 
-class CorrelationType(str, Enum):
+class CorrelationType(StrEnum):
     SUCCESS = "success"
     FAILURE = "failure"
 
@@ -1323,7 +1322,7 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
-class MultipleVariantHandling(str, Enum):
+class MultipleVariantHandling(StrEnum):
     EXCLUDE = "exclude"
     FIRST_SEEN = "first_seen"
 
@@ -1357,12 +1356,12 @@ class ExperimentMaxFrequentistContext(BaseModel):
     significant: bool
 
 
-class ExperimentMetricGoal(str, Enum):
+class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
 
 
-class ExperimentMetricMathType(str, Enum):
+class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
     UNIQUE_SESSION = "unique_session"
@@ -1383,26 +1382,26 @@ class ExperimentMetricOutlierHandling(BaseModel):
     upper_bound_percentile: float | None = None
 
 
-class Status5(str, Enum):
+class Status5(StrEnum):
     PENDING = "pending"
     COMPLETED = "completed"
     PARTIAL = "partial"
     FAILED = "failed"
 
 
-class ExperimentMetricType(str, Enum):
+class ExperimentMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN = "mean"
     RATIO = "ratio"
     RETENTION = "retention"
 
 
-class StartHandling(str, Enum):
+class StartHandling(StrEnum):
     FIRST_SEEN = "first_seen"
     LAST_SEEN = "last_seen"
 
 
-class ExperimentSignificanceCode(str, Enum):
+class ExperimentSignificanceCode(StrEnum):
     SIGNIFICANT = "significant"
     NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
     LOW_WIN_PROBABILITY = "low_win_probability"
@@ -1410,12 +1409,12 @@ class ExperimentSignificanceCode(str, Enum):
     HIGH_P_VALUE = "high_p_value"
 
 
-class ExperimentStatsMethod(str, Enum):
+class ExperimentStatsMethod(StrEnum):
     BAYESIAN = "bayesian"
     FREQUENTIST = "frequentist"
 
 
-class ExperimentStatsValidationFailure(str, Enum):
+class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
@@ -1440,7 +1439,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     key: str
 
 
-class ExternalDataSourceType(str, Enum):
+class ExternalDataSourceType(StrEnum):
     CUSTOMER_IO = "CustomerIO"
     GITHUB = "Github"
     STRIPE = "Stripe"
@@ -1474,12 +1473,12 @@ class ExternalDataSourceType(str, Enum):
     SHOPIFY = "Shopify"
 
 
-class ExternalQueryErrorCode(str, Enum):
+class ExternalQueryErrorCode(StrEnum):
     PLATFORM_ACCESS_REQUIRED = "platform_access_required"
     QUERY_EXECUTION_FAILED = "query_execution_failed"
 
 
-class ExternalQueryStatus(str, Enum):
+class ExternalQueryStatus(StrEnum):
     SUCCESS = "success"
     ERROR = "error"
 
@@ -1494,7 +1493,7 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
-class Tag(str, Enum):
+class Tag(StrEnum):
     ALPHA = "alpha"
     BETA = "beta"
 
@@ -1519,7 +1518,7 @@ class FileSystemEntry(BaseModel):
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
-class FileSystemIconType(str, Enum):
+class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
@@ -1585,7 +1584,7 @@ class FileSystemViewLogEntry(BaseModel):
     viewed_at: str
 
 
-class FilterLogicalOperator(str, Enum):
+class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
 
@@ -1603,7 +1602,7 @@ class FlagPropertyFilter(BaseModel):
     value: bool | str = Field(..., description="The value can be true, false, or a variant name")
 
 
-class FunnelConversionWindowTimeUnit(str, Enum):
+class FunnelConversionWindowTimeUnit(StrEnum):
     SECOND = "second"
     MINUTE = "minute"
     HOUR = "hour"
@@ -1612,7 +1611,7 @@ class FunnelConversionWindowTimeUnit(str, Enum):
     MONTH = "month"
 
 
-class FunnelCorrelationResultsType(str, Enum):
+class FunnelCorrelationResultsType(StrEnum):
     EVENTS = "events"
     PROPERTIES = "properties"
     EVENT_WITH_PROPERTIES = "event_with_properties"
@@ -1633,24 +1632,24 @@ class FunnelExclusionLegacy(BaseModel):
     type: EntityType | None = None
 
 
-class FunnelLayout(str, Enum):
+class FunnelLayout(StrEnum):
     HORIZONTAL = "horizontal"
     VERTICAL = "vertical"
 
 
-class FunnelMathType(str, Enum):
+class FunnelMathType(StrEnum):
     TOTAL = "total"
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
 
-class FunnelPathType(str, Enum):
+class FunnelPathType(StrEnum):
     FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
     FUNNEL_PATH_BETWEEN_STEPS = "funnel_path_between_steps"
     FUNNEL_PATH_AFTER_STEP = "funnel_path_after_step"
 
 
-class FunnelStepReference(str, Enum):
+class FunnelStepReference(StrEnum):
     TOTAL = "total"
     PREVIOUS = "previous"
 
@@ -1675,13 +1674,13 @@ class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
     root: list[dict[str, Any]]
 
 
-class FunnelVizType(str, Enum):
+class FunnelVizType(StrEnum):
     STEPS = "steps"
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
 
 
-class Position(str, Enum):
+class Position(StrEnum):
     START = "start"
     END = "end"
 
@@ -1698,7 +1697,7 @@ class GoalLine(BaseModel):
     value: float
 
 
-class HedgehogColorOptions(str, Enum):
+class HedgehogColorOptions(StrEnum):
     GREEN = "green"
     RED = "red"
     BLUE = "blue"
@@ -1719,7 +1718,7 @@ class HogCompileResponse(BaseModel):
     locals: list
 
 
-class HogLanguage(str, Enum):
+class HogLanguage(StrEnum):
     HOG = "hog"
     HOG_JSON = "hogJson"
     HOG_QL = "hogQL"
@@ -1728,58 +1727,58 @@ class HogLanguage(str, Enum):
     LIQUID = "liquid"
 
 
-class BounceRatePageViewMode(str, Enum):
+class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
     UNIQ_PAGE_SCREEN_AUTOCAPTURES = "uniq_page_screen_autocaptures"
 
 
-class InCohortVia(str, Enum):
+class InCohortVia(StrEnum):
     AUTO = "auto"
     LEFTJOIN = "leftjoin"
     SUBQUERY = "subquery"
     LEFTJOIN_CONJOINED = "leftjoin_conjoined"
 
 
-class MaterializationMode(str, Enum):
+class MaterializationMode(StrEnum):
     AUTO = "auto"
     LEGACY_NULL_AS_STRING = "legacy_null_as_string"
     LEGACY_NULL_AS_NULL = "legacy_null_as_null"
     DISABLED = "disabled"
 
 
-class PersonsArgMaxVersion(str, Enum):
+class PersonsArgMaxVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
 
 
-class PersonsJoinMode(str, Enum):
+class PersonsJoinMode(StrEnum):
     INNER = "inner"
     LEFT = "left"
 
 
-class PersonsOnEventsMode(str, Enum):
+class PersonsOnEventsMode(StrEnum):
     DISABLED = "disabled"
     PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
     PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
     PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
 
 
-class PropertyGroupsMode(str, Enum):
+class PropertyGroupsMode(StrEnum):
     ENABLED = "enabled"
     DISABLED = "disabled"
     OPTIMIZED = "optimized"
 
 
-class SessionTableVersion(str, Enum):
+class SessionTableVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
     V3 = "v3"
 
 
-class SessionsV2JoinMode(str, Enum):
+class SessionsV2JoinMode(StrEnum):
     STRING = "string"
     UUID = "uuid"
 
@@ -1809,12 +1808,12 @@ class InfinityValue(float, Enum):
     NUMBER__999999 = -999999
 
 
-class Compare(str, Enum):
+class Compare(StrEnum):
     CURRENT = "current"
     PREVIOUS = "previous"
 
 
-class InsightFilterProperty(str, Enum):
+class InsightFilterProperty(StrEnum):
     TRENDS_FILTER = "trendsFilter"
     FUNNELS_FILTER = "funnelsFilter"
     RETENTION_FILTER = "retentionFilter"
@@ -1824,7 +1823,7 @@ class InsightFilterProperty(str, Enum):
     LIFECYCLE_FILTER = "lifecycleFilter"
 
 
-class InsightNodeKind(str, Enum):
+class InsightNodeKind(StrEnum):
     TRENDS_QUERY = "TrendsQuery"
     FUNNELS_QUERY = "FunnelsQuery"
     RETENTION_QUERY = "RetentionQuery"
@@ -1833,7 +1832,7 @@ class InsightNodeKind(str, Enum):
     LIFECYCLE_QUERY = "LifecycleQuery"
 
 
-class InsightThresholdType(str, Enum):
+class InsightThresholdType(StrEnum):
     ABSOLUTE = "absolute"
     PERCENTAGE = "percentage"
 
@@ -1855,7 +1854,7 @@ class IntegrationFilter(BaseModel):
     )
 
 
-class IntegrationKind(str, Enum):
+class IntegrationKind(StrEnum):
     SLACK = "slack"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
@@ -1879,7 +1878,7 @@ class IntegrationKind(str, Enum):
     BING_ADS = "bing-ads"
 
 
-class IntervalType(str, Enum):
+class IntervalType(StrEnum):
     SECOND = "second"
     MINUTE = "minute"
     HOUR = "hour"
@@ -1908,14 +1907,14 @@ class LLMTracePerson(BaseModel):
     uuid: str
 
 
-class LifecycleToggle(str, Enum):
+class LifecycleToggle(StrEnum):
     NEW = "new"
     RESURRECTING = "resurrecting"
     RETURNING = "returning"
     DORMANT = "dormant"
 
 
-class LogSeverityLevel(str, Enum):
+class LogSeverityLevel(StrEnum):
     TRACE = "trace"
     DEBUG = "debug"
     INFO = "info"
@@ -1924,7 +1923,7 @@ class LogSeverityLevel(str, Enum):
     FATAL = "fatal"
 
 
-class OrderBy3(str, Enum):
+class OrderBy3(StrEnum):
     LATEST = "latest"
     EARLIEST = "earliest"
 
@@ -1937,7 +1936,7 @@ class MarkdownBlock(BaseModel):
     type: Literal["markdown"] = "markdown"
 
 
-class MarketingAnalyticsBaseColumns(str, Enum):
+class MarketingAnalyticsBaseColumns(StrEnum):
     ID = "ID"
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
@@ -1949,7 +1948,7 @@ class MarketingAnalyticsBaseColumns(str, Enum):
     REPORTED_CONVERSION = "Reported Conversion"
 
 
-class MarketingAnalyticsColumnsSchemaNames(str, Enum):
+class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     ID = "id"
     CAMPAIGN = "campaign"
     CLICKS = "clicks"
@@ -1961,17 +1960,17 @@ class MarketingAnalyticsColumnsSchemaNames(str, Enum):
     REPORTED_CONVERSION = "reported_conversion"
 
 
-class MarketingAnalyticsHelperForColumnNames(str, Enum):
+class MarketingAnalyticsHelperForColumnNames(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
 
 
-class MarketingAnalyticsOrderByEnum(str, Enum):
+class MarketingAnalyticsOrderByEnum(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
 
 
-class MarketingAnalyticsSchemaFieldTypes(str, Enum):
+class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     STRING = "string"
     INTEGER = "integer"
     NUMBER = "number"
@@ -2047,7 +2046,7 @@ class UsageHistoryItem(BaseModel):
     label: str
 
 
-class MaxBillingContextBillingPeriodInterval(str, Enum):
+class MaxBillingContextBillingPeriodInterval(StrEnum):
     MONTH = "month"
     YEAR = "year"
 
@@ -2060,7 +2059,7 @@ class MaxBillingContextSettings(BaseModel):
     autocapture_on: bool
 
 
-class MaxBillingContextSubscriptionLevel(str, Enum):
+class MaxBillingContextSubscriptionLevel(StrEnum):
     FREE = "free"
     PAID = "paid"
     CUSTOM = "custom"
@@ -2134,7 +2133,7 @@ class MinimalHedgehogConfig(BaseModel):
     use_as_profile: bool
 
 
-class MultipleBreakdownType(str, Enum):
+class MultipleBreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
@@ -2145,7 +2144,7 @@ class MultipleBreakdownType(str, Enum):
     REVENUE_ANALYTICS = "revenue_analytics"
 
 
-class NodeKind(str, Enum):
+class NodeKind(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
     DATA_WAREHOUSE_NODE = "DataWarehouseNode"
@@ -2239,7 +2238,7 @@ class PathCleaningFilter(BaseModel):
     regex: str | None = None
 
 
-class PathType(str, Enum):
+class PathType(StrEnum):
     FIELD_PAGEVIEW = "$pageview"
     FIELD_SCREEN = "$screen"
     CUSTOM_EVENT = "custom_event"
@@ -2302,7 +2301,7 @@ class PersonType(BaseModel):
     uuid: str | None = None
 
 
-class PlanningStepStatus(str, Enum):
+class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -2328,7 +2327,7 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
     user_id: str
 
 
-class ProductIntentContext(str, Enum):
+class ProductIntentContext(StrEnum):
     ONBOARDING_PRODUCT_SELECTED___PRIMARY = "onboarding product selected - primary"
     ONBOARDING_PRODUCT_SELECTED___SECONDARY = "onboarding product selected - secondary"
     QUICK_START_PRODUCT_SELECTED = "quick start product selected"
@@ -2381,7 +2380,7 @@ class ProductIntentContext(str, Enum):
     VERCEL_INTEGRATION = "vercel_integration"
 
 
-class ProductKey(str, Enum):
+class ProductKey(StrEnum):
     ACTIONS = "actions"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
@@ -2422,7 +2421,7 @@ class ProductKey(str, Enum):
     WORKFLOWS = "workflows"
 
 
-class PropertyFilterType(str, Enum):
+class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
     INTERNAL_EVENT = "internal_event"
@@ -2444,7 +2443,7 @@ class PropertyFilterType(str, Enum):
     LOG = "log"
 
 
-class PropertyMathType(str, Enum):
+class PropertyMathType(StrEnum):
     AVG = "avg"
     SUM = "sum"
     MIN = "min"
@@ -2456,7 +2455,7 @@ class PropertyMathType(str, Enum):
     P99 = "p99"
 
 
-class PropertyOperator(str, Enum):
+class PropertyOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -2495,7 +2494,7 @@ class ProsemirrorJSONContent(BaseModel):
     type: str | None = None
 
 
-class QueryIndexUsage(str, Enum):
+class QueryIndexUsage(StrEnum):
     UNDECISIVE = "undecisive"
     NO = "no"
     PARTIAL = "partial"
@@ -2557,12 +2556,12 @@ class QueryTiming(BaseModel):
     t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
 
 
-class QuickFilterContext(str, Enum):
+class QuickFilterContext(StrEnum):
     ERROR_TRACKING_ISSUE_FILTERS = "error-tracking-issue-filters"
     LOGS_FILTERS = "logs-filters"
 
 
-class QuickFilterType(str, Enum):
+class QuickFilterType(StrEnum):
     MANUAL_OPTIONS = "manual-options"
     AUTO_DISCOVERY = "auto-discovery"
 
@@ -2589,7 +2588,7 @@ class RecordingDurationFilter(BaseModel):
     value: float
 
 
-class RecordingOrder(str, Enum):
+class RecordingOrder(StrEnum):
     DURATION = "duration"
     RECORDING_DURATION = "recording_duration"
     INACTIVE_SECONDS = "inactive_seconds"
@@ -2603,7 +2602,7 @@ class RecordingOrder(str, Enum):
     RECORDING_TTL = "recording_ttl"
 
 
-class RecordingOrderDirection(str, Enum):
+class RecordingOrderDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
 
@@ -2619,7 +2618,7 @@ class RecordingPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class RefreshType(str, Enum):
+class RefreshType(StrEnum):
     ASYNC_ = "async"
     ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
     BLOCKING = "blocking"
@@ -2633,8 +2632,8 @@ class ResolvedDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: datetime
-    date_to: datetime
+    date_from: AwareDatetime
+    date_to: AwareDatetime
 
 
 class ResultCustomizationBase(BaseModel):
@@ -2645,7 +2644,7 @@ class ResultCustomizationBase(BaseModel):
     hidden: bool | None = None
 
 
-class ResultCustomizationBy(str, Enum):
+class ResultCustomizationBy(StrEnum):
     VALUE = "value"
     POSITION = "position"
 
@@ -2668,30 +2667,30 @@ class ResultCustomizationByValue(BaseModel):
     hidden: bool | None = None
 
 
-class RetentionDashboardDisplayType(str, Enum):
+class RetentionDashboardDisplayType(StrEnum):
     TABLE_ONLY = "table_only"
     GRAPH_ONLY = "graph_only"
     ALL = "all"
 
 
-class RetentionEntityKind(str, Enum):
+class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
 
 
-class TimeWindowMode(str, Enum):
+class TimeWindowMode(StrEnum):
     STRICT_CALENDAR_DATES = "strict_calendar_dates"
     FIELD_24_HOUR_WINDOWS = "24_hour_windows"
 
 
-class RetentionPeriod(str, Enum):
+class RetentionPeriod(StrEnum):
     HOUR = "Hour"
     DAY = "Day"
     WEEK = "Week"
     MONTH = "Month"
 
 
-class RetentionType(str, Enum):
+class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
@@ -2705,7 +2704,7 @@ class RevenueAnalyticsBreakdown(BaseModel):
     type: Literal["revenue_analytics"] = "revenue_analytics"
 
 
-class MrrOrGross(str, Enum):
+class MrrOrGross(StrEnum):
     MRR = "mrr"
     GROSS = "gross"
 
@@ -2731,7 +2730,7 @@ class RevenueAnalyticsMRRQueryResultItem(BaseModel):
     total: Any
 
 
-class RevenueAnalyticsOverviewItemKey(str, Enum):
+class RevenueAnalyticsOverviewItemKey(StrEnum):
     REVENUE = "revenue"
     PAYING_CUSTOMER_COUNT = "paying_customer_count"
     AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
@@ -2748,7 +2747,7 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class RevenueAnalyticsTopCustomersGroupBy(str, Enum):
+class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
     MONTH = "month"
     ALL = "all"
 
@@ -2769,7 +2768,7 @@ class SamplingRate(BaseModel):
     numerator: float
 
 
-class SessionAttributionGroupBy(str, Enum):
+class SessionAttributionGroupBy(StrEnum):
     CHANNEL_TYPE = "ChannelType"
     MEDIUM = "Medium"
     SOURCE = "Source"
@@ -2811,13 +2810,13 @@ class SessionPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class SnapshotSource(str, Enum):
+class SnapshotSource(StrEnum):
     WEB = "web"
     MOBILE = "mobile"
     UNKNOWN = "unknown"
 
 
-class Storage(str, Enum):
+class Storage(StrEnum):
     OBJECT_STORAGE_LTS = "object_storage_lts"
     OBJECT_STORAGE = "object_storage"
 
@@ -2857,7 +2856,7 @@ class SimilarIssue(BaseModel):
     status: str
 
 
-class SimpleIntervalType(str, Enum):
+class SimpleIntervalType(StrEnum):
     DAY = "day"
     MONTH = "month"
 
@@ -2870,7 +2869,7 @@ class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     keys: str | list[str]
 
 
-class SourceFieldInputConfigType(str, Enum):
+class SourceFieldInputConfigType(StrEnum):
     TEXT = "text"
     EMAIL = "email"
     SEARCH = "search"
@@ -2901,7 +2900,7 @@ class SourceFieldSSHTunnelConfig(BaseModel):
     type: Literal["ssh-tunnel"] = "ssh-tunnel"
 
 
-class SourceFieldSelectConfigConverter(str, Enum):
+class SourceFieldSelectConfigConverter(StrEnum):
     STR_TO_INT = "str_to_int"
     STR_TO_BOOL = "str_to_bool"
     STR_TO_OPTIONAL_INT = "str_to_optional_int"
@@ -2922,13 +2921,13 @@ class SourceMap(BaseModel):
     source: str | None = None
 
 
-class StepOrderValue(str, Enum):
+class StepOrderValue(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"
     ORDERED = "ordered"
 
 
-class StickinessComputationMode(str, Enum):
+class StickinessComputationMode(StrEnum):
     NON_CUMULATIVE = "non_cumulative"
     CUMULATIVE = "cumulative"
 
@@ -2946,13 +2945,13 @@ class StickinessFilterLegacy(BaseModel):
     show_values_on_series: bool | None = None
 
 
-class StickinessOperator(str, Enum):
+class StickinessOperator(StrEnum):
     GTE = "gte"
     LTE = "lte"
     EXACT = "exact"
 
 
-class SubscriptionDropoffMode(str, Enum):
+class SubscriptionDropoffMode(StrEnum):
     LAST_EVENT = "last_event"
     AFTER_DROPOFF_PERIOD = "after_dropoff_period"
 
@@ -2996,7 +2995,7 @@ class Actions(BaseModel):
     values: list[Value]
 
 
-class SurveyMatchType(str, Enum):
+class SurveyMatchType(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -3005,7 +3004,7 @@ class SurveyMatchType(str, Enum):
     NOT_REGEX = "not_regex"
 
 
-class SurveyPosition(str, Enum):
+class SurveyPosition(StrEnum):
     TOP_LEFT = "top_left"
     TOP_CENTER = "top_center"
     TOP_RIGHT = "top_right"
@@ -3018,14 +3017,14 @@ class SurveyPosition(str, Enum):
     NEXT_TO_TRIGGER = "next_to_trigger"
 
 
-class SurveyQuestionBranchingType(str, Enum):
+class SurveyQuestionBranchingType(StrEnum):
     NEXT_QUESTION = "next_question"
     END = "end"
     RESPONSE_BASED = "response_based"
     SPECIFIC_QUESTION = "specific_question"
 
 
-class SurveyQuestionDescriptionContentType(str, Enum):
+class SurveyQuestionDescriptionContentType(StrEnum):
     HTML = "html"
     TEXT = "text"
 
@@ -3039,12 +3038,12 @@ class Branching(BaseModel):
     type: SurveyQuestionBranchingType
 
 
-class Display1(str, Enum):
+class Display1(StrEnum):
     NUMBER = "number"
     EMOJI = "emoji"
 
 
-class SurveyQuestionType(str, Enum):
+class SurveyQuestionType(StrEnum):
     OPEN = "open"
     MULTIPLE_CHOICE = "multiple_choice"
     SINGLE_CHOICE = "single_choice"
@@ -3052,14 +3051,14 @@ class SurveyQuestionType(str, Enum):
     LINK = "link"
 
 
-class SurveyTabPosition(str, Enum):
+class SurveyTabPosition(StrEnum):
     TOP = "top"
     LEFT = "left"
     RIGHT = "right"
     BOTTOM = "bottom"
 
 
-class SurveyType(str, Enum):
+class SurveyType(StrEnum):
     POPOVER = "popover"
     WIDGET = "widget"
     FULL_SCREEN = "full_screen"
@@ -3067,20 +3066,20 @@ class SurveyType(str, Enum):
     EXTERNAL_SURVEY = "external_survey"
 
 
-class SurveyWidgetType(str, Enum):
+class SurveyWidgetType(StrEnum):
     BUTTON = "button"
     TAB = "tab"
     SELECTOR = "selector"
 
 
-class TaskExecutionStatus(str, Enum):
+class TaskExecutionStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     FAILED = "failed"
 
 
-class TaxonomicFilterGroupType(str, Enum):
+class TaxonomicFilterGroupType(StrEnum):
     METADATA = "metadata"
     ACTIONS = "actions"
     COHORTS = "cohorts"
@@ -3150,7 +3149,7 @@ class TimelineEntry(BaseModel):
     sessionId: str | None = Field(default=None, description="Session ID. None means out-of-session events")
 
 
-class DetailedResultsAggregationType(str, Enum):
+class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
@@ -3189,12 +3188,12 @@ class TrendsFormulaNode(BaseModel):
     formula: str
 
 
-class UsageMetricDisplay(str, Enum):
+class UsageMetricDisplay(StrEnum):
     NUMBER = "number"
     SPARKLINE = "sparkline"
 
 
-class UsageMetricFormat(str, Enum):
+class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
 
@@ -3214,7 +3213,7 @@ class UserBasicType(BaseModel):
     uuid: str
 
 
-class UserProductListReason(str, Enum):
+class UserProductListReason(StrEnum):
     ONBOARDING = "onboarding"
     PRODUCT_INTENT = "product_intent"
     USED_BY_COLLEAGUES = "used_by_colleagues"
@@ -3274,19 +3273,19 @@ class WebAnalyticsExternalSummaryRequest(BaseModel):
     explicit_date: bool | None = None
 
 
-class WebAnalyticsItemKind(str, Enum):
+class WebAnalyticsItemKind(StrEnum):
     UNIT = "unit"
     DURATION_S = "duration_s"
     PERCENTAGE = "percentage"
     CURRENCY = "currency"
 
 
-class WebAnalyticsOrderByDirection(str, Enum):
+class WebAnalyticsOrderByDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
 
 
-class WebAnalyticsOrderByFields(str, Enum):
+class WebAnalyticsOrderByFields(StrEnum):
     VISITORS = "Visitors"
     VIEWS = "Views"
     CLICKS = "Clicks"
@@ -3323,7 +3322,7 @@ class WebOverviewItem(BaseModel):
     value: float | None = None
 
 
-class WebStatsBreakdown(str, Enum):
+class WebStatsBreakdown(StrEnum):
     PAGE = "Page"
     INITIAL_PAGE = "InitialPage"
     EXIT_PAGE = "ExitPage"
@@ -3370,7 +3369,7 @@ class WebTrendsItem(BaseModel):
     metrics: Metrics
 
 
-class WebTrendsMetric(str, Enum):
+class WebTrendsMetric(StrEnum):
     UNIQUE_USERS = "UniqueUsers"
     PAGE_VIEWS = "PageViews"
     SESSIONS = "Sessions"
@@ -3379,14 +3378,14 @@ class WebTrendsMetric(str, Enum):
     TOTAL_SESSIONS = "TotalSessions"
 
 
-class WebVitalsMetric(str, Enum):
+class WebVitalsMetric(StrEnum):
     INP = "INP"
     LCP = "LCP"
     CLS = "CLS"
     FCP = "FCP"
 
 
-class WebVitalsMetricBand(str, Enum):
+class WebVitalsMetricBand(StrEnum):
     GOOD = "good"
     NEEDS_IMPROVEMENTS = "needs_improvements"
     POOR = "poor"
@@ -3400,13 +3399,13 @@ class WebVitalsPathBreakdownResultItem(BaseModel):
     value: float
 
 
-class WebVitalsPercentile(str, Enum):
+class WebVitalsPercentile(StrEnum):
     P75 = "p75"
     P90 = "p90"
     P99 = "p99"
 
 
-class Scale(str, Enum):
+class Scale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
 
@@ -4538,7 +4537,7 @@ class DayItem(BaseModel):
         extra="forbid",
     )
     label: str
-    value: str | datetime | int
+    value: str | AwareDatetime | int
 
 
 class InsightThreshold(BaseModel):
@@ -4609,12 +4608,12 @@ class LogMessage(BaseModel):
     event_name: str
     instrumentation_scope: str
     level: LogSeverityLevel
-    observed_timestamp: datetime
+    observed_timestamp: AwareDatetime
     resource_attributes: Any
     severity_number: float
     severity_text: LogSeverityLevel
     span_id: str
-    timestamp: datetime
+    timestamp: AwareDatetime
     trace_id: str
     uuid: str
 
@@ -4691,13 +4690,17 @@ class MaxExperimentSummaryContext(BaseModel):
     variants: list[str]
 
 
+class NotebookInfo(RootModel[DeepResearchNotebook]):
+    root: DeepResearchNotebook
+
+
 class NotebookUpdateMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     content: ProsemirrorJSONContent
-    conversation_notebooks: list[DeepResearchNotebook] | None = None
-    current_run_notebooks: list[DeepResearchNotebook] | None = None
+    conversation_notebooks: list[NotebookInfo] | None = None
+    current_run_notebooks: list[NotebookInfo] | None = None
     id: str | None = None
     notebook_id: str
     notebook_type: Literal["deep_research"] = "deep_research"
@@ -4813,7 +4816,7 @@ class QueryStatus(BaseModel):
         ),
     )
     dashboard_id: int | None = None
-    end_time: datetime | None = Field(
+    end_time: AwareDatetime | None = Field(
         default=None, description="When did the query execution task finish (whether successfully or not)."
     )
     error: bool | None = Field(
@@ -4823,17 +4826,17 @@ class QueryStatus(BaseModel):
         ),
     )
     error_message: str | None = None
-    expiration_time: datetime | None = None
+    expiration_time: AwareDatetime | None = None
     id: str
     insight_id: int | None = None
     labels: list[str] | None = None
-    pickup_time: datetime | None = Field(
+    pickup_time: AwareDatetime | None = Field(
         default=None, description="When was the query execution task picked up by a worker."
     )
     query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: ClickhouseQueryProgress | None = None
     results: Any | None = None
-    start_time: datetime | None = Field(default=None, description="When was query execution task enqueued.")
+    start_time: AwareDatetime | None = Field(default=None, description="When was query execution task enqueued.")
     task_id: str | None = None
     team_id: int
 
@@ -5563,7 +5566,7 @@ class TestCachedBasicQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -5573,9 +5576,9 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6469,7 +6472,7 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6479,9 +6482,9 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6501,7 +6504,7 @@ class CachedActorsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6513,11 +6516,11 @@ class CachedActorsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6539,7 +6542,7 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6550,9 +6553,9 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6572,7 +6575,7 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6583,10 +6586,10 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6607,7 +6610,7 @@ class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6617,9 +6620,9 @@ class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6639,7 +6642,7 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6650,10 +6653,10 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6674,7 +6677,7 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6684,9 +6687,9 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6706,7 +6709,7 @@ class CachedEventsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6718,10 +6721,10 @@ class CachedEventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6743,15 +6746,15 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     date_range: DateRange
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6766,7 +6769,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6778,10 +6781,10 @@ class CachedFunnelCorrelationResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6803,7 +6806,7 @@ class CachedFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6814,9 +6817,9 @@ class CachedFunnelsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     isUdf: bool | None = None
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6836,7 +6839,7 @@ class CachedGroupsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6849,10 +6852,10 @@ class CachedGroupsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
     kind: Literal["GroupsQuery"] = "GroupsQuery"
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6874,7 +6877,7 @@ class CachedLifecycleQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6884,9 +6887,9 @@ class CachedLifecycleQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6906,7 +6909,7 @@ class CachedLogsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6918,10 +6921,10 @@ class CachedLogsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -6942,7 +6945,7 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6952,9 +6955,9 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6975,7 +6978,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -6987,10 +6990,10 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7013,7 +7016,7 @@ class CachedPathsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7023,9 +7026,9 @@ class CachedPathsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7045,7 +7048,7 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7056,9 +7059,9 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7078,7 +7081,7 @@ class CachedRevenueAnalyticsMRRQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7089,9 +7092,9 @@ class CachedRevenueAnalyticsMRRQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7111,7 +7114,7 @@ class CachedRevenueAnalyticsMetricsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7122,9 +7125,9 @@ class CachedRevenueAnalyticsMetricsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7144,7 +7147,7 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7154,9 +7157,9 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7176,7 +7179,7 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7187,9 +7190,9 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7209,7 +7212,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7221,10 +7224,10 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7246,7 +7249,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7258,10 +7261,10 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7283,7 +7286,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7295,10 +7298,10 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7320,7 +7323,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7332,10 +7335,10 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7363,7 +7366,7 @@ class CachedSessionsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7375,10 +7378,10 @@ class CachedSessionsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7400,7 +7403,7 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7411,9 +7414,9 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7433,7 +7436,7 @@ class CachedStickinessQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7443,9 +7446,9 @@ class CachedStickinessQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7465,13 +7468,13 @@ class CachedSuggestedQuestionsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7485,7 +7488,7 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7495,9 +7498,9 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7517,7 +7520,7 @@ class CachedTraceQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7529,10 +7532,10 @@ class CachedTraceQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7553,7 +7556,7 @@ class CachedTracesQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7565,10 +7568,10 @@ class CachedTracesQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7589,7 +7592,7 @@ class CachedTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7600,9 +7603,9 @@ class CachedTrendsQueryResponse(BaseModel):
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7622,7 +7625,7 @@ class CachedUsageMetricsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7632,9 +7635,9 @@ class CachedUsageMetricsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7654,7 +7657,7 @@ class CachedVectorSearchQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7664,9 +7667,9 @@ class CachedVectorSearchQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7686,7 +7689,7 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7698,10 +7701,10 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7724,7 +7727,7 @@ class CachedWebGoalsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7736,10 +7739,10 @@ class CachedWebGoalsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7762,7 +7765,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7774,9 +7777,9 @@ class CachedWebOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7798,7 +7801,7 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7809,10 +7812,10 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7832,7 +7835,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7844,10 +7847,10 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -7871,7 +7874,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -7881,9 +7884,9 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8969,11 +8972,11 @@ class ErrorTrackingIssue(BaseModel):
     description: str | None = None
     external_issues: list[ErrorTrackingExternalReference] | None = None
     first_event: FirstEvent | None = None
-    first_seen: datetime
+    first_seen: AwareDatetime
     function: str | None = None
     id: str
     last_event: LastEvent | None = None
-    last_seen: datetime
+    last_seen: AwareDatetime
     library: str | None = None
     name: str | None = None
     revenue: float | None = None
@@ -9051,7 +9054,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     cohort: ErrorTrackingIssueCohort | None = None
     description: str | None = None
     external_issues: list[ErrorTrackingExternalReference] | None = None
-    first_seen: datetime
+    first_seen: AwareDatetime
     id: str
     name: str | None = None
     status: Status4
@@ -9593,13 +9596,13 @@ class FunnelsQueryResponse(BaseModel):
 
 class GenericCachedQueryResponse(BaseModel):
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11474,7 +11477,7 @@ class RetentionResult(BaseModel):
     breakdown_value: str | float | None = Field(
         default=None, description="Optional breakdown value for retention cohorts"
     )
-    date: datetime
+    date: AwareDatetime
     label: str
     values: list[RetentionValue]
 
@@ -12262,7 +12265,7 @@ class CachedErrorTrackingQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12274,10 +12277,10 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -12298,7 +12301,7 @@ class CachedHogQLQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12312,11 +12315,11 @@ class CachedHogQLQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_metadata: dict[str, Any] | None = None
@@ -12341,7 +12344,7 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     breakdown: list[BreakdownItem] | None = None
     breakdowns: list[MultipleBreakdownOptions] | None = None
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12349,8 +12352,8 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     day: list[DayItem] | None = None
     interval: list[IntervalItem] | None = None
     is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12367,15 +12370,15 @@ class CachedNewExperimentQueryResponse(BaseModel):
     baseline: ExperimentStatsBaseValidated
     breakdown_results: list[ExperimentBreakdownResult] | None = None
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     clickhouse_sql: str | None = None
     hogql: str | None = None
     is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12389,7 +12392,7 @@ class CachedRetentionQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12399,9 +12402,9 @@ class CachedRetentionQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12421,7 +12424,7 @@ class CachedWebTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12435,11 +12438,11 @@ class CachedWebTrendsQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_metadata: dict[str, Any] | None = None
@@ -12464,7 +12467,7 @@ class CachedWebVitalsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -12474,9 +12477,9 @@ class CachedWebVitalsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12607,9 +12610,9 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     description: str | None = None
     event: str
     external_issues: list[ErrorTrackingExternalReference] | None = None
-    first_seen: datetime
+    first_seen: AwareDatetime
     id: str
-    last_seen: datetime
+    last_seen: AwareDatetime
     library: str | None = None
     name: str | None = None
     odds_ratio: float
@@ -13364,7 +13367,7 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -13376,10 +13379,10 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -13400,7 +13403,7 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -13410,8 +13413,8 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     insight: list[dict[str, Any]]
     is_cached: bool
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     p_value: float
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
@@ -14437,7 +14440,7 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -14447,8 +14450,8 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     insight: list[list[dict[str, Any]]]
     is_cached: bool
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -14473,7 +14476,7 @@ class CachedExperimentQueryResponse(BaseModel):
         ),
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -14483,11 +14486,11 @@ class CachedExperimentQueryResponse(BaseModel):
     insight: list[dict[str, Any]] | None = None
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | None = (
         None
     )
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     p_value: float | None = None
     probability: dict[str, float] | None = None
     query_metadata: dict[str, Any] | None = None
@@ -14507,7 +14510,7 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
         extra="forbid",
     )
     cache_key: str
-    cache_target_age: datetime | None = None
+    cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
@@ -14515,9 +14518,9 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     insight: list[dict[str, Any]]
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: datetime
+    last_refresh: AwareDatetime
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
-    next_allowed_client_refresh: datetime
+    next_allowed_client_refresh: AwareDatetime
     p_value: float
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
