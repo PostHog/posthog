@@ -171,6 +171,7 @@ export default defineConfig({
       target: '${outputFile}',
       mode: 'split',
       client: 'fetch',
+      prettier: true,
       override: {
         mutator: {
           path: '${mutatorPath}',
@@ -187,18 +188,6 @@ export default defineConfig({
         stdio: 'inherit',
         cwd: repoRoot,
     })
-
-    // Add eslint-disable header to generated files
-    const header = '/* eslint-disable */\n'
-    for (const file of fs.readdirSync(outputDir)) {
-        if (file.endsWith('.ts')) {
-            const filePath = path.join(outputDir, file)
-            const content = fs.readFileSync(filePath, 'utf8')
-            if (!content.startsWith(header)) {
-                fs.writeFileSync(filePath, header + content)
-            }
-        }
-    }
 }
 
 function mergeSchemas(schemas) {

@@ -17,9 +17,11 @@
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
         "frontend/src/queries/validators.js",
+        "frontend/src/api/**",
         "products/mcp/**/generated.ts",
         "products/mcp/schema/tool-inputs.json",
-        "products/mcp/python"
+        "products/mcp/python",
+        "products/**/frontend/api/**"
     ],
     "rules": {
         "no-constant-condition": "off",
