@@ -98,8 +98,13 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                     <LemonSegmentedButton
                         size="small"
                         options={[
-                            { label: 'B2C', value: 'b2c' },
-                            { label: 'B2B', value: 'b2b', disabledReason: b2bDisabledReason },
+                            { label: 'B2C', value: 'b2c', 'data-attr': 'customer-analytics-b2c' },
+                            {
+                                label: 'B2B',
+                                value: 'b2b',
+                                'data-attr': 'customer-analytics-b2b',
+                                disabledReason: b2bDisabledReason,
+                            },
                         ]}
                         value={businessType}
                         onChange={(value) => setBusinessType(value)}
@@ -107,6 +112,7 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                     {businessType === 'b2b' && (
                         <LemonSelect
                             size="small"
+                            data-attr="customer-analytics-group-type"
                             options={groupOptions}
                             value={selectedGroupType}
                             onChange={setSelectedGroupType}
