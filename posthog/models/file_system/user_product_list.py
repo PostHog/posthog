@@ -90,9 +90,6 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         verbose_name = "User Product List"
         verbose_name_plural = "User Product Lists"
 
-    def __str__(self) -> str:
-        return f"{self.team_id}:{self.user_id} - {self.product_path} ({"Enabled" if self.enabled else "Disabled"}) - {self.reason}"
-
     @staticmethod
     def create_from_product_intent(product_intent: "ProductIntent", user: User) -> "list[UserProductList]":
         if user.allow_sidebar_suggestions is False:

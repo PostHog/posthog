@@ -113,6 +113,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     # Default fields for the marketing analytics table
     campaign_name_field: str = MarketingAnalyticsColumnsSchemaNames.CAMPAIGN
+    campaign_id_field: str = MarketingAnalyticsColumnsSchemaNames.ID
     source_name_field: str = MarketingAnalyticsColumnsSchemaNames.SOURCE
     impressions_field: str = MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS
     clicks_field: str = MarketingAnalyticsColumnsSchemaNames.CLICKS
@@ -163,6 +164,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     @abstractmethod
     def _get_campaign_name_field(self) -> ast.Expr:
         """Get the campaign name field expression"""
+
+        pass
+
+    @abstractmethod
+    def _get_campaign_id_field(self) -> ast.Expr:
+        """Get the campaign ID field expression"""
         pass
 
     def _get_source_name_field(self) -> ast.Expr:
@@ -217,6 +224,34 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Get GROUP BY expressions"""
         pass
 
+    def _get_campaign_field_preference(self) -> str:
+        """
+        Get campaign field matching preference for this integration from team config.
+
+        Returns: "campaign_name" or "campaign_id"
+
+        Defaults to campaign_name if no preference set (backward compatible).
+        """
+        try:
+            preferences = self.team.marketing_analytics_config.campaign_field_preferences
+            integration_prefs = preferences.get(self.get_source_type(), {})
+            return integration_prefs.get("match_field", "campaign_name")
+        except Exception:
+            # If any error accessing config, default to campaign_name
+            return "campaign_name"
+
+    def get_campaign_match_field(self) -> ast.Expr:
+        """
+        Get the campaign field expression to use for matching with utm_campaign.
+        This respects the campaign_field_preferences setting.
+
+        Returns either campaign_name or campaign_id field based on configuration.
+        """
+        preference = self._get_campaign_field_preference()
+        if preference == "campaign_id":
+            return self._get_campaign_id_field()
+        return self._get_campaign_name_field()
+
     def _log_validation_errors(self, errors: list[str]):
         """Helper to log validation issues"""
         if errors:
@@ -234,7 +269,8 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         Build SelectQuery that returns marketing data in standardized format.
 
         MUST return columns in this exact order and format:
-        - campaign_name (string): Campaign identifier
+        - campaign_name (string): Campaign identifier (human-readable name)
+        - campaign_id (string): Campaign identifier (platform ID)
         - source_name (string): Source identifier
         - impressions (float): Number of impressions
         - clicks (float): Number of clicks
@@ -246,6 +282,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             # Build SELECT columns
             select_columns: list[ast.Expr] = [
                 ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
+                ast.Alias(alias=self.campaign_id_field, expr=self._get_campaign_id_field()),
                 ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
                 ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
                 ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),

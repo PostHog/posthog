@@ -231,15 +231,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         # Determine final states after this request (for validation)
         will_be_active = data.is_active if data.is_active is not None else (endpoint.is_active if endpoint else True)
 
-        # Cannot materialize an inactive endpoint
         if not will_be_active and data.is_materialized is True:
             raise ValidationError({"is_materialized": "Cannot enable materialization on inactive endpoint."})
 
-        # Cannot set sync_frequency on inactive endpoint
         if not will_be_active and data.sync_frequency is not None:
             raise ValidationError({"sync_frequency": "Cannot set sync_frequency on inactive endpoint."})
 
-        # Cannot set sync_frequency when explicitly disabling materialization
         if data.is_materialized is False and data.sync_frequency is not None:
             raise ValidationError({"sync_frequency": "Cannot set sync_frequency when disabling materialization."})
 
@@ -394,7 +391,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if data.refresh in ["force_blocking"]:
             return False
 
-        if data.query_override or data.filters_override:
+        if data.query_override:
             return False
 
         return True
@@ -448,13 +445,29 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         """Execute against a materialized table in S3."""
         from posthog.schema import RefreshType
 
+        from posthog.hogql import ast
+        from posthog.hogql.property import property_to_expr
+
         saved_query = endpoint.saved_query
         if not saved_query:
             raise ValidationError("No materialized query found for this endpoint")
 
+        # Build AST for SELECT * FROM table
+        select_query = ast.SelectQuery(
+            select=[ast.Field(chain=["*"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[saved_query.name])),
+        )
+
+        if data.filters_override and data.filters_override.properties:
+            try:
+                property_expr = property_to_expr(data.filters_override.properties, self.team)
+                select_query.where = property_expr
+            except Exception as e:
+                capture_exception(e)
+                raise ValidationError(f"Failed to apply property filters.")
+
         materialized_hogql_query = HogQLQuery(
-            query=f"SELECT * FROM {saved_query.name}",
-            modifiers=HogQLQueryModifiers(useMaterializedViews=True),
+            query=select_query.to_hogql(), modifiers=HogQLQueryModifiers(useMaterializedViews=True)
         )
 
         query_request_data = {
@@ -589,10 +602,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return result
 
     def validate_run_request(self, data: EndpointRunRequest, endpoint: Endpoint) -> None:
-        if endpoint.query.get("kind") == "HogQLQuery" and (data.query_override or data.filters_override):
-            raise ValidationError("Only variables is allowed on a HogQL query")
+        if endpoint.query.get("kind") == "HogQLQuery" and (data.query_override):
+            raise ValidationError("Only variables and filters_override are allowed when executing a HogQL query")
         if endpoint.query.get("kind") != "HogQLQuery" and data.variables:
-            raise ValidationError("Only query_override and filters_override are allowed on an Insight query")
+            raise ValidationError(
+                "Only query_override and filters_override are allowed when executing an Insight query"
+            )
 
     @extend_schema(
         description="Get the last execution times in the past 6 months for multiple endpoints.",

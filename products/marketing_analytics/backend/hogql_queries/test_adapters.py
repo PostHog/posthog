@@ -48,8 +48,8 @@ from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads impo
 TEST_DATE_FROM = "2024-01-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
-EXPECTED_COLUMN_COUNT = 6
-EXPECTED_COLUMN_ALIASES = ["campaign", "source", "impressions", "clicks", "cost", "reported_conversion"]
+EXPECTED_COLUMN_COUNT = 7
+EXPECTED_COLUMN_ALIASES = ["campaign", "id", "source", "impressions", "clicks", "cost", "reported_conversion"]
 
 
 logger = logging.getLogger(__name__)
@@ -1418,16 +1418,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "BigQueryAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[5] or 0) for row in results)
 
         assert len(results) == 14, "Expected 14 campaigns from BigQuery CSV"
         assert abs(total_cost - 18.66) < 0.01, f"Expected cost $18.66, got ${total_cost}"
         assert total_impressions == 1676, f"Expected 1676 impressions, got {total_impressions}"
         assert total_clicks == 12, f"Expected 12 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[2] for row in results]
         assert all(source == "Unknown Source" for source in sources), "All sources should be 'Unknown Source'"
 
     def test_google_ads_adapter_with_real_data(self):
@@ -1451,16 +1452,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "GoogleAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[4] or 0) for row in results)
 
         assert len(results) == 12, "Expected 12 campaigns from Google Ads JOIN"
         assert abs(total_cost - 644.50) < 0.01, f"Expected cost $644.50, got ${total_cost}"
         assert total_impressions == 1687, f"Expected 1687 impressions, got {total_impressions}"
         assert total_clicks == 72, f"Expected 72 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[2] for row in results]
         assert all(source == "google" for source in sources), "All sources should be 'google'"
 
     def test_linkedin_ads_adapter_with_real_data(self):
@@ -1484,16 +1486,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "Expected adapter to build a valid query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[4] or 0) for row in results)
 
         assert len(results) == 5, "Expected 5 campaigns from LinkedIn Ads JOIN"
         assert abs(total_cost - 1600.00) < 0.01, f"Expected cost $1600.00, got ${total_cost}"
         assert total_impressions == 485, f"Expected 485 impressions, got {total_impressions}"
         assert total_clicks == 26, f"Expected 26 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[2] for row in results]
         assert all(source == "linkedin" for source in sources), "All sources should be 'linkedin'"
 
     def test_reddit_ads_adapter_with_real_data(self):
@@ -1517,16 +1520,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "RedditAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[4] or 0) for row in results)
 
         assert len(results) == 10, "Expected 10 campaigns from Reddit Ads JOIN"
         assert abs(total_cost - 90.6) < 0.01, f"Expected cost $90.6, got ${total_cost}"
         assert total_impressions == 14299, f"Expected 14299 impressions, got {total_impressions}"
         assert total_clicks == 454, f"Expected 454 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[2] for row in results]
         assert all(source == "reddit" for source in sources), "All sources should be 'reddit'"
 
     def test_multi_adapter_union_with_real_data(self):
@@ -1579,9 +1583,10 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         union_query = ast.SelectSetQuery.create_from_queries([facebook_query, tiktok_query], "UNION ALL")
         results = self._execute_query_and_validate(union_query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[4] or 0) for row in results)
 
         assert len(results) == 28, "Expected 28 campaigns from union (BigQuery: 14 + S3: 14)"
         assert abs(total_cost - 127.17) < 0.01, f"Expected cost $127.17 (combined sources), got ${total_cost}"

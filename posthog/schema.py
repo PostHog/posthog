@@ -573,6 +573,18 @@ class CalendarHeatmapMathType(StrEnum):
     DAU = "dau"
 
 
+class MatchField(StrEnum):
+    CAMPAIGN_NAME = "campaign_name"
+    CAMPAIGN_ID = "campaign_id"
+
+
+class CampaignFieldPreference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    match_field: MatchField
+
+
 class ChartDisplayCategory(StrEnum):
     TIME_SERIES = "TimeSeries"
     CUMULATIVE_TIME_SERIES = "CumulativeTimeSeries"
@@ -1933,6 +1945,7 @@ class MarkdownBlock(BaseModel):
 
 
 class MarketingAnalyticsBaseColumns(StrEnum):
+    ID = "ID"
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
     COST = "Cost"
@@ -1944,6 +1957,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
+    ID = "id"
     CAMPAIGN = "campaign"
     CLICKS = "clicks"
     COST = "cost"
@@ -2898,6 +2912,7 @@ class SourceMap(BaseModel):
     cost: Optional[str] = None
     currency: Optional[str] = None
     date: Optional[str] = None
+    id: Optional[str] = None
     impressions: Optional[str] = None
     reported_conversion: Optional[str] = None
     source: Optional[str] = None
@@ -3193,6 +3208,16 @@ class UserBasicType(BaseModel):
     last_name: Optional[str] = None
     role_at_organization: Optional[str] = None
     uuid: str
+
+
+class UserProductListReason(StrEnum):
+    ONBOARDING = "onboarding"
+    PRODUCT_INTENT = "product_intent"
+    USED_BY_COLLEAGUES = "used_by_colleagues"
+    USED_SIMILAR_PRODUCTS = "used_similar_products"
+    USED_ON_SEPARATE_TEAM = "used_on_separate_team"
+    NEW_PRODUCT = "new_product"
+    SALES_LED = "sales_led"
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -5783,6 +5808,19 @@ class UsageMetricsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class UserProductListItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    enabled: bool
+    id: str
+    product_path: str
+    reason: UserProductListReason
+    reason_text: Optional[str] = None
+    updated_at: str
 
 
 class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
@@ -10064,6 +10102,7 @@ class MarketingAnalyticsConfig(BaseModel):
     )
     attribution_mode: Optional[AttributionMode] = None
     attribution_window_days: Optional[float] = None
+    campaign_field_preferences: Optional[dict[str, CampaignFieldPreference]] = None
     campaign_name_mappings: Optional[dict[str, dict[str, list[str]]]] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
     custom_source_mappings: Optional[dict[str, list[str]]] = None

@@ -40,12 +40,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> WeeklyDigestInput:
         """Parse input from the management command CLI."""
-        parsed_input = WeeklyDigestInput.model_validate_json(input[0]) if input else WeeklyDigestInput()
-
-        if parsed_input.common.django_redis_url is None:
-            parsed_input.common.django_redis_url = settings.REDIS_URL
-
-        return parsed_input
+        return WeeklyDigestInput.model_validate_json(input[0]) if input else WeeklyDigestInput()
 
     @workflow.run
     async def run(self, input: WeeklyDigestInput) -> None:
@@ -54,6 +49,9 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
 
         if input.common.redis_port is None:
             input.common.redis_port = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
+
+        if input.common.django_redis_url is None:
+            input.common.django_redis_url = settings.REDIS_URL
 
         year, week, _ = datetime.now().isocalendar()
         period_end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)

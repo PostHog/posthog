@@ -12,12 +12,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
 
-/** Features that can only be toggled if you fall under the `${flagKey}-preview` flag */
-export const CONSTRAINED_PREVIEWS: Set<FeatureFlagKey> = new Set([])
-
 export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'flagKey'> {
     flagKey: string
     enabled: boolean
+    payload: Record<string, any> | undefined
 }
 
 export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
@@ -93,27 +91,23 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     selectors({
         earlyAccessFeatures: [
             (s) => [s.rawEarlyAccessFeatures, s.featureFlags],
-            (rawEarlyAccessFeatures, featureFlags): EnrichedEarlyAccessFeature[] =>
-                rawEarlyAccessFeatures
-                    .filter((feature) => {
-                        if (!feature.flagKey) {
-                            return false // Filter out features without a flag linked
-                        }
-                        if (CONSTRAINED_PREVIEWS.has(feature.flagKey as FeatureFlagKey)) {
-                            return !!featureFlags[`${feature.flagKey}-preview`]
-                        }
-                        return true
-                    })
+            (rawEarlyAccessFeatures, featureFlags): EnrichedEarlyAccessFeature[] => {
+                const result = rawEarlyAccessFeatures
+                    .filter((feature) => !!feature.flagKey) // Filter out features without a flag linked
                     .map((feature) => {
-                        if (!feature.flagKey) {
-                            throw new Error('Early access feature without flagKey was not filtered out')
-                        }
+                        const flagKey = feature.flagKey! as FeatureFlagKey
+                        const flag = featureFlags[flagKey]
+
                         return {
                             ...feature,
-                            flagKey: feature.flagKey,
-                            enabled: !!featureFlags[feature.flagKey],
+                            flagKey,
+                            payload: typeof flag === 'string' ? JSON.parse(flag) : undefined,
+                            enabled: !!flag,
                         }
-                    }) || [],
+                    })
+
+                return result
+            },
         ],
     }),
 ])
