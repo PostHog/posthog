@@ -49,7 +49,6 @@ const Component = ({
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
-    const { canvasFiltersOverride } = useValues(notebookLogic)
     const summarizeInsight = useSummarizeInsight()
 
     const insightLogicProps = {
@@ -107,7 +106,7 @@ const Component = ({
         }
 
         return modifiedQuery
-    }, [query, canvasFiltersOverride])
+    }, [query])
 
     if (!expanded) {
         return null
