@@ -32,7 +32,7 @@ const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
-const DEFAULT_LOGS_PAGE_SIZE = 100 as number
+const DEFAULT_LOGS_PAGE_SIZE = 100
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 const parseLogAttributes = (logs: LogMessage[]): void => {
