@@ -261,6 +261,12 @@ build:
     build:schema-latest-versions:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
+    build:openapi-schema:
+        bin_script: build-openapi-schema.sh
+        description: Generate OpenAPI schema from the Django backend
+    build:openapi-types:
+        cmd: pnpm --filter=@posthog/frontend run openapi:types
+        description: Generate TypeScript API types from the backend OpenAPI schema
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
@@ -270,6 +276,11 @@ build:
             - build:schema-python
             - build:schema-latest-versions
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
+    build:openapi:
+        steps:
+            - build:openapi-schema
+            - build:openapi-types
+        description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)

@@ -11,6 +11,7 @@ class DataWarehouseModelPathSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseModelPath
+        fields = "__all__"
 
 
 class DataWarehouseModelPathViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
