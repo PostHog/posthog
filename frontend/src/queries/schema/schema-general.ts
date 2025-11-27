@@ -3746,7 +3746,14 @@ export enum DefaultChannelTypes {
 // IMPORTANT: Changes to AIEventType values impact usage reporting and billing
 // These values are used in SQL queries to compute usage and exclude AI events from standard event counts
 // Any changes here will be reflected in the Python schema and affect billing calculations
-export type AIEventType = '$ai_generation' | '$ai_embedding' | '$ai_span' | '$ai_trace' | '$ai_metric' | '$ai_feedback'
+export type AIEventType =
+    | '$ai_generation'
+    | '$ai_embedding'
+    | '$ai_span'
+    | '$ai_trace'
+    | '$ai_metric'
+    | '$ai_feedback'
+    | '$ai_evaluation'
 
 export interface LLMTraceEvent {
     id: string
