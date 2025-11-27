@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { debounce, slugify } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
@@ -55,6 +56,7 @@ export const endpointLogic = kea<endpointLogicType>([
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
         deleteEndpointFailure: () => ({}),
+        confirmToggleActive: (endpoint: EndpointType) => ({ endpoint }),
     }),
     reducers({
         endpointName: [null as string | null, { setEndpointName: (_, { endpointName }) => endpointName }],
@@ -162,6 +164,7 @@ export const endpointLogic = kea<endpointLogicType>([
                 try {
                     const response = await api.endpoint.update(name, request)
                     actions.updateEndpointSuccess(response)
+                    actions.loadEndpoints()
                 } catch (error) {
                     console.error('Failed to update endpoint:', error)
                     actions.updateEndpointFailure()
@@ -189,6 +192,33 @@ export const endpointLogic = kea<endpointLogicType>([
             },
             deleteEndpointFailure: () => {
                 lemonToast.error('Failed to delete endpoint')
+            },
+            confirmToggleActive: ({ endpoint }) => {
+                const isActivating = !endpoint.is_active
+                LemonDialog.open({
+                    title: isActivating ? 'Activate endpoint?' : 'Deactivate endpoint?',
+                    content: (
+                        <div className="text-sm text-secondary">
+                            {isActivating
+                                ? 'Are you sure you want to activate this endpoint? It will be accessible via the API.'
+                                : 'Are you sure you want to deactivate this endpoint? It will no longer be accessible via the API.'}
+                        </div>
+                    ),
+                    primaryButton: {
+                        children: isActivating ? 'Activate' : 'Deactivate',
+                        type: 'primary',
+                        status: isActivating ? undefined : 'danger',
+                        onClick: () => {
+                            actions.updateEndpoint(endpoint.name, { is_active: isActivating })
+                        },
+                        size: 'small',
+                    },
+                    secondaryButton: {
+                        children: 'Cancel',
+                        type: 'tertiary',
+                        size: 'small',
+                    },
+                })
             },
         }
     }),
