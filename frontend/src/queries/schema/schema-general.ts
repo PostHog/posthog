@@ -4493,6 +4493,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'RedditAds',
     'BingAds',
 ] as const
+
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
 
 export const MARKETING_INTEGRATION_CONFIGS = {
