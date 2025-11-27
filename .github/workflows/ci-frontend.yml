@@ -214,6 +214,27 @@ jobs:
             - name: Check if mobile replay "schema.json" is up to date
               run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
 
+            - name: Set up Python (for OpenAPI schema generation)
+              uses: actions/setup-python@v5
+              with:
+                  python-version: 3.12.11
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
+
+            - name: Install Python dependencies
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Check if OpenAPI types are up to date
+              run: |
+                  ./bin/build-openapi-schema.sh
+                  node frontend/bin/generate-openapi-types.mjs
+                  git diff --exit-code
+
     jest:
         runs-on: depot-ubuntu-24.04
         needs: changes
