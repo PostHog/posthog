@@ -168,7 +168,7 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
             page += 1
         except Exception as e:
             logger.exception(f"[SDK Doctor] Failed to fetch releases for {repo}", repo=repo)
-            capture_exception(e, extra={"repo": repo, "page": page, "url": url})
+            capture_exception(e, additional_properties={"repo": repo, "page": page, "url": url})
             break
 
     # Cache for later use and return
