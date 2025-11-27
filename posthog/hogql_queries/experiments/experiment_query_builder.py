@@ -71,7 +71,9 @@ class ExperimentQueryBuilder:
         variants: list[str],
         date_range_query: QueryDateRange,
         entity_key: str,
-        metric: Optional[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric] = None,
+        metric: Optional[
+            ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+        ] = None,
         breakdowns: list[Breakdown] | None = None,
     ):
         self.team = team
