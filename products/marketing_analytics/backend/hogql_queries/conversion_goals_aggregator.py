@@ -92,13 +92,24 @@ class ConversionGoalsAggregator:
             union_query = ast.SelectSetQuery.create_from_queries(conversion_subqueries, "UNION ALL")
 
         # Step 3: Create final aggregation query that sums all conversion goals by campaign/id/source
-        # First, wrap the union in a subquery to materialize campaign/id/source fields
+        # Apply campaign name mappings HERE so we only need one GROUP BY
         subquery_alias = "conv"
 
+        # Include the subquery alias in field references so they work correctly in the outer query
+        campaign_field_expr = ast.Field(chain=[subquery_alias, self.config.campaign_field])
+        id_field_expr = ast.Field(chain=[subquery_alias, self.config.id_field])
+        source_field_expr = ast.Field(chain=[subquery_alias, self.config.source_field])
+
+        # Get mapped expressions - these will be used in both SELECT and GROUP BY
+        mapped_campaign_expr, mapped_id_expr = self._apply_campaign_name_mappings(
+            campaign_field_expr, id_field_expr, source_field_expr
+        )
+
+        # Build SELECT with mapped values
         final_select: list[ast.Expr] = [
-            ast.Field(chain=[self.config.campaign_field]),
-            ast.Field(chain=[self.config.id_field]),
-            ast.Field(chain=[self.config.source_field]),
+            ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
+            ast.Alias(alias=self.config.id_field, expr=mapped_id_expr),
+            ast.Alias(alias=self.config.source_field, expr=source_field_expr),
         ]
 
         # Add each conversion goal as a summed column
@@ -108,99 +119,28 @@ class ConversionGoalsAggregator:
                     alias=self.config.get_conversion_goal_column_name(processor.index),
                     expr=ast.Call(
                         name="sum",
-                        args=[ast.Field(chain=[self.config.get_conversion_goal_column_name(processor.index)])],
+                        args=[
+                            ast.Field(
+                                chain=[subquery_alias, self.config.get_conversion_goal_column_name(processor.index)]
+                            )
+                        ],
                     ),
                 )
             )
 
+        # GROUP BY the mapped expressions (same expressions used in SELECT)
+        # This ensures rows with the same mapped values are consolidated in a single pass
         final_query = ast.SelectQuery(
             select=final_select,
             select_from=ast.JoinExpr(table=union_query, alias=subquery_alias),
             group_by=[
-                ast.Field(chain=[self.config.campaign_field]),
-                ast.Field(chain=[self.config.id_field]),
-                ast.Field(chain=[self.config.source_field]),
+                mapped_campaign_expr,
+                mapped_id_expr,
+                source_field_expr,
             ],
         )
 
-        # Now apply campaign name mappings by wrapping in another SELECT
-        # We need to re-aggregate after mapping because multiple different utm_campaign values
-        # may map to the same campaign_id or campaign_name, and we want them consolidated
-        campaign_field_expr = ast.Field(chain=[self.config.campaign_field])
-        id_field_expr = ast.Field(chain=[self.config.id_field])
-        source_field_expr = ast.Field(chain=[self.config.source_field])
-        mapped_campaign_expr, mapped_id_expr = self._apply_campaign_name_mappings(
-            campaign_field_expr, id_field_expr, source_field_expr
-        )
-
-        # Check if any mappings were actually applied
-        has_campaign_mapping = mapped_campaign_expr != campaign_field_expr
-        has_id_mapping = mapped_id_expr != id_field_expr
-        has_any_mapping = has_campaign_mapping or has_id_mapping
-
-        # Build the outer select with appropriate aliasing
-        campaign_select: ast.Expr
-        if has_campaign_mapping:
-            campaign_select = ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr)
-        else:
-            campaign_select = ast.Alias(alias=self.config.campaign_field, expr=campaign_field_expr)
-
-        id_select: ast.Expr
-        if has_id_mapping:
-            id_select = ast.Alias(alias=self.config.id_field, expr=mapped_id_expr)
-        else:
-            id_select = ast.Field(chain=[self.config.id_field])
-
-        outer_select: list[ast.Expr] = [
-            campaign_select,
-            id_select,
-            ast.Field(chain=[self.config.source_field]),
-        ]
-
-        # Add conversion goal columns
-        for processor in self.processors:
-            col_name = self.config.get_conversion_goal_column_name(processor.index)
-            outer_select.append(ast.Field(chain=[col_name]))
-
-        # First, create a subquery that applies the mapping
-        mapping_subquery = ast.SelectQuery(
-            select=outer_select,
-            select_from=ast.JoinExpr(table=final_query),
-        )
-
-        # If we have mappings, we need to wrap in another SELECT with GROUP BY
-        # to consolidate rows that now have the same mapped values
-        if has_any_mapping:
-            # Build the final aggregation query that groups by the mapped values
-            final_select: list[ast.Expr] = [
-                ast.Field(chain=[self.config.campaign_field]),
-                ast.Field(chain=[self.config.id_field]),
-                ast.Field(chain=[self.config.source_field]),
-            ]
-
-            # Sum the conversion goal columns
-            for processor in self.processors:
-                col_name = self.config.get_conversion_goal_column_name(processor.index)
-                final_select.append(
-                    ast.Alias(
-                        alias=col_name,
-                        expr=ast.Call(name="sum", args=[ast.Field(chain=[col_name])]),
-                    )
-                )
-
-            wrapped_query = ast.SelectQuery(
-                select=final_select,
-                select_from=ast.JoinExpr(table=mapping_subquery),
-                group_by=[
-                    ast.Field(chain=[self.config.campaign_field]),
-                    ast.Field(chain=[self.config.id_field]),
-                    ast.Field(chain=[self.config.source_field]),
-                ],
-            )
-        else:
-            wrapped_query = mapping_subquery
-
-        return ast.CTE(name=UNIFIED_CONVERSION_GOALS_CTE_ALIAS, expr=wrapped_query, cte_type="subquery")
+        return ast.CTE(name=UNIFIED_CONVERSION_GOALS_CTE_ALIAS, expr=final_query, cte_type="subquery")
 
     def _get_campaign_field_preference(self, external_source: str) -> str:
         """
