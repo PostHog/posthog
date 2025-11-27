@@ -287,7 +287,7 @@ class _SessionSearch:
         # Execute the query to get session IDs
         try:
             query_runner = SessionRecordingListFromQuery(
-                team=self._node._team, query=replay_filters, hogql_query_modifiers=None, limit=replay_filters.limit
+                team=self._node._team, query=replay_filters, hogql_query_modifiers=None
             )
             results = query_runner.run()
         except Exception as e:
