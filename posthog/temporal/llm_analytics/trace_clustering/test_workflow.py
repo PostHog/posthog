@@ -114,6 +114,27 @@ class TestClusteringUtils:
             cluster_trace_ids = [trace_ids[i] for i in range(len(trace_ids)) if cluster_mask[i]]
             assert all(tid in cluster_trace_ids for tid in rep_ids)
 
+    def test_perform_kmeans_clamps_max_k_to_sample_count(self):
+        """Test that max_k is clamped when it exceeds n_samples."""
+        np.random.seed(42)
+        # Only 5 samples, but max_k=10; silhouette requires k < n_samples
+        embeddings = np.random.normal(0, 1, (5, 384))
+
+        result = perform_kmeans_with_optimal_k(embeddings, min_k=2, max_k=10)
+
+        # Should succeed with at most 4 clusters (n_samples - 1)
+        assert 2 <= len(result.centroids) <= 4
+        assert len(result.labels) == 5
+
+    def test_perform_kmeans_raises_when_samples_at_or_below_min_k(self):
+        """Test that ValueError is raised when n_samples <= min_k."""
+        np.random.seed(42)
+        # Only 5 samples, but min_k=5 (need at least 6 for silhouette to work)
+        embeddings = np.random.normal(0, 1, (5, 384))
+
+        with pytest.raises(ValueError, match="Cannot cluster 5 samples with min_k=5"):
+            perform_kmeans_with_optimal_k(embeddings, min_k=5, max_k=10)
+
 
 class TestDetermineOptimalKActivity:
     """Tests for determine_optimal_k_activity."""

@@ -26,11 +26,25 @@ def perform_kmeans_with_optimal_k(
 
     Returns:
         KMeansResult with labels and centroids
+
+    Raises:
+        ValueError: If there are fewer samples than min_k (cannot cluster)
     """
+    n_samples = len(embeddings)
+
+    # silhouette_score requires 1 < n_clusters < n_samples, so cap at n_samples - 1
+    effective_max_k = min(max_k, n_samples - 1)
+
+    if n_samples <= min_k:
+        raise ValueError(f"Cannot cluster {n_samples} samples with min_k={min_k}. Need at least {min_k + 1} samples.")
+
+    # Ensure we have a valid range
+    effective_min_k = min(min_k, effective_max_k)
+
     best_score = -1.0
     best_kmeans = None
 
-    for k in range(min_k, max_k + 1):
+    for k in range(effective_min_k, effective_max_k + 1):
         kmeans = KMeans(n_clusters=k, n_init=10)
         kmeans.fit_predict(embeddings)
         score = silhouette_score(embeddings, kmeans.labels_)
