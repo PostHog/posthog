@@ -510,7 +510,17 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         except ResolutionError as e:
             raise ValidationError(str(e))
         except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
+            capture_exception(
+                c,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team_id,
+                    "endpoint_name": endpoint.name,
+                    "materialized": True,
+                    "saved_query_id": saved_query.id if saved_query else None,
+                },
+            )
+            raise Throttled(detail="Too many concurrent requests. Please try again later.")
         except Exception as e:
             capture_exception(
                 e,
