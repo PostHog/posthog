@@ -42,9 +42,11 @@ def perform_kmeans_with_optimal_k(
     effective_min_k = min(min_k, effective_max_k)
 
     best_score = -1.0
-    best_kmeans = None
+    best_kmeans = KMeans(n_clusters=effective_min_k, n_init=10)
+    best_kmeans.fit_predict(embeddings)
+    best_score = silhouette_score(embeddings, best_kmeans.labels_)
 
-    for k in range(effective_min_k, effective_max_k + 1):
+    for k in range(effective_min_k + 1, effective_max_k + 1):
         kmeans = KMeans(n_clusters=k, n_init=10)
         kmeans.fit_predict(embeddings)
         score = silhouette_score(embeddings, kmeans.labels_)

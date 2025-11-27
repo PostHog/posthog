@@ -43,6 +43,8 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
     """
     window_start = parse_datetime(inputs.window_start)
     window_end = parse_datetime(inputs.window_end)
+    if window_start is None or window_end is None:
+        raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
     clustering_run_id = f"team_{inputs.team_id}_{window_end.isoformat()}"
 
@@ -100,6 +102,8 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
     """LLM labeling implementation called by the activity."""
     window_start = parse_datetime(inputs.window_start)
     window_end = parse_datetime(inputs.window_end)
+    if window_start is None or window_end is None:
+        raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
     cluster_labels = generate_cluster_labels(
         team_id=inputs.team_id,

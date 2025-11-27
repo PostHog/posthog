@@ -8,6 +8,7 @@ This module contains functions for emitting clustering results to ClickHouse:
 import uuid
 import logging
 import dataclasses
+from typing import TypedDict
 
 import numpy as np
 
@@ -15,6 +16,12 @@ from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, ClusterLabel, TraceId
+
+
+class _TraceDistanceData(TypedDict):
+    trace_id: str
+    distance_to_centroid: float
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +116,7 @@ def _build_cluster_data(
 
     for cluster_id in range(num_clusters):
         # Get all trace IDs in this cluster with their distances
-        cluster_trace_data = []
+        cluster_trace_data: list[_TraceDistanceData] = []
         for i, label in enumerate(labels):
             if label == cluster_id:
                 cluster_trace_data.append(

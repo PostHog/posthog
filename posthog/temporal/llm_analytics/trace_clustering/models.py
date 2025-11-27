@@ -87,7 +87,9 @@ class TraceSummary(TypedDict):
     """Summary of a trace for labeling."""
 
     title: str
-    summary: str
+    flow_diagram: str
+    bullets: str
+    interesting_notes: str
 
 
 # Type aliases for data access
