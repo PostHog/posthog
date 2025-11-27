@@ -5,7 +5,7 @@
  * PostHog API - tasks
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../../frontend/src/lib/api-orval-mutator'
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B

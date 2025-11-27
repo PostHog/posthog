@@ -33,12 +33,12 @@ function discoverProductFolders() {
 
 function getOutputDirForTag(tag, productFolders) {
     if (tag === 'core') {
-        return path.resolve(frontendRoot, 'src', 'types', 'api')
+        return path.resolve(frontendRoot, 'src', 'api')
     }
     // Normalize tag: convert hyphens to underscores to match folder names
     const normalizedTag = tag.replace(/-/g, '_')
     if (productFolders.has(normalizedTag)) {
-        return path.resolve(productsDir, normalizedTag, 'frontend', 'types', 'api')
+        return path.resolve(productsDir, normalizedTag, 'frontend', 'api')
     }
     return null // Tag doesn't match any product or core
 }
@@ -147,7 +147,7 @@ function buildGroupedSchemasByTag(schema) {
 function generateTypesForSchema(schemaFile, outputDir, tag, tmpDir) {
     fs.mkdirSync(outputDir, { recursive: true })
 
-    const outputFile = path.join(outputDir, 'types.ts')
+    const outputFile = path.join(outputDir, 'index.ts')
 
     // Create orval config for this schema - single file mode with PostHog's api client
     const configFile = path.join(tmpDir, 'orval.config.mjs')

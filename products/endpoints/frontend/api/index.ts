@@ -5,7 +5,7 @@
  * PostHog API - endpoints
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../../frontend/src/lib/api-orval-mutator'
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
 /**
  * @nullable
