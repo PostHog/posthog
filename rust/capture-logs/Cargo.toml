@@ -32,6 +32,7 @@ chrono = { workspace = true }
 apache-avro = { version = "0.18.0", features = ["zstandard"] }
 prost = "0.13.5"
 bytes = { workspace = true }
+tower-http = { workspace = true }
 
 [dev-dependencies]
 
