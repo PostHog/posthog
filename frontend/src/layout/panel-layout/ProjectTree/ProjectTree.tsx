@@ -131,7 +131,11 @@ export function ProjectTree({
                 name: 'Example shortcuts',
                 type: 'category',
                 displayName: (
-                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
+                    <div
+                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                            'mt-2': fullFileSystemFiltered.length === 0,
+                        })}
+                    >
                         Shortcuts are added by pressing{' '}
                         <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
                         side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file
@@ -153,9 +157,13 @@ export function ProjectTree({
                 name: 'Example apps',
                 type: 'category',
                 displayName: (
-                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1 mt-6">
-                        This list will display your more frequently used apps. You can configure what items show up in
-                        here by clicking on the{' '}
+                    <div
+                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                            'mt-6': fullFileSystemFiltered.length === 0,
+                        })}
+                    >
+                        You can display your preferred apps here. You can configure what items show up in here by
+                        clicking on the{' '}
                         <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
                         above. We'll automatically suggest new apps to this list as you use them.{' '}
                         {fullFileSystemFiltered.length > 0 && (

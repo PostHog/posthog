@@ -912,7 +912,7 @@ export const ResetButton = (): JSX.Element => {
 
 export function StatusTag({ status }: { status: ProgressStatus }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status)}>
+        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
             <b className="uppercase">{status}</b>
         </LemonTag>
     )
