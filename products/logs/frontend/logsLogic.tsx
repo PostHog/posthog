@@ -79,6 +79,9 @@ export const logsLogic = kea<logsLogicType>([
             if (params.timestampFormat && params.timestampFormat !== values.timestampFormat) {
                 actions.setTimestampFormat(params.timestampFormat)
             }
+            if (params.logsPageSize !== undefined && params.logsPageSize !== values.logsPageSize) {
+                actions.setLogsPageSize(params.logsPageSize)
+            }
         }
         return {
             '*': urlToAction,
@@ -86,7 +89,7 @@ export const logsLogic = kea<logsLogicType>([
     }),
 
     tabAwareActionToUrl(({ actions, values }) => {
-        const buildURL = (): [
+        const buildUrlAndRunQuery = (): [
             string,
             Params,
             Record<string, any>,
@@ -102,6 +105,7 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
                 updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
+                updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
                 actions.runQuery()
                 return params
             })
@@ -138,13 +142,14 @@ export const logsLogic = kea<logsLogicType>([
         }
 
         return {
-            setDateRange: () => buildURL(),
-            setFilterGroup: () => buildURL(),
-            setSearchTerm: () => buildURL(),
-            setSeverityLevels: () => buildURL(),
-            setServiceNames: () => buildURL(),
+            setDateRange: () => buildUrlAndRunQuery(),
+            setFilterGroup: () => buildUrlAndRunQuery(),
+            setSearchTerm: () => buildUrlAndRunQuery(),
+            setSeverityLevels: () => buildUrlAndRunQuery(),
+            setServiceNames: () => buildUrlAndRunQuery(),
+            setOrderBy: () => buildUrlAndRunQuery(),
+            setLogsPageSize: () => buildUrlAndRunQuery(),
             setHighlightedLogId: () => updateHighlightURL(),
-            setOrderBy: () => buildURL(),
             setWrapBody: () => updateUrlWithDisplayPreferences(),
             setPrettifyJson: () => updateUrlWithDisplayPreferences(),
             setTimestampFormat: () => updateUrlWithDisplayPreferences(),
@@ -657,11 +662,6 @@ export const logsLogic = kea<logsLogicType>([
                 if (logToPin) {
                     actions.pinLog(logToPin)
                 }
-            }
-        },
-        setLogsPageSize: () => {
-            if (!values.hasLoadedMoreLogs) {
-                actions.runQuery()
             }
         },
     })),
