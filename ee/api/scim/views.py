@@ -4,7 +4,10 @@ from django.db.models import QuerySet
 
 from django_scim import constants
 from django_scim.filters import GroupFilterQuery, UserFilterQuery
-from rest_framework import status
+from rest_framework import (
+    exceptions as drf_exceptions,
+    status,
+)
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
@@ -51,6 +54,27 @@ class SCIMBaseView(APIView):
     authentication_classes = [SCIMBearerTokenAuthentication]
     renderer_classes = [SCIMJSONRenderer, JSONRenderer]
     parser_classes = [SCIMJSONParser, JSONParser]
+
+    def handle_exception(self, exc):
+        if isinstance(exc, drf_exceptions.NotAuthenticated):
+            return Response(
+                {
+                    "schemas": [constants.SchemaURI.ERROR],
+                    "status": 401,
+                    "detail": "No bearer token provided",
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if isinstance(exc, drf_exceptions.AuthenticationFailed):
+            return Response(
+                {
+                    "schemas": [constants.SchemaURI.ERROR],
+                    "status": 403,
+                    "detail": "Authentication failed",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().handle_exception(exc)
 
 
 class PostHogUserFilterQuery(UserFilterQuery):
