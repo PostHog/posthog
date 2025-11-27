@@ -1,7 +1,5 @@
 from django.db import models
 
-from posthog.models import User
-from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.utils import UpdatedMetaFields
 
 
@@ -13,9 +11,9 @@ class SCIMProvisionedUser(UpdatedMetaFields):
         ONELOGIN = "onelogin", "OneLogin"
         OTHER = "other", "Other"
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="scim_provisions")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="scim_provisions")
     organization_domain = models.ForeignKey(
-        OrganizationDomain, on_delete=models.CASCADE, related_name="scim_provisioned_users"
+        "posthog.OrganizationDomain", on_delete=models.CASCADE, related_name="scim_provisioned_users"
     )
 
     identity_provider = models.CharField(max_length=50, choices=IdentityProvider.choices)
