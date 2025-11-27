@@ -142,7 +142,7 @@ class TestSessionSummarizationNode(BaseTest):
         # Convert MaxRecordingUniversalFilters to RecordingsQuery
         recordings_query = self.node._session_search._convert_max_filters_to_recordings_query(mock_filters)
         result = self.node._session_search._get_session_ids_with_filters(
-            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+            replay_filters=recordings_query,
         )
 
         self.assertIsNone(result)
@@ -157,7 +157,7 @@ class TestSessionSummarizationNode(BaseTest):
         # First convert MaxRecordingUniversalFilters to RecordingsQuery
         recordings_query = self.node._session_search._convert_max_filters_to_recordings_query(mock_filters)
         result = self.node._session_search._get_session_ids_with_filters(
-            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+            replay_filters=recordings_query,
         )
 
         self.assertEqual(result, ["session-1"])
@@ -799,6 +799,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             "filter_test_accounts": False,
             "order": "start_time",
             "order_direction": "DESC",
+            "limit": MAX_SESSIONS_TO_SUMMARIZE,
         }
 
         # Convert custom filters to recordings query
@@ -806,7 +807,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
 
         # Use the node's method to get session IDs
         session_ids = self.node._session_search._get_session_ids_with_filters(
-            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+            replay_filters=recordings_query,
         )
 
         # All 4 sessions should match since they all have:
@@ -835,6 +836,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             "filter_test_accounts": False,
             "order": "start_time",
             "order_direction": "DESC",
+            "limit": MAX_SESSIONS_TO_SUMMARIZE,
         }
 
         # Convert custom filters to recordings query
@@ -842,7 +844,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
 
         # Use the node's method to get session IDs
         session_ids = self.node._session_search._get_session_ids_with_filters(
-            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+            replay_filters=recordings_query,
         )
 
         # Only 3 sessions should match since they have active_seconds > 7:
@@ -872,6 +874,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
                 type=FilterLogicalOperator.AND_,
                 values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
             ),
+            limit=MAX_SESSIONS_TO_SUMMARIZE,
         )
 
         # Convert the generated filters to recordings query using the node's method
@@ -879,7 +882,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
 
         # Use the node's method to get session IDs
         session_ids = self.node._session_search._get_session_ids_with_filters(
-            replay_filters=recordings_query, limit=MAX_SESSIONS_TO_SUMMARIZE
+            replay_filters=recordings_query,
         )
 
         # Only 2 sessions should match since they have active_seconds > 8:
@@ -906,13 +909,14 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
             "date_to": "2025-08-31T23:59:59",
             "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
             "filter_test_accounts": False,
+            "limit": 1,
         }
 
         # Convert custom filters to recordings query
         recordings_query = self.node._session_search._convert_current_filters_to_recordings_query(custom_filters)
 
         # Get session IDs with explicit limit of 1
-        session_ids = self.node._session_search._get_session_ids_with_filters(replay_filters=recordings_query, limit=1)
+        session_ids = self.node._session_search._get_session_ids_with_filters(replay_filters=recordings_query)
 
         # Should only return 1 session despite 4 matching
         self.assertIsNotNone(session_ids)

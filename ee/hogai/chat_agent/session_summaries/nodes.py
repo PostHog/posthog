@@ -258,6 +258,7 @@ class _SessionSearch:
             date_to=replay_filters.date_to,
             properties=properties,
             filter_test_accounts=replay_filters.filter_test_accounts,
+            limit=replay_filters.limit,
             order=replay_filters.order,
             # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
             having_predicates=(

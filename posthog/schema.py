@@ -13430,7 +13430,10 @@ class MaxRecordingUniversalFilters(BaseModel):
     duration: list[RecordingDurationFilter]
     filter_group: MaxOuterUniversalFiltersGroup
     filter_test_accounts: Optional[bool] = None
-    limit: Optional[int] = None
+    limit: Optional[int] = Field(
+        default=None,
+        description="How many recordings the user requested to use. Skip if user did not indicate preference.",
+    )
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
     order_direction: Optional[RecordingOrderDirection] = Field(
         default=RecordingOrderDirection.DESC,

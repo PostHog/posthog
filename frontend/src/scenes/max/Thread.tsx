@@ -68,7 +68,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
-import { InsightShortId } from '~/types'
+import { InsightShortId, Region } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -1315,7 +1315,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                 )}
                 {(user?.is_staff || isDev) && traceId && (
                     <LemonButton
-                        to={`${preflight?.region === 'EU' ? 'https://us.posthog.com/project/2' : ''}${urls.llmAnalyticsTrace(traceId)}`}
+                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.llmAnalyticsTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"

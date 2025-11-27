@@ -292,6 +292,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
             having_predicates=having_predicates,
             filter_test_accounts=filters.get("filter_test_accounts"),
             operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+            limit=filters.get("limit"),
         )
     except ValidationError as e:
         # we were seeing errors here and it was hard to debug
