@@ -129,6 +129,38 @@ class SessionSummarizationNode(AssistantNode):
             summaries_content, session_group_summary_id = await self._session_summarizer.summarize_sessions(
                 session_ids=session_ids, state=state
             )
+            # Build messages list
+            messages: list = []
+            # Add session group summary message for frontend "View summary" button (only for group summaries)
+            if session_group_summary_id:
+                messages.append(
+                    AssistantMessage(
+                        meta={
+                            "form": {
+                                "options": [
+                                    {
+                                        "value": "Open report",
+                                        "href": f"/session-summaries/{session_group_summary_id}",
+                                        "variant": "primary",
+                                    }
+                                ]
+                            }
+                        },
+                        content=f"Report complete: {state.summary_title or 'Sessions summary'}",
+                        id=str(uuid4()),
+                    )
+                )
+            # Add content
+            messages.append(
+                AssistantToolCallMessage(
+                    content=summaries_content,
+                    tool_call_id=state.root_tool_call_id or "unknown",
+                    id=str(uuid4()),
+                ),
+            )
+            ready_state = PartialAssistantState(
+                messages=messages, session_summarization_query=None, root_tool_call_id=None
+            )
         except Exception as err:
             # The session summarization failed
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
@@ -158,36 +190,7 @@ class SessionSummarizationNode(AssistantNode):
             video_validation_enabled=video_validation_enabled,
             success=True,
         )
-        # Build messages list
-        messages: list = []
-        # Add session group summary message for frontend "View summary" button (only for group summaries)
-        if session_group_summary_id:
-            messages.append(
-                AssistantMessage(
-                    meta={
-                        "form": {
-                            "options": [
-                                {
-                                    "value": "Open report",
-                                    "href": f"/session-summaries/{session_group_summary_id}",
-                                    "variant": "primary",
-                                }
-                            ]
-                        }
-                    },
-                    content=f"Report complete: {state.summary_title or 'Sessions summary'}",
-                    id=str(uuid4()),
-                )
-            )
-        # Add content
-        messages.append(
-            AssistantToolCallMessage(
-                content=summaries_content,
-                tool_call_id=state.root_tool_call_id or "unknown",
-                id=str(uuid4()),
-            ),
-        )
-        return PartialAssistantState(messages=messages, session_summarization_query=None, root_tool_call_id=None)
+        return ready_state
 
     def _create_error_response(self, message: str, state: AssistantState) -> PartialAssistantState:
         return PartialAssistantState(

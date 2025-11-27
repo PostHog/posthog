@@ -325,6 +325,35 @@ class SummarizeSessionsTool(MaxTool):
                 session_ids=session_ids,
                 summary_title=summary_title,
             )
+            # Build messages artifact for group summaries (with "Open report" button)
+            content, artifact = None, None
+            if session_group_summary_id:
+                messages = [
+                    AssistantMessage(
+                        meta={
+                            "form": {
+                                "options": [
+                                    {
+                                        "value": "Open report",
+                                        "href": f"/session-summaries/{session_group_summary_id}",
+                                        "variant": "primary",
+                                    }
+                                ]
+                            }
+                        },
+                        content=f"Report complete: {summary_title or 'Sessions summary'}",
+                        id=str(uuid4()),
+                    ),
+                    AssistantToolCallMessage(
+                        content=summaries_content,
+                        tool_call_id=self._state.root_tool_call_id or "unknown",
+                        id=str(uuid4()),
+                    ),
+                ]
+                # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
+                content, artifact = "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
+            else:
+                content, artifact = summaries_content, None
         except Exception as err:
             # The session summarization failed
             capture_session_summary_generated(
@@ -353,33 +382,7 @@ class SummarizeSessionsTool(MaxTool):
             video_validation_enabled=video_validation_enabled,
             success=True,
         )
-        # Build messages artifact for group summaries (with "Open report" button)
-        if session_group_summary_id:
-            messages = [
-                AssistantMessage(
-                    meta={
-                        "form": {
-                            "options": [
-                                {
-                                    "value": "Open report",
-                                    "href": f"/session-summaries/{session_group_summary_id}",
-                                    "variant": "primary",
-                                }
-                            ]
-                        }
-                    },
-                    content=f"Report complete: {summary_title or 'Sessions summary'}",
-                    id=str(uuid4()),
-                ),
-                AssistantToolCallMessage(
-                    content=summaries_content,
-                    tool_call_id=self._state.root_tool_call_id or "unknown",
-                    id=str(uuid4()),
-                ),
-            ]
-            # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
-            return "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
-        return summaries_content, None
+        return content, artifact
 
     def _has_video_validation_feature_flag(self) -> bool | None:
         """
