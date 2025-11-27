@@ -183,7 +183,10 @@ async def fetch_session_batch_events_activity(
             continue
         # Prepare the data to be used by the next activity
         filtered_columns, filtered_events = add_context_and_filter_events(
-            session_events_columns=columns, session_events=session_events, session_id=session_id
+            session_events_columns=columns,
+            session_events=session_events,
+            session_id=session_id,
+            session_start_time=session_metadata["start_time"],
         )
         session_db_data = SessionSummaryDBData(
             session_metadata=session_metadata, session_events_columns=filtered_columns, session_events=filtered_events

@@ -10,11 +10,12 @@ from posthog.session_recordings.constants import COLUMNS_TO_REMOVE_FROM_LLM_CONT
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
+from ee.hogai.session_summaries.constants import EVENTS_BEFORE_REPLAY_START_THRESHOLD_MS
 from ee.hogai.session_summaries.local.input_data import (
     _get_production_session_events_locally,
     _get_production_session_metadata_locally,
 )
-from ee.hogai.session_summaries.utils import get_column_index
+from ee.hogai.session_summaries.utils import calculate_time_since_start, get_column_index
 
 logger = structlog.get_logger(__name__)
 
@@ -179,7 +180,9 @@ def add_context_and_filter_events(
     session_events_columns: list[str],
     session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]],
     session_id: str,
+    session_start_time: datetime.datetime,
 ) -> tuple[list[str], list[tuple[str | datetime.datetime | list[str] | None, ...]]]:
+    timestamp_index = get_column_index(session_events_columns, "timestamp")
     indexes = {
         "event": get_column_index(session_events_columns, "event"),
         "$event_type": get_column_index(session_events_columns, "$event_type"),
@@ -199,7 +202,20 @@ def add_context_and_filter_events(
         i for i, col in enumerate(session_events_columns) if col not in COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
     ]
     updated_events = []
+    # Events are chronologically ordered, so once we find an event after replay start, all subsequent events are too
+    past_replay_start = False
     for event in session_events:
+        # Filter out events that occurred before or exactly at replay start, as we can't confirm them with video
+        if not past_replay_start:
+            event_timestamp = event[timestamp_index]
+            if not isinstance(event_timestamp, str) and not isinstance(event_timestamp, datetime.datetime):
+                msg = f"Event timestamp is not a string or datetime: {event_timestamp}"
+                logger.error(msg, signals_type="session-summaries", session_id=session_id)
+                raise ValueError(msg)
+            ms_since_start = calculate_time_since_start(event_timestamp, session_start_time)
+            if ms_since_start <= EVENTS_BEFORE_REPLAY_START_THRESHOLD_MS:
+                continue
+            past_replay_start = True
         updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
         # Check for errors worth keeping in the context
         if event[indexes["event"]] == "$exception":
