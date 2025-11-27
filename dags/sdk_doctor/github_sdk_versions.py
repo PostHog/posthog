@@ -3,6 +3,8 @@ import json
 from collections.abc import Callable
 from typing import Any, Literal, Optional, cast
 
+from django.conf import settings
+
 import dagster
 import requests
 import structlog
@@ -134,6 +136,12 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
     """Fetch releases from a GitHub repository"""
     global local_releases_cache
 
+    # We don't wanna have to fight against the local cache when running tests
+    # so we just skip it since the cache is only here to avoid hitting GitHub's rate limit
+    # and we fully mock the requests during tests anyway
+    if settings.TEST:
+        skip_cache = True
+
     if repo in local_releases_cache and not skip_cache:
         logger.info(f"[SDK Doctor] Returning cached releases for {repo}")
         return local_releases_cache[repo]
@@ -197,12 +205,16 @@ def fetch_node_sdk_data() -> dict[str, Any]:
     posthog_js = fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-node@"])
     posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-node-"])
 
+    # Shouldn't happen, but just in case
+    if not posthog_js:
+        return {}
+
     # The latest date is always from `posthog-js` since this is the only active repo
     return {
         "latestVersion": posthog_js["latestVersion"],
         "releaseDates": {
             **posthog_js["releaseDates"],
-            **posthog_js_lite["releaseDates"],
+            **posthog_js_lite.get("releaseDates", {}),
         },
     }
 
@@ -215,12 +227,16 @@ def fetch_react_native_sdk_data() -> dict[str, Any]:
     posthog_js = fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-react-native@"])
     posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-react-native-"])
 
+    # Shouldn't happen, but just in case
+    if not posthog_js:
+        return {}
+
     # The latest date is always from `posthog-js` since this is the only active repo
     return {
         "latestVersion": posthog_js["latestVersion"],
         "releaseDates": {
             **posthog_js["releaseDates"],
-            **posthog_js_lite["releaseDates"],
+            **posthog_js_lite.get("releaseDates", {}),
         },
     }
 
