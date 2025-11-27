@@ -22,6 +22,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import tag_queries
@@ -129,6 +130,7 @@ class ExperimentQueryRunner(QueryRunner):
             self.use_new_query_builder = self.experiment.stats_config.get("use_new_query_builder", False)
 
         self.clickhouse_sql: str | None = None
+        self.hogql: str | None = None
 
     def _should_use_new_query_builder(self) -> bool:
         """
@@ -588,6 +590,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         experiment_query_ast = self._get_experiment_query()
         self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
+        self.hogql = to_printed_hogql(experiment_query_ast, self.team)
 
         response = execute_hogql_query(
             query_type="ExperimentQuery",
@@ -630,6 +633,7 @@ class ExperimentQueryRunner(QueryRunner):
             result.breakdown_results = breakdown_results
 
         result.clickhouse_sql = self.clickhouse_sql
+        result.hogql = self.hogql
 
         return result
 

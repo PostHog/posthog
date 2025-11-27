@@ -3646,6 +3646,9 @@
                     },
                     "type": "object"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "insight": {
                     "items": {
                         "type": "object"
@@ -4827,6 +4830,12 @@
                 },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
+                "hogql": {
                     "type": "string"
                 },
                 "is_cached": {
@@ -13517,6 +13526,9 @@
                     },
                     "type": "object"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "insight": {
                     "items": {
                         "type": "object"
@@ -18774,6 +18786,12 @@
                     },
                     "type": "array"
                 },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
+                "hogql": {
+                    "type": "string"
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -20913,6 +20931,9 @@
                                 "type": "array"
                             },
                             "type": "object"
+                        },
+                        "hogql": {
+                            "type": "string"
                         },
                         "insight": {
                             "items": {

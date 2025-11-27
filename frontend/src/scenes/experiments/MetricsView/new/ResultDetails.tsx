@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -100,6 +101,65 @@ function convertExperimentResultToFunnelSteps(
     }
 
     return funnelSteps
+}
+
+function SqlCollapsible({
+    hogql,
+    clickhouseSql,
+    showClickhouseSql,
+}: {
+    hogql?: string
+    clickhouseSql?: string
+    showClickhouseSql: boolean
+}): JSX.Element {
+    const [activeTab, setActiveTab] = useState<'hogql' | 'clickhouse'>('hogql')
+
+    return (
+        <LemonCollapse
+            panels={[
+                {
+                    key: 'sql',
+                    header: 'SQL',
+                    content: showClickhouseSql ? (
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={setActiveTab}
+                            tabs={[
+                                {
+                                    key: 'hogql',
+                                    label: 'HogQL',
+                                    content: hogql ? (
+                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                            {hogql}
+                                        </CodeSnippet>
+                                    ) : (
+                                        <div className="text-muted">No HogQL available</div>
+                                    ),
+                                },
+                                {
+                                    key: 'clickhouse',
+                                    label: 'ClickHouse',
+                                    content: clickhouseSql ? (
+                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                            {clickhouseSql}
+                                        </CodeSnippet>
+                                    ) : (
+                                        <div className="text-muted">No SQL available</div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : hogql ? (
+                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                            {hogql}
+                        </CodeSnippet>
+                    ) : (
+                        <div className="text-muted">No SQL available</div>
+                    ),
+                },
+            ]}
+        />
+    )
 }
 
 export function ResultDetails({
@@ -245,21 +305,11 @@ export function ResultDetails({
                     metric={metric}
                 />
             )}
-            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL] && (
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'clickhouse_sql',
-                            header: 'ClickHouse SQL',
-                            content: (
-                                <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
-                                    {result.clickhouse_sql || 'No SQL available'}
-                                </CodeSnippet>
-                            ),
-                        },
-                    ]}
-                />
-            )}
+            <SqlCollapsible
+                hogql={result.hogql}
+                clickhouseSql={result.clickhouse_sql}
+                showClickhouseSql={!!featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL]}
+            />
         </div>
     )
 }

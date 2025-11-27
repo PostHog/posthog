@@ -3013,6 +3013,7 @@ export interface ExperimentQueryResponse {
     breakdown_results?: ExperimentBreakdownResult[]
 
     clickhouse_sql?: string
+    hogql?: string
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -3093,6 +3094,7 @@ export interface ExperimentBreakdownResult {
 
 export interface NewExperimentQueryResponse {
     clickhouse_sql?: string
+    hogql?: string
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
     breakdown_results?: ExperimentBreakdownResult[]
