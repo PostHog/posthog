@@ -227,7 +227,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer
-    SDK_DOCTOR_BETA: 'sdk-doctor-beta', // owner: @slshults
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny
     ONBOARDING_USE_CASE_SELECTION: 'onboarding-use-case-selection', // owner: @mattbro
     ONBOARDING_AI_CONSENT_STEP: 'onboarding-ai-consent-step', // owner: @mattbro
@@ -344,6 +343,7 @@ export const FEATURE_FLAGS = {
     LEFT_ALIGN_DATE_FILTER: 'left-align-date-filter', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     BING_ADS_SOURCE: 'bing-ads-source', // owner: @jabahamondes #team-web-analytics
+    EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_RETENTION_METRICS: 'experiments-retention-metrics', // owner: @rodrigoi #team-experiments
     HOME_FEED_TAB: 'home-feed-tab', // owner: @ksvat #team-replay
 } as const

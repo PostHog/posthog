@@ -232,7 +232,9 @@ def test_add_context_and_filter_events(
     should_keep: bool,
 ):
     test_columns = list(mock_event_indexes.keys())
-    updated_columns, updated_events = add_context_and_filter_events(test_columns, [input_event])
+    updated_columns, updated_events = add_context_and_filter_events(
+        session_events_columns=test_columns, session_events=[input_event], session_id="test_session_id"
+    )
 
     # Check columns are updated (and columns excessive from LLM context are removed)
     assert len(updated_columns) == len(test_columns) - len(COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT)

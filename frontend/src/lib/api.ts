@@ -154,6 +154,7 @@ import {
     PropertyDefinitionType,
     QueryBasedInsightModel,
     QueryTabState,
+    QuickFilter,
     RawAnnotationType,
     RawBatchExportBackfill,
     RawBatchExportRun,
@@ -1128,6 +1129,14 @@ export class ApiRequest {
 
     public errorTrackingIssueCohort(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
         return this.errorTrackingIssue(issueId, teamId).addPathComponent(`cohort`)
+    }
+
+    public quickFilters(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('quick_filters')
+    }
+
+    public quickFilter(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.quickFilters(teamId).addPathComponent(id)
     }
 
     // # Warehouse
@@ -2195,7 +2204,7 @@ const api = {
         }: {
             query: Omit<LogsQuery, 'kind'>
             signal?: AbortSignal
-        }): Promise<{ results: LogMessage[] }> {
+        }): Promise<{ results: LogMessage[]; hasMore: boolean }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
@@ -2939,20 +2948,28 @@ const api = {
             search,
             types,
             limit,
+            offset,
+            enabled,
+            order,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             search?: string
             types?: HogFunctionTypeType[]
             limit?: number
+            offset?: number
+            enabled?: boolean
+            order?: string
         }): Promise<CountedPaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
                     filter_groups,
-                    // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
                     ...(search ? { search } : {}),
                     ...(limit ? { limit } : {}),
+                    ...(offset ? { offset } : {}),
+                    ...(enabled !== undefined ? { enabled } : {}),
+                    ...(order ? { order } : {}),
                 })
                 .get()
         },
@@ -3233,6 +3250,29 @@ const api = {
 
         async assignCohort(issueId: ErrorTrackingIssue['id'], cohortId: CohortType['id']): Promise<{ id: string }> {
             return await new ApiRequest().errorTrackingIssueCohort(issueId).put({ data: { cohortId } })
+        },
+    },
+
+    quickFilters: {
+        async list(context: string): Promise<CountedPaginatedResponse<QuickFilter>> {
+            return await new ApiRequest().quickFilters().withQueryString(toParams({ context })).get()
+        },
+        async get(id: string): Promise<QuickFilter> {
+            return await new ApiRequest().quickFilter(id).get()
+        },
+        async create(
+            data: Pick<QuickFilter, 'contexts' | 'name' | 'property_name' | 'type' | 'options'>
+        ): Promise<QuickFilter> {
+            return await new ApiRequest().quickFilters().create({ data })
+        },
+        async update(
+            id: string,
+            data: Partial<Pick<QuickFilter, 'name' | 'property_name' | 'type' | 'options' | 'contexts'>>
+        ): Promise<QuickFilter> {
+            return await new ApiRequest().quickFilter(id).update({ data })
+        },
+        async delete(id: string): Promise<void> {
+            return await new ApiRequest().quickFilter(id).delete()
         },
     },
 

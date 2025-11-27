@@ -214,6 +214,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                     icon={<IconRefresh />}
                     onClick={() => loadEndpoints()}
                     loading={allEndpointsLoading}
+                    size="small"
                 >
                     Reload
                 </LemonButton>

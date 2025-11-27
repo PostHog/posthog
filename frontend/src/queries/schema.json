@@ -2,7 +2,15 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
         "AIEventType": {
-            "enum": ["$ai_generation", "$ai_embedding", "$ai_span", "$ai_trace", "$ai_metric", "$ai_feedback"],
+            "enum": [
+                "$ai_generation",
+                "$ai_embedding",
+                "$ai_span",
+                "$ai_trace",
+                "$ai_metric",
+                "$ai_feedback",
+                "$ai_evaluation"
+            ],
             "type": "string"
         },
         "ActionConversionGoal": {
@@ -3632,6 +3640,9 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -3642,6 +3653,9 @@
                         "type": "array"
                     },
                     "type": "object"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "insight": {
                     "items": {
@@ -4824,6 +4838,12 @@
                 },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
+                "hogql": {
                     "type": "string"
                 },
                 "is_cached": {
@@ -13517,6 +13537,9 @@
                     },
                     "type": "array"
                 },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -13527,6 +13550,9 @@
                         "type": "array"
                     },
                     "type": "object"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "insight": {
                     "items": {
@@ -18917,6 +18943,12 @@
                     },
                     "type": "array"
                 },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
+                "hogql": {
+                    "type": "string"
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -19654,6 +19686,7 @@
                 "revenue_analytics_event_created",
                 "revenue_analytics_data_source_connected",
                 "nav_panel_advertisement_clicked",
+                "feature_preview_enabled",
                 "vercel_integration"
             ],
             "type": "string"
@@ -21043,6 +21076,9 @@
                             },
                             "type": "array"
                         },
+                        "clickhouse_sql": {
+                            "type": "string"
+                        },
                         "credible_intervals": {
                             "additionalProperties": {
                                 "items": {
@@ -21053,6 +21089,9 @@
                                 "type": "array"
                             },
                             "type": "object"
+                        },
+                        "hogql": {
+                            "type": "string"
                         },
                         "insight": {
                             "items": {
@@ -24227,6 +24266,14 @@
             },
             "required": ["query"],
             "type": "object"
+        },
+        "QuickFilterContext": {
+            "enum": ["error-tracking-issue-filters", "logs-filters"],
+            "type": "string"
+        },
+        "QuickFilterType": {
+            "enum": ["manual-options", "auto-discovery"],
+            "type": "string"
         },
         "ReasoningMessage": {
             "additionalProperties": false,

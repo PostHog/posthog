@@ -71,7 +71,9 @@ def _prepare_messages(
         # Force LLM to start with the assistant text
         messages.append({"role": "assistant", "content": assistant_start_text})
     if not messages:
-        raise ValueError(f"No messages to send to LLM for sessions: {session_id}")
+        msg = f"No messages to send to LLM for sessions: {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return messages
 
 
@@ -98,10 +100,12 @@ async def stream_llm(
     user_param = _prepare_user_param(user_key)
     client = get_async_openai_client()
     if model not in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
-        raise ValueError(
+        msg = (
             f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
             f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS}"
         )
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     stream: AsyncStream = await client.chat.completions.create(  # type: ignore[call-overload]
         messages=messages,
         model=model,
@@ -145,8 +149,10 @@ async def call_llm(
             posthog_trace_id=trace_id,
         )
     else:
-        raise ValueError(
+        msg = (
             f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
             f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS | SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS}"
         )
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return result

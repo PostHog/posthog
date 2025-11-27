@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use std::time::Duration;
 use tokio::runtime;
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 /// Health reporting for components of the service.
 ///
@@ -252,7 +252,7 @@ impl HealthRegistry {
                 result
             });
         match result.healthy {
-            true => info!("{} health check ok", self.name),
+            true => debug!("{} health check ok", self.name),
             false => warn!("{} health check failed: {:?}", self.name, result.components),
         }
         result
