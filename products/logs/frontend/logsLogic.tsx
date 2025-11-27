@@ -33,6 +33,7 @@ const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
 const DEFAULT_LOGS_PAGE_SIZE = 100
+const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 const parseLogAttributes = (logs: LogMessage[]): void => {
     logs.forEach((row) => {
@@ -553,9 +554,13 @@ export const logsLogic = kea<logsLogicType>([
 
     listeners(({ values, actions }) => ({
         fetchLogsFailure: ({ error }) => {
-            if (error !== 'new query started') {
-                // this is expected and does not need to be shown to the user
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
                 lemonToast.error(`Failed to load logs: ${error}`)
+            }
+        },
+        loadMoreLogsFailure: ({ error }) => {
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+                lemonToast.error(`Failed to load more logs: ${error}`)
             }
         },
         runQuery: async ({ debounce }, breakpoint) => {
@@ -568,13 +573,13 @@ export const logsLogic = kea<logsLogicType>([
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
-                values.logsAbortController.abort('new query started')
+                values.logsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setLogsAbortController(logsAbortController)
         },
         cancelInProgressSparkline: ({ sparklineAbortController }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort('new query started')
+                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setSparklineAbortController(sparklineAbortController)
         },
