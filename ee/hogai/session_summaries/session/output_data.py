@@ -180,6 +180,79 @@ class SessionSummarySerializer(IntermediateSessionSummarySerializer):
         child=EnrichedSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """
+        Validate that all LLM-generated fields are present and properly filled.
+        Fields are optional during streaming but must be complete in final output.
+        """
+        if self.context.get("streaming_validation"):
+            # Disable strict validation for streaming, as the context could be incomplete
+            return attrs
+        errors: dict[str, list[str]] = {}
+        # Validate top-level fields
+        segments = attrs.get("segments")
+        if segments is None or len(segments) == 0:
+            errors["segments"] = ["This field is required and must not be empty."]
+        key_actions = attrs.get("key_actions")
+        if key_actions is None or len(key_actions) == 0:
+            errors["key_actions"] = ["This field is required and must not be empty."]
+        segment_outcomes = attrs.get("segment_outcomes")
+        if segment_outcomes is None or len(segment_outcomes) == 0:
+            errors["segment_outcomes"] = ["This field is required and must not be empty."]
+        session_outcome = attrs.get("session_outcome")
+        if session_outcome is None:
+            errors["session_outcome"] = ["This field is required."]
+        # Validate each segment
+        if segments:
+            for i, segment in enumerate(segments):
+                if segment.get("index") is None:
+                    errors[f"segments[{i}].index"] = ["This field is required."]
+                if segment.get("name") is None:
+                    errors[f"segments[{i}].name"] = ["This field is required."]
+                if segment.get("start_event_id") is None:
+                    errors[f"segments[{i}].start_event_id"] = ["This field is required."]
+                if segment.get("end_event_id") is None:
+                    errors[f"segments[{i}].end_event_id"] = ["This field is required."]
+        # Validate each key_actions group
+        if key_actions:
+            for i, key_action_group in enumerate(key_actions):
+                if key_action_group.get("segment_index") is None:
+                    errors[f"key_actions[{i}].segment_index"] = ["This field is required."]
+                events = key_action_group.get("events")
+                if events is None or len(events) == 0:
+                    errors[f"key_actions[{i}].events"] = ["This field is required and must not be empty."]
+                else:
+                    # Validate each event
+                    for j, event in enumerate(events):
+                        if event.get("event_id") is None:
+                            errors[f"key_actions[{i}].events[{j}].event_id"] = ["This field is required."]
+                        if event.get("description") is None:
+                            errors[f"key_actions[{i}].events[{j}].description"] = ["This field is required."]
+                        if not isinstance(event.get("abandonment"), bool):
+                            errors[f"key_actions[{i}].events[{j}].abandonment"] = ["This field must be a boolean."]
+                        if not isinstance(event.get("confusion"), bool):
+                            errors[f"key_actions[{i}].events[{j}].confusion"] = ["This field must be a boolean."]
+                        if "exception" not in event:
+                            errors[f"key_actions[{i}].events[{j}].exception"] = ["This field is required."]
+        # Validate each segment_outcome
+        if segment_outcomes:
+            for i, outcome in enumerate(segment_outcomes):
+                if outcome.get("segment_index") is None:
+                    errors[f"segment_outcomes[{i}].segment_index"] = ["This field is required."]
+                if outcome.get("summary") is None:
+                    errors[f"segment_outcomes[{i}].summary"] = ["This field is required."]
+                if not isinstance(outcome.get("success"), bool):
+                    errors[f"segment_outcomes[{i}].success"] = ["This field must be a boolean."]
+        # Validate session_outcome
+        if session_outcome:
+            if session_outcome.get("description") is None:
+                errors["session_outcome.description"] = ["This field is required."]
+            if not isinstance(session_outcome.get("success"), bool):
+                errors["session_outcome.success"] = ["This field must be a boolean."]
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
 
 def _remove_hallucinated_events(
     hallucinated_events: list[tuple[int, int, dict[str, Any]]],
@@ -282,9 +355,12 @@ def calculate_time_since_start(session_timestamp: str, session_start_time: datet
     return max(0, int((timestamp_datetime - session_start_time).total_seconds() * 1000))
 
 
-def _validate_enriched_summary(data: dict[str, Any], session_id: str) -> SessionSummarySerializer:
-    session_summary = SessionSummarySerializer(data=data)
-    # Validating even when processing incomplete chunks as the `.data` can't be used without validation check
+def _validate_enriched_summary(
+    data: dict[str, Any], session_id: str, final_validation: bool
+) -> SessionSummarySerializer:
+    # Avoid strict validation, if it's not the final step, as the context could be incomplete because of the streaming
+    session_summary = SessionSummarySerializer(data=data, context={"streaming_validation": not final_validation})
+    # Validate even when processing incomplete chunks as the `.data` can't be used without validation check
     if not session_summary.is_valid():
         # Most of the fields are optional, so failed validation should be reported
         raise SummaryValidationError(
@@ -531,6 +607,7 @@ def enrich_raw_session_summary_with_meta(
     session_id: str,
     session_start_time_str: str,
     session_duration: int,
+    final_validation: bool,
 ) -> SessionSummarySerializer:
     timestamp_index = get_column_index(simplified_events_columns, "timestamp")
     window_id_index = get_column_index(simplified_events_columns, "$window_id")
@@ -546,7 +623,9 @@ def enrich_raw_session_summary_with_meta(
     enriched_segments = []
     if not raw_segments:
         # If segments aren't generated yet - return the current state
-        session_summary = _validate_enriched_summary(raw_session_summary.data, session_id)
+        session_summary = _validate_enriched_summary(
+            data=raw_session_summary.data, session_id=session_id, final_validation=final_validation
+        )
         return session_summary
     for raw_segment in raw_segments:
         enriched_segment = dict(raw_segment)
@@ -573,7 +652,9 @@ def enrich_raw_session_summary_with_meta(
     enriched_key_actions = []
     if not raw_key_actions:
         # If key actions aren't generated yet - return the current state
-        session_summary = _validate_enriched_summary(summary_to_enrich, session_id)
+        session_summary = _validate_enriched_summary(
+            data=summary_to_enrich, session_id=session_id, final_validation=final_validation
+        )
         return session_summary
     # Iterate over key actions groups per segment
     for key_action_group in raw_key_actions:
@@ -629,5 +710,7 @@ def enrich_raw_session_summary_with_meta(
         enriched_key_actions.append({"segment_index": segment_index, "events": enriched_events})
     # Validate the enriched content against the schema
     summary_to_enrich["key_actions"] = enriched_key_actions
-    session_summary = _validate_enriched_summary(summary_to_enrich, session_id)
+    session_summary = _validate_enriched_summary(
+        data=summary_to_enrich, session_id=session_id, final_validation=final_validation
+    )
     return session_summary
