@@ -85,6 +85,31 @@
 # ---
 # name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.1
   '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.2
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.3
+  '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
@@ -100,7 +125,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.2
+# name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.4
   '''
   SELECT source.id,
          source.id AS id,
@@ -185,7 +210,32 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.3
+# name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.5
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.6
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.7
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events

@@ -346,7 +346,32 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.10
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000015']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.11
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000015']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.12
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
@@ -363,7 +388,177 @@
                      allow_experimental_join_condition=1
   '''
 # ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.13
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events,
+            actor_id AS id
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  [''] AS prop,
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                              and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                              and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                             and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                             and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  af_tuple.5 AS steps_bitfield,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              LEFT JOIN
+                (SELECT person.id AS id,
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                 FROM person
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE bitTest(steps_bitfield, 0)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
+     WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.14
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-00000000000a', '00000000-0000-4000-8000-00000000000b', '00000000-0000-4000-8000-00000000000c', '00000000-0000-4000-8000-00000000000d', '00000000-0000-4000-8000-00000000000e', '00000000-0000-4000-8000-00000000000f', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000013']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.15
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-00000000000f', '00000000-0000-4000-8000-00000000000e', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-00000000000a', '00000000-0000-4000-8000-00000000000d', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-00000000000c', '00000000-0000-4000-8000-00000000000b']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.16
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-000000000008', '00000000-0000-4000-8000-000000000009']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000008', '00000000-0000-4000-8000-000000000009']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.5
   '''
   SELECT source.id,
          source.id AS id,
@@ -449,7 +644,32 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.6
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000014']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.7
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000014']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.8
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
@@ -466,7 +686,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.5
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.9
   '''
   SELECT source.id,
          source.id AS id,
@@ -550,126 +770,6 @@
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.6
-  '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.7
-  '''
-  SELECT source.id,
-         source.id AS id,
-         source.matching_events AS matching_events
-  FROM
-    (SELECT funnel_actors.actor_id AS actor_id,
-            any(funnel_actors.matching_events) AS matching_events,
-            actor_id AS id
-     FROM
-       (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
-               (matched_events_array[1][1]).1 AS timestamp,
-               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
-               (matched_events_array[1][1]).1 AS first_timestamp,
-               steps AS steps,
-               final_timestamp,
-               first_timestamp
-        FROM
-          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  [''] AS prop,
-                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                              and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                              and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                             and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                             and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
-                  af_tuple.1 AS step_reached,
-                  plus(af_tuple.1, 1) AS steps,
-                  af_tuple.2 AS breakdown,
-                  af_tuple.3 AS timings,
-                  af_tuple.4 AS matched_event_uuids_array_array,
-                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
-                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
-                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
-                  af_tuple.5 AS steps_bitfield,
-                  aggregation_target AS aggregation_target
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
-                     if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
-              LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              LEFT JOIN
-                (SELECT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
-                 FROM person
-                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                               (SELECT person.id AS id, max(person.version) AS version
-                                                                FROM person
-                                                                WHERE equals(person.team_id, 99999)
-                                                                GROUP BY person.id
-                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
-           GROUP BY aggregation_target
-           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
-     WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
-     GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
-  ORDER BY source.id ASC
-  LIMIT 101
-  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
-                    readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.8
-  '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized
@@ -893,7 +993,32 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.2
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.10
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000015']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.11
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000015']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.12
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
@@ -910,7 +1035,177 @@
                      allow_experimental_join_condition=1
   '''
 # ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.13
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (SELECT funnel_actors.actor_id AS actor_id,
+            any(funnel_actors.matching_events) AS matching_events,
+            actor_id AS id
+     FROM
+       (SELECT aggregation_target AS actor_id,
+               matched_events_array[plus(step_reached, 1)] AS matching_events,
+               (matched_events_array[1][1]).1 AS timestamp,
+               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+               (matched_events_array[1][1]).1 AS first_timestamp,
+               steps AS steps,
+               final_timestamp,
+               first_timestamp
+        FROM
+          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+                  [''] AS prop,
+                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                              and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                              and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                             and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                             and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+                  af_tuple.1 AS step_reached,
+                  plus(af_tuple.1, 1) AS steps,
+                  af_tuple.2 AS breakdown,
+                  af_tuple.3 AS timings,
+                  af_tuple.4 AS matched_event_uuids_array_array,
+                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+                  af_tuple.5 AS steps_bitfield,
+                  aggregation_target AS aggregation_target
+           FROM
+             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     e.uuid AS uuid,
+                     e.`$session_id` AS `$session_id`,
+                     e.`$window_id` AS `$window_id`,
+                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                     if(equals(e.event, 'paid'), 1, 0) AS step_1
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              LEFT JOIN
+                (SELECT person.id AS id,
+                        nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
+                 FROM person
+                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                               (SELECT person.id AS id, max(person.version) AS version
+                                                                FROM person
+                                                                WHERE equals(person.team_id, 99999)
+                                                                GROUP BY person.id
+                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+           GROUP BY aggregation_target
+           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
+        WHERE bitTest(steps_bitfield, 0)
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
+     WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
+     GROUP BY funnel_actors.actor_id
+     ORDER BY funnel_actors.actor_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.14
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-00000000000a', '00000000-0000-4000-8000-00000000000b', '00000000-0000-4000-8000-00000000000c', '00000000-0000-4000-8000-00000000000d', '00000000-0000-4000-8000-00000000000e', '00000000-0000-4000-8000-00000000000f', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000013']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.15
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-00000000000f', '00000000-0000-4000-8000-00000000000e', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-00000000000a', '00000000-0000-4000-8000-00000000000d', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-00000000000c', '00000000-0000-4000-8000-00000000000b']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.16
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.2
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-000000000008', '00000000-0000-4000-8000-000000000009']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.3
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000008', '00000000-0000-4000-8000-000000000009']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.4
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.5
   '''
   SELECT source.id,
          source.id AS id,
@@ -996,7 +1291,32 @@
                     allow_experimental_join_condition=1
   '''
 # ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.4
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.6
+  '''
+  
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000014']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.7
+  '''
+  
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000014']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.8
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
@@ -1013,7 +1333,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.5
+# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.9
   '''
   SELECT source.id,
          source.id AS id,
@@ -1097,126 +1417,6 @@
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.6
-  '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.7
-  '''
-  SELECT source.id,
-         source.id AS id,
-         source.matching_events AS matching_events
-  FROM
-    (SELECT funnel_actors.actor_id AS actor_id,
-            any(funnel_actors.matching_events) AS matching_events,
-            actor_id AS id
-     FROM
-       (SELECT aggregation_target AS actor_id,
-               matched_events_array[plus(step_reached, 1)] AS matching_events,
-               (matched_events_array[1][1]).1 AS timestamp,
-               nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
-               (matched_events_array[1][1]).1 AS first_timestamp,
-               steps AS steps,
-               final_timestamp,
-               first_timestamp
-        FROM
-          (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
-                  [''] AS prop,
-                  arrayJoin(aggregate_funnel_v9(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                              and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                              and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                             and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                             and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
-                  af_tuple.1 AS step_reached,
-                  plus(af_tuple.1, 1) AS steps,
-                  af_tuple.2 AS breakdown,
-                  af_tuple.3 AS timings,
-                  af_tuple.4 AS matched_event_uuids_array_array,
-                  groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
-                  mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
-                  arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
-                  af_tuple.5 AS steps_bitfield,
-                  aggregation_target AS aggregation_target
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
-                     if(equals(e.event, 'paid'), 1, 0) AS step_1
-              FROM events AS e
-              LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              LEFT JOIN
-                (SELECT person.id AS id,
-                        nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
-                 FROM person
-                 WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                               (SELECT person.id AS id, max(person.version) AS version
-                                                                FROM person
-                                                                WHERE equals(person.team_id, 99999)
-                                                                GROUP BY person.id
-                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), ifNull(equals(e__person.`properties___$browser`, 'Negative'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
-           GROUP BY aggregation_target
-           HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-        WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS funnel_actors
-     WHERE ifNull(notEquals(funnel_actors.steps, 2), 1)
-     GROUP BY funnel_actors.actor_id
-     ORDER BY funnel_actors.actor_id ASC) AS source
-  ORDER BY source.id ASC
-  LIMIT 101
-  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
-                    readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.8
-  '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
