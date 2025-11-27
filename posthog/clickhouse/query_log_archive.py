@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 """
 
 
-def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive_new"):
+def QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name="query_log_archive_new", engine=None, include_table_clauses=True):
     return """
 CREATE TABLE IF NOT EXISTS {table_name} (
     hostname                              LowCardinality(String),
@@ -221,13 +221,18 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     lc_dagster__job_name String,
     lc_dagster__run_id String,
     lc_dagster__owner String
-) ENGINE = {engine}
-PARTITION BY toYYYYMM(event_date)
-ORDER BY (team_id, event_date, event_time, query_id)
-PRIMARY KEY (team_id, event_date, event_time, query_id)
+) ENGINE = {engine}{table_clauses}
     """.format(
         table_name=table_name,
-        engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW(),
+        engine=engine,
+        table_clauses=(
+            """
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (team_id, event_date, event_time, query_id)
+PRIMARY KEY (team_id, event_date, event_time, query_id)"""
+            if include_table_clauses
+            else ""
+        ),
     )
 
 

@@ -12,6 +12,7 @@ import {
     IconFolderOpen,
     IconGear,
     IconHome,
+    IconNewspaper,
     IconPeople,
     IconShortcut,
     IconSidebarClose,
@@ -29,7 +30,9 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -59,7 +62,6 @@ import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
-import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
@@ -100,11 +102,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { user } = useValues(userLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
     const { preflight } = useValues(preflightLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -139,6 +141,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
         }
+        if (itemIdentifier === 'Feed' && currentPath === '/feed') {
+            return true
+        }
         if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
             return true
         }
@@ -170,11 +175,23 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => handleStaticNavbarItemClick(urls.projectRoot(), true),
             collapsedTooltip: 'Home',
         },
+        ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
+            ? [
+                  {
+                      identifier: 'ProjectFeed',
+                      label: 'Feed',
+                      icon: <IconNewspaper />,
+                      to: urls.feed(),
+                      onClick: () => handleStaticNavbarItemClick(urls.feed(), true),
+                      collapsedTooltip: 'Feed',
+                  },
+              ]
+            : []),
         {
             identifier: 'Products',
             label: 'All apps',
             icon: <IconApps />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Products')
                 }
@@ -186,7 +203,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Project',
             label: 'Project',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Project')
                 }
@@ -198,7 +215,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Database',
             label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Database')
                 }
@@ -211,7 +228,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'DataManagement',
             label: 'Data management',
             icon: <IconDatabase />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('DataManagement')
                 }
@@ -224,7 +241,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'People',
             label: 'People',
             icon: <IconPeople />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('People')
                 }
@@ -237,7 +254,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Shortcuts',
             label: 'Shortcuts',
             icon: <IconShortcut />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Shortcuts')
                 }
@@ -254,7 +271,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
-    ]
+    ].filter(Boolean)
 
     return (
         <>
@@ -648,7 +665,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             className={cn('top-[var(--scene-layout-header-height)] right-[-1px]', {
                                 // If first tab is not active, we move the line down to match up with the curve (only present if not first tab is active)
                                 'top-[calc(var(--scene-layout-header-height)+10px)]': !firstTabIsActive,
-                                'top-0': isLayoutPanelVisible || sceneLayoutConfig?.layout === 'app-raw-no-header',
+                                'top-0': isLayoutPanelVisible,
                             })}
                             offset={0}
                         />
