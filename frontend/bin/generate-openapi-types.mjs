@@ -194,8 +194,20 @@ const productFolders = discoverProductFolders()
 const groupedSchemas = buildGroupedSchemasByTag(schema)
 const tmpDir = createTempDir()
 
-console.log('🔪 Slicing OpenAPI schema by explicit tags...')
-console.log(`   Found ${groupedSchemas.size} tags, ${productFolders.size} product folders\n`)
+console.log('🔪 Slicing OpenAPI schema by x-explicit-tags...')
+console.log(`   Tags are set via @extend_schema(tags=["your_product"]) in ViewSets\n`)
+
+// Show tag matching info
+const allTags = [...groupedSchemas.keys()].sort()
+const matchedTags = allTags.filter((tag) => getOutputDirForTag(tag, productFolders))
+const unmatchedTags = allTags.filter((tag) => !getOutputDirForTag(tag, productFolders))
+
+console.log(`   Found ${allTags.length} tags in schema, ${productFolders.size} product folders`)
+console.log(`   Matched: ${matchedTags.join(', ') || '(none)'}`)
+if (unmatchedTags.length > 0) {
+    console.log(`   Skipped (no matching folder): ${unmatchedTags.join(', ')}`)
+}
+console.log('')
 
 let generated = 0
 let failed = 0
@@ -229,3 +241,11 @@ fs.rmSync(tmpDir, { recursive: true, force: true })
 
 // Summary
 console.log(`Done! Generated ${generated} API client(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+
+if (unmatchedTags.length > 0 || generated === 0) {
+    console.log('')
+    console.log('💡 To generate types for your product:')
+    console.log('   1. Add @extend_schema(tags=["your_product"]) to your ViewSet methods')
+    console.log('   2. Ensure products/your_product/frontend/ folder exists')
+    console.log('   3. Re-run: ./bin/build-openapi-schema.sh && node frontend/bin/generate-openapi-types.mjs')
+}
