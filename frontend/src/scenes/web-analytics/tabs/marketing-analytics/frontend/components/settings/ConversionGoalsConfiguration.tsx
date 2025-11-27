@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconPencil, IconTrash, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconPencil, IconPlusSmall, IconTrash, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -126,7 +126,13 @@ export function ConversionGoalsConfiguration({
                     </div>
 
                     <div className="flex gap-2">
-                        <LemonButton type="primary" onClick={handleAddConversionGoal} disabled={!isFormValid}>
+                        <LemonButton
+                            type="primary"
+                            onClick={handleAddConversionGoal}
+                            disabled={!isFormValid}
+                            size="small"
+                            icon={<IconPlusSmall />}
+                        >
                             Add conversion goal
                         </LemonButton>
 
