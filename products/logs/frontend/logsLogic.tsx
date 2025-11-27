@@ -595,7 +595,7 @@ export const logsLogic = kea<logsLogicType>([
         ],
         logsRemainingToLoad: [
             (s) => [s.totalLogsMatchingFilters, s.logs],
-            (totalLogsMatchingFilters, logs): number => totalLogsMatchingFilters - logs.length,
+            (totalLogsMatchingFilters, logs): number => Math.max(0, totalLogsMatchingFilters - logs.length),
         ],
     })),
 
