@@ -1,6 +1,7 @@
 from django.shortcuts import get_object_or_404
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -21,6 +22,7 @@ class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
+@extend_schema(tags=["error_tracking"])
 class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingRelease.objects.all()

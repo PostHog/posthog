@@ -7,6 +7,7 @@ from django.db.models import Prefetch, Q
 import structlog
 import temporalio
 from dateutil import parser
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -307,6 +308,7 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
+@extend_schema(tags=["data_warehouse"])
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.

@@ -130,6 +130,7 @@ class DatasetFilter(django_filters.FilterSet):
         return super().list(request, *args, **kwargs)
 
 
+@extend_schema(tags=["llm_analytics"])
 class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
     serializer_class = DatasetSerializer
@@ -231,6 +232,7 @@ class DatasetItemSerializer(serializers.ModelSerializer):
         return super().create(validated_data, *args, **kwargs)
 
 
+@extend_schema(tags=["llm_analytics"])
 class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
     serializer_class = DatasetItemSerializer

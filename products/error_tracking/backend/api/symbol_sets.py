@@ -8,6 +8,7 @@ from django.db import transaction
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
@@ -51,6 +52,7 @@ class ErrorTrackingSymbolSetUploadSerializer(serializers.Serializer):
     content_hash = serializers.CharField(allow_null=True, default=None)
 
 
+@extend_schema(tags=["error_tracking"])
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingSymbolSet.objects.all()

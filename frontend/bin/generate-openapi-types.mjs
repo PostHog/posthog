@@ -32,8 +32,17 @@ function discoverProductFolders() {
     return products
 }
 
+// Tags that should be routed to core (no separate product folder)
+const CORE_TAGS = new Set([
+    'core',
+    'session_recordings', // No separate product folder yet
+    'hog_functions', // No separate product folder yet
+    'billing', // EE-specific, no product folder
+    'max', // Max AI assistant, ee/hogai
+])
+
 function getOutputDirForTag(tag, productFolders) {
-    if (tag === 'core') {
+    if (CORE_TAGS.has(tag)) {
         return path.resolve(frontendRoot, 'src', 'api')
     }
     // Normalize tag: convert hyphens to underscores to match folder names
@@ -187,6 +196,21 @@ export default defineConfig({
     }
 }
 
+function mergeSchemas(schemas) {
+    // Merge multiple OpenAPI schemas into one
+    const merged = {
+        openapi: schemas[0].openapi,
+        info: { ...schemas[0].info, title: schemas[0].info?.title?.replace(/ - \w+$/, '') || 'API' },
+        paths: {},
+        components: { schemas: {} },
+    }
+    for (const schema of schemas) {
+        Object.assign(merged.paths, schema.paths)
+        Object.assign(merged.components.schemas, schema.components?.schemas || {})
+    }
+    return merged
+}
+
 // Main execution
 
 const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
@@ -194,45 +218,75 @@ const productFolders = discoverProductFolders()
 const groupedSchemas = buildGroupedSchemasByTag(schema)
 const tmpDir = createTempDir()
 
-console.log('🔪 Slicing OpenAPI schema by x-explicit-tags...')
-console.log(`   Tags are set via @extend_schema(tags=["your_product"]) in ViewSets\n`)
+console.log('')
+console.log('┌─────────────────────────────────────────────────────────────────────┐')
+console.log('│  OpenAPI Type Generator                                             │')
+console.log('│  Tags are set via @extend_schema(tags=["product"]) in ViewSets      │')
+console.log('└─────────────────────────────────────────────────────────────────────┘')
+console.log('')
 
 // Show tag matching info
 const allTags = [...groupedSchemas.keys()].sort()
 const matchedTags = allTags.filter((tag) => getOutputDirForTag(tag, productFolders))
 const unmatchedTags = allTags.filter((tag) => !getOutputDirForTag(tag, productFolders))
+const coreTags = matchedTags.filter((tag) => CORE_TAGS.has(tag))
+const productTags = matchedTags.filter((tag) => !CORE_TAGS.has(tag))
 
-console.log(`   Found ${allTags.length} tags in schema, ${productFolders.size} product folders`)
-console.log(`   Matched: ${matchedTags.join(', ') || '(none)'}`)
+console.log(`Found ${allTags.length} tags in schema:`)
+console.log(`  Core tags:    ${coreTags.join(', ') || '(none)'}`)
+console.log(`  Product tags: ${productTags.join(', ') || '(none)'}`)
 if (unmatchedTags.length > 0) {
-    console.log(`   Skipped (no matching folder): ${unmatchedTags.join(', ')}`)
+    console.log(`  Skipped:      ${unmatchedTags.join(', ')}`)
 }
 console.log('')
+console.log('─'.repeat(72))
+console.log('')
 
-let generated = 0
-let failed = 0
+// Group schemas by output directory to merge CORE_TAGS
+const schemasByOutput = new Map()
 for (const [tag, groupedSchema] of groupedSchemas.entries()) {
     const outputDir = getOutputDirForTag(tag, productFolders)
     if (!outputDir) {
         continue
     }
+    if (!schemasByOutput.has(outputDir)) {
+        schemasByOutput.set(outputDir, { tags: [], schemas: [] })
+    }
+    schemasByOutput.get(outputDir).tags.push(tag)
+    schemasByOutput.get(outputDir).schemas.push(groupedSchema)
+}
 
-    const pathCount = Object.keys(groupedSchema.paths).length
-    const schemaCount = Object.keys(groupedSchema.components?.schemas || {}).length
+let generated = 0
+let failed = 0
+const entries = [...schemasByOutput.entries()]
+for (let i = 0; i < entries.length; i++) {
+    const [outputDir, { tags, schemas }] = entries[i]
+    const mergedSchema = schemas.length > 1 ? mergeSchemas(schemas) : schemas[0]
+    const pathCount = Object.keys(mergedSchema.paths).length
+    const schemaCount = Object.keys(mergedSchema.components?.schemas || {}).length
 
-    const tempFile = path.join(tmpDir, `${tag.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`)
-    fs.writeFileSync(tempFile, JSON.stringify(groupedSchema, null, 2))
+    const tagLabel = tags.length > 1 ? `${tags[0]} (+${tags.length - 1} more)` : tags[0]
+    const tempFile = path.join(tmpDir, `${tags[0].replace(/[^a-zA-Z0-9_-]/g, '_')}.json`)
+    fs.writeFileSync(tempFile, JSON.stringify(mergedSchema, null, 2))
 
-    console.log(`📦 ${tag}`)
+    console.log(`📦 ${tagLabel}`)
     console.log(`   ${pathCount} endpoints, ${schemaCount} schemas`)
+    if (tags.length > 1) {
+        console.log(`   Merged from: ${tags.join(', ')}`)
+    }
 
     try {
-        generateTypesForSchema(tempFile, outputDir, tag, tmpDir)
-        console.log(`   → ${path.relative(repoRoot, outputDir)}/index.ts ✓\n`)
+        generateTypesForSchema(tempFile, outputDir, tags[0], tmpDir)
+        console.log(`   → ${path.relative(repoRoot, outputDir)}/index.ts ✓`)
         generated++
     } catch (err) {
-        console.error(`   ⚠️  Failed: ${err.message}\n`)
+        console.error(`   ⚠️  Failed: ${err.message}`)
         failed++
+    }
+
+    // Add separator between products (but not after the last one)
+    if (i < entries.length - 1) {
+        console.log('')
     }
 }
 
@@ -304,15 +358,15 @@ function findPotentialDuplicates(generatedFiles) {
 }
 
 // Summary
-console.log(`Done! Generated ${generated} API client(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+console.log('')
+console.log('─'.repeat(72))
+console.log('')
+console.log(`✅ Generated ${generated} API client(s)${failed > 0 ? `, ${failed} failed` : ''}`)
 
-// Check for duplicates
-const generatedFiles = matchedTags
-    .map((tag) => {
-        const dir = getOutputDirForTag(tag, productFolders)
-        return dir ? path.join(dir, 'index.ts') : null
-    })
-    .filter((f) => f && fs.existsSync(f))
+// Check for duplicates - use unique output dirs
+const generatedFiles = [...schemasByOutput.keys()]
+    .map((dir) => path.join(dir, 'index.ts'))
+    .filter((f) => fs.existsSync(f))
 
 const duplicates = findPotentialDuplicates(generatedFiles)
 if (duplicates.length > 0) {

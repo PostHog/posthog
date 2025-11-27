@@ -5,6 +5,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, mixins, permissions, request, response, serializers, status, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -287,6 +288,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         return invite
 
 
+@extend_schema(tags=["core"])
 class OrganizationInviteViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,

@@ -1,4 +1,5 @@
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -15,6 +16,7 @@ class ErrorTrackingFingerprintSerializer(serializers.ModelSerializer):
         fields = ["fingerprint", "issue_id", "created_at"]
 
 
+@extend_schema(tags=["error_tracking"])
 class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingIssueFingerprintV2.objects.all()

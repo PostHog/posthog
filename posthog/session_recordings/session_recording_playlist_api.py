@@ -344,6 +344,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         return updated_playlist
 
 
+@extend_schema(tags=["session_recordings"])
 class SessionRecordingPlaylistViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):

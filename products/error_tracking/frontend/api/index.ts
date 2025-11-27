@@ -24,6 +24,21 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export interface PaginatedErrorTrackingFingerprintList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingFingerprint[]
+}
+
+export interface ErrorTrackingFingerprint {
+    fingerprint: string
+    readonly issue_id: string
+    readonly created_at: string
+}
+
 export interface PaginatedErrorTrackingIssueFullList {
     count: number
     /** @nullable */
@@ -57,6 +72,108 @@ export interface PatchedErrorTrackingIssueFull {
     assignee?: ErrorTrackingIssueAssignment
     external_issues?: ErrorTrackingExternalReference[]
     readonly cohort?: string
+}
+
+export interface PaginatedErrorTrackingReleaseList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingRelease[]
+}
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingReleaseMetadata = unknown | null
+
+export interface ErrorTrackingRelease {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    /** @nullable */
+    metadata?: ErrorTrackingReleaseMetadata
+    version: string
+    project: string
+}
+
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingReleaseMetadata = unknown | null
+
+export interface PatchedErrorTrackingRelease {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    /** @nullable */
+    metadata?: PatchedErrorTrackingReleaseMetadata
+    version?: string
+    project?: string
+}
+
+export interface PaginatedErrorTrackingStackFrameList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingStackFrame[]
+}
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingStackFrameContext = unknown | null
+
+export interface ErrorTrackingStackFrame {
+    readonly id: string
+    readonly raw_id: string
+    readonly created_at: string
+    contents: unknown
+    resolved: boolean
+    /** @nullable */
+    context?: ErrorTrackingStackFrameContext
+    symbol_set_ref?: string
+    readonly release: ErrorTrackingRelease
+}
+
+export interface PaginatedErrorTrackingSymbolSetList {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSymbolSet[]
+}
+
+export interface ErrorTrackingSymbolSet {
+    readonly id: string
+    ref: string
+    readonly team_id: number
+    readonly created_at: string
+    /** @nullable */
+    last_used?: string | null
+    /** @nullable */
+    storage_ptr?: string | null
+    /** @nullable */
+    failure_reason?: string | null
+}
+
+export interface PatchedErrorTrackingSymbolSet {
+    readonly id?: string
+    ref?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    /** @nullable */
+    last_used?: string | null
+    /** @nullable */
+    storage_ptr?: string | null
+    /** @nullable */
+    failure_reason?: string | null
 }
 
 /**
@@ -150,6 +267,17 @@ export const KindEnum = {
     databricks: 'databricks',
 } as const
 
+export type EnvironmentsErrorTrackingFingerprintsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type EnvironmentsErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
@@ -159,6 +287,168 @@ export type EnvironmentsErrorTrackingIssuesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EnvironmentsErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsErrorTrackingStackFramesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EnvironmentsErrorTrackingSymbolSetsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSymbolSetsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type environmentsErrorTrackingFingerprintsListResponse200 = {
+    data: PaginatedErrorTrackingFingerprintList
+    status: 200
+}
+
+export type environmentsErrorTrackingFingerprintsListResponseSuccess =
+    environmentsErrorTrackingFingerprintsListResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingFingerprintsListResponse = environmentsErrorTrackingFingerprintsListResponseSuccess
+
+export const getEnvironmentsErrorTrackingFingerprintsListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingFingerprintsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/fingerprints/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/fingerprints/`
+}
+
+export const environmentsErrorTrackingFingerprintsList = async (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingFingerprintsListParams,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingFingerprintsListResponse> => {
+    return apiMutator<environmentsErrorTrackingFingerprintsListResponse>(
+        getEnvironmentsErrorTrackingFingerprintsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingFingerprintsRetrieveResponse200 = {
+    data: ErrorTrackingFingerprint
+    status: 200
+}
+
+export type environmentsErrorTrackingFingerprintsRetrieveResponseSuccess =
+    environmentsErrorTrackingFingerprintsRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingFingerprintsRetrieveResponse =
+    environmentsErrorTrackingFingerprintsRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingFingerprintsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/fingerprints/${id}/`
+}
+
+export const environmentsErrorTrackingFingerprintsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingFingerprintsRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingFingerprintsRetrieveResponse>(
+        getEnvironmentsErrorTrackingFingerprintsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export type environmentsErrorTrackingFingerprintsDestroyResponse405 = {
+    data: void
+    status: 405
+}
+export type environmentsErrorTrackingFingerprintsDestroyResponseError =
+    environmentsErrorTrackingFingerprintsDestroyResponse405 & {
+        headers: Headers
+    }
+
+export type environmentsErrorTrackingFingerprintsDestroyResponse =
+    environmentsErrorTrackingFingerprintsDestroyResponseError
+
+export const getEnvironmentsErrorTrackingFingerprintsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/fingerprints/${id}/`
+}
+
+export const environmentsErrorTrackingFingerprintsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingFingerprintsDestroyResponse> => {
+    return apiMutator<environmentsErrorTrackingFingerprintsDestroyResponse>(
+        getEnvironmentsErrorTrackingFingerprintsDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
 }
 
 export type environmentsErrorTrackingIssuesListResponse200 = {
@@ -605,6 +895,1300 @@ export const environmentsErrorTrackingIssuesValuesRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingReleasesListResponse200 = {
+    data: PaginatedErrorTrackingReleaseList
+    status: 200
+}
+
+export type environmentsErrorTrackingReleasesListResponseSuccess = environmentsErrorTrackingReleasesListResponse200 & {
+    headers: Headers
+}
+export type environmentsErrorTrackingReleasesListResponse = environmentsErrorTrackingReleasesListResponseSuccess
+
+export const getEnvironmentsErrorTrackingReleasesListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingReleasesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/releases/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/releases/`
+}
+
+export const environmentsErrorTrackingReleasesList = async (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingReleasesListParams,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingReleasesListResponse> => {
+    return apiMutator<environmentsErrorTrackingReleasesListResponse>(
+        getEnvironmentsErrorTrackingReleasesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingReleasesCreateResponse201 = {
+    data: ErrorTrackingRelease
+    status: 201
+}
+
+export type environmentsErrorTrackingReleasesCreateResponseSuccess =
+    environmentsErrorTrackingReleasesCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingReleasesCreateResponse = environmentsErrorTrackingReleasesCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingReleasesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/`
+}
+
+export const environmentsErrorTrackingReleasesCreate = async (
+    projectId: string,
+    errorTrackingRelease: NonReadonly<ErrorTrackingRelease>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingReleasesCreateResponse> => {
+    return apiMutator<environmentsErrorTrackingReleasesCreateResponse>(
+        getEnvironmentsErrorTrackingReleasesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingRelease),
+        }
+    )
+}
+
+export type environmentsErrorTrackingReleasesRetrieveResponse200 = {
+    data: ErrorTrackingRelease
+    status: 200
+}
+
+export type environmentsErrorTrackingReleasesRetrieveResponseSuccess =
+    environmentsErrorTrackingReleasesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingReleasesRetrieveResponse = environmentsErrorTrackingReleasesRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingReleasesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const environmentsErrorTrackingReleasesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingReleasesRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingReleasesRetrieveResponse>(
+        getEnvironmentsErrorTrackingReleasesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingReleasesUpdateResponse200 = {
+    data: ErrorTrackingRelease
+    status: 200
+}
+
+export type environmentsErrorTrackingReleasesUpdateResponseSuccess =
+    environmentsErrorTrackingReleasesUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingReleasesUpdateResponse = environmentsErrorTrackingReleasesUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingReleasesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const environmentsErrorTrackingReleasesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingRelease: NonReadonly<ErrorTrackingRelease>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingReleasesUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingReleasesUpdateResponse>(
+        getEnvironmentsErrorTrackingReleasesUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingRelease),
+        }
+    )
+}
+
+export type environmentsErrorTrackingReleasesPartialUpdateResponse200 = {
+    data: ErrorTrackingRelease
+    status: 200
+}
+
+export type environmentsErrorTrackingReleasesPartialUpdateResponseSuccess =
+    environmentsErrorTrackingReleasesPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingReleasesPartialUpdateResponse =
+    environmentsErrorTrackingReleasesPartialUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const environmentsErrorTrackingReleasesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingRelease: NonReadonly<PatchedErrorTrackingRelease>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingReleasesPartialUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingReleasesPartialUpdateResponse>(
+        getEnvironmentsErrorTrackingReleasesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingRelease),
+        }
+    )
+}
+
+export type environmentsErrorTrackingReleasesDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsErrorTrackingReleasesDestroyResponseSuccess =
+    environmentsErrorTrackingReleasesDestroyResponse204 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingReleasesDestroyResponse = environmentsErrorTrackingReleasesDestroyResponseSuccess
+
+export const getEnvironmentsErrorTrackingReleasesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const environmentsErrorTrackingReleasesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingReleasesDestroyResponse> => {
+    return apiMutator<environmentsErrorTrackingReleasesDestroyResponse>(
+        getEnvironmentsErrorTrackingReleasesDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export type environmentsErrorTrackingReleasesHashRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingReleasesHashRetrieveResponseSuccess =
+    environmentsErrorTrackingReleasesHashRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingReleasesHashRetrieveResponse =
+    environmentsErrorTrackingReleasesHashRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingReleasesHashRetrieveUrl = (projectId: string, hashId: string) => {
+    return `/api/environments/${projectId}/error_tracking/releases/hash/${hashId}/`
+}
+
+export const environmentsErrorTrackingReleasesHashRetrieve = async (
+    projectId: string,
+    hashId: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingReleasesHashRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingReleasesHashRetrieveResponse>(
+        getEnvironmentsErrorTrackingReleasesHashRetrieveUrl(projectId, hashId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingStackFramesListResponse200 = {
+    data: PaginatedErrorTrackingStackFrameList
+    status: 200
+}
+
+export type environmentsErrorTrackingStackFramesListResponseSuccess =
+    environmentsErrorTrackingStackFramesListResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingStackFramesListResponse = environmentsErrorTrackingStackFramesListResponseSuccess
+
+export const getEnvironmentsErrorTrackingStackFramesListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingStackFramesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/stack_frames/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/stack_frames/`
+}
+
+export const environmentsErrorTrackingStackFramesList = async (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingStackFramesListParams,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingStackFramesListResponse> => {
+    return apiMutator<environmentsErrorTrackingStackFramesListResponse>(
+        getEnvironmentsErrorTrackingStackFramesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingStackFramesRetrieveResponse200 = {
+    data: ErrorTrackingStackFrame
+    status: 200
+}
+
+export type environmentsErrorTrackingStackFramesRetrieveResponseSuccess =
+    environmentsErrorTrackingStackFramesRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingStackFramesRetrieveResponse =
+    environmentsErrorTrackingStackFramesRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingStackFramesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/stack_frames/${id}/`
+}
+
+export const environmentsErrorTrackingStackFramesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingStackFramesRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingStackFramesRetrieveResponse>(
+        getEnvironmentsErrorTrackingStackFramesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export type environmentsErrorTrackingStackFramesDestroyResponse405 = {
+    data: void
+    status: 405
+}
+export type environmentsErrorTrackingStackFramesDestroyResponseError =
+    environmentsErrorTrackingStackFramesDestroyResponse405 & {
+        headers: Headers
+    }
+
+export type environmentsErrorTrackingStackFramesDestroyResponse =
+    environmentsErrorTrackingStackFramesDestroyResponseError
+
+export const getEnvironmentsErrorTrackingStackFramesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/stack_frames/${id}/`
+}
+
+export const environmentsErrorTrackingStackFramesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingStackFramesDestroyResponse> => {
+    return apiMutator<environmentsErrorTrackingStackFramesDestroyResponse>(
+        getEnvironmentsErrorTrackingStackFramesDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export type environmentsErrorTrackingStackFramesBatchGetCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingStackFramesBatchGetCreateResponseSuccess =
+    environmentsErrorTrackingStackFramesBatchGetCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingStackFramesBatchGetCreateResponse =
+    environmentsErrorTrackingStackFramesBatchGetCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingStackFramesBatchGetCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/stack_frames/batch_get/`
+}
+
+export const environmentsErrorTrackingStackFramesBatchGetCreate = async (
+    projectId: string,
+    errorTrackingStackFrame: NonReadonly<ErrorTrackingStackFrame>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingStackFramesBatchGetCreateResponse> => {
+    return apiMutator<environmentsErrorTrackingStackFramesBatchGetCreateResponse>(
+        getEnvironmentsErrorTrackingStackFramesBatchGetCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingStackFrame),
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsListResponse200 = {
+    data: PaginatedErrorTrackingSymbolSetList
+    status: 200
+}
+
+export type environmentsErrorTrackingSymbolSetsListResponseSuccess =
+    environmentsErrorTrackingSymbolSetsListResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsListResponse = environmentsErrorTrackingSymbolSetsListResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsListUrl = (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingSymbolSetsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/error_tracking/symbol_sets/?${stringifiedParams}`
+        : `/api/environments/${projectId}/error_tracking/symbol_sets/`
+}
+
+export const environmentsErrorTrackingSymbolSetsList = async (
+    projectId: string,
+    params?: EnvironmentsErrorTrackingSymbolSetsListParams,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsListResponse> => {
+    return apiMutator<environmentsErrorTrackingSymbolSetsListResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsCreateResponse201 = {
+    data: ErrorTrackingSymbolSet
+    status: 201
+}
+
+export type environmentsErrorTrackingSymbolSetsCreateResponseSuccess =
+    environmentsErrorTrackingSymbolSetsCreateResponse201 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsCreateResponse = environmentsErrorTrackingSymbolSetsCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/`
+}
+
+export const environmentsErrorTrackingSymbolSetsCreate = async (
+    projectId: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsCreateResponse> => {
+    const formData = new FormData()
+    formData.append(`ref`, errorTrackingSymbolSet.ref)
+    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    }
+    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    }
+    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    }
+
+    return apiMutator<environmentsErrorTrackingSymbolSetsCreateResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            body: formData,
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsRetrieveResponse200 = {
+    data: ErrorTrackingSymbolSet
+    status: 200
+}
+
+export type environmentsErrorTrackingSymbolSetsRetrieveResponseSuccess =
+    environmentsErrorTrackingSymbolSetsRetrieveResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsRetrieveResponse =
+    environmentsErrorTrackingSymbolSetsRetrieveResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const environmentsErrorTrackingSymbolSetsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsRetrieveResponse> => {
+    return apiMutator<environmentsErrorTrackingSymbolSetsRetrieveResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsUpdateResponse200 = {
+    data: ErrorTrackingSymbolSet
+    status: 200
+}
+
+export type environmentsErrorTrackingSymbolSetsUpdateResponseSuccess =
+    environmentsErrorTrackingSymbolSetsUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsUpdateResponse = environmentsErrorTrackingSymbolSetsUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const environmentsErrorTrackingSymbolSetsUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsUpdateResponse> => {
+    const formData = new FormData()
+    formData.append(`ref`, errorTrackingSymbolSet.ref)
+    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    }
+    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    }
+    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    }
+
+    return apiMutator<environmentsErrorTrackingSymbolSetsUpdateResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            body: formData,
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsPartialUpdateResponse200 = {
+    data: ErrorTrackingSymbolSet
+    status: 200
+}
+
+export type environmentsErrorTrackingSymbolSetsPartialUpdateResponseSuccess =
+    environmentsErrorTrackingSymbolSetsPartialUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsPartialUpdateResponse =
+    environmentsErrorTrackingSymbolSetsPartialUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const environmentsErrorTrackingSymbolSetsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingSymbolSet: NonReadonly<PatchedErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsPartialUpdateResponse> => {
+    const formData = new FormData()
+    if (patchedErrorTrackingSymbolSet.ref !== undefined) {
+        formData.append(`ref`, patchedErrorTrackingSymbolSet.ref)
+    }
+    if (patchedErrorTrackingSymbolSet.last_used !== undefined && patchedErrorTrackingSymbolSet.last_used !== null) {
+        formData.append(`last_used`, patchedErrorTrackingSymbolSet.last_used)
+    }
+    if (patchedErrorTrackingSymbolSet.storage_ptr !== undefined && patchedErrorTrackingSymbolSet.storage_ptr !== null) {
+        formData.append(`storage_ptr`, patchedErrorTrackingSymbolSet.storage_ptr)
+    }
+    if (
+        patchedErrorTrackingSymbolSet.failure_reason !== undefined &&
+        patchedErrorTrackingSymbolSet.failure_reason !== null
+    ) {
+        formData.append(`failure_reason`, patchedErrorTrackingSymbolSet.failure_reason)
+    }
+
+    return apiMutator<environmentsErrorTrackingSymbolSetsPartialUpdateResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            body: formData,
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type environmentsErrorTrackingSymbolSetsDestroyResponseSuccess =
+    environmentsErrorTrackingSymbolSetsDestroyResponse204 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsDestroyResponse =
+    environmentsErrorTrackingSymbolSetsDestroyResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const environmentsErrorTrackingSymbolSetsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsDestroyResponse> => {
+    return apiMutator<environmentsErrorTrackingSymbolSetsDestroyResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsFinishUploadUpdateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingSymbolSetsFinishUploadUpdateResponseSuccess =
+    environmentsErrorTrackingSymbolSetsFinishUploadUpdateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsFinishUploadUpdateResponse =
+    environmentsErrorTrackingSymbolSetsFinishUploadUpdateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/${id}/finish_upload/`
+}
+
+export const environmentsErrorTrackingSymbolSetsFinishUploadUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsFinishUploadUpdateResponse> => {
+    return apiMutator<environmentsErrorTrackingSymbolSetsFinishUploadUpdateResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsFinishUploadUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSet),
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsBulkFinishUploadCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingSymbolSetsBulkFinishUploadCreateResponseSuccess =
+    environmentsErrorTrackingSymbolSetsBulkFinishUploadCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsBulkFinishUploadCreateResponse =
+    environmentsErrorTrackingSymbolSetsBulkFinishUploadCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/bulk_finish_upload/`
+}
+
+export const environmentsErrorTrackingSymbolSetsBulkFinishUploadCreate = async (
+    projectId: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsBulkFinishUploadCreateResponse> => {
+    return apiMutator<environmentsErrorTrackingSymbolSetsBulkFinishUploadCreateResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsBulkFinishUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSet),
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsBulkStartUploadCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingSymbolSetsBulkStartUploadCreateResponseSuccess =
+    environmentsErrorTrackingSymbolSetsBulkStartUploadCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsBulkStartUploadCreateResponse =
+    environmentsErrorTrackingSymbolSetsBulkStartUploadCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsBulkStartUploadCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/bulk_start_upload/`
+}
+
+export const environmentsErrorTrackingSymbolSetsBulkStartUploadCreate = async (
+    projectId: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsBulkStartUploadCreateResponse> => {
+    return apiMutator<environmentsErrorTrackingSymbolSetsBulkStartUploadCreateResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSet),
+        }
+    )
+}
+
+export type environmentsErrorTrackingSymbolSetsStartUploadCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type environmentsErrorTrackingSymbolSetsStartUploadCreateResponseSuccess =
+    environmentsErrorTrackingSymbolSetsStartUploadCreateResponse200 & {
+        headers: Headers
+    }
+export type environmentsErrorTrackingSymbolSetsStartUploadCreateResponse =
+    environmentsErrorTrackingSymbolSetsStartUploadCreateResponseSuccess
+
+export const getEnvironmentsErrorTrackingSymbolSetsStartUploadCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/start_upload/`
+}
+
+export const environmentsErrorTrackingSymbolSetsStartUploadCreate = async (
+    projectId: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<environmentsErrorTrackingSymbolSetsStartUploadCreateResponse> => {
+    const formData = new FormData()
+    formData.append(`ref`, errorTrackingSymbolSet.ref)
+    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    }
+    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    }
+    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    }
+
+    return apiMutator<environmentsErrorTrackingSymbolSetsStartUploadCreateResponse>(
+        getEnvironmentsErrorTrackingSymbolSetsStartUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            body: formData,
+        }
+    )
+}
+
+export type errorTrackingReleasesListResponse200 = {
+    data: PaginatedErrorTrackingReleaseList
+    status: 200
+}
+
+export type errorTrackingReleasesListResponseSuccess = errorTrackingReleasesListResponse200 & {
+    headers: Headers
+}
+export type errorTrackingReleasesListResponse = errorTrackingReleasesListResponseSuccess
+
+export const getErrorTrackingReleasesListUrl = (projectId: string, params?: ErrorTrackingReleasesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/releases/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/releases/`
+}
+
+export const errorTrackingReleasesList = async (
+    projectId: string,
+    params?: ErrorTrackingReleasesListParams,
+    options?: RequestInit
+): Promise<errorTrackingReleasesListResponse> => {
+    return apiMutator<errorTrackingReleasesListResponse>(getErrorTrackingReleasesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type errorTrackingReleasesCreateResponse201 = {
+    data: ErrorTrackingRelease
+    status: 201
+}
+
+export type errorTrackingReleasesCreateResponseSuccess = errorTrackingReleasesCreateResponse201 & {
+    headers: Headers
+}
+export type errorTrackingReleasesCreateResponse = errorTrackingReleasesCreateResponseSuccess
+
+export const getErrorTrackingReleasesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/releases/`
+}
+
+export const errorTrackingReleasesCreate = async (
+    projectId: string,
+    errorTrackingRelease: NonReadonly<ErrorTrackingRelease>,
+    options?: RequestInit
+): Promise<errorTrackingReleasesCreateResponse> => {
+    return apiMutator<errorTrackingReleasesCreateResponse>(getErrorTrackingReleasesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingRelease),
+    })
+}
+
+export type errorTrackingReleasesRetrieveResponse200 = {
+    data: ErrorTrackingRelease
+    status: 200
+}
+
+export type errorTrackingReleasesRetrieveResponseSuccess = errorTrackingReleasesRetrieveResponse200 & {
+    headers: Headers
+}
+export type errorTrackingReleasesRetrieveResponse = errorTrackingReleasesRetrieveResponseSuccess
+
+export const getErrorTrackingReleasesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const errorTrackingReleasesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<errorTrackingReleasesRetrieveResponse> => {
+    return apiMutator<errorTrackingReleasesRetrieveResponse>(getErrorTrackingReleasesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type errorTrackingReleasesUpdateResponse200 = {
+    data: ErrorTrackingRelease
+    status: 200
+}
+
+export type errorTrackingReleasesUpdateResponseSuccess = errorTrackingReleasesUpdateResponse200 & {
+    headers: Headers
+}
+export type errorTrackingReleasesUpdateResponse = errorTrackingReleasesUpdateResponseSuccess
+
+export const getErrorTrackingReleasesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const errorTrackingReleasesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingRelease: NonReadonly<ErrorTrackingRelease>,
+    options?: RequestInit
+): Promise<errorTrackingReleasesUpdateResponse> => {
+    return apiMutator<errorTrackingReleasesUpdateResponse>(getErrorTrackingReleasesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingRelease),
+    })
+}
+
+export type errorTrackingReleasesPartialUpdateResponse200 = {
+    data: ErrorTrackingRelease
+    status: 200
+}
+
+export type errorTrackingReleasesPartialUpdateResponseSuccess = errorTrackingReleasesPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type errorTrackingReleasesPartialUpdateResponse = errorTrackingReleasesPartialUpdateResponseSuccess
+
+export const getErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const errorTrackingReleasesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingRelease: NonReadonly<PatchedErrorTrackingRelease>,
+    options?: RequestInit
+): Promise<errorTrackingReleasesPartialUpdateResponse> => {
+    return apiMutator<errorTrackingReleasesPartialUpdateResponse>(
+        getErrorTrackingReleasesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedErrorTrackingRelease),
+        }
+    )
+}
+
+export type errorTrackingReleasesDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type errorTrackingReleasesDestroyResponseSuccess = errorTrackingReleasesDestroyResponse204 & {
+    headers: Headers
+}
+export type errorTrackingReleasesDestroyResponse = errorTrackingReleasesDestroyResponseSuccess
+
+export const getErrorTrackingReleasesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/releases/${id}/`
+}
+
+export const errorTrackingReleasesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<errorTrackingReleasesDestroyResponse> => {
+    return apiMutator<errorTrackingReleasesDestroyResponse>(getErrorTrackingReleasesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export type errorTrackingReleasesHashRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type errorTrackingReleasesHashRetrieveResponseSuccess = errorTrackingReleasesHashRetrieveResponse200 & {
+    headers: Headers
+}
+export type errorTrackingReleasesHashRetrieveResponse = errorTrackingReleasesHashRetrieveResponseSuccess
+
+export const getErrorTrackingReleasesHashRetrieveUrl = (projectId: string, hashId: string) => {
+    return `/api/projects/${projectId}/error_tracking/releases/hash/${hashId}/`
+}
+
+export const errorTrackingReleasesHashRetrieve = async (
+    projectId: string,
+    hashId: string,
+    options?: RequestInit
+): Promise<errorTrackingReleasesHashRetrieveResponse> => {
+    return apiMutator<errorTrackingReleasesHashRetrieveResponse>(
+        getErrorTrackingReleasesHashRetrieveUrl(projectId, hashId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export type errorTrackingSymbolSetsListResponse200 = {
+    data: PaginatedErrorTrackingSymbolSetList
+    status: 200
+}
+
+export type errorTrackingSymbolSetsListResponseSuccess = errorTrackingSymbolSetsListResponse200 & {
+    headers: Headers
+}
+export type errorTrackingSymbolSetsListResponse = errorTrackingSymbolSetsListResponseSuccess
+
+export const getErrorTrackingSymbolSetsListUrl = (projectId: string, params?: ErrorTrackingSymbolSetsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/symbol_sets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/symbol_sets/`
+}
+
+export const errorTrackingSymbolSetsList = async (
+    projectId: string,
+    params?: ErrorTrackingSymbolSetsListParams,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsListResponse> => {
+    return apiMutator<errorTrackingSymbolSetsListResponse>(getErrorTrackingSymbolSetsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type errorTrackingSymbolSetsCreateResponse201 = {
+    data: ErrorTrackingSymbolSet
+    status: 201
+}
+
+export type errorTrackingSymbolSetsCreateResponseSuccess = errorTrackingSymbolSetsCreateResponse201 & {
+    headers: Headers
+}
+export type errorTrackingSymbolSetsCreateResponse = errorTrackingSymbolSetsCreateResponseSuccess
+
+export const getErrorTrackingSymbolSetsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/`
+}
+
+export const errorTrackingSymbolSetsCreate = async (
+    projectId: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsCreateResponse> => {
+    const formData = new FormData()
+    formData.append(`ref`, errorTrackingSymbolSet.ref)
+    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    }
+    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    }
+    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    }
+
+    return apiMutator<errorTrackingSymbolSetsCreateResponse>(getErrorTrackingSymbolSetsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export type errorTrackingSymbolSetsRetrieveResponse200 = {
+    data: ErrorTrackingSymbolSet
+    status: 200
+}
+
+export type errorTrackingSymbolSetsRetrieveResponseSuccess = errorTrackingSymbolSetsRetrieveResponse200 & {
+    headers: Headers
+}
+export type errorTrackingSymbolSetsRetrieveResponse = errorTrackingSymbolSetsRetrieveResponseSuccess
+
+export const getErrorTrackingSymbolSetsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const errorTrackingSymbolSetsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsRetrieveResponse> => {
+    return apiMutator<errorTrackingSymbolSetsRetrieveResponse>(getErrorTrackingSymbolSetsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export type errorTrackingSymbolSetsUpdateResponse200 = {
+    data: ErrorTrackingSymbolSet
+    status: 200
+}
+
+export type errorTrackingSymbolSetsUpdateResponseSuccess = errorTrackingSymbolSetsUpdateResponse200 & {
+    headers: Headers
+}
+export type errorTrackingSymbolSetsUpdateResponse = errorTrackingSymbolSetsUpdateResponseSuccess
+
+export const getErrorTrackingSymbolSetsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const errorTrackingSymbolSetsUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsUpdateResponse> => {
+    const formData = new FormData()
+    formData.append(`ref`, errorTrackingSymbolSet.ref)
+    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    }
+    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    }
+    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    }
+
+    return apiMutator<errorTrackingSymbolSetsUpdateResponse>(getErrorTrackingSymbolSetsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        body: formData,
+    })
+}
+
+export type errorTrackingSymbolSetsPartialUpdateResponse200 = {
+    data: ErrorTrackingSymbolSet
+    status: 200
+}
+
+export type errorTrackingSymbolSetsPartialUpdateResponseSuccess = errorTrackingSymbolSetsPartialUpdateResponse200 & {
+    headers: Headers
+}
+export type errorTrackingSymbolSetsPartialUpdateResponse = errorTrackingSymbolSetsPartialUpdateResponseSuccess
+
+export const getErrorTrackingSymbolSetsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const errorTrackingSymbolSetsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingSymbolSet: NonReadonly<PatchedErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsPartialUpdateResponse> => {
+    const formData = new FormData()
+    if (patchedErrorTrackingSymbolSet.ref !== undefined) {
+        formData.append(`ref`, patchedErrorTrackingSymbolSet.ref)
+    }
+    if (patchedErrorTrackingSymbolSet.last_used !== undefined && patchedErrorTrackingSymbolSet.last_used !== null) {
+        formData.append(`last_used`, patchedErrorTrackingSymbolSet.last_used)
+    }
+    if (patchedErrorTrackingSymbolSet.storage_ptr !== undefined && patchedErrorTrackingSymbolSet.storage_ptr !== null) {
+        formData.append(`storage_ptr`, patchedErrorTrackingSymbolSet.storage_ptr)
+    }
+    if (
+        patchedErrorTrackingSymbolSet.failure_reason !== undefined &&
+        patchedErrorTrackingSymbolSet.failure_reason !== null
+    ) {
+        formData.append(`failure_reason`, patchedErrorTrackingSymbolSet.failure_reason)
+    }
+
+    return apiMutator<errorTrackingSymbolSetsPartialUpdateResponse>(
+        getErrorTrackingSymbolSetsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            body: formData,
+        }
+    )
+}
+
+export type errorTrackingSymbolSetsDestroyResponse204 = {
+    data: void
+    status: 204
+}
+
+export type errorTrackingSymbolSetsDestroyResponseSuccess = errorTrackingSymbolSetsDestroyResponse204 & {
+    headers: Headers
+}
+export type errorTrackingSymbolSetsDestroyResponse = errorTrackingSymbolSetsDestroyResponseSuccess
+
+export const getErrorTrackingSymbolSetsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/`
+}
+
+export const errorTrackingSymbolSetsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsDestroyResponse> => {
+    return apiMutator<errorTrackingSymbolSetsDestroyResponse>(getErrorTrackingSymbolSetsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export type errorTrackingSymbolSetsFinishUploadUpdateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type errorTrackingSymbolSetsFinishUploadUpdateResponseSuccess =
+    errorTrackingSymbolSetsFinishUploadUpdateResponse200 & {
+        headers: Headers
+    }
+export type errorTrackingSymbolSetsFinishUploadUpdateResponse = errorTrackingSymbolSetsFinishUploadUpdateResponseSuccess
+
+export const getErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/${id}/finish_upload/`
+}
+
+export const errorTrackingSymbolSetsFinishUploadUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsFinishUploadUpdateResponse> => {
+    return apiMutator<errorTrackingSymbolSetsFinishUploadUpdateResponse>(
+        getErrorTrackingSymbolSetsFinishUploadUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSet),
+        }
+    )
+}
+
+export type errorTrackingSymbolSetsBulkFinishUploadCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type errorTrackingSymbolSetsBulkFinishUploadCreateResponseSuccess =
+    errorTrackingSymbolSetsBulkFinishUploadCreateResponse200 & {
+        headers: Headers
+    }
+export type errorTrackingSymbolSetsBulkFinishUploadCreateResponse =
+    errorTrackingSymbolSetsBulkFinishUploadCreateResponseSuccess
+
+export const getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_finish_upload/`
+}
+
+export const errorTrackingSymbolSetsBulkFinishUploadCreate = async (
+    projectId: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsBulkFinishUploadCreateResponse> => {
+    return apiMutator<errorTrackingSymbolSetsBulkFinishUploadCreateResponse>(
+        getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSet),
+        }
+    )
+}
+
+export type errorTrackingSymbolSetsBulkStartUploadCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type errorTrackingSymbolSetsBulkStartUploadCreateResponseSuccess =
+    errorTrackingSymbolSetsBulkStartUploadCreateResponse200 & {
+        headers: Headers
+    }
+export type errorTrackingSymbolSetsBulkStartUploadCreateResponse =
+    errorTrackingSymbolSetsBulkStartUploadCreateResponseSuccess
+
+export const getErrorTrackingSymbolSetsBulkStartUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_start_upload/`
+}
+
+export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
+    projectId: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsBulkStartUploadCreateResponse> => {
+    return apiMutator<errorTrackingSymbolSetsBulkStartUploadCreateResponse>(
+        getErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSet),
+        }
+    )
+}
+
+export type errorTrackingSymbolSetsStartUploadCreateResponse200 = {
+    data: void
+    status: 200
+}
+
+export type errorTrackingSymbolSetsStartUploadCreateResponseSuccess =
+    errorTrackingSymbolSetsStartUploadCreateResponse200 & {
+        headers: Headers
+    }
+export type errorTrackingSymbolSetsStartUploadCreateResponse = errorTrackingSymbolSetsStartUploadCreateResponseSuccess
+
+export const getErrorTrackingSymbolSetsStartUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/start_upload/`
+}
+
+export const errorTrackingSymbolSetsStartUploadCreate = async (
+    projectId: string,
+    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    options?: RequestInit
+): Promise<errorTrackingSymbolSetsStartUploadCreateResponse> => {
+    const formData = new FormData()
+    formData.append(`ref`, errorTrackingSymbolSet.ref)
+    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    }
+    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    }
+    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    }
+
+    return apiMutator<errorTrackingSymbolSetsStartUploadCreateResponse>(
+        getErrorTrackingSymbolSetsStartUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            body: formData,
         }
     )
 }

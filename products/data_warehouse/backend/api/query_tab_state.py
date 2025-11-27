@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -22,6 +23,7 @@ class QueryTabStateSerializer(serializers.ModelSerializer):
         return query_tab_state
 
 
+@extend_schema(tags=["data_warehouse"])
 class QueryTabStateViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Query Tab State.

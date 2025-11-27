@@ -3,6 +3,7 @@ from typing import Any
 from django.db.models import QuerySet
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -52,6 +53,7 @@ class LinkSerializer(serializers.ModelSerializer):
         return link
 
 
+@extend_schema(tags=["links"])
 class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update, and delete links.
