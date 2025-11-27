@@ -589,6 +589,14 @@ export const logsLogic = kea<logsLogicType>([
                 return newest
             },
         ],
+        totalLogsMatchingFilters: [
+            (s) => [s.sparkline],
+            (sparkline): number => sparkline.reduce((sum, item) => sum + item.count, 0),
+        ],
+        logsRemainingToLoad: [
+            (s) => [s.totalLogsMatchingFilters, s.logs],
+            (totalLogsMatchingFilters, logs): number => totalLogsMatchingFilters - logs.length,
+        ],
     })),
 
     listeners(({ values, actions }) => ({
