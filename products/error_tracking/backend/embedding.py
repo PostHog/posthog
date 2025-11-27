@@ -2,10 +2,12 @@ from django.conf import settings
 
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
-from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 
 DOCUMENT_EMBEDDINGS = "posthog_document_embeddings"
+SHARDED_DOCUMENT_EMBEDDINGS = f"sharded_{DOCUMENT_EMBEDDINGS}"
+DISTRIBUTED_DOCUMENT_EMBEDDINGS = f"distributed_{DOCUMENT_EMBEDDINGS}"
 DOCUMENT_EMBEDDING_WRITABLE = f"writable_{DOCUMENT_EMBEDDINGS}"
 KAFKA_DOCUMENT_EMBEDDINGS = f"kafka_{DOCUMENT_EMBEDDINGS}"
 DOCUMENT_EMBEDDINGS_MV = f"{DOCUMENT_EMBEDDINGS}_mv"
@@ -29,10 +31,12 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
 
 def DOCUMENT_EMBEDDINGS_TABLE_ENGINE():
-    return ReplacingMergeTree(DOCUMENT_EMBEDDINGS, ver="inserted_at")
+    return ReplacingMergeTree(
+        SHARDED_DOCUMENT_EMBEDDINGS, ver="inserted_at", replication_scheme=ReplicationScheme.SHARDED
+    )
 
 
-def DOCUMENT_EMBEDDINGS_TABLE_SQL():
+def DOCUMENT_EMBEDDINGS_DATA_TABLE_SQL():
     return (
         DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL
         + """
@@ -44,13 +48,25 @@ def DOCUMENT_EMBEDDINGS_TABLE_SQL():
     SETTINGS index_granularity = 512
     """
     ).format(
-        table_name=DOCUMENT_EMBEDDINGS,
+        table_name=SHARDED_DOCUMENT_EMBEDDINGS,
         engine=DOCUMENT_EMBEDDINGS_TABLE_ENGINE(),
         default_clause=" DEFAULT ''",
         extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
-    , {index_by_kafka_timestamp(DOCUMENT_EMBEDDINGS)}
+    , {index_by_kafka_timestamp(SHARDED_DOCUMENT_EMBEDDINGS)}
     """,
+    )
+
+
+def DISTRIBUTED_DOCUMENT_EMBEDDINGS_TABLE_SQL():
+    return DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL.format(
+        table_name=DISTRIBUTED_DOCUMENT_EMBEDDINGS,
+        engine=Distributed(
+            data_table=SHARDED_DOCUMENT_EMBEDDINGS,
+            sharding_key="cityHash64(document_id)",
+        ),
+        default_clause=" DEFAULT ''",
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     )
 
 
@@ -58,8 +74,8 @@ def DOCUMENT_EMBEDDINGS_WRITABLE_TABLE_SQL():
     return DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=DOCUMENT_EMBEDDING_WRITABLE,
         engine=Distributed(
-            data_table=DOCUMENT_EMBEDDINGS,
-            cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
+            data_table=SHARDED_DOCUMENT_EMBEDDINGS,
+            sharding_key="cityHash64(document_id)",
         ),
         default_clause=" DEFAULT ''",
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
@@ -105,4 +121,8 @@ FROM {database}.{kafka_table}
 
 
 def TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {DOCUMENT_EMBEDDINGS} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    return f"TRUNCATE TABLE IF EXISTS {SHARDED_DOCUMENT_EMBEDDINGS} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
+
+# Backwards compatibility alias for old migrations (0155, 0174)
+DOCUMENT_EMBEDDINGS_TABLE_SQL = DOCUMENT_EMBEDDINGS_DATA_TABLE_SQL
