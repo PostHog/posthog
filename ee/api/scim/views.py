@@ -21,6 +21,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.user import PostHogSCIMUser
+from ee.api.scim.utils import detect_identity_provider
 from ee.models.rbac.role import Role
 
 SCIM_USER_ATTR_MAP = {
@@ -143,7 +144,8 @@ class SCIMUsersView(SCIMBaseView):
     def post(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
         try:
-            scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain)
+            identity_provider = detect_identity_provider(request)
+            scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain, identity_provider)
             return Response(scim_user.to_dict(), status=status.HTTP_201_CREATED)
         except ValueError as e:
             capture_exception(
