@@ -98,7 +98,7 @@ jobs:
             - name: Check if ANTLR definitions are up to date
               run: |
                   cd ..
-                  sudo apt-get install default-jre
+                  sudo apt-get update && sudo apt-get install default-jre
                   mkdir antlr
                   cd antlr
                   curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
