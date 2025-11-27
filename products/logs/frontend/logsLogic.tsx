@@ -79,8 +79,8 @@ export const logsLogic = kea<logsLogicType>([
             if (params.timestampFormat && params.timestampFormat !== values.timestampFormat) {
                 actions.setTimestampFormat(params.timestampFormat)
             }
-            if (params.logsPageSize !== undefined && parseInt(params.logsPageSize) !== values.logsPageSize) {
-                actions.setLogsPageSize(parseInt(params.logsPageSize) || DEFAULT_LOGS_PAGE_SIZE)
+            if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
+                actions.setLogsPageSize(+params.logsPageSize)
             }
         }
         return {
