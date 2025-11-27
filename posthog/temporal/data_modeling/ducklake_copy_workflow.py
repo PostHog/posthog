@@ -1,7 +1,10 @@
 import re
 import json
+import uuid
+import hashlib
 import datetime as dt
 import dataclasses
+from typing import Any
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -10,6 +13,7 @@ import duckdb
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.ducklake.common import (
     attach_catalog,
@@ -50,6 +54,9 @@ class DuckLakeCopyModelMetadata:
     schema_name: str
     table_name: str
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
+    partition_column: str | None = None
+    key_columns: list[str] = dataclasses.field(default_factory=list)
+    non_nullable_columns: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -91,6 +98,10 @@ async def prepare_data_modeling_ducklake_metadata_activity(
         )
 
         normalized_name = saved_query.normalized_name or saved_query.name
+        saved_query_columns = saved_query.columns or await database_sync_to_async(saved_query.get_columns)()
+        partition_column = _detect_partition_column(saved_query_columns)
+        key_columns = _detect_key_columns(saved_query_columns)
+        non_nullable_columns = _detect_non_nullable_columns(saved_query_columns)
         metadata.append(
             DuckLakeCopyModelMetadata(
                 model_label=model.model_label,
@@ -105,6 +116,9 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 ),
                 table_name=_sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
+                partition_column=partition_column,
+                key_columns=key_columns,
+                non_nullable_columns=non_nullable_columns,
             )
         )
 
@@ -162,8 +176,9 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
         configure_connection(conn, config, install_extension=True)
         _attach_ducklake_catalog(conn, config, alias=alias)
 
+        ducklake_table = f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}"
         format_values = {
-            "ducklake_table": f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}",
+            "ducklake_table": ducklake_table,
             "ducklake_schema": f"{alias}.{inputs.model.schema_name}",
             "ducklake_alias": alias,
             "schema_name": inputs.model.schema_name,
@@ -255,8 +270,27 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
                     sql=rendered_sql,
                 )
             )
+
+        schema_result = _run_schema_verification(conn, ducklake_table, inputs)
+        if schema_result:
+            results.append(schema_result)
+
+        partition_result = _run_partition_verification(conn, ducklake_table, inputs)
+        if partition_result:
+            results.append(partition_result)
+
+        results.extend(_run_key_cardinality_verifications(conn, ducklake_table, inputs))
+        results.extend(_run_non_nullable_verifications(conn, ducklake_table, inputs))
     finally:
         conn.close()
+
+    failed = [result for result in results if not result.passed]
+    if failed:
+        logger.warning(
+            "DuckLake verification checks failed",
+            model_label=inputs.model.model_label,
+            failures=[dataclasses.asdict(result) for result in failed],
+        )
 
     return results
 
@@ -321,12 +355,16 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
 
                 failed_checks = [result for result in verification_results if not result.passed]
                 if failed_checks:
+                    failure_payload = [dataclasses.asdict(result) for result in failed_checks]
                     workflow.logger.error(
                         "DuckLake verification failed",
                         model_label=target.model_label,
-                        failures=[dataclasses.asdict(result) for result in failed_checks],
+                        failures=failure_payload,
                     )
-                    raise RuntimeError("DuckLake copy verification failed")
+                    raise ApplicationError(
+                        f"DuckLake copy verification failed: {failure_payload}",
+                        non_retryable=True,
+                    )
         except Exception:
             get_ducklake_copy_data_modeling_finished_metric(status="failed").add(1)
             raise
@@ -458,6 +496,268 @@ def _build_ducklake_source_glob(file_uris: list[str]) -> str:
         normalized_base = f"{normalized_base}/{relative_prefix}"
 
     return f"{normalized_base.rstrip('/')}/**/*.parquet"
+
+
+def _detect_partition_column(columns: dict[str, Any]) -> str | None:
+    for name, metadata in columns.items():
+        column_type = _extract_column_type(metadata)
+        lowered = column_type.lower()
+        if "date" in lowered:
+            return name
+    return None
+
+
+def _detect_key_columns(columns: dict[str, Any]) -> list[str]:
+    special_names = {"distinct_id", "person_id", "subscription_id"}
+    detected: list[str] = []
+    for name in columns.keys():
+        lowered = name.lower()
+        if lowered.endswith("_id") or lowered in special_names:
+            detected.append(name)
+    return detected
+
+
+def _detect_non_nullable_columns(columns: dict[str, Any]) -> list[str]:
+    result: list[str] = []
+    for name, metadata in columns.items():
+        column_type = _extract_column_type(metadata)
+        if not column_type.lower().startswith("nullable("):
+            result.append(name)
+    return result
+
+
+def _extract_column_type(metadata: Any) -> str:
+    if isinstance(metadata, dict):
+        value = metadata.get("type")
+        if isinstance(value, str):
+            return value
+    if isinstance(metadata, str):
+        return metadata
+    return ""
+
+
+def _run_schema_verification(
+    conn: duckdb.DuckDBPyConnection, ducklake_table: str, inputs: DuckLakeCopyActivityInputs
+) -> DuckLakeCopyVerificationResult | None:
+    view_name = _sanitize_temp_view_name(inputs.model.model_label)
+    source_table = ducklake_escape(inputs.model.source_table_uri)
+    try:
+        conn.execute(
+            f"CREATE OR REPLACE TEMP VIEW {view_name} AS SELECT * FROM delta_scan('{source_table}') LIMIT 0",
+        )
+        source_schema = _fetch_schema(conn, view_name)
+        ducklake_schema = _fetch_schema(conn, ducklake_table)
+    except Exception as exc:
+        return DuckLakeCopyVerificationResult(
+            name="model.schema_hash",
+            passed=False,
+            description="Compare schema hash between Delta source and DuckLake table.",
+            error=str(exc),
+        )
+    finally:
+        try:
+            conn.execute(f"DROP VIEW IF EXISTS {view_name}")
+        except Exception:  # pragma: no cover - best effort cleanup
+            pass
+
+    source_hash = _hash_schema(source_schema)
+    ducklake_hash = _hash_schema(ducklake_schema)
+    passed = source_hash == ducklake_hash
+    return DuckLakeCopyVerificationResult(
+        name="model.schema_hash",
+        passed=passed,
+        description="Compare schema hash between Delta source and DuckLake table.",
+        expected_value=0.0,
+        observed_value=0.0 if passed else 1.0,
+        tolerance=0.0,
+        error=None if passed else f"Schema mismatch (delta={source_hash}, ducklake={ducklake_hash})",
+    )
+
+
+def _run_partition_verification(
+    conn: duckdb.DuckDBPyConnection,
+    ducklake_table: str,
+    inputs: DuckLakeCopyActivityInputs,
+) -> DuckLakeCopyVerificationResult | None:
+    partition_column = inputs.model.partition_column
+    if not partition_column:
+        return None
+
+    source_table = ducklake_escape(inputs.model.source_table_uri)
+    column_expr = _quote_identifier(partition_column)
+    sql = f"""
+        WITH source AS (
+            SELECT date_trunc('day', {column_expr}) AS bucket, count(*) AS cnt
+            FROM delta_scan('{source_table}')
+            GROUP BY 1
+        ),
+        ducklake AS (
+            SELECT date_trunc('day', {column_expr}) AS bucket, count(*) AS cnt
+            FROM {ducklake_table}
+            GROUP BY 1
+        )
+        SELECT COALESCE(source.bucket, ducklake.bucket) AS bucket,
+               COALESCE(source.cnt, 0) AS source_count,
+               COALESCE(ducklake.cnt, 0) AS ducklake_count
+        FROM source
+        FULL OUTER JOIN ducklake USING (bucket)
+        WHERE COALESCE(source.cnt, 0) != COALESCE(ducklake.cnt, 0)
+        ORDER BY bucket
+    """
+
+    try:
+        mismatches = conn.execute(sql).fetchall()
+    except Exception as exc:
+        return DuckLakeCopyVerificationResult(
+            name="model.partition_counts",
+            passed=False,
+            description="Ensure partition counts match between source and DuckLake.",
+            error=str(exc),
+        )
+
+    if mismatches:
+        return DuckLakeCopyVerificationResult(
+            name="model.partition_counts",
+            passed=False,
+            description="Ensure partition counts match between source and DuckLake.",
+            expected_value=0.0,
+            observed_value=float(len(mismatches)),
+            tolerance=0.0,
+            error=f"Partition mismatches detected: {mismatches[:5]}",
+        )
+
+    return DuckLakeCopyVerificationResult(
+        name="model.partition_counts",
+        passed=True,
+        description="Ensure partition counts match between source and DuckLake.",
+        expected_value=0.0,
+        observed_value=0.0,
+        tolerance=0.0,
+    )
+
+
+def _run_key_cardinality_verifications(
+    conn: duckdb.DuckDBPyConnection,
+    ducklake_table: str,
+    inputs: DuckLakeCopyActivityInputs,
+) -> list[DuckLakeCopyVerificationResult]:
+    results: list[DuckLakeCopyVerificationResult] = []
+    if not inputs.model.key_columns:
+        return results
+
+    source_table = ducklake_escape(inputs.model.source_table_uri)
+    for column in inputs.model.key_columns:
+        column_expr = _quote_identifier(column)
+        sql = f"""
+            SELECT
+                (SELECT COUNT(DISTINCT {column_expr}) FROM delta_scan('{source_table}')) AS source_count,
+                (SELECT COUNT(DISTINCT {column_expr}) FROM {ducklake_table}) AS ducklake_count
+        """
+        try:
+            row = conn.execute(sql).fetchone()
+        except Exception as exc:
+            results.append(
+                DuckLakeCopyVerificationResult(
+                    name=f"model.key_cardinality.{column}",
+                    passed=False,
+                    description=f"Validate key cardinality for {column}.",
+                    error=str(exc),
+                )
+            )
+            continue
+
+        source_count = float(row[0] or 0)
+        ducklake_count = float(row[1] or 0)
+        diff = abs(source_count - ducklake_count)
+        passed = diff == 0
+        results.append(
+            DuckLakeCopyVerificationResult(
+                name=f"model.key_cardinality.{column}",
+                passed=passed,
+                description=f"Validate key cardinality for {column}.",
+                expected_value=0.0,
+                observed_value=diff,
+                tolerance=0.0,
+                error=None if passed else f"source={source_count}, ducklake={ducklake_count}",
+            )
+        )
+
+    return results
+
+
+def _run_non_nullable_verifications(
+    conn: duckdb.DuckDBPyConnection,
+    ducklake_table: str,
+    inputs: DuckLakeCopyActivityInputs,
+) -> list[DuckLakeCopyVerificationResult]:
+    results: list[DuckLakeCopyVerificationResult] = []
+    if not inputs.model.non_nullable_columns:
+        return results
+
+    source_table = ducklake_escape(inputs.model.source_table_uri)
+    for column in inputs.model.non_nullable_columns:
+        column_expr = _quote_identifier(column)
+        source_sql = f"SELECT COUNT(*) FROM delta_scan('{source_table}') WHERE {column_expr} IS NULL"
+        ducklake_sql = f"SELECT COUNT(*) FROM {ducklake_table} WHERE {column_expr} IS NULL"
+        try:
+            source_row = conn.execute(source_sql).fetchone()
+            ducklake_row = conn.execute(ducklake_sql).fetchone()
+        except Exception as exc:
+            results.append(
+                DuckLakeCopyVerificationResult(
+                    name=f"model.null_ratio.{column}",
+                    passed=False,
+                    description=f"Ensure null ratio matches for {column}.",
+                    error=str(exc),
+                )
+            )
+            continue
+
+        source_nulls = float(source_row[0] or 0)
+        ducklake_nulls = float(ducklake_row[0] or 0)
+        passed = ducklake_nulls == source_nulls
+        results.append(
+            DuckLakeCopyVerificationResult(
+                name=f"model.null_ratio.{column}",
+                passed=passed,
+                description=f"Ensure null ratio matches for {column}.",
+                expected_value=source_nulls,
+                observed_value=ducklake_nulls,
+                tolerance=0.0,
+                error=None
+                if passed
+                else f"{column} null mismatch (source={int(source_nulls)}, ducklake={int(ducklake_nulls)})",
+            )
+        )
+
+    return results
+
+
+def _hash_schema(schema: list[tuple[str, str]]) -> str:
+    digest = hashlib.sha256()
+    for name, column_type in schema:
+        digest.update(name.encode("utf-8"))
+        digest.update(b":")
+        digest.update(column_type.encode("utf-8"))
+        digest.update(b"|")
+    return digest.hexdigest()
+
+
+def _fetch_schema(conn: duckdb.DuckDBPyConnection, table_name: str) -> list[tuple[str, str]]:
+    rows = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+    return [(row[1], row[2]) for row in rows]
+
+
+def _sanitize_temp_view_name(label: str) -> str:
+    candidate = _IDENTIFIER_SANITIZE_RE.sub("_", (label or "").strip())[:32]
+    if not candidate or candidate[0].isdigit():
+        candidate = f"ducklake_temp_{candidate}".strip("_")
+    return f"{candidate}_{uuid.uuid4().hex[:8]}"
+
+
+def _quote_identifier(identifier: str) -> str:
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
 
 
 def _resolve_verification_parameter(

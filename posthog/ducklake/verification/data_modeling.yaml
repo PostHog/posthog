@@ -4,7 +4,7 @@ defaults:
           description: Compare row counts between the source Delta table and the DuckLake copy.
           sql: |
               SELECT ABS(
-                  (SELECT COUNT(*) FROM read_delta(?))
+                  (SELECT COUNT(*) FROM delta_scan(?))
                   -
                   (SELECT COUNT(*) FROM {ducklake_table})
               ) AS row_difference
