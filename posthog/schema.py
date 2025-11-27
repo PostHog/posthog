@@ -2565,6 +2565,7 @@ class ProductIntentContext(StrEnum):
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
     REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
+    FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     VERCEL_INTEGRATION = "vercel_integration"
 
 
@@ -10402,6 +10403,8 @@ class NewExperimentQueryResponse(BaseModel):
     )
     baseline: ExperimentStatsBaseValidated
     breakdown_results: Optional[list[ExperimentBreakdownResult]] = None
+    clickhouse_sql: Optional[str] = None
+    hogql: Optional[str] = None
     variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
@@ -13089,6 +13092,8 @@ class CachedNewExperimentQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    clickhouse_sql: Optional[str] = None
+    hogql: Optional[str] = None
     is_cached: bool
     last_refresh: datetime
     next_allowed_client_refresh: datetime
@@ -14532,7 +14537,9 @@ class ExperimentQueryResponse(BaseModel):
             "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
         ),
     )
+    clickhouse_sql: Optional[str] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
+    hogql: Optional[str] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     metric: Optional[
@@ -15043,7 +15050,9 @@ class QueryResponseAlternative20(BaseModel):
             "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
         ),
     )
+    clickhouse_sql: Optional[str] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
+    hogql: Optional[str] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     metric: Optional[
@@ -15336,7 +15345,9 @@ class CachedExperimentQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    clickhouse_sql: Optional[str] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
+    hogql: Optional[str] = None
     insight: Optional[list[dict[str, Any]]] = None
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"

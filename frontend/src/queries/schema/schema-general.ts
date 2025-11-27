@@ -3040,6 +3040,9 @@ export interface ExperimentQueryResponse {
     // Breakdown fields
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
     breakdown_results?: ExperimentBreakdownResult[]
+
+    clickhouse_sql?: string
+    hogql?: string
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -3119,6 +3122,8 @@ export interface ExperimentBreakdownResult {
 }
 
 export interface NewExperimentQueryResponse {
+    clickhouse_sql?: string
+    hogql?: string
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
     breakdown_results?: ExperimentBreakdownResult[]
@@ -4890,6 +4895,9 @@ export enum ProductIntentContext {
 
     // Nav Panel Advertisement
     NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',
+
+    // Feature previews
+    FEATURE_PREVIEW_ENABLED = 'feature_preview_enabled',
 
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',

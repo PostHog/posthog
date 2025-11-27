@@ -7,8 +7,11 @@ import { FeatureFlagKey } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
 
@@ -22,7 +25,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
-        actions: [supportLogic, ['submitZendeskTicket']],
+        actions: [supportLogic, ['submitZendeskTicket'], teamLogic, ['addProductIntentForCrossSell']],
     })),
     actions({
         updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean, stage?: string) => ({
@@ -76,12 +79,37 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             cancelEarlyAccessFeatureFeedback: () => null,
         },
     }),
-    listeners(() => ({
+    listeners(({ values, actions }) => ({
         updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled, stage }) => {
             if (window.IMPERSONATED_SESSION) {
                 lemonToast.error('Cannot update early access feature enrollment while impersonating a user')
             } else {
                 posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled, stage)
+
+                // Track product intent if user is opting in and payload contains product_intent
+                // The format on the payload should be: { product_intent: ProductKey }
+                if (enabled) {
+                    const feature = values.rawEarlyAccessFeatures.find((f) => f.flagKey === flagKey)
+
+                    // TODO: We can stop using this crazy type cast once the companion `posthog-js` PR is merged
+                    // https://github.com/PostHog/posthog-js/pull/2642
+                    const payload = (feature as any)?.payload as Record<string, any> | undefined
+                    if (payload?.product_intent) {
+                        const productIntent = payload.product_intent
+
+                        if (
+                            productIntent &&
+                            typeof productIntent === 'string' &&
+                            Object.values(ProductKey).includes(productIntent as ProductKey)
+                        ) {
+                            void actions.addProductIntentForCrossSell({
+                                from: ProductKey.EARLY_ACCESS_FEATURES,
+                                to: productIntent as ProductKey,
+                                intent_context: ProductIntentContext.FEATURE_PREVIEW_ENABLED,
+                            })
+                        }
+                    }
+                }
             }
         },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
@@ -101,7 +129,8 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                         return {
                             ...feature,
                             flagKey,
-                            payload: typeof flag === 'string' ? JSON.parse(flag) : undefined,
+                            // Use payload from early access feature, fallback to empty object
+                            payload: ((feature as any).payload as Record<string, any> | undefined) || {},
                             enabled: !!flag,
                         }
                     })
