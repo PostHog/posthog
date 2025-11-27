@@ -50,6 +50,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/conversations/frontend/scenes/analytics/ConversationsAnalyticsScene'),
     ConversationsContent: () =>
         import('../../products/conversations/frontend/scenes/content/ConversationsContentScene'),
+    ConversationsContentItem: () =>
+        import('../../products/conversations/frontend/scenes/content/ConversationsContentItemScene'),
     ConversationsGuidance: () =>
         import('../../products/conversations/frontend/scenes/guidance/ConversationsGuidanceScene'),
     ConversationsPlayground: () =>
@@ -117,6 +119,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/conversations/tickets/:ticketId': ['ConversationsTicketDetail', 'conversationsTicketDetail'],
     '/conversations/analytics': ['ConversationsAnalytics', 'conversationsAnalytics'],
     '/conversations/content': ['ConversationsContent', 'conversationsContent'],
+    '/conversations/content/:contentId': ['ConversationsContentItem', 'conversationsContentItem'],
     '/conversations/guidance': ['ConversationsGuidance', 'conversationsGuidance'],
     '/conversations/playground': ['ConversationsPlayground', 'conversationsPlayground'],
     '/conversations/settings': ['ConversationsSettings', 'conversationsSettings'],
@@ -226,6 +229,7 @@ export const productConfiguration: Record<string, any> = {
     ConversationsTicketDetail: { name: 'Ticket detail', projectBased: true },
     ConversationsAnalytics: { name: 'Resolution analytics', projectBased: true },
     ConversationsContent: { name: 'Knowledge content', projectBased: true },
+    ConversationsContentItem: { name: 'Content item', projectBased: true },
     ConversationsGuidance: { name: 'Guidance + guardrails', projectBased: true },
     ConversationsPlayground: { name: 'Playground', projectBased: true },
     ConversationsSettings: { name: 'Conversations settings', projectBased: true },
@@ -444,6 +448,7 @@ export const productUrls = {
     conversationsTicketDetail: (ticketId: string | number): string => `/conversations/tickets/${ticketId}`,
     conversationsAnalytics: (): string => '/conversations/analytics',
     conversationsContent: (): string => '/conversations/content',
+    conversationsContentItem: (contentId: string | number): string => `/conversations/content/${contentId}`,
     conversationsGuidance: (): string => '/conversations/guidance',
     conversationsPlayground: (): string => '/conversations/playground',
     conversationsSettings: (): string => '/conversations/settings',

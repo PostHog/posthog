@@ -28,6 +28,11 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/content/ConversationsContentScene'),
             projectBased: true,
         },
+        ConversationsContentItem: {
+            name: 'Content item',
+            import: () => import('./frontend/scenes/content/ConversationsContentItemScene'),
+            projectBased: true,
+        },
         ConversationsGuidance: {
             name: 'Guidance + guardrails',
             import: () => import('./frontend/scenes/guidance/ConversationsGuidanceScene'),
@@ -50,6 +55,7 @@ export const manifest: ProductManifest = {
         '/conversations/tickets/:ticketId': ['ConversationsTicketDetail', 'conversationsTicketDetail'],
         '/conversations/analytics': ['ConversationsAnalytics', 'conversationsAnalytics'],
         '/conversations/content': ['ConversationsContent', 'conversationsContent'],
+        '/conversations/content/:contentId': ['ConversationsContentItem', 'conversationsContentItem'],
         '/conversations/guidance': ['ConversationsGuidance', 'conversationsGuidance'],
         '/conversations/playground': ['ConversationsPlayground', 'conversationsPlayground'],
         '/conversations/settings': ['ConversationsSettings', 'conversationsSettings'],
@@ -61,6 +67,7 @@ export const manifest: ProductManifest = {
         conversationsTicketDetail: (ticketId: string | number): string => `/conversations/tickets/${ticketId}`,
         conversationsAnalytics: (): string => '/conversations/analytics',
         conversationsContent: (): string => '/conversations/content',
+        conversationsContentItem: (contentId: string | number): string => `/conversations/content/${contentId}`,
         conversationsGuidance: (): string => '/conversations/guidance',
         conversationsPlayground: (): string => '/conversations/playground',
         conversationsSettings: (): string => '/conversations/settings',

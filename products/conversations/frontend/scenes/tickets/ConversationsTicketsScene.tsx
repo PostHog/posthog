@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconBrowser, IconComment } from '@posthog/icons'
 import { LemonCard, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
@@ -54,6 +56,7 @@ export function ConversationsTicketsScene(): JSX.Element {
     const logic = conversationsTicketsSceneLogic()
     const { filteredTickets, metrics, statusFilter, channelFilter, resolutionFilter, slaFilter } = useValues(logic)
     const { setStatusFilter, setChannelFilter, setResolutionFilter, setSlaFilter } = useActions(logic)
+    const { push } = useActions(router)
 
     return (
         <SceneContent className="space-y-5">
@@ -114,6 +117,9 @@ export function ConversationsTicketsScene(): JSX.Element {
             <LemonTable
                 dataSource={filteredTickets}
                 rowKey="id"
+                onRow={(ticket) => ({
+                    onClick: () => push(urls.conversationsTicketDetail(ticket.id)),
+                })}
                 columns={[
                     {
                         title: 'Ticket',
