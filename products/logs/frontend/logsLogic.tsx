@@ -358,7 +358,6 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setHasMoreLogsToLoad: (_, { hasMoreLogsToLoad }) => hasMoreLogsToLoad,
                 clearLogs: () => true,
-                truncateLogs: () => true,
             },
         ],
     }),
@@ -699,6 +698,7 @@ export const logsLogic = kea<logsLogicType>([
                 actions.fetchNextLogsPage(logsPageSize - currentCount)
             } else if (logsPageSize < currentCount && !values.userClickedLoadMore) {
                 actions.truncateLogs(logsPageSize)
+                actions.setHasMoreLogsToLoad(true)
             }
         },
         loadMoreLogs: () => {
