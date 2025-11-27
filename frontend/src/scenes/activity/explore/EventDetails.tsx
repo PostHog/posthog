@@ -45,7 +45,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                         />
                                     </div>
                                 ) : null}
-                                <ConversationDisplay eventProperties={properties} />
+                                <ConversationDisplay eventProperties={properties} eventId={event.uuid} />
                             </div>
                         )
                     case 'evaluation':
