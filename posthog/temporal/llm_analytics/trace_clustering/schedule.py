@@ -17,53 +17,32 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
 from posthog.temporal.llm_analytics.trace_clustering.coordinator import TraceClusteringCoordinatorInputs
 
 
-async def create_trace_clustering_coordinator_schedule(
-    client: Client,
-    interval_days: int = 1,
-    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
-    max_samples: int = DEFAULT_MAX_SAMPLES,
-    min_k: int = DEFAULT_MIN_K,
-    max_k: int = DEFAULT_MAX_K,
-    min_embeddings: int = MIN_TRACES_FOR_CLUSTERING,
-):
+async def create_trace_clustering_coordinator_schedule(client: Client):
     """Create or update the schedule for the trace clustering coordinator.
 
     The coordinator automatically discovers teams with sufficient embeddings
     and spawns child workflows to cluster traces for each team.
 
-    Args:
-        client: Temporal client
-        interval_days: How often to run clustering (1 for daily, 3 for every 3 days, etc.)
-        lookback_days: Days of trace history to analyze
-        max_samples: Maximum embeddings to sample per team
-        min_k: Minimum number of clusters to test
-        max_k: Maximum number of clusters to test
-        min_embeddings: Minimum embeddings required to run clustering
-
-    Example:
-        >>> from posthog.temporal.common.client import connect
-        >>> client = await connect()
-        >>> await create_trace_clustering_coordinator_schedule(client, interval_days=1)
+    This schedule runs daily and processes all teams with sufficient trace embeddings.
+    Teams are filtered by the ALLOWED_TEAM_IDS constant in constants.py.
     """
-    schedule_id = "trace-clustering-coordinator-schedule"
-    workflow_id_prefix = "trace-clustering-coordinator"
-
     coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "trace-clustering-coordinator",
             TraceClusteringCoordinatorInputs(
-                lookback_days=lookback_days,
-                max_samples=max_samples,
-                min_k=min_k,
-                max_k=max_k,
-                min_embeddings=min_embeddings,
+                lookback_days=DEFAULT_LOOKBACK_DAYS,
+                max_samples=DEFAULT_MAX_SAMPLES,
+                min_k=DEFAULT_MIN_K,
+                max_k=DEFAULT_MAX_K,
+                min_embeddings=MIN_TRACES_FOR_CLUSTERING,
             ),
-            id=workflow_id_prefix,
+            id="trace-clustering-coordinator-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=interval_days))]),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(days=1))]),
     )
 
+    schedule_id = "trace-clustering-coordinator-schedule"
     if await a_schedule_exists(client, schedule_id):
         await a_update_schedule(client, schedule_id, coordinator_schedule)
     else:
