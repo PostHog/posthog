@@ -26,6 +26,8 @@ export type FilteredMessages = {
 export class LogsRateLimiterService {
     private teamBucketSizes: Map<number, number>
     private teamRefillRates: Map<number, number>
+    private disabledTeamIds: Set<number> | '*' | null
+    private enabledTeamIds: Set<number> | '*' | null
 
     constructor(
         private hub: Hub,
@@ -33,6 +35,25 @@ export class LogsRateLimiterService {
     ) {
         this.teamBucketSizes = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
         this.teamRefillRates = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
+        this.disabledTeamIds = this.parseTeamIdList(hub.LOGS_LIMITER_DISABLED_FOR_TEAMS)
+        this.enabledTeamIds = this.parseTeamIdList(hub.LOGS_LIMITER_ENABLED_TEAMS)
+    }
+
+    private parseTeamIdList(config: string): Set<number> | '*' | null {
+        if (config === '*') {
+            return '*'
+        }
+        if (!config) {
+            return null
+        }
+        const ids = new Set<number>()
+        for (const id of config.split(',')) {
+            const parsed = parseInt(id.trim(), 10)
+            if (!isNaN(parsed)) {
+                ids.add(parsed)
+            }
+        }
+        return ids
     }
 
     private parseTeamConfig(config: string): Map<number, number> {
@@ -90,33 +111,23 @@ export class LogsRateLimiterService {
     }
 
     private isRateLimitingEnabledForTeam(teamId: number): boolean {
-        const enabledTeams = this.hub.LOGS_LIMITER_ENABLED_TEAMS
-        const disabledForTeams = this.hub.LOGS_LIMITER_DISABLED_FOR_TEAMS
-
-        if (disabledForTeams === '*') {
+        if (this.disabledTeamIds === '*') {
             return false
         }
 
-        if (
-            disabledForTeams &&
-            disabledForTeams
-                .split(',')
-                .map((id) => parseInt(id.trim(), 10))
-                .includes(teamId)
-        ) {
+        if (this.disabledTeamIds?.has(teamId)) {
             return false
         }
 
-        if (enabledTeams === '*') {
+        if (this.enabledTeamIds === '*') {
             return true
         }
 
-        if (!enabledTeams) {
+        if (!this.enabledTeamIds) {
             return false
         }
 
-        const teamIds = enabledTeams.split(',').map((id) => parseInt(id.trim(), 10))
-        return teamIds.includes(teamId)
+        return this.enabledTeamIds.has(teamId)
     }
 
     public async filterMessages(messages: LogsIngestionMessage[]): Promise<FilteredMessages> {

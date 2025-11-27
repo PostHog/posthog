@@ -291,6 +291,7 @@ describe('LogsRateLimiterService', () => {
 
         it('should skip rate limiting for teams not in LOGS_LIMITER_ENABLED_TEAMS', async () => {
             hub.LOGS_LIMITER_ENABLED_TEAMS = '2' // Only team 2
+            rateLimiter = new LogsRateLimiterService(hub, redis)
 
             const messages = [
                 createMessage(1, 15360), // Team 1: 15KB - allowed (not rate limited)
@@ -307,6 +308,7 @@ describe('LogsRateLimiterService', () => {
 
         it('should skip rate limiting when LOGS_LIMITER_ENABLED_TEAMS is empty', async () => {
             hub.LOGS_LIMITER_ENABLED_TEAMS = ''
+            rateLimiter = new LogsRateLimiterService(hub, redis)
 
             const messages = [createMessage(1, BUCKET_EXCEEDED_UNCOMPRESSED_BYTES)]
 
@@ -329,6 +331,7 @@ describe('LogsRateLimiterService', () => {
 
         it('should handle multiple teams in LOGS_LIMITER_ENABLED_TEAMS', async () => {
             hub.LOGS_LIMITER_ENABLED_TEAMS = '1, 3' // Teams 1 and 3
+            rateLimiter = new LogsRateLimiterService(hub, redis)
 
             const messages = [
                 createMessage(1, BUCKET_EXCEEDED_UNCOMPRESSED_BYTES), // Team 1: dropped (rate limited)
@@ -346,6 +349,7 @@ describe('LogsRateLimiterService', () => {
         it('should skip rate limiting for all teams when LOGS_LIMITER_DISABLED_FOR_TEAMS is *', async () => {
             hub.LOGS_LIMITER_ENABLED_TEAMS = '*'
             hub.LOGS_LIMITER_DISABLED_FOR_TEAMS = '*'
+            rateLimiter = new LogsRateLimiterService(hub, redis)
 
             const messages = [
                 createMessage(1, BUCKET_EXCEEDED_UNCOMPRESSED_BYTES),
@@ -362,6 +366,7 @@ describe('LogsRateLimiterService', () => {
         it('should skip rate limiting for specific teams in LOGS_LIMITER_DISABLED_FOR_TEAMS', async () => {
             hub.LOGS_LIMITER_ENABLED_TEAMS = '*'
             hub.LOGS_LIMITER_DISABLED_FOR_TEAMS = '1, 3'
+            rateLimiter = new LogsRateLimiterService(hub, redis)
 
             const messages = [
                 createMessage(1, BUCKET_EXCEEDED_UNCOMPRESSED_BYTES),
@@ -380,6 +385,7 @@ describe('LogsRateLimiterService', () => {
         it('should prioritize LOGS_LIMITER_DISABLED_FOR_TEAMS over LOGS_LIMITER_ENABLED_TEAMS', async () => {
             hub.LOGS_LIMITER_ENABLED_TEAMS = '1, 2'
             hub.LOGS_LIMITER_DISABLED_FOR_TEAMS = '1'
+            rateLimiter = new LogsRateLimiterService(hub, redis)
 
             const messages = [
                 createMessage(1, BUCKET_EXCEEDED_UNCOMPRESSED_BYTES),
