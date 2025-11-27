@@ -20,6 +20,7 @@ class AIEventType(StrEnum):
     FIELD_AI_TRACE = "$ai_trace"
     FIELD_AI_METRIC = "$ai_metric"
     FIELD_AI_FEEDBACK = "$ai_feedback"
+    FIELD_AI_EVALUATION = "$ai_evaluation"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -570,6 +571,18 @@ class CalendarHeatmapFilter(BaseModel):
 class CalendarHeatmapMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
+
+
+class MatchField(StrEnum):
+    CAMPAIGN_NAME = "campaign_name"
+    CAMPAIGN_ID = "campaign_id"
+
+
+class CampaignFieldPreference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    match_field: MatchField
 
 
 class ChartDisplayCategory(StrEnum):
@@ -1383,6 +1396,12 @@ class ExperimentMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN = "mean"
     RATIO = "ratio"
+    RETENTION = "retention"
+
+
+class StartHandling(StrEnum):
+    FIRST_SEEN = "first_seen"
+    LAST_SEEN = "last_seen"
 
 
 class ExperimentSignificanceCode(StrEnum):
@@ -1926,6 +1945,7 @@ class MarkdownBlock(BaseModel):
 
 
 class MarketingAnalyticsBaseColumns(StrEnum):
+    ID = "ID"
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
     COST = "Cost"
@@ -1937,6 +1957,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
+    ID = "id"
     CAMPAIGN = "campaign"
     CLICKS = "clicks"
     COST = "cost"
@@ -2363,6 +2384,7 @@ class ProductIntentContext(StrEnum):
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
     REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
+    FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     VERCEL_INTEGRATION = "vercel_integration"
 
 
@@ -2891,6 +2913,7 @@ class SourceMap(BaseModel):
     cost: Optional[str] = None
     currency: Optional[str] = None
     date: Optional[str] = None
+    id: Optional[str] = None
     impressions: Optional[str] = None
     reported_conversion: Optional[str] = None
     source: Optional[str] = None
@@ -3186,6 +3209,16 @@ class UserBasicType(BaseModel):
     last_name: Optional[str] = None
     role_at_organization: Optional[str] = None
     uuid: str
+
+
+class UserProductListReason(StrEnum):
+    ONBOARDING = "onboarding"
+    PRODUCT_INTENT = "product_intent"
+    USED_BY_COLLEAGUES = "used_by_colleagues"
+    USED_SIMILAR_PRODUCTS = "used_similar_products"
+    USED_ON_SEPARATE_TEAM = "used_on_separate_team"
+    NEW_PRODUCT = "new_product"
+    SALES_LED = "sales_led"
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -5776,6 +5809,19 @@ class UsageMetricsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class UserProductListItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: str
+    enabled: bool
+    id: str
+    product_path: str
+    reason: UserProductListReason
+    reason_text: Optional[str] = None
+    updated_at: str
 
 
 class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
@@ -10057,6 +10103,7 @@ class MarketingAnalyticsConfig(BaseModel):
     )
     attribution_mode: Optional[AttributionMode] = None
     attribution_window_days: Optional[float] = None
+    campaign_field_preferences: Optional[dict[str, CampaignFieldPreference]] = None
     campaign_name_mappings: Optional[dict[str, dict[str, list[str]]]] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
     custom_source_mappings: Optional[dict[str, list[str]]] = None
@@ -10129,6 +10176,8 @@ class NewExperimentQueryResponse(BaseModel):
     )
     baseline: ExperimentStatsBaseValidated
     breakdown_results: Optional[list[ExperimentBreakdownResult]] = None
+    clickhouse_sql: Optional[str] = None
+    hogql: Optional[str] = None
     variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
@@ -12816,6 +12865,8 @@ class CachedNewExperimentQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    clickhouse_sql: Optional[str] = None
+    hogql: Optional[str] = None
     is_cached: bool
     last_refresh: datetime
     next_allowed_client_refresh: datetime
@@ -13198,6 +13249,44 @@ class ExperimentRatioMetricTypeProps(BaseModel):
     denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     metric_type: Literal["ratio"] = "ratio"
     numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+
+
+class ExperimentRetentionMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownFilter: Optional[BreakdownFilter] = None
+    completion_event: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    conversion_window: Optional[int] = None
+    conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
+    fingerprint: Optional[str] = None
+    goal: Optional[ExperimentMetricGoal] = None
+    isSharedMetric: Optional[bool] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: Literal["retention"] = "retention"
+    name: Optional[str] = None
+    response: Optional[dict[str, Any]] = None
+    retention_window_end: int
+    retention_window_start: int
+    retention_window_unit: FunnelConversionWindowTimeUnit
+    sharedMetricId: Optional[float] = None
+    start_event: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    start_handling: StartHandling
+    uuid: Optional[str] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentRetentionMetricTypeProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    completion_event: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    metric_type: Literal["retention"] = "retention"
+    retention_window_end: int
+    retention_window_start: int
+    retention_window_unit: FunnelConversionWindowTimeUnit
+    start_event: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    start_handling: StartHandling
 
 
 class FunnelsFilter(BaseModel):
@@ -14186,14 +14275,28 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     upper_bound_percentile: Optional[float] = None
 
 
-class ExperimentMetric(RootModel[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]]):
-    root: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+class ExperimentMetric(
+    RootModel[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]]
+):
+    root: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
 
 
 class ExperimentMetricTypeProps(
-    RootModel[Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps, ExperimentRatioMetricTypeProps]]
+    RootModel[
+        Union[
+            ExperimentMeanMetricTypeProps,
+            ExperimentFunnelMetricTypeProps,
+            ExperimentRatioMetricTypeProps,
+            ExperimentRetentionMetricTypeProps,
+        ]
+    ]
 ):
-    root: Union[ExperimentMeanMetricTypeProps, ExperimentFunnelMetricTypeProps, ExperimentRatioMetricTypeProps]
+    root: Union[
+        ExperimentMeanMetricTypeProps,
+        ExperimentFunnelMetricTypeProps,
+        ExperimentRatioMetricTypeProps,
+        ExperimentRetentionMetricTypeProps,
+    ]
 
 
 class ExperimentQueryResponse(BaseModel):
@@ -14207,10 +14310,14 @@ class ExperimentQueryResponse(BaseModel):
             "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
         ),
     )
+    clickhouse_sql: Optional[str] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
+    hogql: Optional[str] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]] = None
+    metric: Optional[
+        Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
+    ] = None
     p_value: Optional[float] = None
     probability: Optional[dict[str, float]] = None
     significance_code: Optional[ExperimentSignificanceCode] = None
@@ -14585,7 +14692,7 @@ class LegacyExperimentQueryResponse(BaseModel):
     credible_intervals: dict[str, list[float]]
     insight: list[dict[str, Any]]
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
     p_value: float
     probability: dict[str, float]
     significance_code: ExperimentSignificanceCode
@@ -14716,10 +14823,14 @@ class QueryResponseAlternative20(BaseModel):
             "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
         ),
     )
+    clickhouse_sql: Optional[str] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
+    hogql: Optional[str] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]] = None
+    metric: Optional[
+        Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
+    ] = None
     p_value: Optional[float] = None
     probability: Optional[dict[str, float]] = None
     significance_code: Optional[ExperimentSignificanceCode] = None
@@ -14943,7 +15054,7 @@ class NamedArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
 
 
 class IsExperimentFunnelMetric(BaseModel):
@@ -14955,6 +15066,10 @@ class IsExperimentMeanMetric(BaseModel):
 
 
 class IsExperimentRatioMetric(BaseModel):
+    namedArgs: Optional[NamedArgs] = None
+
+
+class IsExperimentRetentionMetric(BaseModel):
     namedArgs: Optional[NamedArgs] = None
 
 
@@ -15003,12 +15118,16 @@ class CachedExperimentQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    clickhouse_sql: Optional[str] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
+    hogql: Optional[str] = None
     insight: Optional[list[dict[str, Any]]] = None
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     last_refresh: datetime
-    metric: Optional[Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]] = None
+    metric: Optional[
+        Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
+    ] = None
     next_allowed_client_refresh: datetime
     p_value: Optional[float] = None
     probability: Optional[dict[str, float]] = None
@@ -15040,7 +15159,7 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     is_cached: bool
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     last_refresh: datetime
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
     next_allowed_client_refresh: datetime
     p_value: float
     probability: dict[str, float]
@@ -15109,7 +15228,7 @@ class ExperimentQuery(BaseModel):
     )
     experiment_id: Optional[int] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )

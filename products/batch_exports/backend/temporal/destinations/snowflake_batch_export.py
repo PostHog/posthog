@@ -243,6 +243,7 @@ SnowflakeTypeName = typing.Literal[
     "BOOLEAN",
     "TIMESTAMP",
     "TIMESTAMP_NTZ",
+    "TIMESTAMP_LTZ",
     "ARRAY",
 ]
 
@@ -310,7 +311,7 @@ def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
             base_type = pa.bool_()
         case "VARIANT":
             base_type = JsonType()
-        case "TIMESTAMP_NTZ":
+        case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ":
             base_type = pa.timestamp("ms", tz="UTC")
         case "FLOAT" | "FLOAT4" | "FLOAT8" | "DOUBLE PRECISION" | "REAL":
             base_type = pa.float64()
