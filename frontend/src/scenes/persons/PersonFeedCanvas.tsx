@@ -4,7 +4,7 @@ import { uuid } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 
-import { PersonType } from '~/types'
+import { AnyPropertyFilter, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 type PersonFeedCanvasProps = {
     person: PersonType
@@ -16,11 +16,21 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
     const id = person.id
     const distinctId = person.distinct_ids[0]
 
+    const personFilter: AnyPropertyFilter[] = [
+        {
+            type: PropertyFilterType.EventMetadata,
+            key: 'person_id',
+            value: id,
+            operator: PropertyOperator.Exact,
+        },
+    ]
+
     return (
         <Notebook
             editable={false}
             shortId={`canvas-${id}`}
             mode="canvas"
+            canvasFiltersOverride={personFilter}
             initialContent={{
                 type: 'doc',
                 content: [
