@@ -1,6 +1,6 @@
 import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -44,7 +44,12 @@ const parseLogAttributes = (logs: LogMessage[]): void => {
     })
 }
 
+export interface LogsLogicProps {
+    tabId: string
+}
+
 export const logsLogic = kea<logsLogicType>([
+    props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsLogic']),
     tabAwareScene(),
     tabAwareUrlToAction(({ actions, values }) => {
@@ -446,7 +451,8 @@ export const logsLogic = kea<logsLogicType>([
         ],
     })),
 
-    selectors(() => ({
+    selectors({
+        tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
         utcDateRange: [
             (s) => [s.dateRange],
             (dateRange) => ({
@@ -589,7 +595,7 @@ export const logsLogic = kea<logsLogicType>([
                 return newest
             },
         ],
-    })),
+    }),
 
     listeners(({ values, actions }) => ({
         fetchLogsFailure: ({ error }) => {
