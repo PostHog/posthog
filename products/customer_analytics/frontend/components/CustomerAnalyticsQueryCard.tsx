@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
 
@@ -34,10 +34,16 @@ function getEmptySeriesNames(requiredSeries: object): string[] {
         .map(([key]) => key)
 }
 
+function generateUniqueKey(name: string, tabId: string, businessType: string, groupType?: number): string {
+    const suffix = businessType === 'b2b' ? groupType : 'users'
+    return `${name}-${tabId}-${businessType}-${suffix}`
+}
+
 export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalyticsQueryCardProps): JSX.Element {
+    const { businessType, selectedGroupType } = useValues(customerAnalyticsSceneLogic)
     const { addEventToHighlight, toggleModalOpen } = useActions(eventConfigModalLogic)
     const needsConfig = insight?.requiredSeries ? anyValueIsNull(insight.requiredSeries) : false
-    const uniqueKey = `${insight.name}-${tabId}`
+    const uniqueKey = generateUniqueKey(insight.name, tabId || '', businessType, selectedGroupType)
     const insightProps: InsightLogicProps<QuerySchema> = {
         dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
         dashboardItemId: buildDashboardItemId(uniqueKey),

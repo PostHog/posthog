@@ -344,6 +344,7 @@ export const FEATURE_FLAGS = {
     LEFT_ALIGN_DATE_FILTER: 'left-align-date-filter', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     BING_ADS_SOURCE: 'bing-ads-source', // owner: @jabahamondes #team-web-analytics
+    EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_RETENTION_METRICS: 'experiments-retention-metrics', // owner: @rodrigoi #team-experiments
     HOME_FEED_TAB: 'home-feed-tab', // owner: @ksvat #team-replay
 } as const

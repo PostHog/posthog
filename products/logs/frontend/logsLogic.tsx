@@ -4,6 +4,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import api from 'lib/api'
@@ -31,6 +32,17 @@ const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
+const DEFAULT_LOGS_PAGE_SIZE = 100
+const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+
+const parseLogAttributes = (logs: LogMessage[]): void => {
+    logs.forEach((row) => {
+        Object.keys(row.attributes).forEach((key) => {
+            const value = row.attributes[key]
+            row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
+        })
+    })
+}
 
 export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
@@ -141,6 +153,8 @@ export const logsLogic = kea<logsLogicType>([
 
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
+        loadMoreLogs: true,
+        clearLogs: true,
         cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
         setLogsAbortController: (logsAbortController: AbortController | null) => ({ logsAbortController }),
@@ -172,6 +186,7 @@ export const logsLogic = kea<logsLogicType>([
         pinLog: (log: LogMessage) => ({ log }),
         unpinLog: (logId: string) => ({ logId }),
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
+        setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
     }),
 
     reducers({
@@ -290,12 +305,20 @@ export const logsLogic = kea<logsLogicType>([
                 setHighlightedLogId: (_, { highlightedLogId }) => highlightedLogId,
             },
         ],
+        hasMoreLogsToLoad: [
+            true as boolean,
+            {
+                setHasMoreLogsToLoad: (_, { hasMoreLogsToLoad }) => hasMoreLogsToLoad,
+                clearLogs: () => true,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
         logs: [
             [] as LogMessage[],
             {
+                clearLogs: () => [],
                 fetchLogs: async () => {
                     const logsController = new AbortController()
                     const signal = logsController.signal
@@ -303,8 +326,7 @@ export const logsLogic = kea<logsLogicType>([
 
                     const response = await api.logs.query({
                         query: {
-                            limit: 100,
-                            offset: values.logs.length,
+                            limit: DEFAULT_LOGS_PAGE_SIZE,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
@@ -315,13 +337,51 @@ export const logsLogic = kea<logsLogicType>([
                         signal,
                     })
                     actions.setLogsAbortController(null)
-                    response.results.forEach((row) => {
-                        Object.keys(row.attributes).forEach((key) => {
-                            const value = row.attributes[key]
-                            row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
-                        })
-                    })
+                    actions.setHasMoreLogsToLoad(!!response.hasMore)
+                    parseLogAttributes(response.results)
                     return response.results
+                },
+                loadMoreLogs: async (_, breakpoint) => {
+                    const logsController = new AbortController()
+                    const signal = logsController.signal
+                    actions.cancelInProgressLogs(logsController)
+
+                    let dateRange: DateRange
+
+                    if (values.orderBy === 'earliest') {
+                        if (!values.newestLogTimestamp) {
+                            return values.logs
+                        }
+                        dateRange = {
+                            date_from: values.newestLogTimestamp,
+                            date_to: values.utcDateRange.date_to,
+                        }
+                    } else {
+                        if (!values.oldestLogTimestamp) {
+                            return values.logs
+                        }
+                        dateRange = {
+                            date_from: values.utcDateRange.date_from,
+                            date_to: values.oldestLogTimestamp,
+                        }
+                    }
+                    await breakpoint(300)
+                    const response = await api.logs.query({
+                        query: {
+                            limit: DEFAULT_LOGS_PAGE_SIZE,
+                            orderBy: values.orderBy,
+                            dateRange,
+                            searchTerm: values.searchTerm,
+                            filterGroup: values.filterGroup as PropertyGroupFilter,
+                            severityLevels: values.severityLevels,
+                            serviceNames: values.serviceNames,
+                        },
+                        signal,
+                    })
+                    actions.setLogsAbortController(null)
+                    actions.setHasMoreLogsToLoad(!!response.hasMore)
+                    parseLogAttributes(response.results)
+                    return [...values.logs, ...response.results]
                 },
             },
         ],
@@ -434,7 +494,11 @@ export const logsLogic = kea<logsLogicType>([
                 const data = Object.entries(
                     sparkline.reduce((accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
-                            labels.push(humanFriendlyDetailedTime(currentItem.time))
+                            labels.push(
+                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
+                                    showNow: false,
+                                })
+                            )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
@@ -464,25 +528,62 @@ export const logsLogic = kea<logsLogicType>([
                 return { data, labels, dates }
             },
         ],
+        oldestLogTimestamp: [
+            (s) => [s.logs],
+            (logs): string | null => {
+                if (!logs.length) {
+                    return null
+                }
+                const oldest = logs.reduce((min, log) => {
+                    const logTime = dayjs(log.timestamp)
+                    return !min || logTime.isBefore(dayjs(min)) ? log.timestamp : min
+                }, logs[0].timestamp)
+                return oldest
+            },
+        ],
+        newestLogTimestamp: [
+            (s) => [s.logs],
+            (logs): string | null => {
+                if (!logs.length) {
+                    return null
+                }
+                const newest = logs.reduce((max, log) => {
+                    const logTime = dayjs(log.timestamp)
+                    return !max || logTime.isAfter(dayjs(max)) ? log.timestamp : max
+                }, logs[0].timestamp)
+                return newest
+            },
+        ],
     })),
 
     listeners(({ values, actions }) => ({
+        fetchLogsFailure: ({ error }) => {
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+                lemonToast.error(`Failed to load logs: ${error}`)
+            }
+        },
+        loadMoreLogsFailure: ({ error }) => {
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+                lemonToast.error(`Failed to load more logs: ${error}`)
+            }
+        },
         runQuery: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
             }
+            actions.clearLogs()
             actions.fetchLogs()
             actions.fetchSparkline()
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
-                values.logsAbortController.abort('new query started')
+                values.logsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setLogsAbortController(logsAbortController)
         },
         cancelInProgressSparkline: ({ sparklineAbortController }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort('new query started')
+                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setSparklineAbortController(sparklineAbortController)
         },
