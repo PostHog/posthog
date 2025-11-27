@@ -108,7 +108,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 if (!selectedRun) {
                     return false
                 }
-                return selectedRun.status === TaskRunStatus.STARTED || selectedRun.status === TaskRunStatus.IN_PROGRESS
+                return selectedRun.status === TaskRunStatus.QUEUED || selectedRun.status === TaskRunStatus.IN_PROGRESS
             },
         ],
         title: [

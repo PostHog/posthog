@@ -158,7 +158,12 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
 
     def get_log_url(self, obj: TaskRun) -> str:
         """Return presigned S3 URL for log access."""
-        return object_storage.get_presigned_url(obj.log_url, expiration=3600)
+        presigned_url = object_storage.get_presigned_url(obj.log_url, expiration=3600)
+
+        if not presigned_url:
+            raise serializers.ValidationError("Unable to generate presigned URL for logs")
+
+        return presigned_url
 
     def validate_task(self, value):
         team = self.context.get("team")
