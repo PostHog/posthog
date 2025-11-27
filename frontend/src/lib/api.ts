@@ -2205,7 +2205,7 @@ const api = {
         }: {
             query: Omit<LogsQuery, 'kind'>
             signal?: AbortSignal
-        }): Promise<{ results: LogMessage[] }> {
+        }): Promise<{ results: LogMessage[]; hasMore: boolean }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
