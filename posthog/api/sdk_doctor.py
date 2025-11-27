@@ -103,8 +103,8 @@ def get_github_sdk_data() -> dict[str, Any]:
         cached_data = redis_client.get(cache_key)
         if cached_data:
             try:
-                data = json.loads(cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data)
-                data[sdk_type] = data
+                parsed = json.loads(cached_data.decode("utf-8") if isinstance(cached_data, bytes) else cached_data)
+                data[sdk_type] = parsed
             except (json.JSONDecodeError, AttributeError) as e:
                 logger.warning(f"[SDK Doctor] Cache corrupted for {sdk_type}", error=str(e))
                 capture_exception(e, {"sdk_type": sdk_type, "cache_key": cache_key})
