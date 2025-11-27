@@ -648,6 +648,16 @@ describe('Event Pipeline E2E tests', () => {
                     utm_source: 'facebook', // Updated by this event
                     $geoip_city_name: 'San Francisco', // From $identify
                 })
+
+                // Verify the final state of the person in the database
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.properties).toEqual({
+                    $browser: 'Safari',
+                    $creator_event_uuid: events[0].uuid,
+                    utm_source: 'facebook',
+                    $geoip_city_name: 'San Francisco',
+                })
             })
         }
     )
@@ -697,6 +707,16 @@ describe('Event Pipeline E2E tests', () => {
                     $creator_event_uuid: events[0].uuid,
                     utm_source: 'twitter', // From $set event
                     $geoip_country_code: 'US', // From $set event
+                })
+
+                // Verify the final state of the person in the database
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.properties).toEqual({
+                    $browser: 'Chrome',
+                    $creator_event_uuid: events[0].uuid,
+                    utm_source: 'twitter',
+                    $geoip_country_code: 'US',
                 })
             })
         }
