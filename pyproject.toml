@@ -94,7 +94,7 @@ dependencies = [
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
     "pyarrow==18.1.0",
-    "pydantic==2.10.3",
+    "pydantic~=2.12.0",
     "pyjwt~=2.10.0",
     "pympler==1.1",
     "pymssql==2.3.5",
