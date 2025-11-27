@@ -238,7 +238,13 @@ function LogsTable({
                         title: '#',
                         key: 'row_number',
                         width: 0,
-                        render: (_, __, index) => <span className="text-muted font-mono text-xs">{index + 1}</span>,
+                        render: (_, record, index) => (
+                            <span
+                                className={cn('text-muted font-mono text-xs', isPinned(record.uuid) ? 'opacity-0' : '')}
+                            >
+                                {index + 1}
+                            </span>
+                        ),
                     },
                     {
                         title: '',
