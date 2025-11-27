@@ -4318,8 +4318,13 @@ export enum AttributionMode {
     LastTouch = 'last_touch',
 }
 
+export enum MatchField {
+    CAMPAIGN_NAME = 'campaign_name',
+    CAMPAIGN_ID = 'campaign_id',
+}
+
 export interface CampaignFieldPreference {
-    match_field: 'campaign_name' | 'campaign_id'
+    match_field: MatchField
 }
 
 export interface MarketingAnalyticsConfig {

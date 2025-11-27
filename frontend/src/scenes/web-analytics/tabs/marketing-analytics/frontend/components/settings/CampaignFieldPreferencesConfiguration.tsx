@@ -2,28 +2,27 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+import { CampaignFieldPreference, MatchField, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
 export interface CampaignFieldPreferencesConfigurationProps {
     sourceFilter?: string
-    compact?: boolean
 }
+
+const DEFAULT_MATCH_FIELD: CampaignFieldPreference['match_field'] = MatchField.CAMPAIGN_NAME
 
 export function CampaignFieldPreferencesConfiguration({
     sourceFilter,
-    compact = false,
 }: CampaignFieldPreferencesConfigurationProps): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCampaignFieldPreferences } = useActions(marketingAnalyticsSettingsLogic)
 
     const preferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
 
-    // Get integrations to display
     const integrationsToShow = sourceFilter ? [sourceFilter] : [...VALID_NATIVE_MARKETING_SOURCES]
 
-    const updatePreference = (integration: string, matchField: 'campaign_name' | 'campaign_id'): void => {
+    const updatePreference = (integration: string, matchField: CampaignFieldPreference['match_field']): void => {
         updateCampaignFieldPreferences({
             ...preferences,
             [integration]: {
@@ -32,27 +31,8 @@ export function CampaignFieldPreferencesConfiguration({
         })
     }
 
-    const getMatchField = (integration: string): 'campaign_name' | 'campaign_id' => {
-        return preferences[integration]?.match_field || 'campaign_name'
-    }
-
-    if (compact) {
-        // Single row layout for compact mode
-        const integration = integrationsToShow[0]
-        return (
-            <div className="flex items-center justify-between gap-4">
-                <span className="text-sm font-medium">Campaign field preference</span>
-                <LemonSegmentedButton
-                    size="small"
-                    value={getMatchField(integration)}
-                    onChange={(value) => updatePreference(integration, value as 'campaign_name' | 'campaign_id')}
-                    options={[
-                        { value: 'campaign_name', label: 'Campaign name' },
-                        { value: 'campaign_id', label: 'Campaign ID' },
-                    ]}
-                />
-            </div>
-        )
+    const getMatchField = (integration: string): CampaignFieldPreference['match_field'] => {
+        return preferences[integration]?.match_field || DEFAULT_MATCH_FIELD
     }
 
     return (
@@ -86,11 +66,14 @@ export function CampaignFieldPreferencesConfiguration({
                                         size="small"
                                         value={getMatchField(integration)}
                                         onChange={(value) =>
-                                            updatePreference(integration, value as 'campaign_name' | 'campaign_id')
+                                            updatePreference(
+                                                integration,
+                                                value as CampaignFieldPreference['match_field']
+                                            )
                                         }
                                         options={[
-                                            { value: 'campaign_name', label: 'Campaign name' },
-                                            { value: 'campaign_id', label: 'Campaign ID' },
+                                            { value: MatchField.CAMPAIGN_NAME, label: 'Campaign name' },
+                                            { value: MatchField.CAMPAIGN_ID, label: 'Campaign ID' },
                                         ]}
                                     />
                                 </td>

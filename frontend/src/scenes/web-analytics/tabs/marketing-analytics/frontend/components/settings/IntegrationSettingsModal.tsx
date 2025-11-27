@@ -55,7 +55,7 @@ export function IntegrationSettingsModal({
                                     </button>
                                     .
                                 </p>
-                                <CampaignFieldPreferencesConfiguration sourceFilter={integrationName} compact />
+                                <CampaignFieldPreferencesConfiguration sourceFilter={integrationName} />
                             </div>
                         ),
                     },

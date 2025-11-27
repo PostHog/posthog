@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
+import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
@@ -53,14 +53,16 @@ export function CampaignNameMappingsConfiguration({
     const filteredMappings = sourceFilter ? { [sourceFilter]: campaignMappings[sourceFilter] || {} } : campaignMappings
 
     // Get the match field preference for column header
-    const matchField = sourceFilter ? fieldPreferences[sourceFilter]?.match_field || 'campaign_name' : 'campaign_name'
-    const columnHeader = matchField === 'campaign_id' ? 'Campaign ID' : 'Campaign name'
+    const matchField = sourceFilter
+        ? fieldPreferences[sourceFilter]?.match_field || MatchField.CAMPAIGN_NAME
+        : MatchField.CAMPAIGN_NAME
+    const columnHeader = matchField === MatchField.CAMPAIGN_ID ? 'Campaign ID' : 'Campaign name'
 
     // Get campaign options for autocomplete
     const campaigns = integrationCampaigns[currentIntegration] || []
     const campaignOptions = campaigns.map((c: { name: string; id: string }) => ({
-        key: matchField === 'campaign_id' ? c.id : c.name,
-        label: matchField === 'campaign_id' ? `${c.id} (${c.name})` : c.name,
+        key: matchField === MatchField.CAMPAIGN_ID ? c.id : c.name,
+        label: matchField === MatchField.CAMPAIGN_ID ? `${c.id} (${c.name})` : c.name,
     }))
 
     const updateMappings = (newMappings: Record<string, Record<string, string[]>>): void => {
@@ -231,7 +233,7 @@ export function CampaignNameMappingsConfiguration({
                                     placeholder={
                                         integrationCampaignsLoading[currentIntegration]
                                             ? 'Loading campaigns...'
-                                            : matchField === 'campaign_id'
+                                            : matchField === MatchField.CAMPAIGN_ID
                                               ? 'Campaign ID'
                                               : 'Campaign name'
                                     }

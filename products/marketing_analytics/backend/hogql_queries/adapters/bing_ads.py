@@ -2,6 +2,11 @@
 
 from posthog.hogql import ast
 
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    INTEGRATION_DEFAULT_SOURCES,
+    INTEGRATION_PRIMARY_SOURCE,
+)
+
 from .base import BingAdsConfig, MarketingSourceAdapter, ValidationResult
 
 
@@ -15,7 +20,9 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
 
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
-        return {"bing": ["bing", "microsoft"]}
+        primary = INTEGRATION_PRIMARY_SOURCE[cls._source_type]
+        sources = INTEGRATION_DEFAULT_SOURCES[cls._source_type]
+        return {primary: list(sources)}
 
     def get_source_type(self) -> str:
         return "BingAds"
