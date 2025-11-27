@@ -227,7 +227,7 @@ def fetch_react_native_sdk_data() -> dict[str, Any]:
 
 def fetch_flutter_sdk_data() -> dict[str, Any]:
     """Fetch Flutter SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-flutter", tag_prefixes=["v"])
+    return fetch_sdk_data_from_releases("PostHog/posthog-flutter")
 
 
 def fetch_ios_sdk_data() -> dict[str, Any]:
