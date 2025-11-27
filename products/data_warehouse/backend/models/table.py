@@ -21,7 +21,7 @@ from posthog.hogql.database.s3_table import (
     build_function_call,
 )
 
-from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client import Product, sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
 from posthog.exceptions_capture import capture_exception
