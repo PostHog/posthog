@@ -30,7 +30,6 @@ import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
-import { ObjectStorage } from './utils/object_storage'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
@@ -504,7 +503,6 @@ export interface Hub extends PluginsServerConfig {
     cookielessRedisPool: GenericPool<Redis>
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
-    objectStorage?: ObjectStorage
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
