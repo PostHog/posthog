@@ -251,7 +251,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showMultipleYAxes: [(s) => [s.querySource], (q) => (q ? getShowMultipleYAxes(q) : null)],
         resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
         goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) || isFunnelsQuery(q) ? getGoalLines(q) : null)],
-        insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
+        insightFilter: [
+            (s) => [s.querySource],
+            (q) => (q && !isWebAnalyticsInsightQuery(q) ? filterForQuery(q) : null),
+        ],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         detailedResultsAggregationType: [
             (s) => [s.querySource],
@@ -587,7 +590,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             } as QuerySourceUpdate
 
             // Reset selectedInterval for retention insights when date range changes
-            if (values.isRetention) {
+            if (values.isRetention && !isWebAnalyticsInsightQuery(values.localQuerySource)) {
                 const filterProperty = filterKeyForQuery(values.localQuerySource)
                 updates[filterProperty as keyof QuerySourceUpdate] = {
                     ...values.localQuerySource[filterProperty],
@@ -619,6 +622,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
             await breakpoint(300)
+
+            if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
+                return
+            }
+
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
                 [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },

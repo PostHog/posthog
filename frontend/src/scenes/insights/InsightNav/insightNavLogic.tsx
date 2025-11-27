@@ -25,6 +25,7 @@ import {
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
+    ProductAnalyticsInsightQueryNode,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
@@ -309,7 +310,11 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
         newCache.series = cache?.series
     }
 
-    /**  store the insight specific filter in commonFilter */
+    if (isWebAnalyticsInsightQuery(query)) {
+        return newCache
+    }
+
+    /** store the insight specific filter in commonFilter */
     const filterKey = filterKeyForQuery(query)
     // exclude properties that shouldn't be shared
     const { resultCustomizations, ...commonProperties } = query[filterKey] || {}
@@ -414,8 +419,12 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         mergedQuery.funnelPathsFilter = cache.funnelPathsFilter
     }
 
+    if (isWebAnalyticsInsightQuery(mergedQuery as InsightQueryNode)) {
+        return mergedQuery as InsightQueryNode
+    }
+
     // insight specific filter
-    const filterKey = filterKeyForQuery(mergedQuery as InsightQueryNode)
+    const filterKey = filterKeyForQuery(mergedQuery as ProductAnalyticsInsightQueryNode)
     if (cache[filterKey] || cache.commonFilter) {
         const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as unknown as InsightQueryNode
         const nodeTrendsStickiness = (isTrendsQuery(mergedQuery) || isStickinessQuery(mergedQuery)
