@@ -3,7 +3,7 @@
 [project]
 name = "posthog"
 version = "0.0.0"
-requires-python = "==3.12.11" # Leave patch version so that we don't accidentally upgrade minor versions
+requires-python = "==3.12.12" # Pin full version to control Python upgrades explicitly
 dependencies = [
     "aioboto3==15.4.0",
     "aiohttp==3.13.2",
