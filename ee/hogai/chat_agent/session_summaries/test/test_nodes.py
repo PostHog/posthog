@@ -989,3 +989,26 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         self.assertIsNotNone(session_ids)
         assert session_ids is not None  # Type narrowing for mypy
         self.assertEqual(len(session_ids), 1, "Should return exactly 1 session due to limit")
+
+    @freeze_time("2025-09-03T12:00:00")
+    def test_validate_specific_session_ids_filters_invalid(self) -> None:
+        """Test that invalid session IDs are filtered out while valid ones are kept."""
+        valid_ids = [self.session_id_1, self.session_id_2]
+        invalid_ids = ["nonexistent-session-1", "nonexistent-session-2"]
+        all_ids = valid_ids + invalid_ids
+
+        result = self.node._session_search._validate_specific_session_ids(all_ids)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result, valid_ids)
+
+    @freeze_time("2025-09-03T12:00:00")
+    def test_validate_specific_session_ids_all_invalid_returns_none(self) -> None:
+        """Test that when all session IDs are invalid, None is returned."""
+        invalid_ids = ["nonexistent-session-1", "nonexistent-session-2"]
+
+        result = self.node._session_search._validate_specific_session_ids(invalid_ids)
+
+        self.assertIsNone(result)
