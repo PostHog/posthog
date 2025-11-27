@@ -1,4 +1,4 @@
-import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { DragEndEvent, useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSSProperties, useRef } from 'react'
 
 import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
@@ -7,6 +7,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
+import { type DndDescriptor, type DndRequest } from '../../dndLogic'
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
 
@@ -147,11 +148,13 @@ export const TreeNodeDisplayIcon = ({
 type DragAndDropProps = {
     id: string
     children: React.ReactNode
+    dndDescriptor?: DndDescriptor | null
 }
 type DraggableProps = DragAndDropProps & {
     enableDragging: boolean
     className?: string
     nativeDragPayload?: Record<string, any>
+    onDropRequest?: (dragEvent: DragEndEvent, targetDescriptor?: DndDescriptor | undefined) => DndRequest | null | void
 }
 
 export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
@@ -161,6 +164,10 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         setNodeRef,
     } = useDraggable({
         id: props.id,
+        data: {
+            dnd: props.dndDescriptor ?? (props.nativeDragPayload?.dnd as DndDescriptor | undefined),
+            onDropRequest: props.onDropRequest,
+        },
     })
 
     // Filter out the Enter key from drag listeners
@@ -234,7 +241,10 @@ type DroppableProps = DragAndDropProps & {
 }
 
 export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
-    const { setNodeRef, isOver } = useDroppable({ id: props.id })
+    const { setNodeRef, isOver } = useDroppable({
+        id: props.id,
+        data: { dnd: props.dndDescriptor },
+    })
 
     return (
         <div

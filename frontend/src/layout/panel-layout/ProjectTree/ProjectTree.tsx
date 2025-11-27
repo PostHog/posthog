@@ -15,7 +15,7 @@ import {
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
-import { DndHandler, createProjectTreeDescriptor, dndLogic } from 'lib/dndLogic'
+import { type DndHandler, createProjectTreeDescriptor } from 'lib/dndLogic'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -131,8 +131,6 @@ export function ProjectTree({
         setSelectMode,
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
-    const { handleDrop } = useActions(dndLogic)
-
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
@@ -311,20 +309,20 @@ export function ProjectTree({
             expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             enableDragAndDrop={!sortMethod || sortMethod === 'folder'}
-            onDragEnd={(dragEvent) => {
+            onDropRequest={(dragEvent) => {
                 const itemToId = (item: FileSystemEntry): string =>
                     item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id
                 const oldId = dragEvent.active.id as string
                 const newId = dragEvent.over?.id
                 if (oldId === newId) {
-                    return false
+                    return null
                 }
 
                 const items = searchTerm && searchResults.results ? searchResults.results : viableItems
                 const oldItem = items.find((i) => itemToId(i) === oldId)
                 const newItem = items.find((i) => itemToId(i) === newId)
                 if (oldItem === newItem || !oldItem) {
-                    return false
+                    return null
                 }
 
                 const folder = newItem
@@ -364,7 +362,12 @@ export function ProjectTree({
                     },
                 ]
 
-                handleDrop({ source: sourceDescriptor, target: targetDescriptor, localHandlers })
+                return {
+                    source: sourceDescriptor,
+                    target: targetDescriptor,
+                    localHandlers,
+                    nativeEvent: dragEvent.activatorEvent instanceof DragEvent ? dragEvent.activatorEvent : undefined,
+                }
             }}
             isItemDraggable={(item) => {
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path

@@ -20,6 +20,7 @@ import { GlobalModals } from '~/layout/GlobalModals'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { GlobalDndContext } from '~/lib/GlobalDndContext'
 
 import { MaxInstance } from './max/Max'
 
@@ -35,14 +36,20 @@ export function App(): JSX.Element | null {
 
     if (showApp) {
         return (
-            <>
-                <AppScene />
-                {showingDevTools ? <KeaDevtools /> : null}
-            </>
+            <GlobalDndContext>
+                <>
+                    <AppScene />
+                    {showingDevTools ? <KeaDevtools /> : null}
+                </>
+            </GlobalDndContext>
         )
     }
 
-    return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+    return (
+        <GlobalDndContext>
+            <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+        </GlobalDndContext>
+    )
 }
 
 function AppScene(): JSX.Element | null {

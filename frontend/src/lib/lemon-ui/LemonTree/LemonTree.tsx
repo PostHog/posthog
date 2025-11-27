@@ -1,4 +1,4 @@
-import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { DragEndEvent, DragOverlay, useDndMonitor } from '@dnd-kit/core'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import React, {
     CSSProperties,
@@ -19,6 +19,7 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 
+import { type DndRequest } from '../../dndLogic'
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Link } from '../Link/Link'
@@ -198,6 +199,8 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     contentRef?: React.RefObject<HTMLElement>
     /** Handler for when a drag operation completes */
     onDragEnd?: (dragEvent: DragEndEvent) => void
+    /** Builder for drag drop requests handled by the global DnD context */
+    onDropRequest?: (dragEvent: DragEndEvent) => DndRequest | null | void
     /** Whether the item is checked. */
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
     /** Whether to disable the scrollable shadows. */
@@ -219,6 +222,8 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     disableKeyboardInput?: (disable: boolean) => void
     /** Whether the item is dragging */
     isDragging?: boolean
+    /** Builder for drag drop requests handled by the global DnD context */
+    onDropRequest?: (dragEvent: DragEndEvent) => DndRequest | null | void
 }
 
 export interface LemonTreeRef {
@@ -252,6 +257,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             itemSideActionButton,
             isItemEditing,
             onItemNameChange,
+            onDropRequest,
             enableDragAndDrop = false,
             disableKeyboardInput,
             itemContextMenu,
@@ -502,6 +508,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 id={item.id}
                                 enableDragging
                                 nativeDragPayload={item.nativeDragPayload}
+                                dndDescriptor={item.nativeDragPayload?.dnd}
+                                onDropRequest={onDropRequest}
                                 className="h-[var(--lemon-tree-button-height)]"
                             >
                                 {button}
@@ -639,6 +647,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             disableKeyboardInput={disableKeyboardInput}
                                             setFocusToElementFromId={setFocusToElementFromId}
                                             onItemNameChange={onItemNameChange}
+                                            onDropRequest={onDropRequest}
                                             tableModeRow={tableModeRow}
                                             size={size}
                                             {...props}
@@ -654,7 +663,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     if (isItemDroppable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
+                            <TreeNodeDroppable
+                                id={item.id}
+                                isDroppable={item.record?.type === 'folder'}
+                                dndDescriptor={item.nativeDragPayload?.dnd}
+                            >
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )
@@ -682,6 +695,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             showFolderActiveState = false,
             contentRef,
             onDragEnd,
+            onDropRequest,
             expandedItemIds,
             onSetExpandedItemIds,
             isItemDraggable,
@@ -707,20 +721,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         ref: ForwardedRef<LemonTreeRef>
     ): JSX.Element => {
         const TYPE_AHEAD_TIMEOUT = 500
-        const mouseSensor = useSensor(MouseSensor, {
-            // Require the mouse to move by 10 pixels before activating
-            activationConstraint: {
-                distance: 10,
-            },
-        })
-        const touchSensor = useSensor(TouchSensor, {
-            // Press delay of 250ms, with tolerance of 5px of movement
-            activationConstraint: {
-                delay: 250,
-                tolerance: 5,
-            },
-        })
-        const sensors = useSensors(mouseSensor, touchSensor)
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
 
         // Scrollable container
@@ -732,6 +732,20 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [activeDragItem, setActiveDragItem] = useState<TreeDataItem | null>(null)
         const [disableKeyboardInput, setDisableKeyboardInput] = useState(false)
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
+
+        const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
+            for (const item of items) {
+                if (item.id === itemId) {
+                    return item
+                } else if (item.children) {
+                    const found = findItem(item.children, itemId)
+                    if (found) {
+                        return found
+                    }
+                }
+            }
+            return undefined
+        }
 
         // Add new state for type-ahead
         function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
@@ -1302,41 +1316,41 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             }
         }, [expandedItemIds, expandedItemIdsState])
 
-        const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
-            for (const item of items) {
-                if (item.id === itemId) {
-                    return item
-                } else if (item.children) {
-                    const found = findItem(item.children, itemId)
-                    if (found) {
-                        return found
-                    }
+        useDndMonitor({
+            onDragStart: (event) => {
+                const item = event.active?.id ? findItem(data, String(event.active.id)) : null
+                if (!item) {
+                    return
                 }
-            }
-            return undefined
-        }
+
+                setIsDragging(true)
+                setActiveDragItem(item)
+            },
+            onDragEnd: (dragEvent) => {
+                const active = dragEvent.active?.id
+                const over = dragEvent.over?.id
+                const activeItem = active ? findItem(data, String(active)) : null
+
+                if (!activeItem) {
+                    return
+                }
+
+                if (active && active === over) {
+                    dragEvent.activatorEvent.stopPropagation()
+                } else {
+                    onDragEnd?.(dragEvent)
+                }
+                setIsDragging(false)
+                setActiveDragItem(null)
+            },
+            onDragCancel: () => {
+                setIsDragging(false)
+                setActiveDragItem(null)
+            },
+        })
 
         return (
-            <DndContext
-                sensors={sensors}
-                onDragStart={(event) => {
-                    setIsDragging(true)
-                    const item = findItem(data, String(event.active?.id))
-                    if (item) {
-                        setActiveDragItem(item)
-                    }
-                }}
-                onDragEnd={(dragEvent) => {
-                    const active = dragEvent.active?.id
-                    const over = dragEvent.over?.id
-                    if (active && active === over) {
-                        dragEvent.activatorEvent.stopPropagation()
-                    } else {
-                        onDragEnd?.(dragEvent)
-                    }
-                    setIsDragging(false)
-                }}
-            >
+            <>
                 <ScrollableShadows
                     ref={containerRef}
                     direction="vertical"
@@ -1405,6 +1419,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             isItemDraggable={isItemDraggable}
                             isItemDroppable={isItemDroppable}
                             enableDragAndDrop={enableDragAndDrop}
+                            onDropRequest={onDropRequest}
                             disableKeyboardInput={(disable) => {
                                 setDisableKeyboardInput(disable)
                             }}
@@ -1458,7 +1473,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         </ButtonPrimitive>
                     )}
                 </DragOverlay>
-            </DndContext>
+            </>
         )
     }
 )
