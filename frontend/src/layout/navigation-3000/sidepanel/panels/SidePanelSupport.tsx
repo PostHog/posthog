@@ -49,9 +49,7 @@ const StatusPageAlert = (): JSX.Element | null => {
         return null
     }
 
-    const description = useIncidentIo
-        ? incidentIoDescription
-        : statusPage?.status.description || 'Active incident'
+    const description = useIncidentIo ? incidentIoDescription : statusPage?.status.description || 'Active incident'
 
     const severityClass = status.includes('outage')
         ? 'bg-danger-highlight border-danger'
@@ -62,19 +60,27 @@ const StatusPageAlert = (): JSX.Element | null => {
             <div className="flex items-start gap-2">
                 <IconWarning className="text-warning w-5 h-5 shrink-0 mt-0.5" />
                 <div className="flex-1">
-                    <p className="font-semibold mb-1">{description}</p>
-                    <p className="text-sm mb-2">
-                        We're aware of an issue that may be affecting your PostHog experience. You may wish to check our current status before contacting support.
+                    <p className="font-semibold mb-1">
+                        <span
+                            className="cursor-pointer text-link hover:underline"
+                            onClick={() => openSidePanel(SidePanelTab.Status)}
+                        >
+                            {description}
+                        </span>
                     </p>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        fullWidth
-                        center
-                        onClick={() => openSidePanel(SidePanelTab.Status)}
-                    >
-                        View status page
-                    </LemonButton>
+                    <div className="text-sm">
+                        <p className="mb-1">We're aware of an issue that may be affecting your PostHog experience.</p>
+                        <p className="mb-0">
+                            You may wish to check our{' '}
+                            <span
+                                className="cursor-pointer text-link hover:underline"
+                                onClick={() => openSidePanel(SidePanelTab.Status)}
+                            >
+                                current status
+                            </span>{' '}
+                            before contacting support.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
