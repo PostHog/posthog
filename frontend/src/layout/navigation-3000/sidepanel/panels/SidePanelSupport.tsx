@@ -64,8 +64,7 @@ const StatusPageAlert = (): JSX.Element | null => {
                 <div className="flex-1">
                     <p className="font-semibold mb-1">{description}</p>
                     <p className="text-sm mb-2">
-                        We're aware of issues that may affect your experience. Check our status page for updates before
-                        contacting support.
+                        We're aware of an issue that may be affecting your PostHog experience. You may wish to check our current status before contacting support.
                     </p>
                     <LemonButton
                         type="secondary"
