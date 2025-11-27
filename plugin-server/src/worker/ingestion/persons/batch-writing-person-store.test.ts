@@ -182,13 +182,78 @@ describe('BatchWritingPersonStore', () => {
         )
         expect(response2).toEqual([{ ...person, version: 1, properties: { test: 'test' } }, [], false])
 
-        // Check cache contains merged updates
+        // Check cache contains merged updates with conflict resolution
+        // When unsetting a property that was previously set, it should be removed from properties_to_set
         const cache = personStoreForBatch.getUpdateCache()
         const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
         expect(cachedUpdate.properties).toEqual({ test: 'test' })
-        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test', value_to_unset: 'value_to_unset' })
-        expect(cachedUpdate.properties_to_unset).toEqual(['value_to_unset']) // No properties to unset
+        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test' })
+        expect(cachedUpdate.properties_to_unset).toEqual(['value_to_unset'])
         expect(cachedUpdate.needs_write).toBe(true)
+
+        await personStoreForBatch.flush()
+
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: { test: 'test' },
+            }),
+            expect.anything(),
+            'updatePersonNoAssert'
+        )
+    })
+
+    it('should handle setting a property after unsetting it (re-setting)', async () => {
+        const personStoreForBatch = getBatchStoreForBatch()
+
+        // First, unset a property
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(person, {}, ['prop_to_toggle'], {}, 'test')
+
+        // Then, set the same property again
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            { prop_to_toggle: 'new_value' },
+            [],
+            {},
+            'test'
+        )
+
+        // Check cache - property should be in properties_to_set and NOT in properties_to_unset
+        const cache = personStoreForBatch.getUpdateCache()
+        const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
+        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test', prop_to_toggle: 'new_value' })
+        expect(cachedUpdate.properties_to_unset).toEqual([])
+
+        await personStoreForBatch.flush()
+
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: { test: 'test', prop_to_toggle: 'new_value' },
+            }),
+            expect.anything(),
+            'updatePersonNoAssert'
+        )
+    })
+
+    it('should handle unsetting a property after setting it', async () => {
+        const personStoreForBatch = getBatchStoreForBatch()
+
+        // First, set a property
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            { prop_to_toggle: 'some_value' },
+            [],
+            {},
+            'test'
+        )
+
+        // Then, unset the same property
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(person, {}, ['prop_to_toggle'], {}, 'test')
+
+        // Check cache - property should be in properties_to_unset and NOT in properties_to_set
+        const cache = personStoreForBatch.getUpdateCache()
+        const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
+        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test' })
+        expect(cachedUpdate.properties_to_unset).toEqual(['prop_to_toggle'])
 
         await personStoreForBatch.flush()
 
@@ -951,6 +1016,132 @@ describe('BatchWritingPersonStore', () => {
                 },
                 is_identified: expect.any(Boolean),
             }),
+            'updatePersonNoAssert'
+        )
+    })
+
+    it('should handle set/unset conflicts when merging updates for same person via different distinct IDs', async () => {
+        // This test validates that when two distinct IDs point to the same person,
+        // and one unsets a property while the other sets it, the conflict is resolved correctly
+        const distinctId1 = 'user-email@example.com'
+        const distinctId2 = 'user-device-abc123'
+
+        const sharedPerson = {
+            ...person,
+            properties: {
+                existing_prop: 'existing_value',
+            },
+        }
+
+        const mockRepo = createMockRepository()
+        mockRepo.fetchPerson = jest.fn().mockImplementation(() => {
+            return Promise.resolve(sharedPerson)
+        })
+        const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+        // Update via first distinct ID - unset 'conflicting_prop'
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            sharedPerson,
+            {},
+            ['conflicting_prop'],
+            {},
+            distinctId1
+        )
+
+        // Update via second distinct ID - set 'conflicting_prop' (should win over unset)
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            sharedPerson,
+            { conflicting_prop: 'new_value' },
+            [],
+            {},
+            distinctId2
+        )
+
+        const cache = personStoreForBatch.getUpdateCache()
+        const cacheValue = cache.get(`${teamId}:${sharedPerson.id}`)
+
+        expect(cacheValue).toBeDefined()
+        // The set should win - property should be in properties_to_set and NOT in properties_to_unset
+        expect(cacheValue?.properties_to_set).toEqual({
+            existing_prop: 'existing_value',
+            conflicting_prop: 'new_value',
+        })
+        expect(cacheValue?.properties_to_unset).toEqual([])
+
+        await personStoreForBatch.flush()
+
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: {
+                    existing_prop: 'existing_value',
+                    conflicting_prop: 'new_value',
+                },
+            }),
+            expect.anything(),
+            'updatePersonNoAssert'
+        )
+    })
+
+    it('should handle unset after set conflicts when merging updates for same person via different distinct IDs', async () => {
+        // This test validates that when two distinct IDs point to the same person,
+        // and one sets a property while the other unsets it (in that order), the unset wins
+        const distinctId1 = 'user-email@example.com'
+        const distinctId2 = 'user-device-abc123'
+
+        const sharedPerson = {
+            ...person,
+            properties: {
+                existing_prop: 'existing_value',
+            },
+        }
+
+        const mockRepo = createMockRepository()
+        mockRepo.fetchPerson = jest.fn().mockImplementation(() => {
+            return Promise.resolve(sharedPerson)
+        })
+        const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+        // Update via first distinct ID - set 'conflicting_prop'
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            sharedPerson,
+            { conflicting_prop: 'some_value' },
+            [],
+            {},
+            distinctId1
+        )
+
+        // Update via second distinct ID - unset 'conflicting_prop' (should win over set)
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            sharedPerson,
+            {},
+            ['conflicting_prop'],
+            {},
+            distinctId2
+        )
+
+        const cache = personStoreForBatch.getUpdateCache()
+        const cacheValue = cache.get(`${teamId}:${sharedPerson.id}`)
+
+        expect(cacheValue).toBeDefined()
+        // The unset should win - property should be in properties_to_unset and NOT in properties_to_set
+        expect(cacheValue?.properties_to_set).toEqual({
+            existing_prop: 'existing_value',
+        })
+        expect(cacheValue?.properties_to_unset).toEqual(['conflicting_prop'])
+
+        await personStoreForBatch.flush()
+
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: {
+                    existing_prop: 'existing_value',
+                },
+            }),
+            expect.anything(),
             'updatePersonNoAssert'
         )
     })

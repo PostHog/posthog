@@ -848,13 +848,24 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             )
 
             // Handle fields that are specific to PersonUpdate - merge properties_to_set and properties_to_unset
+            // with proper conflict resolution (last write wins)
             mergedPersonUpdate.properties_to_set = {
                 ...existingPersonUpdate.properties_to_set,
                 ...person.properties_to_set,
             }
+            // Remove from properties_to_set any keys that are in the incoming properties_to_unset
+            for (const key of person.properties_to_unset) {
+                delete mergedPersonUpdate.properties_to_set[key]
+            }
+
             mergedPersonUpdate.properties_to_unset = [
                 ...new Set([...existingPersonUpdate.properties_to_unset, ...person.properties_to_unset]),
             ]
+            // Remove from properties_to_unset any keys that are in the incoming properties_to_set
+            const keysToSet = new Set(Object.keys(person.properties_to_set))
+            mergedPersonUpdate.properties_to_unset = mergedPersonUpdate.properties_to_unset.filter(
+                (key) => !keysToSet.has(key)
+            )
 
             mergedPersonUpdate.created_at = DateTime.min(existingPersonUpdate.created_at, person.created_at)
             mergedPersonUpdate.needs_write = existingPersonUpdate.needs_write || person.needs_write
