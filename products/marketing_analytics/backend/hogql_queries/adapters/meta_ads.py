@@ -59,6 +59,11 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         campaign_table_name = self.config.campaign_table.name
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
 
+    def _get_campaign_id_field(self) -> ast.Expr:
+        campaign_table_name = self.config.campaign_table.name
+        field_expr = ast.Field(chain=[campaign_table_name, "id"])
+        return ast.Call(name="toString", args=[field_expr])
+
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         sum = ast.Call(
@@ -175,5 +180,5 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         return conditions
 
     def _get_group_by(self) -> list[ast.Expr]:
-        """Build GROUP BY expressions"""
-        return [self._get_campaign_name_field()]
+        """Build GROUP BY expressions - group by both name and ID"""
+        return [self._get_campaign_name_field(), self._get_campaign_id_field()]
