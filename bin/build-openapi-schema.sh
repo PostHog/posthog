@@ -7,6 +7,7 @@ set -e
 SCHEMA_PATH="frontend/src/types/api/openapi.json"
 mkdir -p "$(dirname "$SCHEMA_PATH")"
 
-python manage.py spectacular --file "$SCHEMA_PATH" --format openapi-json
+# Include internal endpoints - these are used by the frontend
+OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file "$SCHEMA_PATH" --format openapi-json
 
 echo "OpenAPI schema written to $SCHEMA_PATH"
