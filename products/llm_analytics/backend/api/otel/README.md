@@ -128,7 +128,8 @@ Determines event type based on span characteristics:
 
 1. Provider declares pattern via `get_instrumentation_pattern()` (most reliable)
 2. Span has `prompt` or `completion` attributes (indicates V1 data present)
-3. Default to V2 (safer - waits for logs rather than sending incomplete)
+3. Span is an embedding operation (embeddings don't have associated logs)
+4. Default to V2 (safer - waits for logs rather than sending incomplete)
 
 V1 spans bypass the event merger and are sent immediately.
 
@@ -152,6 +153,13 @@ Redis-based non-blocking cache for v2 trace/log coordination. Uses simple Redis 
 ### parser.py / logs_parser.py
 
 Decode OTLP protobuf messages into Python dictionaries. Handle type conversions (bytes to hex for IDs, nanoseconds to seconds for timestamps) and attribute flattening.
+
+**Return Format**: Both parsers return a list of items where each item contains its own resource and scope context:
+
+- `parse_otlp_request()`: Returns `[{"span": {...}, "resource": {...}, "scope": {...}}, ...]`
+- `parse_otlp_logs_request()`: Returns `[{"log": {...}, "resource": {...}, "scope": {...}}, ...]`
+
+This per-item format ensures correct resource/scope attribution when a single OTLP request contains multiple `resource_spans`/`resource_logs` (e.g., from different services or scopes).
 
 ### conventions/
 
