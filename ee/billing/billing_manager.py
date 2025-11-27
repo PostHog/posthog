@@ -29,9 +29,20 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
-def build_billing_token(license: License, organization: Organization, user: Optional[User] = None):
+def build_billing_token(
+    license: License, organization: Organization, user: Optional[User] = None, authorizing_actor: Optional[User] = None
+):
+    """
+    Build a billing JWT token for a given license organization and user.
+
+    When an operation needs escalated privileges an authorizing_actor can be passed so the operation will
+    operate with that role instead of the role of `user`. This will be logged and registered from the billing side.
+    """
     if not organization or not license:
         raise NotAuthenticated()
+
+    # When we do not give an explicit authorizing actor, the authorizing actor is the user himself.
+    authorizing_actor = authorizing_actor or user
 
     license_id = license.key.split("::")[0]
     license_secret = license.key.split("::")[1]
@@ -46,10 +57,22 @@ def build_billing_token(license: License, organization: Organization, user: Opti
 
     if user:
         payload["distinct_id"] = str(user.distinct_id)
-        org_membership = user.organization_memberships.get(organization=organization)
 
-        if org_membership:
-            payload["organization_role"] = org_membership.get_level_display()
+        authorizing_actor_org_membership: Optional[OrganizationMembership] = (
+            authorizing_actor.organization_memberships.get(organization=organization)
+        )
+
+        if authorizing_actor_org_membership:
+            payload["organization_role"] = authorizing_actor_org_membership.get_level_display()
+
+        if user != authorizing_actor:
+            # Save original role for logging purposes
+            user_org_membership: Optional[OrganizationMembership] = user.organization_memberships.get(
+                organization=organization
+            )
+
+            if user_org_membership:
+                payload["original_role"] = user_org_membership.get_level_display()
 
     encoded_jwt = jwt.encode(
         payload,
@@ -143,6 +166,20 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
+    def update_billing_as_actor(
+        self, organization: Organization, data: dict[str, Any], authorizing_actor: Optional[User] = None
+    ) -> None:
+        """
+        Update billing using the role of authorizing_actor to authorize the operation.
+        """
+        res = requests.patch(
+            f"{BILLING_SERVICE_URL}/api/billing/",
+            headers=self.get_auth_headers(organization, authorizing_actor=authorizing_actor),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
     def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
@@ -193,7 +230,7 @@ class BillingManager:
                 )
             )
 
-            self.update_billing(
+            self.update_billing_as_actor(
                 organization,
                 {
                     "distinct_ids": distinct_ids,
@@ -201,6 +238,7 @@ class BillingManager:
                     "org_admin_emails": admin_emails,
                     "org_users": org_users,
                 },
+                authorizing_actor=first_owner,
             )
         except Exception as e:
             capture_exception(e, {"organization_id": organization.id})
@@ -376,10 +414,18 @@ class BillingManager:
 
         return organization
 
-    def get_auth_headers(self, organization: Organization):
+    def get_auth_headers(self, organization: Organization, authorizing_actor: Optional[User] = None):
+        """
+        Get the JWT auth token to authorize with billing. By default it uses the user that
+        was set when creating the BillingManager instance, but for some operations where
+        the request needs to operate with escalated privileges you can pass in an actor that
+        will be used to authorize the operation.
+        """
         if not self.license:  # mypy
             raise Exception("No license found")
-        billing_service_token = build_billing_token(self.license, organization, self.user)
+        billing_service_token = build_billing_token(
+            self.license, organization, self.user, authorizing_actor=authorizing_actor
+        )
         return {"Authorization": f"Bearer {billing_service_token}"}
 
     def get_invoices(self, organization: Organization, status: Optional[str]):
