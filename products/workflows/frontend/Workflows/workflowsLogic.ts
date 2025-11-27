@@ -1,25 +1,20 @@
-import Fuse from 'fuse.js'
+import FuseClass from 'fuse.js'
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 
 import type { HogFlow } from './hogflows/types'
 import type { workflowsLogicType } from './workflowsLogicType'
 
+// Helping kea-typegen navigate the exported default class for Fuse
+export interface Fuse extends FuseClass<HogFlow> {}
+
 export interface WorkflowsFilters {
     search: string
     createdBy: string | null
     status: string | null
 }
-
-export const workflowsFuse = new Fuse<HogFlow>([], {
-    keys: [{ name: 'name', weight: 2 }, 'description'],
-    threshold: 0.3,
-    ignoreLocation: true,
-    includeMatches: true,
-})
 
 export const workflowsLogic = kea<workflowsLogicType>([
     path(['products', 'workflows', 'frontend', 'workflowsLogic']),
@@ -74,9 +69,20 @@ export const workflowsLogic = kea<workflowsLogicType>([
         ],
     })),
     selectors({
+        workflowsFuse: [
+            (s) => [s.workflows],
+            (workflows): Fuse => {
+                return new FuseClass(workflows || [], {
+                    keys: [{ name: 'name', weight: 2 }, 'description'],
+                    threshold: 0.3,
+                    ignoreLocation: true,
+                    includeMatches: true,
+                })
+            },
+        ],
         filteredWorkflows: [
-            (s) => [s.workflows, s.filters],
-            (workflows, filters): HogFlow[] => {
+            (s) => [s.workflows, s.filters, s.workflowsFuse],
+            (workflows, filters, workflowsFuse): HogFlow[] => {
                 let filtered = workflows
 
                 // Filter by search term using Fuse
@@ -115,11 +121,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 return Array.from(uniqueCreators.values())
             },
         ],
-    }),
-    subscriptions({
-        workflows: (workflows) => {
-            workflowsFuse.setCollection(workflows)
-        },
     }),
     afterMount(({ actions }) => {
         actions.loadWorkflows()
