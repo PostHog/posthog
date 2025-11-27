@@ -278,11 +278,13 @@ def _remove_hallucinated_events(
         raise SummaryValidationError(msg)
     # Reverse to not break indexes
     for group_index, event_index, event in reversed(hallucinated_events):
-        logger.warning(
-            f"Removing hallucinated event {event} from the raw session summary for session_id {session_id}",
-            session_id=session_id,
-            signals_type="session-summaries",
-        )
+        if final_validation:
+            # Log only on final validation to not spam during regular streaming (as validation errors are expected)
+            logger.warning(
+                f"Removing hallucinated event {event} from the raw session summary for session_id {session_id}",
+                session_id=session_id,
+                signals_type="session-summaries",
+            )
         del raw_session_summary.data["key_actions"][group_index]["events"][event_index]
     return raw_session_summary
 
@@ -292,7 +294,9 @@ def load_raw_session_summary_from_llm_content(
 ) -> RawSessionSummarySerializer | None:
     if not raw_content:
         msg = f"No LLM content found when summarizing session_id {session_id}"
-        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        if final_validation:
+            # Log only on final validation to not spam during regular streaming (as validation errors are expected)
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise SummaryValidationError(msg)
     try:
         json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=final_validation)
@@ -300,13 +304,15 @@ def load_raw_session_summary_from_llm_content(
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
         msg = f"Error loading YAML content into JSON when summarizing session_id {session_id}: {err}"
-        logger.exception(msg, session_id=session_id, signals_type="session-summaries")
+        if final_validation:
+            logger.exception(msg, session_id=session_id, signals_type="session-summaries")
         raise SummaryValidationError(msg) from err
     # Validate the LLM output against the schema
     raw_session_summary = RawSessionSummarySerializer(data=json_content)
     if not raw_session_summary.is_valid():
         msg = f"Error validating LLM output against the schema when summarizing session_id {session_id}: {raw_session_summary.errors}"
-        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        if final_validation:
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
         raise SummaryValidationError(msg)
     segments = raw_session_summary.data.get("segments")
     if not segments:
@@ -328,6 +334,7 @@ def load_raw_session_summary_from_llm_content(
         if key_group_segment_index not in segments_indices:
             msg = f"LLM hallucinated segment index {key_group_segment_index} when summarizing session_id {session_id}: {raw_session_summary.data}"
             logger.error(msg, session_id=session_id, signals_type="session-summaries")
+            # No sense to continue generation if the whole segment is hallucinated
             raise ValueError(msg)
         key_group_events = key_action_group.get("events")
         if not key_group_events:
