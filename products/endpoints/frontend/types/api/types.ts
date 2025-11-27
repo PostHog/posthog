@@ -5,6 +5,8 @@
  * PostHog API - endpoints
  * OpenAPI spec version: 1.0.0
  */
+import { apiMutator } from '../../../../../frontend/src/lib/api-orval-mutator'
+
 /**
  * @nullable
  */
@@ -3690,15 +3692,10 @@ export const environmentsEndpointsRetrieve = async (
     projectId: string,
     options?: RequestInit
 ): Promise<environmentsEndpointsRetrieveResponse> => {
-    const res = await fetch(getEnvironmentsEndpointsRetrieveUrl(projectId), {
+    return apiMutator<environmentsEndpointsRetrieveResponse>(getEnvironmentsEndpointsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsRetrieveResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsRetrieveResponse
 }
 
 /**
@@ -3723,17 +3720,12 @@ export const environmentsEndpointsCreate = async (
     endpointRequest: EndpointRequest,
     options?: RequestInit
 ): Promise<environmentsEndpointsCreateResponse> => {
-    const res = await fetch(getEnvironmentsEndpointsCreateUrl(projectId), {
+    return apiMutator<environmentsEndpointsCreateResponse>(getEnvironmentsEndpointsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endpointRequest),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsCreateResponse
 }
 
 /**
@@ -3758,15 +3750,10 @@ export const environmentsEndpointsRetrieve2 = async (
     name: string,
     options?: RequestInit
 ): Promise<environmentsEndpointsRetrieve2Response> => {
-    const res = await fetch(getEnvironmentsEndpointsRetrieve2Url(projectId, name), {
+    return apiMutator<environmentsEndpointsRetrieve2Response>(getEnvironmentsEndpointsRetrieve2Url(projectId, name), {
         ...options,
         method: 'GET',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsRetrieve2Response['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsRetrieve2Response
 }
 
 /**
@@ -3792,17 +3779,12 @@ export const environmentsEndpointsUpdate = async (
     endpointRequest: EndpointRequest,
     options?: RequestInit
 ): Promise<environmentsEndpointsUpdateResponse> => {
-    const res = await fetch(getEnvironmentsEndpointsUpdateUrl(projectId, name), {
+    return apiMutator<environmentsEndpointsUpdateResponse>(getEnvironmentsEndpointsUpdateUrl(projectId, name), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endpointRequest),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsUpdateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsUpdateResponse
 }
 
 export type environmentsEndpointsPartialUpdateResponse200 = {
@@ -3824,15 +3806,13 @@ export const environmentsEndpointsPartialUpdate = async (
     name: string,
     options?: RequestInit
 ): Promise<environmentsEndpointsPartialUpdateResponse> => {
-    const res = await fetch(getEnvironmentsEndpointsPartialUpdateUrl(projectId, name), {
-        ...options,
-        method: 'PATCH',
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsPartialUpdateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsPartialUpdateResponse
+    return apiMutator<environmentsEndpointsPartialUpdateResponse>(
+        getEnvironmentsEndpointsPartialUpdateUrl(projectId, name),
+        {
+            ...options,
+            method: 'PATCH',
+        }
+    )
 }
 
 /**
@@ -3857,15 +3837,10 @@ export const environmentsEndpointsDestroy = async (
     name: string,
     options?: RequestInit
 ): Promise<environmentsEndpointsDestroyResponse> => {
-    const res = await fetch(getEnvironmentsEndpointsDestroyUrl(projectId, name), {
+    return apiMutator<environmentsEndpointsDestroyResponse>(getEnvironmentsEndpointsDestroyUrl(projectId, name), {
         ...options,
         method: 'DELETE',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsDestroyResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsDestroyResponse
 }
 
 /**
@@ -3890,15 +3865,13 @@ export const environmentsEndpointsRunRetrieve = async (
     name: string,
     options?: RequestInit
 ): Promise<environmentsEndpointsRunRetrieveResponse> => {
-    const res = await fetch(getEnvironmentsEndpointsRunRetrieveUrl(projectId, name), {
-        ...options,
-        method: 'GET',
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsRunRetrieveResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsRunRetrieveResponse
+    return apiMutator<environmentsEndpointsRunRetrieveResponse>(
+        getEnvironmentsEndpointsRunRetrieveUrl(projectId, name),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
@@ -3924,17 +3897,12 @@ export const environmentsEndpointsRunCreate = async (
     endpointRunRequest: EndpointRunRequest,
     options?: RequestInit
 ): Promise<environmentsEndpointsRunCreateResponse> => {
-    const res = await fetch(getEnvironmentsEndpointsRunCreateUrl(projectId, name), {
+    return apiMutator<environmentsEndpointsRunCreateResponse>(getEnvironmentsEndpointsRunCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endpointRunRequest),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsRunCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsRunCreateResponse
 }
 
 /**
@@ -3959,15 +3927,13 @@ export const environmentsEndpointsVersionsRetrieve = async (
     name: string,
     options?: RequestInit
 ): Promise<environmentsEndpointsVersionsRetrieveResponse> => {
-    const res = await fetch(getEnvironmentsEndpointsVersionsRetrieveUrl(projectId, name), {
-        ...options,
-        method: 'GET',
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsVersionsRetrieveResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsVersionsRetrieveResponse
+    return apiMutator<environmentsEndpointsVersionsRetrieveResponse>(
+        getEnvironmentsEndpointsVersionsRetrieveUrl(projectId, name),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
@@ -3998,15 +3964,13 @@ export const environmentsEndpointsVersionsRetrieve2 = async (
     versionNumber: string,
     options?: RequestInit
 ): Promise<environmentsEndpointsVersionsRetrieve2Response> => {
-    const res = await fetch(getEnvironmentsEndpointsVersionsRetrieve2Url(projectId, name, versionNumber), {
-        ...options,
-        method: 'GET',
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsVersionsRetrieve2Response['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsVersionsRetrieve2Response
+    return apiMutator<environmentsEndpointsVersionsRetrieve2Response>(
+        getEnvironmentsEndpointsVersionsRetrieve2Url(projectId, name, versionNumber),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
@@ -4033,17 +3997,15 @@ export const environmentsEndpointsLastExecutionTimesCreate = async (
     endpointLastExecutionTimesRequest: EndpointLastExecutionTimesRequest,
     options?: RequestInit
 ): Promise<environmentsEndpointsLastExecutionTimesCreateResponse> => {
-    const res = await fetch(getEnvironmentsEndpointsLastExecutionTimesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(endpointLastExecutionTimesRequest),
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsEndpointsLastExecutionTimesCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsEndpointsLastExecutionTimesCreateResponse
+    return apiMutator<environmentsEndpointsLastExecutionTimesCreateResponse>(
+        getEnvironmentsEndpointsLastExecutionTimesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(endpointLastExecutionTimesRequest),
+        }
+    )
 }
 
 /**
@@ -4067,15 +4029,10 @@ export const endpointsRetrieve = async (
     projectId: string,
     options?: RequestInit
 ): Promise<endpointsRetrieveResponse> => {
-    const res = await fetch(getEndpointsRetrieveUrl(projectId), {
+    return apiMutator<endpointsRetrieveResponse>(getEndpointsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsRetrieveResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsRetrieveResponse
 }
 
 /**
@@ -4100,17 +4057,12 @@ export const endpointsCreate = async (
     endpointRequest: EndpointRequest,
     options?: RequestInit
 ): Promise<endpointsCreateResponse> => {
-    const res = await fetch(getEndpointsCreateUrl(projectId), {
+    return apiMutator<endpointsCreateResponse>(getEndpointsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endpointRequest),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsCreateResponse
 }
 
 /**
@@ -4135,15 +4087,10 @@ export const endpointsRetrieve2 = async (
     name: string,
     options?: RequestInit
 ): Promise<endpointsRetrieve2Response> => {
-    const res = await fetch(getEndpointsRetrieve2Url(projectId, name), {
+    return apiMutator<endpointsRetrieve2Response>(getEndpointsRetrieve2Url(projectId, name), {
         ...options,
         method: 'GET',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsRetrieve2Response['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsRetrieve2Response
 }
 
 /**
@@ -4169,17 +4116,12 @@ export const endpointsUpdate = async (
     endpointRequest: EndpointRequest,
     options?: RequestInit
 ): Promise<endpointsUpdateResponse> => {
-    const res = await fetch(getEndpointsUpdateUrl(projectId, name), {
+    return apiMutator<endpointsUpdateResponse>(getEndpointsUpdateUrl(projectId, name), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endpointRequest),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsUpdateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsUpdateResponse
 }
 
 export type endpointsPartialUpdateResponse200 = {
@@ -4201,15 +4143,10 @@ export const endpointsPartialUpdate = async (
     name: string,
     options?: RequestInit
 ): Promise<endpointsPartialUpdateResponse> => {
-    const res = await fetch(getEndpointsPartialUpdateUrl(projectId, name), {
+    return apiMutator<endpointsPartialUpdateResponse>(getEndpointsPartialUpdateUrl(projectId, name), {
         ...options,
         method: 'PATCH',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsPartialUpdateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsPartialUpdateResponse
 }
 
 /**
@@ -4234,15 +4171,10 @@ export const endpointsDestroy = async (
     name: string,
     options?: RequestInit
 ): Promise<endpointsDestroyResponse> => {
-    const res = await fetch(getEndpointsDestroyUrl(projectId, name), {
+    return apiMutator<endpointsDestroyResponse>(getEndpointsDestroyUrl(projectId, name), {
         ...options,
         method: 'DELETE',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsDestroyResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsDestroyResponse
 }
 
 /**
@@ -4267,15 +4199,10 @@ export const endpointsRunRetrieve = async (
     name: string,
     options?: RequestInit
 ): Promise<endpointsRunRetrieveResponse> => {
-    const res = await fetch(getEndpointsRunRetrieveUrl(projectId, name), {
+    return apiMutator<endpointsRunRetrieveResponse>(getEndpointsRunRetrieveUrl(projectId, name), {
         ...options,
         method: 'GET',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsRunRetrieveResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsRunRetrieveResponse
 }
 
 /**
@@ -4301,17 +4228,12 @@ export const endpointsRunCreate = async (
     endpointRunRequest: EndpointRunRequest,
     options?: RequestInit
 ): Promise<endpointsRunCreateResponse> => {
-    const res = await fetch(getEndpointsRunCreateUrl(projectId, name), {
+    return apiMutator<endpointsRunCreateResponse>(getEndpointsRunCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endpointRunRequest),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsRunCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsRunCreateResponse
 }
 
 /**
@@ -4336,15 +4258,10 @@ export const endpointsVersionsRetrieve = async (
     name: string,
     options?: RequestInit
 ): Promise<endpointsVersionsRetrieveResponse> => {
-    const res = await fetch(getEndpointsVersionsRetrieveUrl(projectId, name), {
+    return apiMutator<endpointsVersionsRetrieveResponse>(getEndpointsVersionsRetrieveUrl(projectId, name), {
         ...options,
         method: 'GET',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsVersionsRetrieveResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsVersionsRetrieveResponse
 }
 
 /**
@@ -4370,15 +4287,13 @@ export const endpointsVersionsRetrieve2 = async (
     versionNumber: string,
     options?: RequestInit
 ): Promise<endpointsVersionsRetrieve2Response> => {
-    const res = await fetch(getEndpointsVersionsRetrieve2Url(projectId, name, versionNumber), {
-        ...options,
-        method: 'GET',
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsVersionsRetrieve2Response['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsVersionsRetrieve2Response
+    return apiMutator<endpointsVersionsRetrieve2Response>(
+        getEndpointsVersionsRetrieve2Url(projectId, name, versionNumber),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
@@ -4403,15 +4318,10 @@ export const endpointsLastExecutionTimesCreate = async (
     endpointLastExecutionTimesRequest: EndpointLastExecutionTimesRequest,
     options?: RequestInit
 ): Promise<endpointsLastExecutionTimesCreateResponse> => {
-    const res = await fetch(getEndpointsLastExecutionTimesCreateUrl(projectId), {
+    return apiMutator<endpointsLastExecutionTimesCreateResponse>(getEndpointsLastExecutionTimesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endpointLastExecutionTimesRequest),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: endpointsLastExecutionTimesCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as endpointsLastExecutionTimesCreateResponse
 }

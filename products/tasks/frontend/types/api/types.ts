@@ -5,6 +5,7 @@
  * PostHog API - tasks
  * OpenAPI spec version: 1.0.0
  */
+import { apiMutator } from '../../../../../frontend/src/lib/api-orval-mutator'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -238,15 +239,10 @@ export const tasksList = async (
     params?: TasksListParams,
     options?: RequestInit
 ): Promise<tasksListResponse> => {
-    const res = await fetch(getTasksListUrl(projectId, params), {
+    return apiMutator<tasksListResponse>(getTasksListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: tasksListResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as tasksListResponse
 }
 
 /**
@@ -271,17 +267,12 @@ export const tasksCreate = async (
     task: Task,
     options?: RequestInit
 ): Promise<tasksCreateResponse> => {
-    const res = await fetch(getTasksCreateUrl(projectId), {
+    return apiMutator<tasksCreateResponse>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(task),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: tasksCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as tasksCreateResponse
 }
 
 /**
@@ -306,15 +297,10 @@ export const tasksRetrieve = async (
     id: string,
     options?: RequestInit
 ): Promise<tasksRetrieveResponse> => {
-    const res = await fetch(getTasksRetrieveUrl(projectId, id), {
+    return apiMutator<tasksRetrieveResponse>(getTasksRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: tasksRetrieveResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as tasksRetrieveResponse
 }
 
 /**
@@ -340,17 +326,12 @@ export const tasksUpdate = async (
     task: Task,
     options?: RequestInit
 ): Promise<tasksUpdateResponse> => {
-    const res = await fetch(getTasksUpdateUrl(projectId, id), {
+    return apiMutator<tasksUpdateResponse>(getTasksUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(task),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: tasksUpdateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as tasksUpdateResponse
 }
 
 /**
@@ -376,17 +357,12 @@ export const tasksPartialUpdate = async (
     patchedTask: NonReadonly<PatchedTask>,
     options?: RequestInit
 ): Promise<tasksPartialUpdateResponse> => {
-    const res = await fetch(getTasksPartialUpdateUrl(projectId, id), {
+    return apiMutator<tasksPartialUpdateResponse>(getTasksPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedTask),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: tasksPartialUpdateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as tasksPartialUpdateResponse
 }
 
 /**
@@ -411,15 +387,10 @@ export const tasksDestroy = async (
     id: string,
     options?: RequestInit
 ): Promise<tasksDestroyResponse> => {
-    const res = await fetch(getTasksDestroyUrl(projectId, id), {
+    return apiMutator<tasksDestroyResponse>(getTasksDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: tasksDestroyResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as tasksDestroyResponse
 }
 
 /**
@@ -454,15 +425,10 @@ export const tasksRunCreate = async (
     id: string,
     options?: RequestInit
 ): Promise<tasksRunCreateResponse> => {
-    const res = await fetch(getTasksRunCreateUrl(projectId, id), {
+    return apiMutator<tasksRunCreateResponse>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: tasksRunCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as tasksRunCreateResponse
 }
 
 /**
@@ -508,15 +474,10 @@ export const tasksUpdatePositionPartialUpdate = async (
     patchedTaskUpdatePositionRequest: PatchedTaskUpdatePositionRequest,
     options?: RequestInit
 ): Promise<tasksUpdatePositionPartialUpdateResponse> => {
-    const res = await fetch(getTasksUpdatePositionPartialUpdateUrl(projectId, id), {
+    return apiMutator<tasksUpdatePositionPartialUpdateResponse>(getTasksUpdatePositionPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedTaskUpdatePositionRequest),
     })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: tasksUpdatePositionPartialUpdateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as tasksUpdatePositionPartialUpdateResponse
 }

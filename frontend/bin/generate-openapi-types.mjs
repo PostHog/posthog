@@ -149,8 +149,9 @@ function generateTypesForSchema(schemaFile, outputDir, tag, tmpDir) {
 
     const outputFile = path.join(outputDir, 'types.ts')
 
-    // Create orval config for this schema - single file mode for types only
+    // Create orval config for this schema - single file mode with PostHog's api client
     const configFile = path.join(tmpDir, 'orval.config.mjs')
+    const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
     const config = `
 import { defineConfig } from 'orval';
 export default defineConfig({
@@ -160,6 +161,12 @@ export default defineConfig({
       target: '${outputFile}',
       mode: 'single',
       client: 'fetch',
+      override: {
+        mutator: {
+          path: '${mutatorPath}',
+          name: 'apiMutator',
+        },
+      },
     },
   },
 });

@@ -5,6 +5,7 @@
  * PostHog API - desktop_recordings
  * OpenAPI spec version: 1.0.0
  */
+import { apiMutator } from '../../../../../frontend/src/lib/api-orval-mutator'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -381,15 +382,13 @@ export const environmentsDesktopRecordingsList = async (
     params?: EnvironmentsDesktopRecordingsListParams,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsListResponse> => {
-    const res = await fetch(getEnvironmentsDesktopRecordingsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsDesktopRecordingsListResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsDesktopRecordingsListResponse
+    return apiMutator<environmentsDesktopRecordingsListResponse>(
+        getEnvironmentsDesktopRecordingsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
@@ -414,17 +413,15 @@ export const environmentsDesktopRecordingsCreate = async (
     createRecordingRequest: CreateRecordingRequest,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsCreateResponse> => {
-    const res = await fetch(getEnvironmentsDesktopRecordingsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(createRecordingRequest),
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsDesktopRecordingsCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsDesktopRecordingsCreateResponse
+    return apiMutator<environmentsDesktopRecordingsCreateResponse>(
+        getEnvironmentsDesktopRecordingsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(createRecordingRequest),
+        }
+    )
 }
 
 /**
@@ -451,15 +448,13 @@ export const environmentsDesktopRecordingsRetrieve = async (
     id: string,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsRetrieveResponse> => {
-    const res = await fetch(getEnvironmentsDesktopRecordingsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsDesktopRecordingsRetrieveResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsDesktopRecordingsRetrieveResponse
+    return apiMutator<environmentsDesktopRecordingsRetrieveResponse>(
+        getEnvironmentsDesktopRecordingsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
@@ -487,17 +482,15 @@ export const environmentsDesktopRecordingsUpdate = async (
     desktopRecording: NonReadonly<DesktopRecording>,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsUpdateResponse> => {
-    const res = await fetch(getEnvironmentsDesktopRecordingsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(desktopRecording),
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsDesktopRecordingsUpdateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsDesktopRecordingsUpdateResponse
+    return apiMutator<environmentsDesktopRecordingsUpdateResponse>(
+        getEnvironmentsDesktopRecordingsUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(desktopRecording),
+        }
+    )
 }
 
 /**
@@ -527,17 +520,15 @@ export const environmentsDesktopRecordingsPartialUpdate = async (
     patchedDesktopRecording: NonReadonly<PatchedDesktopRecording>,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsPartialUpdateResponse> => {
-    const res = await fetch(getEnvironmentsDesktopRecordingsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDesktopRecording),
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsDesktopRecordingsPartialUpdateResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsDesktopRecordingsPartialUpdateResponse
+    return apiMutator<environmentsDesktopRecordingsPartialUpdateResponse>(
+        getEnvironmentsDesktopRecordingsPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedDesktopRecording),
+        }
+    )
 }
 
 /**
@@ -564,15 +555,13 @@ export const environmentsDesktopRecordingsDestroy = async (
     id: string,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsDestroyResponse> => {
-    const res = await fetch(getEnvironmentsDesktopRecordingsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsDesktopRecordingsDestroyResponse['data'] = body ? JSON.parse(body) : {}
-    return { data, status: res.status, headers: res.headers } as environmentsDesktopRecordingsDestroyResponse
+    return apiMutator<environmentsDesktopRecordingsDestroyResponse>(
+        getEnvironmentsDesktopRecordingsDestroyUrl(projectId, id),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
 }
 
 /**
@@ -600,19 +589,13 @@ export const environmentsDesktopRecordingsAppendSegmentsCreate = async (
     appendSegments: AppendSegments,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsAppendSegmentsCreateResponse> => {
-    const res = await fetch(getEnvironmentsDesktopRecordingsAppendSegmentsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(appendSegments),
-    })
-
-    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
-
-    const data: environmentsDesktopRecordingsAppendSegmentsCreateResponse['data'] = body ? JSON.parse(body) : {}
-    return {
-        data,
-        status: res.status,
-        headers: res.headers,
-    } as environmentsDesktopRecordingsAppendSegmentsCreateResponse
+    return apiMutator<environmentsDesktopRecordingsAppendSegmentsCreateResponse>(
+        getEnvironmentsDesktopRecordingsAppendSegmentsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(appendSegments),
+        }
+    )
 }
