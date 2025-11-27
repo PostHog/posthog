@@ -304,14 +304,7 @@ export const logsLogic = kea<logsLogicType>([
                 fetchNextLogsPageFailure: () => true,
             },
         ],
-        userClickedLoadMore: [
-            false as boolean,
-            {
-                fetchLogsSuccess: () => false,
-                clearLogs: () => false,
-                loadMoreLogs: () => true,
-            },
-        ],
+
         sparklineLoading: [
             false as boolean,
             {
@@ -689,7 +682,7 @@ export const logsLogic = kea<logsLogicType>([
 
             if (logsPageSize > currentCount && values.hasMoreLogsToLoad) {
                 actions.fetchNextLogsPage(logsPageSize - currentCount)
-            } else if (logsPageSize < currentCount && !values.userClickedLoadMore) {
+            } else if (logsPageSize < currentCount) {
                 actions.truncateLogs(logsPageSize)
                 actions.setHasMoreLogsToLoad(true)
             }
