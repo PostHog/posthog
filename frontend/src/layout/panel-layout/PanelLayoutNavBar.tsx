@@ -12,6 +12,7 @@ import {
     IconFolderOpen,
     IconGear,
     IconHome,
+    IconNewspaper,
     IconPeople,
     IconShortcut,
     IconSidebarClose,
@@ -29,7 +30,9 @@ import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
@@ -103,6 +106,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { preflight } = useValues(preflightLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -137,6 +141,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         if (itemIdentifier === 'Home' && currentPath === '/') {
             return true
         }
+        if (itemIdentifier === 'Feed' && currentPath === '/feed') {
+            return true
+        }
         if (itemIdentifier === 'Activity' && currentPath.startsWith('/activity/')) {
             return true
         }
@@ -168,11 +175,23 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => handleStaticNavbarItemClick(urls.projectRoot(), true),
             collapsedTooltip: 'Home',
         },
+        ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
+            ? [
+                  {
+                      identifier: 'ProjectFeed',
+                      label: 'Feed',
+                      icon: <IconNewspaper />,
+                      to: urls.feed(),
+                      onClick: () => handleStaticNavbarItemClick(urls.feed(), true),
+                      collapsedTooltip: 'Feed',
+                  },
+              ]
+            : []),
         {
             identifier: 'Products',
             label: 'All apps',
             icon: <IconApps />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Products')
                 }
@@ -184,7 +203,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Project',
             label: 'Project',
             icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Project')
                 }
@@ -196,7 +215,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Database',
             label: 'Data warehouse',
             icon: <IconDatabaseBolt />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Database')
                 }
@@ -209,7 +228,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'DataManagement',
             label: 'Data management',
             icon: <IconDatabase />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('DataManagement')
                 }
@@ -222,7 +241,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'People',
             label: 'People',
             icon: <IconPeople />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('People')
                 }
@@ -235,7 +254,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Shortcuts',
             label: 'Shortcuts',
             icon: <IconShortcut />,
-            onClick: (e) => {
+            onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Shortcuts')
                 }
@@ -252,7 +271,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
-    ]
+    ].filter(Boolean)
 
     return (
         <>

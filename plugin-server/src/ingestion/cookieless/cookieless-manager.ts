@@ -24,11 +24,12 @@ import {
 } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
+import { logger } from '../../utils/logger'
 import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
-import { PipelineResult, drop, ok } from '../pipelines/results'
+import { PipelineResult, dlq, drop, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
 
 /* ---------------------------------------------------------------------
@@ -284,17 +285,26 @@ export class CookielessManager {
         }
         try {
             return await instrumentFn(`cookieless-batch`, () => this.doBatchInner(events))
-        } catch (e) {
-            if (e instanceof RedisOperationError) {
-                cookielessRedisErrorCounter.labels({
-                    operation: e.operation,
+        } catch (error) {
+            if (error instanceof RedisOperationError) {
+                cookielessRedisErrorCounter
+                    .labels({
+                        operation: error.operation,
+                    })
+                    .inc()
+                logger.error('Cookieless processing failed due to Redis error', {
+                    operation: error.operation,
+                    error,
+                })
+            } else {
+                logger.error('Cookieless processing failed with unexpected error', {
+                    error,
                 })
             }
 
-            // Drop all cookieless events if there are any errors.
-            // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
-            // errors to interfere with the processing of other events.
-            return this.dropAllCookielessEvents(events, 'cookieless_fail_close')
+            // DLQ all errors - both Redis and unexpected errors need investigation
+            // We fail close here as Cookieless is a new feature, not available for general use yet
+            return this.dlqAllCookielessEvents(events, 'cookieless_fail_close', error)
         }
     }
 
@@ -342,7 +352,20 @@ export class CookielessManager {
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
             if (!timestamp) {
-                results[i] = drop('cookieless_missing_timestamp')
+                results[i] = drop(
+                    'cookieless_missing_timestamp',
+                    [],
+                    [
+                        {
+                            type: 'cookieless_missing_timestamp',
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                        },
+                    ]
+                )
                 continue
             }
 
@@ -365,8 +388,38 @@ export class CookielessManager {
                 timezone: eventTimeZone,
             } = getProperties(event, timestamp)
             if (!userAgent || !ip || !host) {
+                let reason: string
+                let type: string
+                let missingProperty: string
+
+                if (!userAgent) {
+                    reason = 'cookieless_missing_ua'
+                    type = 'cookieless_missing_user_agent'
+                    missingProperty = '$raw_user_agent'
+                } else if (!ip) {
+                    reason = 'cookieless_missing_ip'
+                    type = 'cookieless_missing_ip'
+                    missingProperty = '$ip'
+                } else {
+                    reason = 'cookieless_missing_host'
+                    type = 'cookieless_missing_host'
+                    missingProperty = '$host'
+                }
+
                 results[i] = drop(
-                    !userAgent ? 'cookieless_missing_ua' : !ip ? 'cookieless_missing_ip' : 'cookieless_missing_host'
+                    reason,
+                    [],
+                    [
+                        {
+                            type,
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                                missingProperty,
+                            },
+                        },
+                    ]
                 )
                 continue
             }
@@ -613,6 +666,20 @@ export class CookielessManager {
             }
         })
     }
+
+    dlqAllCookielessEvents(
+        events: IncomingEventWithTeam[],
+        reason: string,
+        error?: unknown
+    ): PipelineResult<IncomingEventWithTeam>[] {
+        return events.map((incomingEvent) => {
+            if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
+                return dlq(reason, error)
+            } else {
+                return ok(incomingEvent)
+            }
+        })
+    }
 }
 
 type EventWithStatus = {
@@ -724,14 +791,24 @@ export function toYYYYMMDDInTimezoneSafe(
     if (eventTimeZone) {
         try {
             dateObj = toYearMonthDayInTimezone(timestamp, eventTimeZone)
-        } catch {
-            // pass
+        } catch (error) {
+            logger.warn('Failed to parse event timezone, falling back to team timezone', {
+                eventTimeZone,
+                teamTimeZone,
+                timestamp,
+                error,
+            })
         }
     }
     if (!dateObj) {
         try {
             dateObj = toYearMonthDayInTimezone(timestamp, teamTimeZone)
-        } catch {
+        } catch (error) {
+            logger.warn('Failed to parse team timezone, falling back to UTC', {
+                teamTimeZone,
+                timestamp,
+                error,
+            })
             dateObj = toYearMonthDayInTimezone(timestamp, TIMEZONE_FALLBACK)
         }
     }
@@ -746,13 +823,23 @@ export function toStartOfDayInTimezoneSafe(
     if (eventTimeZone) {
         try {
             return toStartOfDayInTimezone(timestamp, eventTimeZone)
-        } catch {
-            // pass
+        } catch (error) {
+            logger.warn('Failed to get start of day for event timezone, falling back to team timezone', {
+                eventTimeZone,
+                teamTimeZone,
+                timestamp,
+                error,
+            })
         }
     }
     try {
         return toStartOfDayInTimezone(timestamp, teamTimeZone)
-    } catch {
+    } catch (error) {
+        logger.warn('Failed to get start of day for team timezone, falling back to UTC', {
+            teamTimeZone,
+            timestamp,
+            error,
+        })
         return toStartOfDayInTimezone(timestamp, TIMEZONE_FALLBACK)
     }
 }
@@ -853,7 +940,11 @@ export function extractRootDomain(input: string): string {
         try {
             const ip = parse(input)
             return `[${ip.toString()}]`
-        } catch {
+        } catch (error) {
+            logger.debug('Failed to parse IPv6 address, using input as-is', {
+                input,
+                error,
+            })
             return input
         }
     }
@@ -870,8 +961,12 @@ export function extractRootDomain(input: string): string {
         const url = new URL(input)
         hostname = url.hostname
         port = url.port
-    } catch {
+    } catch (error) {
         // If the URL parsing fails, return the original host
+        logger.debug('Failed to parse URL for domain extraction, using input as-is', {
+            input,
+            error,
+        })
         return input
     }
 

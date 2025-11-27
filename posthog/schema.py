@@ -573,6 +573,18 @@ class CalendarHeatmapMathType(StrEnum):
     DAU = "dau"
 
 
+class MatchField(StrEnum):
+    CAMPAIGN_NAME = "campaign_name"
+    CAMPAIGN_ID = "campaign_id"
+
+
+class CampaignFieldPreference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    match_field: MatchField
+
+
 class ChartDisplayCategory(StrEnum):
     TIME_SERIES = "TimeSeries"
     CUMULATIVE_TIME_SERIES = "CumulativeTimeSeries"
@@ -1933,6 +1945,7 @@ class MarkdownBlock(BaseModel):
 
 
 class MarketingAnalyticsBaseColumns(StrEnum):
+    ID = "ID"
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
     COST = "Cost"
@@ -1944,6 +1957,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
+    ID = "id"
     CAMPAIGN = "campaign"
     CLICKS = "clicks"
     COST = "cost"
@@ -2899,6 +2913,7 @@ class SourceMap(BaseModel):
     cost: Optional[str] = None
     currency: Optional[str] = None
     date: Optional[str] = None
+    id: Optional[str] = None
     impressions: Optional[str] = None
     reported_conversion: Optional[str] = None
     source: Optional[str] = None
@@ -10088,6 +10103,7 @@ class MarketingAnalyticsConfig(BaseModel):
     )
     attribution_mode: Optional[AttributionMode] = None
     attribution_window_days: Optional[float] = None
+    campaign_field_preferences: Optional[dict[str, CampaignFieldPreference]] = None
     campaign_name_mappings: Optional[dict[str, dict[str, list[str]]]] = None
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
     custom_source_mappings: Optional[dict[str, list[str]]] = None
