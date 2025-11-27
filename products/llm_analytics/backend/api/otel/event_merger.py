@@ -60,23 +60,11 @@ def cache_and_merge_properties(
                 # Logs already cached - merge and send
                 logs_properties = json.loads(logs_json)
                 merged = {**logs_properties, **properties}  # Trace props override
-
-                # Clean up logs cache
                 redis_client.delete(logs_cache_key)
-
-                logger.debug(
-                    "event_merger_success: Merged trace+logs", extra={"trace_id": trace_id, "span_id": span_id}
-                )
-
                 return merged
             else:
                 # No logs yet - cache trace
                 redis_client.setex(trace_cache_key, _CACHE_TTL, json.dumps(properties))
-
-                logger.debug(
-                    "event_merger_cache: Cached trace properties", extra={"trace_id": trace_id, "span_id": span_id}
-                )
-
                 return None
         else:
             # Log arriving - accumulate with other logs first
@@ -86,14 +74,7 @@ def cache_and_merge_properties(
                 # Another log already cached - accumulate
                 existing_logs = json.loads(logs_json)
                 merged_logs = {**existing_logs, **properties}  # Later log props override
-
-                # Re-cache accumulated logs
                 redis_client.setex(logs_cache_key, _CACHE_TTL, json.dumps(merged_logs))
-
-                logger.debug(
-                    "event_merger_accumulate: Accumulated log properties",
-                    extra={"trace_id": trace_id, "span_id": span_id},
-                )
 
                 # Check if trace is ready
                 trace_json = redis_client.get(trace_cache_key)
@@ -101,16 +82,8 @@ def cache_and_merge_properties(
                     # Trace is ready - merge and send
                     trace_properties = json.loads(trace_json)
                     final_merged = {**merged_logs, **trace_properties}  # Trace props override
-
-                    # Clean up both caches
                     redis_client.delete(logs_cache_key)
                     redis_client.delete(trace_cache_key)
-
-                    logger.debug(
-                        "event_merger_success: Merged accumulated logs+trace",
-                        extra={"trace_id": trace_id, "span_id": span_id},
-                    )
-
                     return final_merged
 
                 # Trace not ready yet - wait for it
@@ -123,23 +96,11 @@ def cache_and_merge_properties(
                     # Trace already cached - merge and send
                     trace_properties = json.loads(trace_json)
                     merged = {**properties, **trace_properties}  # Trace props override
-
-                    # Clean up trace cache
                     redis_client.delete(trace_cache_key)
-
-                    logger.debug(
-                        "event_merger_success: Merged logs+trace", extra={"trace_id": trace_id, "span_id": span_id}
-                    )
-
                     return merged
                 else:
                     # No trace yet - cache this log
                     redis_client.setex(logs_cache_key, _CACHE_TTL, json.dumps(properties))
-
-                    logger.debug(
-                        "event_merger_cache: Cached log properties", extra={"trace_id": trace_id, "span_id": span_id}
-                    )
-
                     return None
 
     except Exception as e:

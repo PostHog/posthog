@@ -48,22 +48,7 @@ def transform_span_to_ai_event(
         - properties: AI event properties
         - uuid: Event UUID (for deduplication with log events)
     """
-    import structlog
-
-    logger = structlog.get_logger(__name__)
     baggage = baggage or {}
-
-    # Debug logging for ingestion parity validation
-    logger.debug(
-        "otel_span_received",
-        trace_id=span.get("trace_id"),
-        span_id=span.get("span_id"),
-        span_name=span.get("name"),
-        scope_name=scope.get("name"),
-        attributes_keys=list(span.get("attributes", {}).keys()),
-        has_prompt_attrs=any(k.startswith("gen_ai.prompt.") for k in span.get("attributes", {}).keys()),
-        has_completion_attrs=any(k.startswith("gen_ai.completion.") for k in span.get("attributes", {}).keys()),
-    )
 
     # Extract attributes using waterfall pattern
     posthog_attrs = extract_posthog_native_attributes(span)

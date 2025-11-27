@@ -208,13 +208,6 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    logger.debug(
-        "otel_traces_received",
-        team_id=team.id,
-        content_length=len(protobuf_data),
-        content_type=content_type,
-    )
-
     try:
         # Parse baggage from headers (for session context)
         baggage_header = request.headers.get("baggage")
@@ -222,13 +215,6 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
 
         # Parse OTLP protobuf
         parsed_request = parse_otlp_trace_request(protobuf_data)
-
-        logger.debug(
-            "otel_traces_parsed",
-            team_id=team.id,
-            spans_count=len(parsed_request["spans"]),
-            has_baggage=bool(baggage),
-        )
 
         # Validate request
         validation_errors = validate_otlp_request(parsed_request)
@@ -246,20 +232,8 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
         # Transform spans to AI events
         events = transform_spans_to_ai_events(parsed_request, baggage)
 
-        logger.debug(
-            "otel_traces_transformed",
-            team_id=team.id,
-            events_created=len(events),
-        )
-
         # Route to capture pipeline
         capture_events(events, team)
-
-        logger.debug(
-            "otel_traces_captured",
-            team_id=team.id,
-            events_captured=len(events),
-        )
 
         return Response(
             {
@@ -542,22 +516,9 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    logger.debug(
-        "otel_logs_received",
-        team_id=team.id,
-        content_length=len(protobuf_data),
-        content_type=content_type,
-    )
-
     try:
         # Parse OTLP protobuf
         parsed_request = parse_otlp_logs_request(protobuf_data)
-
-        logger.debug(
-            "otel_logs_parsed",
-            team_id=team.id,
-            logs_count=len(parsed_request["logs"]),
-        )
 
         # Validate request
         validation_errors = validate_otlp_logs_request(parsed_request)
@@ -575,25 +536,8 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
         # Transform logs to AI events (also caches properties for merging with traces)
         events = transform_logs_to_ai_events(parsed_request)
 
-        logger.debug(
-            "otel_logs_transformed",
-            team_id=team.id,
-            events_created=len(events),
-        )
-
-        # True bidirectional merge with Redis:
-        # - First arrivals (logs before traces): Cached in Redis, no events to send
-        # - Second arrivals (logs after traces): Merged and sent to capture
-        # The transform function filters out first arrivals, so events only contains second arrivals
-
         # Route merged events to capture pipeline
         capture_events(events, team)
-
-        logger.debug(
-            "otel_logs_captured",
-            team_id=team.id,
-            events_captured=len(events),
-        )
 
         return Response(
             {
@@ -713,16 +657,6 @@ def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str
     for log_record in logs:
         trace_id = log_record.get("trace_id", "")
         span_id = log_record.get("span_id", "")
-
-        # Debug logging for ingestion parity validation
-        logger.debug(
-            "otel_log_received",
-            trace_id=trace_id,
-            span_id=span_id,
-            event_name=log_record.get("attributes", {}).get("event.name"),
-            body_keys=list(log_record.get("body", {}).keys()) if isinstance(log_record.get("body"), dict) else None,
-            body_content_preview=str(log_record.get("body", {}))[:200] if log_record.get("body") else None,
-        )
 
         if trace_id and span_id:
             logs_by_span[(trace_id, span_id)].append(log_record)

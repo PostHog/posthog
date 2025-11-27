@@ -104,22 +104,12 @@ def extract_genai_attributes(span: dict[str, Any], scope: dict[str, Any] | None 
     Returns:
         Extracted attributes dict
     """
-    import structlog
-
-    logger = structlog.get_logger(__name__)
     attributes = span.get("attributes", {})
     scope = scope or {}
     result: dict[str, Any] = {}
 
     # Detect provider-specific transformer
     provider_transformer = detect_provider(span, scope)
-    if provider_transformer:
-        logger.debug(
-            "provider_transformer_detected",
-            provider=provider_transformer.get_provider_name(),
-            scope_name=scope.get("name"),
-            span_name=span.get("name"),
-        )
 
     # Model (prefer request, fallback to response, then system)
     model = (
