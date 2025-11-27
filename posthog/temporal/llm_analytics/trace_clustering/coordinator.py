@@ -15,7 +15,7 @@ import temporalio
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_clustering import constants
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs
+from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringWorkflowInputs
 from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -161,7 +161,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             try:
                 workflow_result = await temporalio.workflow.execute_child_workflow(
                     DailyTraceClusteringWorkflow.run,
-                    ClusteringInputs(
+                    ClusteringWorkflowInputs(
                         team_id=team_id,
                         lookback_days=inputs.lookback_days,
                         max_samples=inputs.max_samples,

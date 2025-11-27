@@ -1,7 +1,7 @@
 """Data models for trace clustering workflow."""
 
 from dataclasses import dataclass
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
@@ -12,17 +12,33 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
 
 
 @dataclass
-class ClusteringInputs:
-    """Input parameters for the daily trace clustering workflow."""
+class ClusteringWorkflowInputs:
+    """Input parameters for the daily trace clustering workflow.
+
+    The workflow calculates window_start/window_end from lookback_days
+    and passes them to the activity.
+    """
 
     team_id: int
-    current_time: str  # ISO format timestamp from workflow.now()
     lookback_days: int = DEFAULT_LOOKBACK_DAYS
     max_samples: int = DEFAULT_MAX_SAMPLES
     min_k: int = DEFAULT_MIN_K
     max_k: int = DEFAULT_MAX_K
-    window_start: Optional[str] = None  # RFC3339 format, overrides lookback_days
-    window_end: Optional[str] = None  # RFC3339 format, overrides lookback_days
+
+
+@dataclass
+class ClusteringActivityInputs:
+    """Input parameters for the clustering activity.
+
+    Window bounds are required and calculated by the workflow.
+    """
+
+    team_id: int
+    window_start: str  # ISO format, required
+    window_end: str  # ISO format, required
+    max_samples: int = DEFAULT_MAX_SAMPLES
+    min_k: int = DEFAULT_MIN_K
+    max_k: int = DEFAULT_MAX_K
 
 
 @dataclass
@@ -87,3 +103,48 @@ class KMeansResult:
 
     labels: list[int]  # Cluster assignment for each sample
     centroids: list[list[float]]  # Cluster centroids
+
+
+@dataclass
+class ClusteringComputeResult:
+    """Output from the compute activity - passed to labeling and emission."""
+
+    clustering_run_id: str
+    trace_ids: list[str]
+    labels: list[int]  # cluster assignment per trace
+    centroids: list[list[float]]  # k centroids, each 384-dim
+    distances: list[list[float]]  # n_traces x k_clusters distance matrix
+    representative_trace_ids: ClusterRepresentatives  # cluster_id -> trace_ids
+
+
+@dataclass
+class GenerateLabelsActivityInputs:
+    """Input for the LLM labeling activity."""
+
+    team_id: int
+    labels: list[int]
+    representative_trace_ids: ClusterRepresentatives
+    window_start: str
+    window_end: str
+
+
+@dataclass
+class GenerateLabelsActivityOutputs:
+    """Output from the LLM labeling activity."""
+
+    cluster_labels: dict[int, ClusterLabel]
+
+
+@dataclass
+class EmitEventsActivityInputs:
+    """Input for the event emission activity."""
+
+    team_id: int
+    clustering_run_id: str
+    window_start: str
+    window_end: str
+    trace_ids: list[str]
+    labels: list[int]
+    centroids: list[list[float]]
+    distances: list[list[float]]
+    cluster_labels: dict[int, ClusterLabel]

@@ -1,121 +1,105 @@
-"""Main clustering orchestration logic.
+"""Clustering utilities: k-means implementation and optimal k selection."""
 
-This module contains the core function that orchestrates the entire clustering pipeline:
-1. Fetch trace IDs and embeddings
-2. Perform k-means clustering with optimal k selection
-3. Select representative traces for labeling
-4. Generate LLM labels
-5. Emit events
-"""
-
-import time
 import logging
 
-from django.utils.dateparse import parse_datetime
-
 import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 
-from posthog.temporal.llm_analytics.trace_clustering import constants
-from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
-    calculate_trace_distances,
-    perform_kmeans_with_optimal_k,
-    select_representatives_from_distances,
-)
-from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_embeddings_for_clustering
-from posthog.temporal.llm_analytics.trace_clustering.event_emission import emit_cluster_events
-from posthog.temporal.llm_analytics.trace_clustering.labeling import generate_cluster_labels
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs, ClusteringMetrics, ClusteringResult
+from posthog.temporal.llm_analytics.trace_clustering.models import ClusterRepresentatives, KMeansResult
 
 logger = logging.getLogger(__name__)
 
 
-def perform_clustering(inputs: ClusteringInputs) -> ClusteringResult:
-    """Perform the complete clustering pipeline.
-
-    This is the main orchestration function that:
-    1. Fetches trace IDs and embeddings from ClickHouse
-    2. Performs k-means clustering with optimal k selection
-    3. Computes distances and selects representative traces
-    4. Generates LLM-based cluster labels
-    5. Emits events to ClickHouse
+def perform_kmeans_with_optimal_k(
+    embeddings: np.ndarray,
+    min_k: int,
+    max_k: int,
+) -> KMeansResult:
+    """
+    Determine optimal k using silhouette score and return the clustering results.
 
     Args:
-        inputs: ClusteringInputs with team_id and parameters
+        embeddings: Array of embedding vectors, shape (n_samples, n_features)
+        min_k: Minimum number of clusters to test
+        max_k: Maximum number of clusters to test
 
     Returns:
-        ClusteringResult with clustering metrics and cluster info
+        KMeansResult with labels and centroids
     """
-    start_time = parse_datetime(inputs.current_time)
-    metrics = ClusteringMetrics()
+    best_score = -1.0
+    best_kmeans = None
 
-    # Calculate window from lookback_days if not explicitly provided
-    if inputs.window_start and inputs.window_end:
-        window_start = parse_datetime(inputs.window_start)
-        window_end = parse_datetime(inputs.window_end)
-    else:
-        from datetime import timedelta
+    for k in range(min_k, max_k + 1):
+        kmeans = KMeans(n_clusters=k, n_init=10)
+        kmeans.fit_predict(embeddings)
+        score = silhouette_score(embeddings, kmeans.labels_)
 
-        window_end = start_time
-        window_start = start_time - timedelta(days=inputs.lookback_days)
+        if score > best_score:
+            best_score = score
+            best_kmeans = kmeans
 
-    clustering_run_id = f"team_{inputs.team_id}_{window_end.isoformat()}"
-
-    # Fetch trace IDs and embeddings
-    trace_ids, embeddings_map = fetch_trace_embeddings_for_clustering(
-        team_id=inputs.team_id,
-        window_start=window_start,
-        window_end=window_end,
-        max_samples=inputs.max_samples,
+    return KMeansResult(
+        labels=best_kmeans.labels_.tolist(),
+        centroids=best_kmeans.cluster_centers_.tolist(),
     )
 
-    metrics.total_traces_analyzed = len(trace_ids)
-    embeddings_array = np.array(list(embeddings_map.values()))
 
-    # Perform clustering with optimal k selection
-    kmeans_result = perform_kmeans_with_optimal_k(embeddings_array, inputs.min_k, inputs.max_k)
+def calculate_trace_distances(
+    embeddings: np.ndarray,
+    centroids: np.ndarray,
+) -> np.ndarray:
+    """
+    Calculate Euclidean distances from each trace embedding to all centroids.
 
-    # Compute distance matrix for use by representative selection and event emission
-    distances_matrix = calculate_trace_distances(embeddings_array, np.array(kmeans_result.centroids))
+    Args:
+        embeddings: Array of embedding vectors, shape (n_samples, n_features)
+        centroids: Array of centroid vectors, shape (n_clusters, n_features)
 
-    # Select representative traces for LLM labeling
-    representative_trace_ids = select_representatives_from_distances(
-        labels=np.array(kmeans_result.labels),
-        distances_matrix=distances_matrix,
-        trace_ids=trace_ids,
-        n_closest=constants.DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING,
-    )
+    Returns:
+        Distance matrix of shape (n_samples, n_clusters)
+    """
+    # Shape: (n_samples, n_clusters)
+    # broadcasting: (n_samples, 1, n_features) - (1, n_clusters, n_features)
+    return np.sqrt(((embeddings[:, np.newaxis, :] - centroids[np.newaxis, :, :]) ** 2).sum(axis=2))
 
-    # Generate LLM labels
-    cluster_labels = generate_cluster_labels(
-        team_id=inputs.team_id,
-        labels=np.array(kmeans_result.labels),
-        representative_trace_ids=representative_trace_ids,
-        window_start=window_start,
-        window_end=window_end,
-    )
 
-    # Emit events
-    clusters = emit_cluster_events(
-        team_id=inputs.team_id,
-        clustering_run_id=clustering_run_id,
-        window_start=window_start.isoformat(),
-        window_end=window_end.isoformat(),
-        labels=kmeans_result.labels,
-        centroids=kmeans_result.centroids,
-        trace_ids=trace_ids,
-        distances_matrix=distances_matrix,
-        cluster_labels=cluster_labels,
-    )
+def select_representatives_from_distances(
+    labels: np.ndarray,
+    distances_matrix: np.ndarray,
+    trace_ids: list[str],
+    n_closest: int = 5,
+) -> "ClusterRepresentatives":
+    """
+    Select representative traces using pre-computed distances.
 
-    metrics.num_clusters = len(kmeans_result.centroids)
-    metrics.duration_seconds = time.time() - start_time.timestamp()
+    For each cluster, selects n_closest traces closest to the cluster centroid
+    using distances that have already been calculated.
 
-    return ClusteringResult(
-        clustering_run_id=clustering_run_id,
-        team_id=inputs.team_id,
-        timestamp=start_time.isoformat(),
-        window_start=window_start.isoformat(),
-        window_end=window_end.isoformat(),
-        metrics=metrics,
-        clusters=clusters,
-    )
+    Args:
+        labels: Cluster assignments, shape (n_samples,)
+        distances_matrix: Pre-computed distances, shape (n_samples, k)
+        trace_ids: List of trace IDs corresponding to rows
+        n_closest: Number of closest traces to select per cluster
+
+    Returns:
+        ClusterRepresentatives mapping cluster_id to list of representative trace_ids
+    """
+    representatives: ClusterRepresentatives = {}
+    unique_labels = np.unique(labels)
+
+    for cluster_id in unique_labels:
+        cluster_mask = labels == cluster_id
+        cluster_indices = np.where(cluster_mask)[0]
+        cluster_trace_ids = [trace_ids[i] for i in cluster_indices]
+
+        # Get distances to this cluster's centroid (column cluster_id)
+        distances = distances_matrix[cluster_mask, cluster_id]
+
+        # Select closest traces
+        closest_local_indices = np.argsort(distances)[:n_closest]
+        closest_trace_ids = [cluster_trace_ids[i] for i in closest_local_indices]
+
+        representatives[int(cluster_id)] = closest_trace_ids
+
+    return representatives

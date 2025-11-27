@@ -4,12 +4,20 @@ import pytest
 
 import numpy as np
 
-from posthog.temporal.llm_analytics.trace_clustering.clustering_utils import (
+from posthog.temporal.llm_analytics.trace_clustering.clustering import (
     calculate_trace_distances,
     perform_kmeans_with_optimal_k,
     select_representatives_from_distances,
 )
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringInputs
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    ClusteringActivityInputs,
+    ClusteringComputeResult,
+    ClusteringWorkflowInputs,
+    ClusterLabel,
+    EmitEventsActivityInputs,
+    GenerateLabelsActivityInputs,
+    GenerateLabelsActivityOutputs,
+)
 
 
 @pytest.fixture
@@ -150,29 +158,120 @@ class TestEmitClusterEventsActivity:
 class TestWorkflowInputs:
     """Tests for workflow input models."""
 
-    def test_clustering_inputs_defaults(self):
-        """Test ClusteringInputs with default values."""
-        inputs = ClusteringInputs(team_id=1, current_time="2025-01-01T00:00:00Z")
+    def test_workflow_inputs_defaults(self):
+        """Test ClusteringWorkflowInputs with default values."""
+        inputs = ClusteringWorkflowInputs(team_id=1)
 
         assert inputs.team_id == 1
         assert inputs.lookback_days == 7
-        assert inputs.max_samples == 5000
+        assert inputs.max_samples == 1000
         assert inputs.min_k == 2
         assert inputs.max_k == 10
 
-    def test_clustering_inputs_custom(self):
-        """Test ClusteringInputs with custom values."""
-        inputs = ClusteringInputs(
+    def test_workflow_inputs_custom(self):
+        """Test ClusteringWorkflowInputs with custom values."""
+        inputs = ClusteringWorkflowInputs(
             team_id=1,
-            current_time="2025-01-01T00:00:00Z",
             lookback_days=14,
-            max_samples=5000,
-            min_k=2,
+            max_samples=1000,
+            min_k=3,
             max_k=8,
+        )
+
+        assert inputs.team_id == 1
+        assert inputs.lookback_days == 14
+        assert inputs.max_samples == 1000
+        assert inputs.min_k == 3
+        assert inputs.max_k == 8
+
+    def test_activity_inputs_required_fields(self):
+        """Test ClusteringActivityInputs requires window bounds."""
+        inputs = ClusteringActivityInputs(
+            team_id=1,
             window_start="2025-01-01T00:00:00Z",
             window_end="2025-01-08T00:00:00Z",
         )
 
-        assert inputs.lookback_days == 14
-        assert inputs.max_samples == 5000
+        assert inputs.team_id == 1
         assert inputs.window_start == "2025-01-01T00:00:00Z"
+        assert inputs.window_end == "2025-01-08T00:00:00Z"
+        assert inputs.max_samples == 1000
+        assert inputs.min_k == 2
+        assert inputs.max_k == 10
+
+
+class TestActivityInputOutputModels:
+    """Tests for activity input/output models."""
+
+    def test_clustering_compute_result(self):
+        """Test ClusteringComputeResult structure."""
+        result = ClusteringComputeResult(
+            clustering_run_id="team_1_2025-01-08T00:00:00",
+            trace_ids=["trace_1", "trace_2", "trace_3"],
+            labels=[0, 0, 1],
+            centroids=[[1.0, 2.0], [3.0, 4.0]],
+            distances=[[0.1, 0.9], [0.2, 0.8], [0.8, 0.1]],
+            representative_trace_ids={0: ["trace_1"], 1: ["trace_3"]},
+        )
+
+        assert result.clustering_run_id == "team_1_2025-01-08T00:00:00"
+        assert len(result.trace_ids) == 3
+        assert len(result.labels) == 3
+        assert len(result.centroids) == 2
+        assert len(result.distances) == 3
+        assert 0 in result.representative_trace_ids
+        assert 1 in result.representative_trace_ids
+
+    def test_generate_labels_activity_inputs(self):
+        """Test GenerateLabelsActivityInputs structure."""
+        inputs = GenerateLabelsActivityInputs(
+            team_id=1,
+            labels=[0, 0, 1, 1],
+            representative_trace_ids={0: ["trace_1"], 1: ["trace_3"]},
+            window_start="2025-01-01T00:00:00Z",
+            window_end="2025-01-08T00:00:00Z",
+        )
+
+        assert inputs.team_id == 1
+        assert len(inputs.labels) == 4
+        assert inputs.representative_trace_ids[0] == ["trace_1"]
+        assert inputs.window_start == "2025-01-01T00:00:00Z"
+        assert inputs.window_end == "2025-01-08T00:00:00Z"
+
+    def test_generate_labels_activity_outputs(self):
+        """Test GenerateLabelsActivityOutputs structure."""
+        outputs = GenerateLabelsActivityOutputs(
+            cluster_labels={
+                0: ClusterLabel(title="Pattern A", description="Description A"),
+                1: ClusterLabel(title="Pattern B", description="Description B"),
+            }
+        )
+
+        assert len(outputs.cluster_labels) == 2
+        assert outputs.cluster_labels[0].title == "Pattern A"
+        assert outputs.cluster_labels[1].description == "Description B"
+
+    def test_emit_events_activity_inputs(self):
+        """Test EmitEventsActivityInputs structure."""
+        inputs = EmitEventsActivityInputs(
+            team_id=1,
+            clustering_run_id="team_1_2025-01-08T00:00:00",
+            window_start="2025-01-01T00:00:00Z",
+            window_end="2025-01-08T00:00:00Z",
+            trace_ids=["trace_1", "trace_2"],
+            labels=[0, 1],
+            centroids=[[1.0, 2.0], [3.0, 4.0]],
+            distances=[[0.1, 0.9], [0.8, 0.2]],
+            cluster_labels={
+                0: ClusterLabel(title="A", description="Desc A"),
+                1: ClusterLabel(title="B", description="Desc B"),
+            },
+        )
+
+        assert inputs.team_id == 1
+        assert inputs.clustering_run_id == "team_1_2025-01-08T00:00:00"
+        assert len(inputs.trace_ids) == 2
+        assert len(inputs.labels) == 2
+        assert len(inputs.centroids) == 2
+        assert len(inputs.distances) == 2
+        assert len(inputs.cluster_labels) == 2

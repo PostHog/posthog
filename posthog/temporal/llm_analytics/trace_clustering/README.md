@@ -6,10 +6,10 @@ Automated workflow for clustering LLM traces based on their semantic embeddings,
 
 ```text
 posthog/temporal/llm_analytics/trace_clustering/
-├── workflow.py              # Temporal workflow definition (thin wrapper)
-├── clustering.py            # Main orchestration (performs full clustering pipeline)
+├── workflow.py              # Temporal workflow definition (orchestrates 3 activities)
+├── activities.py            # Temporal activity definitions (3 activities)
 ├── data.py                  # Data access layer (all ClickHouse queries)
-├── clustering_utils.py      # K-means implementation and distance calculations
+├── clustering.py            # K-means implementation and distance calculations
 ├── labeling.py              # LLM-based cluster labeling
 ├── event_emission.py        # Event building and emission to ClickHouse
 ├── models.py                # Data models (ClusteringInputs, ClusteringResult, etc.)
@@ -38,16 +38,25 @@ The workflow is designed to run on a schedule (daily) and is **versioned** - eac
 ```mermaid
 graph TB
     subgraph "Temporal Workflow"
-        WF[DailyTraceClusteringWorkflow] --> ACT[perform_clustering_activity]
+        WF[DailyTraceClusteringWorkflow]
+        WF --> ACT1[perform_clustering_compute_activity]
+        ACT1 --> ACT2[generate_cluster_labels_activity]
+        ACT2 --> ACT3[emit_cluster_events_activity]
     end
 
-    subgraph "Clustering Pipeline (Single Activity)"
-        ACT --> FETCH[Fetch Trace IDs & Embeddings]
-        FETCH --> CLUSTER[Perform K-Means with Optimal K]
+    subgraph "Activity 1: Compute (120s timeout)"
+        ACT1 --> FETCH[Fetch Embeddings]
+        FETCH --> CLUSTER[K-Means Clustering]
         CLUSTER --> DIST[Compute Distances]
         DIST --> REPS[Select Representatives]
-        REPS --> LABEL[Generate LLM Labels]
-        LABEL --> EMIT[Emit Cluster Events]
+    end
+
+    subgraph "Activity 2: Label (300s timeout)"
+        ACT2 --> LABEL[Generate LLM Labels]
+    end
+
+    subgraph "Activity 3: Emit (60s timeout)"
+        ACT3 --> EMIT[Emit Events]
     end
 
     subgraph "Data Sources"
@@ -60,7 +69,9 @@ graph TB
     end
 
     style WF fill:#fff9c4
-    style ACT fill:#e1f5ff
+    style ACT1 fill:#e1f5ff
+    style ACT2 fill:#ffe0b2
+    style ACT3 fill:#c8e6c9
     style CH_OUT fill:#e8f5e9
 ```
 
@@ -70,52 +81,68 @@ graph TB
 
 **Name**: `daily-trace-clustering`
 
-**Inputs** (`ClusteringInputs`):
+**Inputs** (`ClusteringWorkflowInputs`):
 
 - `team_id` (required): Team ID to cluster traces for
-- `current_time` (auto): Timestamp from workflow.now()
 - `lookback_days` (optional): Days of trace history to analyze (default: 7)
-- `max_samples` (optional): Maximum traces to sample (default: 5000)
+- `max_samples` (optional): Maximum traces to sample (default: 1000)
 - `min_k` (optional): Minimum number of clusters to test (default: 2)
 - `max_k` (optional): Maximum number of clusters to test (default: 10)
-- `window_start` (optional): Explicit window start in RFC3339 format (overrides lookback_days)
-- `window_end` (optional): Explicit window end in RFC3339 format (overrides lookback_days)
 
-### Single Activity Architecture
+### Three Activity Architecture
 
-The workflow uses a **single activity** (`perform_clustering_activity`) that runs the entire clustering pipeline. This design:
+The workflow uses **three separate activities** with independent timeouts and retry policies:
 
-- Avoids passing large embedding data through Temporal workflow history
-- Keeps all data processing in a single execution context
-- Uses `asyncio.to_thread()` to run synchronous code (Django ORM, ClickHouse queries) safely
+| Activity | Purpose | Timeout | Retries | Data Size |
+|----------|---------|---------|---------|-----------|
+| `perform_clustering_compute_activity` | Fetch embeddings, k-means, distances | 120s | 3 | ~250 KB output |
+| `generate_cluster_labels_activity` | LLM-based cluster labeling | 300s | 2 | ~4 KB output |
+| `emit_cluster_events_activity` | Write results to ClickHouse | 60s | 3 | ~100 KB output |
 
-The activity internally calls `perform_clustering()` which orchestrates:
+**Benefits:**
 
-1. **data.py** - `fetch_trace_embeddings_for_clustering()`, `fetch_trace_summaries()`
-2. **clustering_utils.py** - `perform_kmeans_with_optimal_k()`, `calculate_trace_distances()`, `select_representatives_from_distances()`
-3. **labeling.py** - `generate_cluster_labels()`
-4. **event_emission.py** - `emit_cluster_events()`
+- **Minimized data transfer**: Embeddings (~30+ MB) stay within Activity 1, only compact results (~250 KB) passed between activities
+- **Independent retries**: LLM failures don't retry compute work
+- **Better observability**: Each activity visible in Temporal UI
+- **Tailored timeouts**: LLM gets 5-minute timeout for API calls
+
+**Activity 1 (Compute)** - CPU-bound work:
+
+- Fetches embeddings from ClickHouse
+- Performs k-means clustering with optimal k selection
+- Computes distance matrix
+- Selects representative traces for labeling
+
+**Activity 2 (Label)** - External API call:
+
+- Fetches trace summaries for representative traces
+- Calls OpenAI to generate cluster titles and descriptions
+
+**Activity 3 (Emit)** - Database write:
+
+- Builds cluster data structures
+- Emits `$ai_trace_clusters` event to ClickHouse
 
 ### Module Responsibilities
 
-**`workflow.py`** - Temporal workflow wrapper:
+**`workflow.py`** - Temporal workflow orchestration:
 
 - Defines `DailyTraceClusteringWorkflow` class
-- Single activity with 30-minute timeout
-- Passes inputs with workflow.now() timestamp
+- Orchestrates 3 activities sequentially
+- Calculates window bounds from `lookback_days`
 
-**`clustering.py`** - Main orchestration:
+**`activities.py`** - Temporal activity definitions:
 
-- `perform_clustering()` - Runs the complete pipeline
-- Computes distances once and passes downstream
-- Handles window calculation from lookback_days
+- `perform_clustering_compute_activity()` - CPU-bound clustering work
+- `generate_cluster_labels_activity()` - LLM labeling
+- `emit_cluster_events_activity()` - Event emission
 
 **`data.py`** - Data access layer:
 
 - `fetch_trace_embeddings_for_clustering()` - Query trace IDs and embeddings in a single query (filters by `document_type='llm-trace-summary'`)
 - `fetch_trace_summaries()` - Fetch trace summaries for LLM labeling
 
-**`clustering_utils.py`** - Clustering algorithms:
+**`clustering.py`** - Clustering algorithms:
 
 - `perform_kmeans_with_optimal_k()` - Test k values using silhouette score and return `KMeansResult` with labels and centroids
 - `calculate_trace_distances()` - Compute distances to all centroids
@@ -179,7 +206,7 @@ temporal workflow start \
   --task-queue development-task-queue \
   --type daily-trace-clustering \
   --workflow-id "trace-clustering-test-$(date +%Y%m%d-%H%M%S)" \
-  --input '{"team_id": 1, "current_time": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'", "lookback_days": 7, "max_samples": 100, "min_k": 2, "max_k": 5}'
+  --input '{"team_id": 1, "lookback_days": 7, "max_samples": 1000, "min_k": 2, "max_k": 10}'
 
 # Check status
 temporal workflow describe --workflow-id "trace-clustering-test-YYYYMMDD-HHMMSS"
@@ -238,11 +265,13 @@ Key constants in `constants.py`:
 | Constant | Default | Description |
 |----------|---------|-------------|
 | `DEFAULT_LOOKBACK_DAYS` | 7 | Days of trace history to analyze |
-| `DEFAULT_MAX_SAMPLES` | 5000 | Maximum traces to sample |
+| `DEFAULT_MAX_SAMPLES` | 1000 | Maximum traces to sample |
 | `DEFAULT_MIN_K` | 2 | Minimum clusters to test |
 | `DEFAULT_MAX_K` | 10 | Maximum clusters to test |
 | `MIN_TRACES_FOR_CLUSTERING` | 20 | Minimum traces required |
-| `CLUSTERING_ACTIVITY_TIMEOUT` | 30 min | Activity timeout |
+| `COMPUTE_ACTIVITY_TIMEOUT` | 120s | Clustering compute timeout |
+| `LLM_ACTIVITY_TIMEOUT` | 300s | LLM labeling timeout |
+| `EMIT_ACTIVITY_TIMEOUT` | 60s | Event emission timeout |
 | `DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING` | 7 | Representatives for LLM |
 | `LABELING_LLM_MODEL` | gpt-5.1 | OpenAI model for labeling |
 | `LABELING_LLM_TIMEOUT` | 240.0 | LLM request timeout (seconds) |
@@ -250,37 +279,38 @@ Key constants in `constants.py`:
 
 ## Processing Flow
 
-1. **Fetch Data** (< 1 min)
+1. **Fetch Data**
    - Query trace IDs and embeddings from `posthog_document_embeddings` in a single query
    - Filter by `document_type='llm-trace-summary'`
    - Sample if more than `max_samples`
 
-2. **Cluster with Optimal K** (< 2 min)
+2. **Cluster with Optimal K**
    - Test k values from `min_k` to `max_k`
    - Calculate silhouette score for each k
    - Return `KMeansResult` with best labels and centroids
    - Compute distance matrix (traces × centroids)
    - **Distances computed once and reused**
 
-3. **Select Representatives** (< 1 sec)
+3. **Select Representatives**
    - For each cluster, pick N traces closest to centroid
    - Uses pre-computed distance matrix
    - Returns `ClusterRepresentatives` mapping
 
-4. **Generate Labels** (< 2 min)
+4. **Generate Labels**
    - Fetch trace summaries from `$ai_trace_summary` events
    - Build prompt with representative trace details
    - Call OpenAI to generate titles and descriptions
 
-5. **Emit Events** (< 1 sec)
+5. **Emit Events**
    - Build cluster data with traces sorted by distance
    - Emit single `$ai_trace_clusters` event
 
 ## Error Handling
 
 - **Insufficient data**: Skip clustering if fewer than 20 traces
-- **Activity retries**: 3 attempts with exponential backoff
-- **Workflow timeout**: 30 minutes maximum
+- **Compute activity retries**: 3 attempts with exponential backoff
+- **LLM activity retries**: 2 attempts with longer intervals (for rate limits)
+- **Emit activity retries**: 3 attempts with exponential backoff
 - **LLM fallback**: If label generation fails, use "Cluster N" as title
 
 ## Testing
@@ -295,7 +325,8 @@ Test coverage:
 - `KMeansResult` structure validation
 - Distance calculations with `calculate_trace_distances()`
 - Representative selection with `select_representatives_from_distances()`
-- `ClusteringInputs` model validation
+- `ClusteringWorkflowInputs` and `ClusteringActivityInputs` model validation
+- Activity input/output models (`ClusteringComputeResult`, `GenerateLabelsActivityInputs`, etc.)
 
 ## Dependencies
 

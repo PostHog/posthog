@@ -6,7 +6,7 @@ from temporalio.common import RetryPolicy
 
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_MAX_SAMPLES = 5000
+DEFAULT_MAX_SAMPLES = 1000
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
@@ -15,12 +15,31 @@ MIN_TRACES_FOR_CLUSTERING = 20
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
-CLUSTERING_ACTIVITY_TIMEOUT = timedelta(minutes=30)
 
-# Activity retry configuration
-MAX_ACTIVITY_RETRIES = 2
-ACTIVITY_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=MAX_ACTIVITY_RETRIES + 1,
+# Activity timeouts (per activity type)
+COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
+LLM_ACTIVITY_TIMEOUT = timedelta(seconds=300)  # LLM API call (5 minutes)
+EMIT_ACTIVITY_TIMEOUT = timedelta(seconds=60)  # ClickHouse write
+
+# Compute activity - CPU bound, quick retries
+COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=3,
+    initial_interval=timedelta(seconds=1),
+    maximum_interval=timedelta(seconds=10),
+    backoff_coefficient=2.0,
+)
+
+# LLM activity - external dependency, longer intervals between retries
+LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=2,
+    initial_interval=timedelta(seconds=5),
+    maximum_interval=timedelta(seconds=30),
+    backoff_coefficient=2.0,
+)
+
+# Event emission - database write, quick retries
+EMIT_ACTIVITY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=3,
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
