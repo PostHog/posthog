@@ -1,6 +1,5 @@
 import re
 import json
-import uuid
 import hashlib
 import datetime as dt
 import dataclasses
@@ -539,13 +538,8 @@ def _extract_column_type(metadata: Any) -> str:
 def _run_schema_verification(
     conn: duckdb.DuckDBPyConnection, ducklake_table: str, inputs: DuckLakeCopyActivityInputs
 ) -> DuckLakeCopyVerificationResult | None:
-    view_name = _sanitize_temp_view_name(inputs.model.model_label)
-    source_table = ducklake_escape(inputs.model.source_table_uri)
     try:
-        conn.execute(
-            f"CREATE OR REPLACE TEMP VIEW {view_name} AS SELECT * FROM delta_scan('{source_table}') LIMIT 0",
-        )
-        source_schema = _fetch_schema(conn, view_name)
+        source_schema = _fetch_delta_schema(conn, inputs.model.source_table_uri)
         ducklake_schema = _fetch_schema(conn, ducklake_table)
     except Exception as exc:
         return DuckLakeCopyVerificationResult(
@@ -554,11 +548,6 @@ def _run_schema_verification(
             description="Compare schema hash between Delta source and DuckLake table.",
             error=str(exc),
         )
-    finally:
-        try:
-            conn.execute(f"DROP VIEW IF EXISTS {view_name}")
-        except Exception:  # pragma: no cover - best effort cleanup
-            pass
 
     source_hash = _hash_schema(source_schema)
     ducklake_hash = _hash_schema(ducklake_schema)
@@ -583,12 +572,11 @@ def _run_partition_verification(
     if not partition_column:
         return None
 
-    source_table = ducklake_escape(inputs.model.source_table_uri)
     column_expr = _quote_identifier(partition_column)
     sql = f"""
         WITH source AS (
             SELECT date_trunc('day', {column_expr}) AS bucket, count(*) AS cnt
-            FROM delta_scan('{source_table}')
+            FROM delta_scan(?)
             GROUP BY 1
         ),
         ducklake AS (
@@ -606,7 +594,7 @@ def _run_partition_verification(
     """
 
     try:
-        mismatches = conn.execute(sql).fetchall()
+        mismatches = conn.execute(sql, [inputs.model.source_table_uri]).fetchall()
     except Exception as exc:
         return DuckLakeCopyVerificationResult(
             name="model.partition_counts",
@@ -645,16 +633,15 @@ def _run_key_cardinality_verifications(
     if not inputs.model.key_columns:
         return results
 
-    source_table = ducklake_escape(inputs.model.source_table_uri)
     for column in inputs.model.key_columns:
         column_expr = _quote_identifier(column)
         sql = f"""
             SELECT
-                (SELECT COUNT(DISTINCT {column_expr}) FROM delta_scan('{source_table}')) AS source_count,
+                (SELECT COUNT(DISTINCT {column_expr}) FROM delta_scan(?)) AS source_count,
                 (SELECT COUNT(DISTINCT {column_expr}) FROM {ducklake_table}) AS ducklake_count
         """
         try:
-            row = conn.execute(sql).fetchone()
+            row = conn.execute(sql, [inputs.model.source_table_uri]).fetchone()
         except Exception as exc:
             results.append(
                 DuckLakeCopyVerificationResult(
@@ -694,13 +681,13 @@ def _run_non_nullable_verifications(
     if not inputs.model.non_nullable_columns:
         return results
 
-    source_table = ducklake_escape(inputs.model.source_table_uri)
+    source_uri = inputs.model.source_table_uri
     for column in inputs.model.non_nullable_columns:
         column_expr = _quote_identifier(column)
-        source_sql = f"SELECT COUNT(*) FROM delta_scan('{source_table}') WHERE {column_expr} IS NULL"
+        source_sql = f"SELECT COUNT(*) FROM delta_scan(?) WHERE {column_expr} IS NULL"
         ducklake_sql = f"SELECT COUNT(*) FROM {ducklake_table} WHERE {column_expr} IS NULL"
         try:
-            source_row = conn.execute(source_sql).fetchone()
+            source_row = conn.execute(source_sql, [source_uri]).fetchone()
             ducklake_row = conn.execute(ducklake_sql).fetchone()
         except Exception as exc:
             results.append(
@@ -743,16 +730,17 @@ def _hash_schema(schema: list[tuple[str, str]]) -> str:
     return digest.hexdigest()
 
 
+def _fetch_delta_schema(conn: duckdb.DuckDBPyConnection, source_uri: str) -> list[tuple[str, str]]:
+    rows = conn.execute(
+        "DESCRIBE SELECT * FROM delta_scan(?) LIMIT 0",
+        [source_uri],
+    ).fetchall()
+    return [(row[0], row[1]) for row in rows]
+
+
 def _fetch_schema(conn: duckdb.DuckDBPyConnection, table_name: str) -> list[tuple[str, str]]:
     rows = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
     return [(row[1], row[2]) for row in rows]
-
-
-def _sanitize_temp_view_name(label: str) -> str:
-    candidate = _IDENTIFIER_SANITIZE_RE.sub("_", (label or "").strip())[:32]
-    if not candidate or candidate[0].isdigit():
-        candidate = f"ducklake_temp_{candidate}".strip("_")
-    return f"{candidate}_{uuid.uuid4().hex[:8]}"
 
 
 def _quote_identifier(identifier: str) -> str:
