@@ -1,12 +1,11 @@
 import json
 from typing import Any, cast
 
-from django.http import JsonResponse
-
 import structlog
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
@@ -21,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def sdk_doctor(request: Request) -> JsonResponse:
+def sdk_doctor(request: Request) -> Response:
     """
     Serve team SDK versions. Data is cached by Dagster job.
     Supports force_refresh=true for on-demand detection.
@@ -34,11 +33,11 @@ def sdk_doctor(request: Request) -> JsonResponse:
 
     team_data = get_team_data(team_id, force_refresh)
     if not team_data:
-        return JsonResponse({"error": "Failed to get SDK versions. Please try again later."}, status=500)
+        return Response({"error": "Failed to get SDK versions. Please try again later."}, status=500)
 
     sdk_data = get_github_sdk_data()
     if not sdk_data:
-        return JsonResponse({"error": "Failed to get GitHub SDK data. Please try again later."}, status=500)
+        return Response({"error": "Failed to get GitHub SDK data. Please try again later."}, status=500)
 
     # Combine the team data with SDK data by including the date for each release
     # on the team data alongside whether it's the latest or not
@@ -57,7 +56,7 @@ def sdk_doctor(request: Request) -> JsonResponse:
             ],
         }
 
-    return JsonResponse(combined_data)
+    return Response(combined_data, status=200)
 
 
 def get_team_data(team_id: int, force_refresh: bool) -> dict[str, Any] | None:
