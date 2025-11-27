@@ -492,7 +492,11 @@ export const logsLogic = kea<logsLogicType>([
                 const data = Object.entries(
                     sparkline.reduce((accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
-                            labels.push(humanFriendlyDetailedTime(currentItem.time))
+                            labels.push(
+                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
+                                    showNow: false,
+                                })
+                            )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
