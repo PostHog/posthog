@@ -38,6 +38,7 @@ from posthog.hogql.base import AST
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
@@ -708,19 +709,6 @@ def property_to_expr(
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
     )
-
-
-def map_virtual_properties(e: ast.Expr):
-    if (
-        isinstance(e, ast.Field)
-        and len(e.chain) >= 2
-        and e.chain[-2] == "properties"
-        and isinstance(e.chain[-1], str)
-        and e.chain[-1].startswith("$virt")
-    ):
-        # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
-        return ast.Field(chain=e.chain[:-2] + [e.chain[-1]])
-    return e
 
 
 def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:

@@ -35,6 +35,7 @@ def register_all_admin():
         TeamAdmin,
         TextAdmin,
         UserAdmin,
+        UserProductListAdmin,
     )
     from posthog.models import (
         AsyncDeletion,
@@ -66,6 +67,7 @@ def register_all_admin():
         Text,
         User,
     )
+    from posthog.models.file_system.user_product_list import UserProductList
     from posthog.models.oauth import OAuthApplication
 
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
@@ -112,3 +114,5 @@ def register_all_admin():
 
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
+
+    admin.site.register(UserProductList, UserProductListAdmin)

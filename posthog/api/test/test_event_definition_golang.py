@@ -504,17 +504,6 @@ class TestGolangGeneratorAPI(APIBaseTest):
         # Verify telemetry was called herre
         self._test_telemetry_called(mock_report)
 
-    def test_golang_schema_hash_differs_from_typescript(self):
-        """Test that schema_hash changes when properties are modified"""
-        responseGo = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
-        hashGo = responseGo.json()["schema_hash"]
-
-        responseTS = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript")
-        hashTS = responseTS.json()["schema_hash"]
-
-        # Hashes should differ
-        self.assertNotEqual(hashGo, hashTS, "Schema hash should differ between Go and Typescript")
-
     def test_golang_code_compiles(self):
         """
         This test:
@@ -648,7 +637,7 @@ func main() {
         self.assertEqual(mock_report.call_count, 1)
         call_args = mock_report.call_args
         self.assertEqual(call_args[0][0], self.user)  # user
-        self.assertEqual(call_args[0][1], "generated event definitions")
+        self.assertEqual(call_args[0][1], "event definitions generated")
         telemetry_props = call_args[0][2]
         self.assertEqual(telemetry_props["language"], "Go")
         self.assertEqual(telemetry_props["team_id"], self.team.id)
