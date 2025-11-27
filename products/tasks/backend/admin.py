@@ -25,7 +25,7 @@ class TaskRunAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {"fields": ("id", "task", "status", "environment", "stage", "branch")}),
-        ("Storage", {"fields": ("log_storage_path", "error_message")}),
+        ("Storage", {"fields": ("error_message",)}),
         ("Data", {"fields": ("output", "state")}),
         ("Dates", {"fields": ("created_at", "updated_at", "completed_at")}),
     )

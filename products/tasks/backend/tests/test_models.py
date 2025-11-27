@@ -332,9 +332,8 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -356,10 +355,8 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -384,10 +381,8 @@ class TestTaskRun(TestCase):
         run.append_log(new_entries)
         run.refresh_from_db()
 
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -406,7 +401,7 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        self.assertIsNotNone(run.log_storage_path)
+        self.assertIsNotNone(run.log_url)
 
         # Verify S3 object has TTL tags
         from botocore.exceptions import ClientError
@@ -416,9 +411,7 @@ class TestTaskRun(TestCase):
         try:
             client = object_storage_client()
             if isinstance(client, ObjectStorage):
-                response = client.aws_client.get_object_tagging(
-                    Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_storage_path
-                )
+                response = client.aws_client.get_object_tagging(Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_url)
                 tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
                 self.assertEqual(tags.get("ttl_days"), "30")
                 self.assertEqual(tags.get("team_id"), str(self.team.id))

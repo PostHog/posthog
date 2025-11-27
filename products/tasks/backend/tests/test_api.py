@@ -379,10 +379,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
 
         # Verify logs are stored in S3
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         # Parse newline-delimited JSON
@@ -420,10 +418,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
 
         # All logs should be stored in S3
-        assert run.log_storage_path is not None
-        self.assertTrue(run.has_s3_logs)
-
-        log_content = object_storage.read(run.log_storage_path)
+        assert run.log_url is not None
+        log_content = object_storage.read(run.log_url)
         assert log_content is not None
 
         # Parse newline-delimited JSON
