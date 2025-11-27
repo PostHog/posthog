@@ -3,10 +3,10 @@ from typing import Any, Literal, Optional, cast
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Group, Team
@@ -59,44 +59,55 @@ class PersonStrategy(ActorStrategy):
 
     def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
         actor_ids_list = list(actor_ids)
-
         if not actor_ids_list:
             return {}
 
-        order_by_clause = f"ORDER BY {order_by}" if order_by else ""
+        batch_size = 10000
+        persons_result: list[tuple] = []
+        for i in range(0, len(actor_ids_list), batch_size):
+            batch = actor_ids_list[i : i + batch_size]
+            batch_result = sync_execute(
+                """
+                SELECT id, argMax(properties, version), argMax(is_identified, version), argMax(created_at, version)
+                FROM person
+                WHERE team_id = %(team_id)s AND id IN %(actor_ids)s
+                GROUP BY id
+                HAVING argMax(is_deleted, version) = 0
+                """,
+                {"team_id": self.team.pk, "actor_ids": batch},
+            )
+            persons_result.extend(batch_result)
 
-        query = parse_select(
-            f"""
-            SELECT
-                persons.id AS id,
-                persons.properties AS properties,
-                persons.is_identified AS is_identified,
-                persons.created_at AS created_at,
-                groupArray(pdi.distinct_id) AS distinct_ids
-            FROM persons
-            LEFT JOIN person_distinct_ids AS pdi ON persons.id = pdi.person_id
-            WHERE persons.id IN {{actor_ids}}
-            GROUP BY persons.id, persons.properties, persons.is_identified, persons.created_at
-            {order_by_clause}
-            """,
-            placeholders={"actor_ids": ast.Constant(value=actor_ids_list)},
-        )
+        if not persons_result:
+            return {}
 
-        response = execute_hogql_query(
-            query_type="persons_enrichment",
-            query=query,
-            team=self.team,
-        )
+        person_ids = [str(row[0]) for row in persons_result]
+
+        distinct_ids_result: list[tuple] = []
+        for i in range(0, len(person_ids), batch_size):
+            batch = person_ids[i : i + batch_size]
+            batch_result = sync_execute(
+                """
+                SELECT person_id, groupArray(distinct_id)
+                FROM person_distinct_id2
+                WHERE team_id = %(team_id)s AND person_id IN %(person_ids)s
+                GROUP BY person_id
+                """,
+                {"team_id": self.team.pk, "person_ids": batch},
+            )
+            distinct_ids_result.extend(batch_result)
+
+        person_id_to_distinct_ids: dict[str, list[str]] = {str(row[0]): row[1] for row in distinct_ids_result}
 
         return {
             str(row[0]): {
                 "id": row[0],
                 "properties": _parse_properties(row[1]),
-                "is_identified": bool(row[2]),
+                "is_identified": row[2],
                 "created_at": row[3],
-                "distinct_ids": row[4],
+                "distinct_ids": person_id_to_distinct_ids.get(str(row[0]), []),
             }
-            for row in response.results or []
+            for row in persons_result
         }
 
     def input_columns(self) -> list[str]:
