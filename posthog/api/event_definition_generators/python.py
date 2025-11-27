@@ -43,9 +43,9 @@ class PythonGenerator(EventDefinitionGenerator):
             overload = self._generate_overload(event_name, properties)
             overload_blocks.append(overload)
 
-        typed_dicts_section = "\n" + "\n".join(typed_dict_blocks) if typed_dict_blocks else ""
+        typed_dicts_section = "\n" + "\n\n\n".join(typed_dict_blocks) if typed_dict_blocks else ""
         overloads_section = (
-            "\n\n\n# Type-safe capture overloads\n" + "\n".join(overload_blocks) if overload_blocks else ""
+            "\n\n\n# Type-safe capture overloads\n" + "\n\n".join(overload_blocks) if overload_blocks else ""
         )
 
         # This section includes both the mapping dict and the helper function, placed before overloads
