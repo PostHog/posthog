@@ -6,6 +6,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
 
@@ -59,14 +60,15 @@ export function ConversationsAnalyticsScene(): JSX.Element {
     })
 
     return (
-        <SceneContent className="space-y-5">
+        <SceneContent>
+            <SceneTitleSection
+                name="Conversations"
+                description=""
+                resourceType={{
+                    type: 'conversation',
+                }}
+            />
             <ScenesTabs />
-            <section className="space-y-1">
-                <h1 className="text-2xl font-semibold">Resolution analytics</h1>
-                <p className="text-muted-alt">
-                    Track AI containment, escalation reasons, SLA breaches, and agent vs AI performance.
-                </p>
-            </section>
 
             <div className="w-fit">
                 <DateFilter

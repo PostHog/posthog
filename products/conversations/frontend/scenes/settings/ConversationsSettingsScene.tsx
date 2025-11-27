@@ -3,6 +3,7 @@ import { LemonButton, LemonCard, LemonSelect, LemonSwitch, LemonTag } from '@pos
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
 
@@ -23,22 +24,21 @@ export const scene: SceneExport = {
 
 export function ConversationsSettingsScene(): JSX.Element {
     return (
-        <SceneContent className="space-y-5">
-            <ScenesTabs />
-            <section className="space-y-1">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h1 className="text-2xl font-semibold">Conversations settings</h1>
-                        <p className="text-muted-alt">
-                            Wire up Slack connect, widget defaults, and AI assistance toggles per channel.
-                        </p>
-                    </div>
+        <SceneContent>
+            <SceneTitleSection
+                name="Conversations"
+                description=""
+                resourceType={{
+                    type: 'conversation',
+                }}
+                actions={
                     <div className="flex gap-2">
                         <LemonButton type="secondary">Test widget</LemonButton>
                         <LemonButton type="primary">Save changes</LemonButton>
                     </div>
-                </div>
-            </section>
+                }
+            />
+            <ScenesTabs />
 
             <div className="grid gap-4 lg:grid-cols-2">
                 <LemonCard hoverEffect={false}>

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconBrowser, IconClock, IconComment } from '@posthog/icons'
@@ -10,6 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { configChanges } from '../../data/configChanges'
@@ -44,17 +46,18 @@ export function ConversationsDashboardScene(): JSX.Element {
         dateFrom: '-7d',
         dateTo: null,
     })
+    const { push } = useActions(router)
 
     return (
-        <SceneContent className="space-y-5">
+        <SceneContent>
+            <SceneTitleSection
+                name="Conversations"
+                description=""
+                resourceType={{
+                    type: 'conversation',
+                }}
+            />
             <ScenesTabs />
-            <section className="space-y-1">
-                <h1 className="text-2xl font-semibold">Conversations overview</h1>
-                <p className="text-muted-alt">
-                    KPI snapshots, escalations, and recent content/guidance changes to keep the AI assist tuned.
-                </p>
-            </section>
-
             <div className="flex flex-wrap gap-3 items-center">
                 <DateFilter
                     dateFrom={dateRange.dateFrom}
@@ -66,6 +69,7 @@ export function ConversationsDashboardScene(): JSX.Element {
                     onChange={(value) => value && setChannelFilter(value as ChannelFilter)}
                     options={channelOptions}
                     placeholder="Channel filter"
+                    size="small"
                 />
             </div>
 
@@ -99,6 +103,9 @@ export function ConversationsDashboardScene(): JSX.Element {
                     <LemonTable
                         dataSource={escalationTickets}
                         rowKey="id"
+                        onRow={(ticket) => ({
+                            onClick: () => push(urls.conversationsTicketDetail(ticket.id)),
+                        })}
                         columns={[
                             {
                                 title: 'Ticket',
@@ -183,7 +190,11 @@ export function ConversationsDashboardScene(): JSX.Element {
                         </div>
                         <div className="space-y-3">
                             {pod.tickets.map((ticket) => (
-                                <div key={ticket.id} className="rounded border border-light px-3 py-2">
+                                <div
+                                    key={ticket.id}
+                                    className="rounded border border-light px-3 py-2 cursor-pointer"
+                                    onClick={() => push(urls.conversationsTicketDetail(ticket.id))}
+                                >
                                     <div className="flex items-center justify-between text-sm font-medium">
                                         <span>{ticket.subject}</span>
                                         <span className="text-xs text-muted-alt">{ticket.minutesOpen} min</span>

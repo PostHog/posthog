@@ -16,6 +16,7 @@ export function ScenesTabs(): JSX.Element {
                 label: tab.label,
             }))}
             onChange={(key) => setTab(key as SceneTabKey)}
+            sceneInset
         />
     )
 }

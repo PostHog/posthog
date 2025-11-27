@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { ScenesTabs } from '../../components/ScenesTabs'
 import { ticketDetail } from '../../data/ticketDetail'
 
 export const scene: SceneExport = {
@@ -27,8 +26,7 @@ export function ConversationsTicketScene(): JSX.Element {
     const { push } = useActions(router)
 
     return (
-        <SceneContent className="space-y-5">
-            <ScenesTabs />
+        <SceneContent>
             <SceneTitleSection
                 name={`${ticketDetail.subject} (${ticketDetail.id})`}
                 description={`Queue: ${ticketDetail.queue} • Created ${ticketDetail.createdAt}`}

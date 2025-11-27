@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconBrowser, IconComment } from '@posthog/icons'
+import { IconComment, IconLetter } from '@posthog/icons'
 import { LemonCard, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -11,6 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
 import type { TicketChannel, TicketSlaState, TicketStatus } from '../../data/tickets'
@@ -44,9 +45,9 @@ const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [
 ]
 
 const channelIcon: Record<string, JSX.Element> = {
-    widget: <IconBrowser />,
+    widget: <IconComment />,
     slack: <IconSlack />,
-    email: <IconComment />,
+    email: <IconLetter />,
 }
 
 export const scene: SceneExport = {
@@ -65,15 +66,15 @@ export function ConversationsTicketsScene(): JSX.Element {
     })
 
     return (
-        <SceneContent className="space-y-5">
+        <SceneContent>
+            <SceneTitleSection
+                name="Conversations"
+                description=""
+                resourceType={{
+                    type: 'conversation',
+                }}
+            />
             <ScenesTabs />
-            <section className="space-y-1">
-                <h1 className="text-2xl font-semibold">Ticket list</h1>
-                <p className="text-muted-alt">
-                    Use filters to focus on specific queues, channels, or AI containment states.
-                </p>
-            </section>
-
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                 <LemonCard hoverEffect={false}>
                     <div className="text-sm text-muted-alt">Open</div>
@@ -103,24 +104,28 @@ export function ConversationsTicketsScene(): JSX.Element {
                     value={statusFilter}
                     onChange={(value) => value && setStatusFilter(value as TicketStatus | 'all')}
                     options={statusOptions}
+                    size="small"
                     placeholder="Status"
                 />
                 <LemonSelect
                     value={channelFilter}
                     onChange={(value) => value && setChannelFilter(value as TicketChannel | 'all')}
                     options={channelOptions}
+                    size="small"
                     placeholder="Channel"
                 />
                 <LemonSelect
                     value={resolutionFilter}
                     onChange={(value) => value && setResolutionFilter(value as 'all' | 'ai' | 'human')}
                     options={resolutionOptions}
+                    size="small"
                     placeholder="Resolution"
                 />
                 <LemonSelect
                     value={slaFilter}
                     onChange={(value) => value && setSlaFilter(value as TicketSlaState | 'all')}
                     options={slaOptions}
+                    size="small"
                     placeholder="SLA"
                 />
             </div>
