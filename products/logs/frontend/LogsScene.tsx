@@ -177,7 +177,7 @@ export function LogsScene(): JSX.Element {
                                 {logsLoading
                                     ? 'Loading more logs...'
                                     : hasMoreLogsToLoad
-                                      ? `Showing ${humanFriendlyNumber(parsedLogs.length)} of ${humanFriendlyNumber(totalLogsMatchingFilters)} logs – load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
+                                      ? `Showing ${humanFriendlyNumber(parsedLogs.length)} of ${humanFriendlyNumber(totalLogsMatchingFilters)} logs – click to load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
                                       : `Showing all ${humanFriendlyNumber(parsedLogs.length)} logs`}
                             </LemonButton>
                         </div>
