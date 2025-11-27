@@ -110,13 +110,15 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             max_retries = 3
             retry_delay_seconds = 5
 
-            @database_sync_to_async
-            def build_query(cohort_obj):
-                realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
-                current_members_query = realtime_query.get_query()
-                hogql_context = HogQLContext(team_id=cohort_obj.team_id, enable_select_queries=True)
-                current_members_sql, _ = prepare_and_print_ast(current_members_query, hogql_context, "clickhouse")
-                return current_members_sql, hogql_context.values
+        @database_sync_to_async
+        def build_query(cohort_obj):
+            realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
+            current_members_query = realtime_query.get_query()
+            hogql_context = HogQLContext(team_id=cohort_obj.team_id, enable_select_queries=True)
+            current_members_sql, _ = prepare_and_print_ast(current_members_query, hogql_context, "clickhouse")
+            return current_members_sql, hogql_context.values
+
+        for idx, cohort in enumerate(cohorts, 1):
 
             for retry_attempt in range(1, max_retries + 1):
                 try:
