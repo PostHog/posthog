@@ -110,7 +110,7 @@ const recordingDisabledReason = (
                 set it on all events.
             </>
         )
-    } else if (hasRecording === false) {
+    } else if (!hasRecording) {
         return 'No recording for this event'
     } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
         return (
