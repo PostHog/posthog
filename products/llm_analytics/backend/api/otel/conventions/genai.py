@@ -114,7 +114,7 @@ def extract_genai_attributes(span: dict[str, Any], scope: dict[str, Any] | None 
     # Detect provider-specific transformer
     provider_transformer = detect_provider(span, scope)
     if provider_transformer:
-        logger.info(
+        logger.debug(
             "provider_transformer_detected",
             provider=provider_transformer.get_provider_name(),
             scope_name=scope.get("name"),
@@ -153,26 +153,10 @@ def extract_genai_attributes(span: dict[str, Any], scope: dict[str, Any] | None 
     elif (prompt := attributes.get("gen_ai.prompt")) is not None:
         # Try provider-specific transformation
         if provider_transformer:
-            logger.info(
-                "provider_transform_prompt_attempt",
-                provider=provider_transformer.get_provider_name(),
-                prompt_type=type(prompt).__name__,
-                prompt_length=len(str(prompt)) if prompt else 0,
-            )
             transformed = provider_transformer.transform_prompt(prompt)
             if transformed is not None:
-                logger.info(
-                    "provider_transform_prompt_success",
-                    provider=provider_transformer.get_provider_name(),
-                    result_type=type(transformed).__name__,
-                    result_length=len(transformed) if isinstance(transformed, list) else 0,
-                )
                 result["prompt"] = transformed
             else:
-                logger.info(
-                    "provider_transform_prompt_none",
-                    provider=provider_transformer.get_provider_name(),
-                )
                 result["prompt"] = prompt
         else:
             result["prompt"] = prompt
@@ -184,26 +168,10 @@ def extract_genai_attributes(span: dict[str, Any], scope: dict[str, Any] | None 
     elif (completion := attributes.get("gen_ai.completion")) is not None:
         # Try provider-specific transformation
         if provider_transformer:
-            logger.info(
-                "provider_transform_completion_attempt",
-                provider=provider_transformer.get_provider_name(),
-                completion_type=type(completion).__name__,
-                completion_length=len(str(completion)) if completion else 0,
-            )
             transformed = provider_transformer.transform_completion(completion)
             if transformed is not None:
-                logger.info(
-                    "provider_transform_completion_success",
-                    provider=provider_transformer.get_provider_name(),
-                    result_type=type(transformed).__name__,
-                    result_length=len(transformed) if isinstance(transformed, list) else 0,
-                )
                 result["completion"] = transformed
             else:
-                logger.info(
-                    "provider_transform_completion_none",
-                    provider=provider_transformer.get_provider_name(),
-                )
                 result["completion"] = completion
         else:
             result["completion"] = completion

@@ -142,14 +142,6 @@ def build_event_properties(
     # - gen_ai.choice (body: {"index": 0, "finish_reason": "stop", "message": {...}})
     event_name = attributes.get("event.name", "").lower()
 
-    import logging
-
-    logger = logging.getLogger(__name__)
-    logger.info(
-        "v2_log_event_debug",
-        extra={"event_name": event_name, "body_keys": list(body.keys()) if isinstance(body, dict) else None},
-    )
-
     if isinstance(body, dict):
         # User/system messages: {"content": "..."}
         if "gen_ai.user.message" in event_name or "gen_ai.system.message" in event_name:
@@ -319,10 +311,3 @@ def extract_distinct_id(resource: dict[str, Any], attributes: dict[str, Any]) ->
 
     # Default to anonymous
     return "anonymous"
-
-
-def stringify_content(content: Any) -> str:
-    """Stringify content (handles objects and strings)."""
-    if isinstance(content, str):
-        return content
-    return json.dumps(content)

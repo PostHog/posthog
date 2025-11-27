@@ -64,14 +64,16 @@ def cache_and_merge_properties(
                 # Clean up logs cache
                 redis_client.delete(logs_cache_key)
 
-                logger.info("event_merger_success: Merged trace+logs", extra={"trace_id": trace_id, "span_id": span_id})
+                logger.debug(
+                    "event_merger_success: Merged trace+logs", extra={"trace_id": trace_id, "span_id": span_id}
+                )
 
                 return merged
             else:
                 # No logs yet - cache trace
                 redis_client.setex(trace_cache_key, _CACHE_TTL, json.dumps(properties))
 
-                logger.info(
+                logger.debug(
                     "event_merger_cache: Cached trace properties", extra={"trace_id": trace_id, "span_id": span_id}
                 )
 
@@ -88,7 +90,7 @@ def cache_and_merge_properties(
                 # Re-cache accumulated logs
                 redis_client.setex(logs_cache_key, _CACHE_TTL, json.dumps(merged_logs))
 
-                logger.info(
+                logger.debug(
                     "event_merger_accumulate: Accumulated log properties",
                     extra={"trace_id": trace_id, "span_id": span_id},
                 )
@@ -104,7 +106,7 @@ def cache_and_merge_properties(
                     redis_client.delete(logs_cache_key)
                     redis_client.delete(trace_cache_key)
 
-                    logger.info(
+                    logger.debug(
                         "event_merger_success: Merged accumulated logs+trace",
                         extra={"trace_id": trace_id, "span_id": span_id},
                     )
@@ -125,7 +127,7 @@ def cache_and_merge_properties(
                     # Clean up trace cache
                     redis_client.delete(trace_cache_key)
 
-                    logger.info(
+                    logger.debug(
                         "event_merger_success: Merged logs+trace", extra={"trace_id": trace_id, "span_id": span_id}
                     )
 
@@ -134,7 +136,7 @@ def cache_and_merge_properties(
                     # No trace yet - cache this log
                     redis_client.setex(logs_cache_key, _CACHE_TTL, json.dumps(properties))
 
-                    logger.info(
+                    logger.debug(
                         "event_merger_cache: Cached log properties", extra={"trace_id": trace_id, "span_id": span_id}
                     )
 

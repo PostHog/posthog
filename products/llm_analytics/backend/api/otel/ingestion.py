@@ -208,7 +208,7 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    logger.info(
+    logger.debug(
         "otel_traces_received",
         team_id=team.id,
         content_length=len(protobuf_data),
@@ -223,7 +223,7 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
         # Parse OTLP protobuf
         parsed_request = parse_otlp_trace_request(protobuf_data)
 
-        logger.info(
+        logger.debug(
             "otel_traces_parsed",
             team_id=team.id,
             spans_count=len(parsed_request["spans"]),
@@ -246,7 +246,7 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
         # Transform spans to AI events
         events = transform_spans_to_ai_events(parsed_request, baggage)
 
-        logger.info(
+        logger.debug(
             "otel_traces_transformed",
             team_id=team.id,
             events_created=len(events),
@@ -255,7 +255,7 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
         # Route to capture pipeline
         capture_events(events, team)
 
-        logger.info(
+        logger.debug(
             "otel_traces_captured",
             team_id=team.id,
             events_captured=len(events),
@@ -542,7 +542,7 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    logger.info(
+    logger.debug(
         "otel_logs_received",
         team_id=team.id,
         content_length=len(protobuf_data),
@@ -553,7 +553,7 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
         # Parse OTLP protobuf
         parsed_request = parse_otlp_logs_request(protobuf_data)
 
-        logger.info(
+        logger.debug(
             "otel_logs_parsed",
             team_id=team.id,
             logs_count=len(parsed_request["logs"]),
@@ -575,7 +575,7 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
         # Transform logs to AI events (also caches properties for merging with traces)
         events = transform_logs_to_ai_events(parsed_request)
 
-        logger.info(
+        logger.debug(
             "otel_logs_transformed",
             team_id=team.id,
             events_created=len(events),
@@ -589,7 +589,7 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
         # Route merged events to capture pipeline
         capture_events(events, team)
 
-        logger.info(
+        logger.debug(
             "otel_logs_captured",
             team_id=team.id,
             events_captured=len(events),

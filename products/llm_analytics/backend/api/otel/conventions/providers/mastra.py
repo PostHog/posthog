@@ -63,21 +63,11 @@ class MastraTransformer(ProviderTransformer):
         Mastra wraps messages as: {"messages": [{"role": "user", "content": [...]}]}
         where content can be an array of objects like [{"type": "text", "text": "..."}]
         """
-        import structlog
-
-        logger = structlog.get_logger(__name__)
-
         if not isinstance(prompt, str):
-            logger.info("mastra_transform_prompt_skip_not_string", prompt_type=type(prompt).__name__)
             return None  # No transformation needed
 
         try:
             parsed = json.loads(prompt)
-            logger.info(
-                "mastra_transform_prompt_parsed",
-                has_messages=("messages" in parsed) if isinstance(parsed, dict) else False,
-                parsed_type=type(parsed).__name__,
-            )
 
             # Check for Mastra input format: {"messages": [...]}
             if not isinstance(parsed, dict) or "messages" not in parsed:

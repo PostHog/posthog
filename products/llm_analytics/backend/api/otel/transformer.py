@@ -12,8 +12,8 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from .conventions.genai import detect_provider, extract_genai_attributes, has_genai_attributes
-from .conventions.posthog_native import extract_posthog_native_attributes, has_posthog_attributes
+from .conventions.genai import detect_provider, extract_genai_attributes
+from .conventions.posthog_native import extract_posthog_native_attributes
 from .conventions.providers import OtelInstrumentationPattern
 from .event_merger import cache_and_merge_properties
 
@@ -433,27 +433,3 @@ def extract_distinct_id(resource: dict[str, Any], baggage: dict[str, str]) -> st
 
     # Default to anonymous
     return "anonymous"
-
-
-def stringify_content(content: Any) -> Any:
-    """
-    Return content in appropriate format for PostHog properties.
-
-    Keep structured data (lists/dicts) as-is for better UI rendering.
-    Only convert to JSON string if it's already a string (rare case).
-    """
-    if isinstance(content, list | dict):
-        return content
-    if isinstance(content, str):
-        # If it's already a JSON string, parse it to get structured data
-        try:
-            parsed = json.loads(content)
-            return parsed
-        except (json.JSONDecodeError, TypeError):
-            return content
-    return content
-
-
-def span_uses_known_conventions(span: dict[str, Any]) -> bool:
-    """Check if span uses PostHog or GenAI conventions."""
-    return has_posthog_attributes(span) or has_genai_attributes(span)
