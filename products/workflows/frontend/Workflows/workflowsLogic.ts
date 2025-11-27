@@ -1,5 +1,7 @@
+import Fuse from 'fuse.js'
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 
@@ -11,6 +13,13 @@ export interface WorkflowsFilters {
     createdBy: string | null
     status: string | null
 }
+
+export const workflowsFuse = new Fuse<HogFlow>([], {
+    keys: [{ name: 'name', weight: 2 }, 'description'],
+    threshold: 0.3,
+    ignoreLocation: true,
+    includeMatches: true,
+})
 
 export const workflowsLogic = kea<workflowsLogicType>([
     path(['products', 'workflows', 'frontend', 'workflowsLogic']),
@@ -70,6 +79,12 @@ export const workflowsLogic = kea<workflowsLogicType>([
             (workflows, filters): HogFlow[] => {
                 let filtered = workflows
 
+                // Filter by search term using Fuse
+                if (filters.search) {
+                    const searchResults = workflowsFuse.search(filters.search)
+                    filtered = searchResults.map((result) => result.item)
+                }
+
                 // Filter by status
                 if (filters.status) {
                     filtered = filtered.filter((workflow) => workflow.status === filters.status)
@@ -78,16 +93,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 // Filter by creator
                 if (filters.createdBy) {
                     filtered = filtered.filter((workflow) => workflow.created_by?.uuid === filters.createdBy)
-                }
-
-                // Filter by search term
-                if (filters.search) {
-                    const lowerSearchTerm = filters.search.toLowerCase()
-                    filtered = filtered.filter(
-                        (workflow) =>
-                            workflow.name?.toLowerCase().includes(lowerSearchTerm) ||
-                            workflow.description?.toLowerCase().includes(lowerSearchTerm)
-                    )
                 }
 
                 return filtered
@@ -110,6 +115,11 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 return Array.from(uniqueCreators.values())
             },
         ],
+    }),
+    subscriptions({
+        workflows: (workflows) => {
+            workflowsFuse.setCollection(workflows)
+        },
     }),
     afterMount(({ actions }) => {
         actions.loadWorkflows()
