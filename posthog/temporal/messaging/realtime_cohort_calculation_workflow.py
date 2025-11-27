@@ -170,16 +170,15 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                         async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
                             status = row["status"]
                             payload = {
-                                "team_id": row["team_id"],
-                                "cohort_id": row["cohort_id"],
-                                "person_id": str(row["person_id"]),
-                                "last_updated": str(row["last_updated"]),
-                                "status": status,
+                                "teamId": row["team_id"],
+                                "cohortId": row["cohort_id"],
+                                "personId": str(row["person_id"]),
+                                "cohort_membership_changed": status,
                             }
                             await asyncio.to_thread(
                                 kafka_producer.produce,
                                 topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                                key=payload["person_id"],
+                                key=payload["personId"],
                                 data=payload,
                             )
 
