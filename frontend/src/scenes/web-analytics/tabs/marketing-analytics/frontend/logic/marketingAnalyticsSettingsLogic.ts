@@ -277,8 +277,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     for (const table of sourceTables) {
                         const tableSuffix = table.name.split('.').pop()?.toLowerCase() || ''
 
-                        const matchesKeyword = patterns.keywords.some((kw) => tableSuffix.includes(kw))
-                        const matchesExclusion = patterns.exclusions.some((ex) => tableSuffix.includes(ex))
+                        const matchesKeyword = patterns.keywords.some((kw: string) => tableSuffix.includes(kw))
+                        const matchesExclusion = patterns.exclusions.some((ex: string) => tableSuffix.includes(ex))
 
                         if (matchesKeyword && !matchesExclusion) {
                             result[sourceType] = table.name
