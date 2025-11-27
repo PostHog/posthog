@@ -144,8 +144,9 @@ def capture(  # type: ignore[misc]  # mypy doesn't understand overload impl patt
     properties = kwargs.get("properties")
     mapped_properties = _map_properties(event, properties)
     if mapped_properties is not properties:
-        kwargs = dict(kwargs)
-        kwargs["properties"] = mapped_properties
+        new_kwargs = dict(kwargs)
+        new_kwargs["properties"] = mapped_properties
+        return _posthog.capture(event=event, **new_kwargs)  # type: ignore[arg-type]  # mypy can't infer TypedDict from dict()
     return _posthog.capture(event=event, **kwargs)
 '''
 

@@ -438,6 +438,17 @@ props: FileDownloadedProps = {
     "downloaded_at": datetime.now(),
 }
 posthog_typed.capture("file_downloaded", distinct_id="user_999", properties=props)
+
+# Test 5: Distinct_id is still optional
+posthog_typed.capture(
+    "file_downloaded",
+    properties={
+        "file_name": "document.pdf",
+        "file_size": 1024.0,
+        "downloaded_at": datetime.now(),  # required
+        "file_extension": "pdf",  # optional
+    },
+)
 """
             )
 
@@ -446,25 +457,19 @@ posthog_typed.capture("file_downloaded", distinct_id="user_999", properties=prop
             pyproject_file.write_text(
                 """
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = false
 """
             )
 
             # Create a virtual environment and install the posthog SDK
-            # This ensures mypy can find the real SDK, not the local posthog directory
+            # This ensures mypy can find the real SDK
             import sys
 
             venv_path = tmpdir_path / "venv"
             subprocess.run([sys.executable, "-m", "venv", str(venv_path)], check=True, capture_output=True)
-
-            # Determine the pip and python paths in the venv
-            if sys.platform == "win32":
-                venv_pip = venv_path / "Scripts" / "pip"
-                venv_python = venv_path / "Scripts" / "python"
-            else:
-                venv_pip = venv_path / "bin" / "pip"
-                venv_python = venv_path / "bin" / "python"
+            venv_pip = venv_path / "bin" / "pip"
+            venv_python = venv_path / "bin" / "python"
 
             # Install posthog SDK and mypy in the venv
             install_result = subprocess.run(
@@ -482,14 +487,7 @@ strict = false
 
             # Run mypy type checker using the venv's mypy
             result = subprocess.run(
-                [
-                    str(venv_python),
-                    "-m",
-                    "mypy",
-                    str(test_file),
-                    "--config-file",
-                    str(pyproject_file),
-                ],
+                [str(venv_python), "-m", "mypy", str(test_file), "--config-file", str(pyproject_file)],
                 cwd=str(tmpdir_path),
                 capture_output=True,
                 text=True,
