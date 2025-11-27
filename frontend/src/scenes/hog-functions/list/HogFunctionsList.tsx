@@ -6,7 +6,7 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
-    LemonSwitch,
+    LemonSelect,
     LemonTable,
     LemonTableColumn,
     Link,
@@ -35,8 +35,9 @@ export function HogFunctionList({
     hideFeedback = false,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { filteredHogFunctions, filters, loading, pagination, totalCount, searchValue, currentPage, showPaused } =
-        useValues(hogFunctionsListLogic(props))
+    const { filteredHogFunctions, filters, loading, pagination, totalCount, currentPage, statusFilter } = useValues(
+        hogFunctionsListLogic(props)
+    )
     const {
         loadHogFunctions,
         toggleEnabled,
@@ -44,7 +45,7 @@ export function HogFunctionList({
         setReorderModalOpen,
         setPagination,
         setSearchValue,
-        setShowPaused,
+        setStatusFilter,
     } = useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
@@ -221,24 +222,40 @@ export function HogFunctionList({
             <BindLogic logic={hogFunctionsListLogic} props={props}>
                 <div>
                     <h3 className="mb-2">{capitalizeFirstLetter(humanizedType)}</h3>
-                    <div className="flex gap-2 items-center mb-2">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search destinations..."
-                            value={searchValue}
-                            onChange={setSearchValue}
-                        />
-                        <LemonSwitch checked={showPaused} onChange={setShowPaused} label="Show paused only" />
-                        <LemonDivider vertical />
-                        {!hideFeedback && (
-                            <Link
-                                className="text-sm font-semibold"
-                                subtle
-                                onClick={() => openFeedbackDialog(props.type)}
-                            >
-                                Can't find what you're looking for?
-                            </Link>
-                        )}
+                    <div className="flex justify-between gap-2 flex-wrap mb-2">
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                type="search"
+                                placeholder="Search destinations..."
+                                value={filters.search || ''}
+                                onChange={setSearchValue}
+                            />
+                            {!hideFeedback && (
+                                <>
+                                    <LemonDivider vertical />
+                                    <Link
+                                        className="text-sm font-semibold"
+                                        subtle
+                                        onClick={() => openFeedbackDialog(props.type)}
+                                    >
+                                        Can't find what you're looking for?
+                                    </Link>
+                                </>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span>Status:</span>
+                            <LemonSelect
+                                value={statusFilter}
+                                onChange={setStatusFilter}
+                                options={[
+                                    { value: 'all', label: 'All functions' },
+                                    { value: 'active', label: 'Active' },
+                                    { value: 'paused', label: 'Paused' },
+                                ]}
+                                size="small"
+                            />
+                        </div>
                     </div>
                     <LemonTable
                         dataSource={filteredHogFunctions}
@@ -255,14 +272,15 @@ export function HogFunctionList({
                             columnKey: 'updated_at',
                             order: -1,
                         }}
-                        onSort={(newSorting) =>
+                        onSort={(newSorting) => {
+                            const order = newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined
                             setPagination({
-                                order: newSorting
-                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                    : undefined,
-                                page: 1,
+                                order,
+                                offset: 0,
                             })
-                        }
+                        }}
                         noSortingCancellation
                         emptyState={
                             filteredHogFunctions.length === 0 && !loading ? (

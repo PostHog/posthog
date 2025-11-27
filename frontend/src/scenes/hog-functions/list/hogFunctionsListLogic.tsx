@@ -22,12 +22,13 @@ export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 export type HogFunctionListFilters = {
     search?: string
     showPaused?: boolean
+    statusFilter?: 'all' | 'active' | 'paused'
 }
 
 export type HogFunctionListPagination = {
     offset: number
     limit: number
-    order?: Record<string, number>
+    order?: string
 }
 
 export type HogFunctionListLogicProps = {
@@ -89,10 +90,11 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         setPagination: (pagination: Partial<HogFunctionListPagination>) => ({ pagination }),
         setSearchValue: (value: string) => ({ value }),
         setShowPaused: (showPaused: boolean) => ({ showPaused }),
+        setStatusFilter: (statusFilter: 'all' | 'active' | 'paused') => ({ statusFilter }),
     }),
     reducers(() => ({
         filters: [
-            {} as HogFunctionListFilters,
+            { statusFilter: 'active' } as HogFunctionListFilters,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
@@ -105,6 +107,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 setShowPaused: (state, { showPaused }) => ({
                     ...state,
                     showPaused,
+                }),
+                setStatusFilter: (state, { statusFilter }) => ({
+                    ...state,
+                    statusFilter,
                 }),
             },
         ],
@@ -133,7 +139,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         offset: values.pagination.offset,
                         search: values.filters.search,
                         order: values.pagination.order,
-                        enabled: !values.filters.showPaused,
+                        enabled:
+                            values.filters.statusFilter === 'paused'
+                                ? false
+                                : values.filters.statusFilter === 'active'
+                                  ? true
+                                  : undefined,
                     })
                     return { results: response.results, count: response.count }
                 },
@@ -219,6 +230,8 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             (pagination: HogFunctionListPagination) => Math.floor(pagination.offset / pagination.limit) + 1,
         ],
         showPaused: [(s) => [s.filters], (filters: HogFunctionListFilters) => Boolean(filters.showPaused)],
+        statusFilter: [(s) => [s.filters], (filters: HogFunctionListFilters) => filters.statusFilter || 'active'],
+        searchValue: [(s) => [s.filters], (filters: HogFunctionListFilters) => filters.search || ''],
     }),
 
     listeners(({ actions, cache }) => ({
@@ -244,6 +257,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             actions.setFilters({ search: value })
         },
         setShowPaused: () => {
+            actions.loadHogFunctions()
+        },
+        setStatusFilter: () => {
+            actions.setPagination({ offset: 0 })
             actions.loadHogFunctions()
         },
     })),
