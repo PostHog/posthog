@@ -7,6 +7,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import RoleMembership
+from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 
 class TestSCIMUsersAPI(APILicensedTest):
@@ -129,9 +130,9 @@ class TestSCIMUsersAPI(APILicensedTest):
     def test_create_user(self):
         user_data = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-            "userName": "newuser@example.com",
+            "userName": "Newuser@example.com",
             "name": {"givenName": "New", "familyName": "User"},
-            "emails": [{"value": "newuser@example.com", "primary": True}],
+            "emails": [{"value": "Newuser@example.com", "primary": True}],
             "active": True,
         }
 
@@ -141,11 +142,11 @@ class TestSCIMUsersAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        assert data["userName"] == "newuser@example.com"
+        assert data["userName"] == "Newuser@example.com"
         assert data["name"]["givenName"] == "New"
         assert data["name"]["familyName"] == "User"
 
-        # Verify user was created
+        # Verify user was created with lowercase email
         user = User.objects.get(email="newuser@example.com")
         assert user.first_name == "New"
         assert user.last_name == "User"
@@ -154,6 +155,12 @@ class TestSCIMUsersAPI(APILicensedTest):
         # Verify organization membership
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         assert membership.level == OrganizationMembership.Level.MEMBER
+
+        # Verify SCIM provisioned user record was created
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.username == "Newuser@example.com"
+        assert scim_user.active is True
+        assert scim_user.identity_provider == SCIMProvisionedUser.IdentityProvider.OTHER
 
     def test_existing_user_is_added_to_org(self):
         # Create user in different org
@@ -183,6 +190,10 @@ class TestSCIMUsersAPI(APILicensedTest):
         # User should now be member of both orgs
         assert OrganizationMembership.objects.filter(user=existing_user, organization=self.organization).exists()
         assert OrganizationMembership.objects.filter(user=existing_user, organization=other_org).exists()
+
+        # Verify SCIM provisioned user record was created for this domain
+        scim_user = SCIMProvisionedUser.objects.get(user=existing_user, organization_domain=self.domain)
+        assert scim_user.active is True
 
     def test_repeated_post_does_not_create_duplicate_user(self):
         # In case the IdP failed to match user by id, it can send POST request to create a new user.
@@ -261,6 +272,14 @@ class TestSCIMUsersAPI(APILicensedTest):
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
         )
+        # Create SCIM provisioned user record
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="deactivate@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
 
         patch_data = {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
@@ -280,12 +299,24 @@ class TestSCIMUsersAPI(APILicensedTest):
         user.refresh_from_db()
         assert user.is_active is True  # User is still active globally
 
+        # Verify SCIM provisioned user record still exists but is marked inactive
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.active is False
+
     def test_delete_user(self):
         user = User.objects.create_user(
             email="delete@example.com", password=None, first_name="Delete", is_email_verified=True
         )
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        # Create SCIM provisioned user record
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="delete@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
         )
 
         response = self.client.delete(f"/scim/v2/{self.domain.id}/Users/{user.id}")
@@ -295,12 +326,23 @@ class TestSCIMUsersAPI(APILicensedTest):
         # Verify membership was removed
         assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
 
+        # Verify SCIM provisioned user record was deleted
+        assert not SCIMProvisionedUser.objects.filter(user=user, organization_domain=self.domain).exists()
+
     def test_put_user(self):
         user = User.objects.create_user(
             email="old@example.com", password=None, first_name="Old", last_name="Name", is_email_verified=True
         )
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        # Create SCIM provisioned user record
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="old@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
         )
 
         put_data = {
@@ -320,6 +362,11 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert user.first_name == "Replaced"
         assert user.last_name == "User"
         assert user.email == "put@example.com"
+
+        # Verify SCIM provisioned user was updated
+        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        assert scim_user.username == "put@example.com"
+        assert scim_user.active is True
 
     def test_put_user_not_found(self):
         put_data = {

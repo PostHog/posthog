@@ -55,7 +55,10 @@ class PostHogSCIMUser(SCIMUser):
 
     @property
     def user_name(self) -> str:
-        return self.obj.email
+        scim_user = SCIMProvisionedUser.objects.filter(
+            user=self.obj, organization_domain=self._organization_domain
+        ).first()
+        return scim_user.username if scim_user else self.obj.email
 
     @property
     def active(self) -> bool:
@@ -219,11 +222,11 @@ class PostHogSCIMUser(SCIMUser):
 
             # Deactivate user if active is false
             if not is_active:
-                self.delete()
+                self.deactivate()
 
-    def delete(self) -> None:
+    def deactivate(self) -> None:
         """
-        Deactivate user by removing their membership from this organization.
+        Deactivate user by removing their membership and marking SCIM record as inactive.
         """
         with transaction.atomic():
             OrganizationMembership.objects.filter(
@@ -234,6 +237,20 @@ class PostHogSCIMUser(SCIMUser):
                 user=self.obj,
                 organization_domain=self._organization_domain,
             ).update(active=False)
+
+    def delete(self) -> None:
+        """
+        Delete user by removing their membership and SCIM provisioned user record.
+        """
+        with transaction.atomic():
+            OrganizationMembership.objects.filter(
+                user=self.obj, organization=self._organization_domain.organization
+            ).delete()
+
+            SCIMProvisionedUser.objects.filter(
+                user=self.obj,
+                organization_domain=self._organization_domain,
+            ).delete()
 
     def handle_replace(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -247,13 +264,15 @@ class PostHogSCIMUser(SCIMUser):
         sub_attr = first_path.sub_attr
 
         with transaction.atomic():
-            scim_updates: dict = {}
-
             if attr_name == "active":
-                scim_updates["active"] = bool(value)
                 if not value:
-                    self.delete()
+                    self.deactivate()
                     return
+                else:
+                    SCIMProvisionedUser.objects.filter(
+                        user=self.obj,
+                        organization_domain=self._organization_domain,
+                    ).update(active=True)
 
             elif attr_name == "name":
                 if sub_attr == "givenName" and isinstance(value, str):
@@ -277,15 +296,12 @@ class PostHogSCIMUser(SCIMUser):
                     self.obj.email = email
 
             elif attr_name == "userName" and isinstance(value, str):
-                scim_updates["username"] = value
-
-            self.obj.save()
-
-            if scim_updates:
                 SCIMProvisionedUser.objects.filter(
                     user=self.obj,
                     organization_domain=self._organization_domain,
-                ).update(**scim_updates)
+                ).update(username=value)
+
+            self.obj.save()
 
     def handle_add(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -296,15 +312,17 @@ class PostHogSCIMUser(SCIMUser):
         sub_attr = first_path.sub_attr
 
         with transaction.atomic():
-            scim_updates: dict = {}
-
             if attr_name == "active" and value:
                 OrganizationMembership.objects.get_or_create(
                     user=self.obj,
                     organization=self._organization_domain.organization,
                     defaults={"level": OrganizationMembership.Level.MEMBER},
                 )
-                scim_updates["active"] = True
+
+                SCIMProvisionedUser.objects.filter(
+                    user=self.obj,
+                    organization_domain=self._organization_domain,
+                ).update(active=True)
 
             elif attr_name == "name":
                 if sub_attr == "givenName" and isinstance(value, str):
@@ -330,13 +348,10 @@ class PostHogSCIMUser(SCIMUser):
                     self.obj.save()
 
             elif attr_name == "userName" and isinstance(value, str):
-                scim_updates["username"] = value
-
-            if scim_updates:
                 SCIMProvisionedUser.objects.filter(
                     user=self.obj,
                     organization_domain=self._organization_domain,
-                ).update(**scim_updates)
+                ).update(username=value)
 
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -347,10 +362,8 @@ class PostHogSCIMUser(SCIMUser):
         sub_attr = first_path.sub_attr
 
         with transaction.atomic():
-            scim_updates: dict = {}
-
             if attr_name == "active":
-                self.delete()
+                self.deactivate()
                 return
 
             elif attr_name == "name":
@@ -365,12 +378,6 @@ class PostHogSCIMUser(SCIMUser):
 
             elif attr_name == "emails":
                 raise ValueError("Email is required and cannot be removed")
-
-            if scim_updates:
-                SCIMProvisionedUser.objects.filter(
-                    user=self.obj,
-                    organization_domain=self._organization_domain,
-                ).update(**scim_updates)
 
     @classmethod
     def get_for_organization(cls, organization_domain: OrganizationDomain) -> list["PostHogSCIMUser"]:
