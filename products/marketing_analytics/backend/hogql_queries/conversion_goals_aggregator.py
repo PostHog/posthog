@@ -131,9 +131,23 @@ class ConversionGoalsAggregator:
             campaign_field_expr, id_field_expr, source_field_expr
         )
 
+        # Build the outer select - only alias if the expression was actually mapped
+        # (i.e., it's not just the original field reference)
+        campaign_select: ast.Expr
+        if mapped_campaign_expr != campaign_field_expr:
+            campaign_select = ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr)
+        else:
+            campaign_select = ast.Alias(alias=self.config.campaign_field, expr=campaign_field_expr)
+
+        id_select: ast.Expr
+        if mapped_id_expr != id_field_expr:
+            id_select = ast.Alias(alias=self.config.id_field, expr=mapped_id_expr)
+        else:
+            id_select = ast.Field(chain=[self.config.id_field])
+
         outer_select: list[ast.Expr] = [
-            ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
-            ast.Alias(alias=self.config.id_field, expr=mapped_id_expr),
+            campaign_select,
+            id_select,
             ast.Field(chain=[self.config.source_field]),
         ]
 
