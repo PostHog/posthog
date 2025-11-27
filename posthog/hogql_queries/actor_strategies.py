@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal, Optional, cast
 
 from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
@@ -24,6 +25,12 @@ def _parse_properties(properties: Any) -> dict:
         except json.JSONDecodeError:
             return {}
     return {}
+
+
+def _format_created_at(created_at: Any) -> Any:
+    if isinstance(created_at, datetime):
+        return created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return created_at
 
 
 class ActorStrategy:
@@ -103,9 +110,9 @@ class PersonStrategy(ActorStrategy):
             str(row[0]): {
                 "id": row[0],
                 "properties": _parse_properties(row[1]),
-                "is_identified": row[2],
-                "created_at": row[3],
-                "distinct_ids": person_id_to_distinct_ids.get(str(row[0]), []),
+                "is_identified": bool(row[2]),
+                "created_at": _format_created_at(row[3]),
+                "distinct_ids": sorted(person_id_to_distinct_ids.get(str(row[0]), [])),
             }
             for row in persons_result
         }
