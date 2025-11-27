@@ -4,6 +4,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import api from 'lib/api'
@@ -551,6 +552,12 @@ export const logsLogic = kea<logsLogicType>([
     })),
 
     listeners(({ values, actions }) => ({
+        fetchLogsFailure: ({ error }) => {
+            if (error !== 'new query started') {
+                // this is expected and does not need to be shown to the user
+                lemonToast.error(`Failed to load logs: ${error}`)
+            }
+        },
         runQuery: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
