@@ -18,6 +18,7 @@ import {
     BreakdownFilter,
     CompareFilter,
     DataWarehouseNode,
+    EntityGroupNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
@@ -52,6 +53,7 @@ import {
     BaseMathType,
     CalendarHeatmapMathType,
     DataWarehouseFilter,
+    EntityTypes,
     FilterType,
     FunnelExclusionLegacy,
     FunnelMathType,
@@ -64,6 +66,7 @@ import {
     RetentionFilterType,
     TrendsFilterType,
     isDataWarehouseFilter,
+    isGroupFilter,
 } from '~/types'
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
@@ -97,14 +100,15 @@ export type FilterTypeActionsAndEvents = {
     actions?: ActionFilter[]
     data_warehouse?: DataWarehouseFilter[]
     new_entity?: ActionFilter[]
+    groups?: ActionFilter[]
 }
 
 export const legacyEntityToNode = (
     entity: ActionFilter | DataWarehouseFilter,
     includeProperties: boolean,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode => {
-    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
+): EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode => {
+    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
     }
@@ -117,6 +121,14 @@ export const legacyEntityToNode = (
             distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
         } as DataWarehouseNode
+    }
+
+    if (isGroupFilter(entity)) {
+        shared = {
+            ...shared,
+            operator: entity.operator || undefined,
+            values: entity.values || [],
+        } as EntityGroupNode
     }
 
     if (includeProperties) {
@@ -179,6 +191,14 @@ export const legacyEntityToNode = (
                 ...shared,
             })
         ) as any
+    } else if (entity.type === EntityTypes.GROUPS) {
+        return setLatestVersionsOnQuery(
+            objectCleanWithEmpty({
+                kind: NodeKind.EntityGroupNode,
+                id: entity.id, // TODO: Check if ID is needed, as it empty str
+                ...shared,
+            })
+        ) as any
     }
     return setLatestVersionsOnQuery(
         objectCleanWithEmpty({
@@ -203,11 +223,17 @@ export const exlusionEntityToNode = (
 }
 
 export const actionsAndEventsToSeries = (
-    { actions, events, data_warehouse, new_entity }: FilterTypeActionsAndEvents,
+    { actions, events, data_warehouse, new_entity, groups }: FilterTypeActionsAndEvents,
     includeProperties: boolean,
     includeMath: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
-    const series: any = [...(actions || []), ...(events || []), ...(data_warehouse || []), ...(new_entity || [])]
+): (EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode)[] => {
+    const series: any = [
+        ...(actions || []),
+        ...(events || []),
+        ...(data_warehouse || []),
+        ...(new_entity || []),
+        ...(groups || []),
+    ]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
         .map((f) => legacyEntityToNode(f, includeProperties, includeMath))
 

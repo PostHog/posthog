@@ -16,6 +16,7 @@ import {
     EntityFilter,
     EntityType,
     EntityTypes,
+    FilterLogicalOperator,
     FilterType,
 } from '~/types'
 
@@ -35,6 +36,7 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
         ...(filters[EntityTypes.DATA_WAREHOUSE] || []),
+        ...(filters[EntityTypes.GROUPS] || []),
     ]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
@@ -61,8 +63,27 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
         [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
+        [EntityTypes.GROUPS]: filters.filter((filter) => filter.type === EntityTypes.GROUPS),
     } as FilterType
 }
+
+/**
+ * Convert a single LocalFilter into a group filter
+ * Preserves the original filter in the values array for full reversibility
+ */
+export function singleFilterToGroupFilter(filter: LocalFilter): LocalFilter {
+    return {
+        id: '',
+        name: 'events_group', // for debugging
+        type: EntityTypes.GROUPS,
+        order: filter.order,
+        uuid: uuid(),
+        operator: FilterLogicalOperator.Or,
+        values: [filter],
+    } as LocalFilter
+}
+
+// TODO: Split group filter to LocalFilters
 
 export interface EntityFilterProps {
     setFilters?: (filters: FilterType) => void
@@ -151,6 +172,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         localFilters: [
             toLocalFilters(props.filters ?? {}),
             {
+                setFilters: (_, { filters }) => filters,
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
         ],
@@ -226,6 +248,19 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                             })
 
                             return updatedFilter
+                        }
+
+                        // Handle group filters: preserve all group-specific fields (values, operator)
+                        if (type === EntityTypes.GROUPS) {
+                            const newFilter = {
+                                ...filter,
+                                id: typeof id === 'undefined' ? filter.id : id,
+                                name: typeof name === 'undefined' ? filter.name : name,
+                                type: typeof type === 'undefined' ? filter.type : type,
+                                ...fieldValues,
+                            } as LocalFilter
+
+                            return newFilter
                         }
 
                         // For non-DATA_WAREHOUSE types, remove any data warehouse specific fields
