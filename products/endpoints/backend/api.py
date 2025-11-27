@@ -4,6 +4,7 @@ from typing import Union, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
@@ -383,6 +384,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         Returns False if:
         - Not materialized
         - Materialization incomplete/failed
+        - Materialized data is stale (older than sync frequency)
         - User overrides present (variables, filters, query)
         - Force refresh requested
         """
@@ -395,6 +397,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         if not saved_query.table:
             return False
+
+        # Check if materialized data is stale
+        if saved_query.last_run_at and saved_query.sync_frequency_interval:
+            next_refresh_due = saved_query.last_run_at + saved_query.sync_frequency_interval
+            if timezone.now() >= next_refresh_due:
+                return False
 
         if data.variables:
             return False
@@ -484,8 +492,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             }
 
             extra_fields = {
-                "_materialized": True,
-                "_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
+                "endpoint_materialized": True,
+                "endpoint_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
             }
             tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
@@ -531,7 +539,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 variableId=variable_id,
                 code_name=variable_code_name,
                 value=variable_value,
-                # TODO: this needs more attention!
                 isNull=True if variable_value is None else None,
             ).model_dump()
         return variables_override
@@ -622,8 +629,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             result = self._execute_inline_endpoint(endpoint, data, request, query_to_use)
 
         if version_obj and isinstance(result.data, dict):
-            result.data["_version"] = version_obj.version
-            result.data["_version_created_at"] = version_obj.created_at.isoformat()
+            result.data["endpoint_version"] = version_obj.version
+            result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
 
         return result
 
