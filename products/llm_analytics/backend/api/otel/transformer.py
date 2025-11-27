@@ -68,11 +68,17 @@ def transform_span_to_ai_event(
     # Detection priority:
     # 1. Provider declares pattern via get_instrumentation_pattern() - most reliable
     # 2. Span has prompt/completion attributes - indicates V1 data present
-    # 3. Default to V2 (safer - waits for logs rather than sending incomplete)
+    # 3. Span is embedding operation - embeddings don't have associated logs
+    # 4. Default to V2 (safer - waits for logs rather than sending incomplete)
     provider = detect_provider(span, scope)
     provider_pattern = provider.get_instrumentation_pattern() if provider else None
     has_v1_content = bool(merged_attrs.get("prompt") or merged_attrs.get("completion"))
-    uses_v1_pattern = provider_pattern == OtelInstrumentationPattern.V1_ATTRIBUTES or has_v1_content
+
+    # Embedding spans are self-contained - they don't have prompt/completion logs
+    op_name = merged_attrs.get("operation_name", "").lower()
+    is_embedding = op_name in ("embedding", "embeddings")
+
+    uses_v1_pattern = provider_pattern == OtelInstrumentationPattern.V1_ATTRIBUTES or has_v1_content or is_embedding
 
     if not uses_v1_pattern:
         # V2 instrumentation - use event merger for bidirectional merge with logs
