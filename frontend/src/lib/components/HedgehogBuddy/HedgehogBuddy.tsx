@@ -825,7 +825,7 @@ export class HedgehogActor {
                             style={{
                                 // NOTE: Some styles done here to avoid it showing as an interactable element (via border)
                                 border: '1px solid var(--color-border-primary)',
-                                backgroundColor: 'var(--color-bg-surface-primary)',
+                                backgroundColor: 'var(--card)',
                             }}
                         >
                             {this.tooltip}

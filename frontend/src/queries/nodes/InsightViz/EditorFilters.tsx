@@ -468,7 +468,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
                     {previousQuery && (
                         <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
-                            <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
+                            <div className="bg-background/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
                                 <div className="text-sm text-muted flex items-center gap-2 no-wrap">
                                     <span className="size-2 bg-accent-active rounded-full" />
                                     {(() => {

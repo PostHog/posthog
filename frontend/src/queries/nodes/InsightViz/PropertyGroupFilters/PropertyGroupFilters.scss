@@ -1,7 +1,7 @@
 .PropertyGroupFilters {
     .property-group {
         padding: 0.5rem;
-        background-color: var(--color-bg-primary);
+        background-color: var(--background);
         border-width: 1px;
         border-radius: var(--radius);
     }
@@ -30,7 +30,7 @@
             width: 35px;
             padding: 0.25rem;
             text-align: center;
-            background-color: var(--color-bg-surface-primary);
+            background-color: var(--card);
         }
     }
 }

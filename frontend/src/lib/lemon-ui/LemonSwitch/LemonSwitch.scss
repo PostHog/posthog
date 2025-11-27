@@ -53,7 +53,7 @@
         min-height: calc(2.125rem + 3px); // Medium size button height + button shadow height
         padding: 0 0.75rem;
         line-height: 1.4;
-        background: var(--color-bg-surface-primary);
+        background: var(--card);
         border: 1px solid var(--color-border-primary);
         border-radius: var(--radius);
 
@@ -139,7 +139,7 @@
         border-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--color-bg-surface-primary);
+        background-color: var(--card);
         border-color: var(--color-accent);
         transform: var(--lemon-switch-active-translate);
     }

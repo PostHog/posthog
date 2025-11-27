@@ -62,7 +62,7 @@ import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelState
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
+    base: 'flex flex-col max-h-screen min-h-screen bg-background z-[var(--z-layout-navbar)] relative border-r border-r-transparent',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',

@@ -29,7 +29,7 @@
 
     &.LemonTag--option {
         color: var(--color-accent);
-        background-color: var(--color-bg-surface-primary);
+        background-color: var(--card);
     }
 
     &.LemonTag--highlight {
@@ -44,7 +44,7 @@
         border-color: var(--warning);
 
         [theme='dark'] & {
-            background-color: var(--color-bg-surface-primary);
+            background-color: var(--card);
         }
     }
 
@@ -74,7 +74,7 @@
 
     &.LemonTag--muted {
         color: var(--color-text-secondary);
-        background-color: var(--color-bg-surface-primary);
+        background-color: var(--card);
     }
 
     &.LemonTag--none {

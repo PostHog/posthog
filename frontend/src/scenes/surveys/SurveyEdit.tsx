@@ -419,7 +419,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                 </li>
                                                                 <li>
                                                                     • To identify respondents, add the{' '}
-                                                                    <code className="bg-surface-tertiary px-1 rounded">
+                                                                    <code className="bg-background px-1 rounded">
                                                                         distinct_id
                                                                     </code>{' '}
                                                                     query parameter to the URL. Here's an example:{'\n'}

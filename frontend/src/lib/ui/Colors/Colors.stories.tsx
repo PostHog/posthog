@@ -225,14 +225,14 @@ export function SemanticColors(): JSX.Element {
             tailwindClass: 'bg-primary',
             description:
                 'the main background color, use behind everything, or on something to fade into the background',
-            name: '--color-bg-primary',
+            name: '--background',
         },
     ]
     const surfaceColors: RenderColorConfig[] = [
         {
             tailwindClass: 'bg-surface-primary',
             description: 'the most prominent area on the screen (after tooltip)',
-            name: '--color-bg-surface-primary',
+            name: '--card',
         },
         {
             tailwindClass: 'bg-surface-secondary',
@@ -240,9 +240,9 @@ export function SemanticColors(): JSX.Element {
             name: '--color-bg-surface-secondary',
         },
         {
-            tailwindClass: 'bg-surface-tertiary',
+            tailwindClass: 'bg-background',
             description: 'the least prominent area on the screen',
-            name: '--color-bg-surface-tertiary',
+            name: '--color-bg-background',
         },
         {
             tailwindClass: 'bg-surface-tooltip',

@@ -85,7 +85,7 @@ export function Navigation({
                     role="main"
                     tabIndex={0}
                     id="main-content"
-                    className="@container/main-content bg-surface-tertiary"
+                    className="@container/main-content bg-background"
                     style={
                         {
                             '--scene-layout-rect-right': mainContentRect?.right + 'px',
@@ -94,9 +94,7 @@ export function Navigation({
                             '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
                                 ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
                                 : '0px',
-                            '--scene-layout-background': sceneConfig?.canvasBackground
-                                ? 'var(--color-bg-surface-primary)'
-                                : 'var(--color-bg-primary)',
+                            '--scene-layout-background': sceneConfig?.canvasBackground ? 'var(--card)' : 'var(--muted)',
                         } as React.CSSProperties
                     }
                 >

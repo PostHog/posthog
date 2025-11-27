@@ -74,7 +74,7 @@
             .PlayerSeekbar__segments__item {
                 float: left;
                 height: 100%;
-                background-color: var(--color-bg-surface-primary);
+                background-color: var(--card);
                 opacity: 0.5;
 
                 &--active {
@@ -82,7 +82,7 @@
                 }
 
                 &--buffer {
-                    background-color: var(--color-bg-surface-tertiary);
+                    background-color: var(--color-bg-background);
                     opacity: 0.6;
                 }
 
@@ -110,7 +110,7 @@
             height: var(--thumb-size);
             margin-top: calc(var(--thumb-size) / 2 * -1);
             background-color: var(--color-accent);
-            border: 2px solid var(--color-bg-surface-primary);
+            border: 2px solid var(--card);
             border-radius: 50%;
             transition: top 150ms ease-in-out;
             backface-visibility: hidden;

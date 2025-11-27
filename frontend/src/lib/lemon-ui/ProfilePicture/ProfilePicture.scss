@@ -77,7 +77,7 @@
     align-items: center;
 
     > * {
-        outline: 0.125rem solid var(--color-bg-surface-primary);
+        outline: 0.125rem solid var(--card);
     }
 
     > :not(:first-child) {

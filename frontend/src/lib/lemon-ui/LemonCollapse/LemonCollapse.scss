@@ -23,7 +23,7 @@
 }
 
 .LemonCollapsePanel__header {
-    background: var(--color-bg-surface-primary);
+    background: var(--card);
     border-radius: 0 !important;
 
     &.LemonButton:active {
@@ -32,7 +32,7 @@
 
     &--disabled:hover {
         cursor: default;
-        background-color: var(--color-bg-surface-primary) !important;
+        background-color: var(--card) !important;
     }
 }
 

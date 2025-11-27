@@ -216,7 +216,7 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
 
     return (
         <>
-            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--color-bg-surface-primary)] border-l-4 border-l-[var(--color-purple-500)]">
+            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--card)] border-l-4 border-l-[var(--color-purple-500)]">
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <LemonButton
                         size="small"
@@ -315,7 +315,7 @@ function MessageDisplay({
     return (
         <>
             <div
-                className={`border rounded p-3 relative group bg-white dark:bg-[var(--color-bg-surface-primary)] hover:shadow-sm transition-shadow ${getRoleBorderClass(
+                className={`border rounded p-3 relative group bg-white dark:bg-[var(--card)] hover:shadow-sm transition-shadow ${getRoleBorderClass(
                     message.role
                 )}`}
             >
@@ -431,7 +431,7 @@ function OutputSection(): JSX.Element {
                 className={`border rounded p-4 min-h-32 ${
                     responseHasError
                         ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800'
-                        : 'bg-bg-light dark:bg-[var(--color-bg-surface-primary)]'
+                        : 'bg-bg-light dark:bg-[var(--card)]'
                 }`}
             >
                 {submitting && (currentResponse === null || currentResponse === '') && (
@@ -560,7 +560,7 @@ function ComparisonTablePanel(): JSX.Element {
             title: 'Response',
             dataIndex: 'response',
             render: (response) => (
-                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs break-words p-1 border rounded bg-bg-light dark:bg-[var(--color-bg-surface-primary)]">
+                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs break-words p-1 border rounded bg-bg-light dark:bg-[var(--card)]">
                     {typeof response === 'string' ? response : '-'}
                 </div>
             ),
@@ -632,7 +632,7 @@ function StickyActionBar(): JSX.Element {
 
     return (
         <>
-            <div className="sticky bottom-0 bg-bg-light dark:bg-[var(--color-bg-surface-primary)] border-t border-border z-10 ml-[calc(var(--scene-padding)*-1)] mr-[calc(var(--scene-padding)*-1)] mb-[calc(var(--scene-padding-bottom)*-1)]">
+            <div className="sticky bottom-0 bg-bg-light dark:bg-[var(--card)] border-t border-border z-10 ml-[calc(var(--scene-padding)*-1)] mr-[calc(var(--scene-padding)*-1)] mb-[calc(var(--scene-padding-bottom)*-1)]">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
                     <div className="flex gap-2 items-center">
                         <LemonButton

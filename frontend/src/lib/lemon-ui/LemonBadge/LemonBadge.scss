@@ -20,11 +20,11 @@
     font-size: var(--lemon-badge-font-size);
     font-weight: 700;
     line-height: var(--lemon-badge-size);
-    color: var(--color-bg-surface-primary);
+    color: var(--card);
     pointer-events: none;
     user-select: none;
     background: var(--lemon-badge-color);
-    border: var(--lemon-badge-border-width) solid var(--color-bg-surface-primary);
+    border: var(--lemon-badge-border-width) solid var(--card);
     border-radius: calc(var(--lemon-badge-size) / 2);
 
     > * {

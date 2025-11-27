@@ -116,7 +116,7 @@ export function PanelLayoutPanel({
             <div
                 className={cn(
                     'z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true',
-                    'bg-surface-tertiary'
+                    'bg-background'
                 )}
             >
                 {searchField || filterDropdown || sortDropdown ? (

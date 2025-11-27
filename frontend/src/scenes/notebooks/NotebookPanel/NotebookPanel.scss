@@ -3,7 +3,7 @@
     flex: 1;
     flex-direction: column;
     overflow: hidden;
-    background-color: var(--color-bg-primary);
+    background-color: var(--background);
 
     .NotebookPanelDropzone {
         display: flex;
@@ -25,7 +25,7 @@
             color: var(--color-text-secondary);
             text-align: center;
             pointer-events: none;
-            background-color: var(--color-bg-surface-primary);
+            background-color: var(--card);
             opacity: 0.75;
             transition: all 150ms;
         }

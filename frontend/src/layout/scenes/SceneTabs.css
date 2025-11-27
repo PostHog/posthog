@@ -5,7 +5,7 @@
     z-index: 11;
     width: calc(100% + 22px);
     height: 12px;
-    background-color: var(--color-bg-primary);
+    background-color: var(--scene-layout-background);
     transform: translateX(50%);
 }
 
@@ -16,7 +16,7 @@
     width: 12px;
     height: 12px;
     content: '';
-    background-color: var(--color-bg-surface-tertiary);
+    background-color: var(--background);
     border-bottom: 1px solid var(--color-border-primary);
 }
 

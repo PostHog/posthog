@@ -87,8 +87,8 @@ const deprecatedColors = {
     // --color-primary-3000: var(--primary-3000);
     // --color-secondary-3000: var(--secondary-3000);
     // --color-secondary-3000-hover: var(--secondary-3000-hover);
-    // --color-accent-3000: var(--color-bg-surface-primary);
-    // --color-bg-3000: var(--color-bg-primary);
+    // --color-accent-3000: var(--card);
+    // --color-bg-3000: var(--background);
     // --color-primary-highlight: var(--primary-highlight);
     // --color-primary-alt-highlight: var(--primary-alt-highlight);
     // --color-primary-alt: var(--primary-alt);
@@ -262,7 +262,7 @@ const deprecatedColors = {
     mark: 'var(--mark)',
     white: 'var(--white)',
 
-    // --color-bg-light: var(--color-bg-surface-primary);
+    // --color-bg-light: var(--card);
     side: 'var(--side)',
     mid: 'var(--mid)',
     border: 'var(--border)',
@@ -285,14 +285,14 @@ const deprecatedColors = {
     'primary-3000-active': 'var(--color-accent-active)',
     'secondary-3000': 'var(--secondary-3000)',
     'secondary-3000-hover': 'var(--secondary-3000-hover)',
-    'accent-3000': 'var(--color-bg-surface-primary)',
-    'bg-3000': 'var(--color-bg-primary)',
+    'accent-3000': 'var(--card)',
+    'bg-3000': 'var(--background)',
     'border-3000': 'var(--color-border-primary)',
     'border-light-opaque': 'var(--border-light-opaque)',
     'border-bold-3000': 'var(--border-bold-3000)',
     'glass-bg-3000': 'var(--glass-bg-3000)',
     'glass-border-3000': 'var(--color-border-primary)',
-    'bg-light': 'var(--color-bg-surface-primary)',
+    'bg-light': 'var(--card)',
     'bg-table': 'var(--color-bg-table)',
 
     // --color-link: var(--link);
@@ -626,9 +626,9 @@ const config = {
             },
             backgroundColor: {
                 ...commonColors,
-                primary: 'var(--color-bg-primary)',
+                primary: 'var(--background)',
 
-                'surface-primary': 'var(--color-bg-surface-primary)',
+                'surface-primary': 'var(--card)',
                 'surface-secondary': 'var(--color-bg-surface-secondary)',
                 'surface-tertiary': 'var(--color-bg-surface-tertiary)',
                 'surface-tooltip': 'var(--color-bg-surface-tooltip)',

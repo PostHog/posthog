@@ -183,7 +183,7 @@
                     }
 
                     > label:hover {
-                        background: var(--color-bg-surface-primary);
+                        background: var(--card);
                     }
 
                     ul li,
@@ -282,7 +282,7 @@
             > blockquote {
                 padding: 0.6rem 0.9rem;
                 margin: 1rem 0;
-                background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 45%);
+                background: color-mix(in oklab, var(--card), transparent 45%);
                 border-left-width: 3px;
                 border-radius: var(--radius);
             }
@@ -335,15 +335,15 @@
             > table th {
                 font-weight: 600;
                 text-align: left;
-                background: var(--color-bg-surface-primary);
+                background: var(--card);
             }
 
             > table tbody tr:nth-child(odd) {
-                background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 60%);
+                background: color-mix(in oklab, var(--card), transparent 60%);
             }
 
             > table tbody tr:hover {
-                background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 30%);
+                background: color-mix(in oklab, var(--card), transparent 30%);
             }
 
             // Links
@@ -400,12 +400,12 @@
 
         .Backlink {
             padding: 0.125rem 0.25rem;
-            background-color: var(--color-bg-surface-primary);
+            background-color: var(--card);
             border: 1px solid var(--color-border-primary);
             border-radius: var(--radius);
 
             &:hover {
-                background-color: var(--color-bg-primary);
+                background-color: var(--background);
             }
 
             & svg {

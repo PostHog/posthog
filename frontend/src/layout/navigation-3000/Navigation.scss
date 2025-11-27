@@ -16,7 +16,7 @@
     width: 100%;
     height: 100vh;
     overflow: hidden;
-    background: var(--color-bg-primary);
+    background: var(--background);
 
     .storybook-test-runner & {
         height: auto;
@@ -181,7 +181,7 @@
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 3rem;
-    --sidebar-background: var(--color-bg-primary);
+    --sidebar-background: var(--background);
 
     position: relative;
     box-sizing: content-box;
@@ -193,7 +193,7 @@
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
     [theme='dark'] & {
-        --sidebar-background: var(--color-bg-surface-primary);
+        --sidebar-background: var(--card);
     }
 
     &.Sidebar3000--resizing {
@@ -284,7 +284,7 @@
     padding: 0 var(--sidebar-horizontal-padding);
     font-weight: 500;
     user-select: none;
-    background: var(--color-bg-primary);
+    background: var(--background);
     border-top-width: 1px;
 }
 
@@ -354,7 +354,7 @@
     --accordion-arrow-size: 1rem;
     --accordion-row-height: 32px;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--color-bg-surface-primary);
+    --accordion-header-background: var(--card);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -364,7 +364,7 @@
     min-height: var(--accordion-row-height);
 
     [theme='dark'] & {
-        --accordion-header-background: var(--color-bg-primary);
+        --accordion-header-background: var(--background);
     }
 
     &[aria-expanded] {
@@ -421,7 +421,7 @@
 .SidebarListItemAccordion {
     --accordion-arrow-size: 1rem;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--color-bg-surface-primary);
+    --accordion-header-background: var(--card);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -431,7 +431,7 @@
     height: 100%;
 
     [theme='dark'] & {
-        --accordion-header-background: var(--color-bg-primary);
+        --accordion-header-background: var(--background);
     }
 
     &[role='region'] {
@@ -640,7 +640,7 @@
     justify-content: center;
 
     // Pseudo-elements don't work on inputs, so we use a wrapper div
-    background: var(--color-bg-surface-primary);
+    background: var(--card);
 
     input {
         width: 100%;

@@ -85,7 +85,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-surface-tertiary z-[var(--z-top-navigation)] pr-1.5 relative',
+                'h-[var(--scene-layout-header-height)] flex items-center w-full bg-background z-[var(--z-top-navigation)] pr-1.5 relative',
                 className
             )}
         >
@@ -114,7 +114,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     {/* background to match the navbar  */}
                     <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-primary bg-[var(--scene-layout-background)]" />
                     {/* corner to match the main */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-surface-tertiary" />
+                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-background" />
                 </>
             )}
 
@@ -321,7 +321,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         'w-full order-first',
                         'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 rounded-lg border border-transparent',
                         tab.active
-                            ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-primary bg-primary border-primary'
+                            ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-primary bg-[var(--scene-layout-background)] border-primary'
                             : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover z-20',
                         'focus:outline-none',
                         isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',

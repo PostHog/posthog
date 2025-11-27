@@ -99,7 +99,7 @@
     position: absolute;
     width: 0.5rem;
     height: 0.5rem;
-    background: var(--color-bg-surface-primary);
+    background: var(--card);
     transform: rotate(45deg);
 
     [data-placement^='bottom'] & {

@@ -16,7 +16,7 @@ export function SceneStickyBar({
     return (
         <div
             className={cn(
-                'scene-sticky-bar @2xl/main-content:sticky z-20 bg-primary @2xl/main-content:top-[calc(var(--scene-layout-header-height)+var(--scene-title-section-height))] space-y-2 py-2 -mx-4 px-4 rounded-t-xl',
+                'scene-sticky-bar @2xl/main-content:sticky z-20 bg-[var(--scene-layout-background)] @2xl/main-content:top-[calc(var(--scene-layout-header-height)+var(--scene-title-section-height))] space-y-2 py-2 -mx-4 px-4 rounded-t-xl',
                 !hasSceneTitleSection && '@2xl/main-content:top-[var(--scene-layout-header-height)]',
                 className,
                 showBorderBottom && 'border-b'

@@ -86,8 +86,7 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                             {isExternalSurvey && (
                                 <span>
                                     Responses are anonymous by default. To identify respondents, add the{' '}
-                                    <code className="bg-surface-tertiary px-1 rounded">?distinct_id=user123</code> to
-                                    the URL.{' '}
+                                    <code className="bg-background px-1 rounded">?distinct_id=user123</code> to the URL.{' '}
                                     <Link
                                         to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
                                         target="_blank"

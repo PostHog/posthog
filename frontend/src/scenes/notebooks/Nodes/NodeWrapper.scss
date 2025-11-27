@@ -7,7 +7,7 @@
 
     .NotebookNode__box {
         overflow: hidden;
-        background-color: var(--color-bg-surface-primary);
+        background-color: var(--card);
         border: 1px solid var(--border-color);
         border-radius: var(--radius);
         transition:
@@ -72,7 +72,7 @@
             z-index: var(--z-popover);
             pointer-events: none;
             visibility: hidden;
-            background-color: var(--color-bg-surface-primary);
+            background-color: var(--card);
         }
 
         .Notebook--editable & {

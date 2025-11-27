@@ -421,84 +421,87 @@
     // Backgrounds
     // Behind surfaces, large areas: app scenes, etc.
     // //////////////////////////////////////////////////////////
-    --color-bg-primary: var(--color-posthog-3000-50);
+    // ***** --background: var(--color-posthog-3000-50);
 
     /* Most prominent/used background (replaces --color-bg-3000) */
-    --color-bg-surface-primary: var(--color-white);
+    --card: var(--color-white);
 
     /* Most prominent surface (Cards, tables, etc.) */
-    --color-bg-surface-secondary: var(--color-posthog-3000-100);
+    // ***** TO REMOVE --color-bg-surface-secondary: var(--color-posthog-3000-100);
 
     /* Second most prominent surface (Toolbars) */
-    --color-bg-surface-tertiary: var(--color-posthog-3000-150);
+    // ***** --color-bg-surface-tertiary: var(--color-posthog-3000-150);
 
     /* Most prominent surface (Cards, tables, etc.) */
-    --color-bg-surface-tooltip: var(--color-neutral-cool-850);
-    --color-bg-surface-tooltip-inverse: var(--color-neutral-cool-250);
-    --color-bg-surface-popover: var(--color-white);
-    --color-bg-surface-popover-inverse: var(--color-neutral-cool-950);
+    // ***** USE --card --color-bg-surface-tooltip: var(--color-neutral-cool-850);
+    // ***** USE --card --color-bg-surface-tooltip-inverse: var(--color-neutral-cool-250);
+    // ***** USE --card --color-bg-surface-popover: var(--color-white);
+    // ***** USE --card --color-bg-surface-popover-inverse: var(--color-neutral-cool-950);
 
     // Fills
     // Small colourful areas: banners, pills, buttons, etc.
     // //////////////////////////////////////////////////////////
-    --color-bg-fill-primary: var(--color-white);
-    --color-bg-fill-secondary: var(--color-posthog-3000-25);
-    --color-bg-fill-tertiary: var(--color-posthog-3000-50);
-    --color-bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
-    --color-bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
-    --color-bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
-    --color-bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
-    --color-bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
-    --color-bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
-    --color-bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
-    --color-bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
-    --color-bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
-    --color-bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
-    --color-bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
-    --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    // ***** USE --card --color-bg-fill-primary: var(--color-white);
+    // ***** USE --card --color-bg-fill-secondary: var(--color-posthog-3000-25);
+    // ***** USE --card --color-bg-fill-tertiary: var(--color-posthog-3000-50);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
+    // ***** USE --highlight/XX --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
 
     // Highlights
-    --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
+    // ***** TO REMOVE --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
 
     // Info fills
     --color-bg-fill-info-secondary: var(--color-blue-100);
-    --color-bg-fill-info-tertiary: var(--color-blue-50);
+
+    // ***** USE --info --color-bg-fill-info-tertiary: var(--color-blue-50);
     --color-bg-fill-warning-secondary: var(--color-yellow-100);
-    --color-bg-fill-warning-tertiary: var(--color-yellow-50);
+
+    // ***** USE --warning --color-bg-fill-warning-tertiary: var(--color-yellow-50);
     --color-bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-500) 15%, transparent);
     --color-bg-fill-error-secondary: var(--color-red-100);
-    --color-bg-fill-error-tertiary: var(--color-red-50);
+
+    // ***** USE --error --color-bg-fill-error-tertiary: var(--color-red-50);
     --color-bg-fill-error-highlight: color-mix(in oklab, var(--color-red-500) 10%, transparent);
     --color-bg-fill-success-secondary: var(--color-green-100);
     --color-bg-fill-success-tertiary: var(--color-green-50);
     --color-bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
 
     // Buttons
-    --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
-    --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
-    --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);
-    --color-bg-fill-button-tertiary-active: var(--color-bg-fill-highlight-50);
-    --color-bg-fill-button-tertiary-active-inverse: var(--color-bg-fill-highlight-inverse-50);
-    --color-bg-fill-button-panel: var(--color-bg-fill-highlight-50);
-    --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-100);
-    --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-75);
-    --color-bg-fill-button-danger-hover: var(--danger-highlight);
-    --color-bg-fill-button-danger-active: var(--danger-highlight);
+    // ***** TO REMOVE --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
+    // ***** TO REMOVE --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
+    // ***** TO REMOVE --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);
+    // ***** TO REMOVE --color-bg-fill-button-tertiary-active: var(--color-bg-fill-highlight-50);
+    // ***** TO REMOVE --color-bg-fill-button-tertiary-active-inverse: var(--color-bg-fill-highlight-inverse-50);
+    // ***** TO REMOVE --color-bg-fill-button-panel: var(--color-bg-fill-highlight-50);
+    // ***** TO REMOVE --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-100);
+    // ***** TO REMOVE --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-75);
+    // ***** TO REMOVE --color-bg-fill-button-danger-hover: var(--danger-highlight);
+    // ***** TO REMOVE --color-bg-fill-button-danger-active: var(--danger-highlight);
 
     // Inputs
-    --color-bg-fill-input: var(--color-white);
-    --color-bg-fill-switch: var(--color-neutral-cool-250);
-    --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
-    --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
+    // ***** TO REMOVE --color-bg-fill-input: var(--color-white);
+    // ***** TO REMOVE --color-bg-fill-switch: var(--color-neutral-cool-250);
+    // ***** TO REMOVE --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
+    // ***** TO REMOVE --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
 
     // Borders (Useful for single pixel backgrounds to mimic borders)
     // //////////////////////////////////////////////////////////
-    --color-bg-border-primary: var(--color-posthog-3000-200);
-    --color-bg-border-secondary: var(--color-posthog-3000-400);
+    // ***** USE --border --color-bg-border-primary: var(--color-posthog-3000-200);
+    // ***** USE --border-strong --color-bg-border-secondary: var(--color-posthog-3000-400);
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
-    --color-text-primary: var(--color-neutral-950);
+    // ***** --color-text-primary: var(--color-neutral-950);
     --color-text-primary-inverse: var(--color-neutral-100);
     --color-text-secondary-inverse: var(--color-neutral-400);
     --color-text-secondary: var(--color-neutral-750);
@@ -545,11 +548,11 @@
 
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
-    --breakpoint-sm: 576px;
-    --breakpoint-md: 768px;
-    --breakpoint-lg: 992px;
-    --breakpoint-xl: 1200px;
-    --breakpoint-xxl: 1600px;
+    // --breakpoint-sm: 576px;
+    // --breakpoint-md: 768px;
+    // --breakpoint-lg: 992px;
+    // --breakpoint-xl: 1200px;
+    // --breakpoint-xxl: 1600px;
 
     // Brand colors
     // //////////////////////////////////////////////////////////
@@ -563,27 +566,27 @@
     --shadow-elevation-3000: 0 3px 0 var(--border-3000-light);
 
     // Non-color vars
-    --radius: 0.375rem; // Increased from Tailwind's default of 0.25rem
-    --radius-sm: 0.25rem; // Increased from Tailwind's default of 0.125rem
-    --radius-base: var(--radius); // Increased from Tailwind's default of 0.25rem
-    --radius-lg: 0.625rem; // Increased from Tailwind's default of 0.5rem
-    --radius-full: 9999px;
-    --modal-shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
-    --opacity-disabled: 0.65;
-    --font-medium: 500;
-    --font-semibold: 600;
-    --font-sans:
-        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-title:
-        'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
-        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-button:
-        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-mono:
-        'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono',
-        monospace;
+    // --radius: 0.375rem; // Increased from Tailwind's default of 0.25rem
+    // --radius-sm: 0.25rem; // Increased from Tailwind's default of 0.125rem
+    // --radius-base: var(--radius); // Increased from Tailwind's default of 0.25rem
+    // --radius-lg: 0.625rem; // Increased from Tailwind's default of 0.5rem
+    // --radius-full: 9999px;
+    // --modal-shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
+    // --opacity-disabled: 0.65;
+    // --font-medium: 500;
+    // --font-semibold: 600;
+    // --font-sans:
+    //     'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+    //     helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    // --font-title:
+    //     'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+    //     'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    // --font-button:
+    //     'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+    //     helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    // --font-mono:
+    //     'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono',
+    //     monospace;
 
     // Dashboard item colors
     --blue: #597dce;
@@ -592,22 +595,22 @@
     --black: var(--text-3000);
 
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
-    --data-color-1: #1d4aff;
-    --data-color-1-hover: #1a3cf6;
-    --data-color-2: #621da6;
-    --data-color-3: #42827e;
-    --data-color-4: #ce0e74;
-    --data-color-5: #f14f58;
-    --data-color-6: #7c440e;
-    --data-color-7: #529a0a;
-    --data-color-8: #0476fb;
-    --data-color-9: #fe729e;
-    --data-color-10: #35416b;
-    --data-color-11: #41cbc4;
-    --data-color-12: #b64b02;
-    --data-color-13: #e4a604;
-    --data-color-14: #a56eff;
-    --data-color-15: #30d5c8;
+    // --data-color-1: #1d4aff;
+    // --data-color-1-hover: #1a3cf6;
+    // --data-color-2: #621da6;
+    // --data-color-3: #42827e;
+    // --data-color-4: #ce0e74;
+    // --data-color-5: #f14f58;
+    // --data-color-6: #7c440e;
+    // --data-color-7: #529a0a;
+    // --data-color-8: #0476fb;
+    // --data-color-9: #fe729e;
+    // --data-color-10: #35416b;
+    // --data-color-11: #41cbc4;
+    // --data-color-12: #b64b02;
+    // --data-color-13: #e4a604;
+    // --data-color-14: #a56eff;
+    // --data-color-15: #30d5c8;
 
     // Lifecycle series (compiled)
     --color-lifecycle-new: #1d4aff;
@@ -682,7 +685,7 @@
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
     --toastify-color-dark: var(--color-accent-3000-dark);
-    --toastify-color-light: var(--color-bg-surface-primary);
+    --toastify-color-light: var(--card);
     --toastify-color-info: var(--color-blue-500);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
@@ -691,7 +694,7 @@
     --toastify-color-progress-success: var(--toastify-color-success);
     --toastify-color-progress-warning: var(--toastify-color-warning);
     --toastify-color-progress-error: var(--toastify-color-error);
-    --toastify-toast-background: var(--color-bg-surface-primary);
+    --toastify-toast-background: var(--card);
     --toastify-toast-width: 26rem;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
@@ -741,8 +744,9 @@
     --success-light: #5f9d32;
     --success: #388600;
     --success-dark: #245700;
-    --muted: #5f5f5f;
-    --muted-alt: #747ea1;
+
+    // --muted: #5f5f5f;
+    // --muted-alt: #747ea1;
     --mark: hsl(42deg 93% 86% / 80%);
     --white: #fff;
     --side: #fafaf9;
@@ -753,7 +757,8 @@
     --transparent: transparent;
     --text-3000-light: #111;
     --color-text-secondary-3000-light: rgb(17 17 17 / 70%);
-    --muted-3000-light: rgb(17 17 17 / 60%);
+
+    // --muted-3000-light: rgb(17 17 17 / 60%);
     --trace-3000-light: rgb(17 17 17 / 25%);
     --primary-3000-light: #f54e01;
     --primary-highlight-light: rgb(245 78 1 / 10%);
@@ -920,8 +925,8 @@
 
     // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
-    --color-bg-primary: var(--color-neutral-cool-950);
-    --color-bg-surface-primary: var(--color-neutral-cool-850);
+    --background: var(--color-neutral-cool-950);
+    --card: var(--color-neutral-cool-850);
     --color-bg-surface-secondary: var(--color-neutral-cool-900);
     --color-bg-surface-tertiary: var(--color-neutral-cool-950);
     --color-bg-surface-tooltip: var(--color-neutral-100);
@@ -1100,7 +1105,7 @@
         color: var(--text-3000);
         color-scheme: light dark;
         touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
-        background: var(--color-bg-primary);
+        background: var(--background);
 
         &[theme='light'] {
             color-scheme: light;
@@ -1126,7 +1131,7 @@
             }
 
             ::-webkit-scrollbar-track {
-                background: var(--color-bg-surface-primary);
+                background: var(--card);
             }
 
             ::-webkit-scrollbar-thumb {
@@ -1216,7 +1221,7 @@
         }
 
         dialog {
-            background-color: var(--color-bg-primary);
+            background-color: var(--background);
         }
 
         .LemonButton,
@@ -1391,7 +1396,7 @@
             height: 23px;
             font-size: unset;
             color: var(--primary-alt);
-            background-color: var(--color-bg-surface-primary);
+            background-color: var(--card);
             border-color: var(--border);
         }
     }
@@ -1627,7 +1632,7 @@
         max-width: 200px;
         overflow: hidden;
         color: var(--color-text-primary);
-        background-color: var(--color-bg-surface-primary);
+        background-color: var(--card);
         border: 1px solid var(--color-border-primary);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-elevation-3000);
@@ -1762,7 +1767,7 @@
         display: inline-block;
         color: transparent; /* hide glyphs under the cover */
         cursor: pointer;
-        background: var(--color-bg-primary); /* the “black bar” */
+        background: var(--background); /* the “black bar” */
         border-radius: var(--radius);
     }
 

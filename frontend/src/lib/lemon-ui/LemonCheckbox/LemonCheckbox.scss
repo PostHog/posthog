@@ -33,7 +33,7 @@
             flex-shrink: 0;
             width: 1rem;
             height: 1rem;
-            background: var(--color-bg-surface-primary);
+            background: var(--card);
             border: 1.5px solid var(--color-border-primary);
             border-radius: 0.25rem; // Intentionally a bit smaller than --radius
             transition:
@@ -41,7 +41,7 @@
                 background 200ms ease;
 
             path {
-                stroke: var(--color-bg-surface-primary);
+                stroke: var(--card);
                 stroke-dasharray: var(--tick-length);
                 stroke-dashoffset: var(--tick-length);
                 transition: stroke-dashoffset 200ms ease;
@@ -105,7 +105,7 @@
         label {
             min-height: var(--lemon-checkbox-height);
             padding: 0 0.75rem;
-            background: var(--color-bg-surface-primary);
+            background: var(--card);
             border: 1px solid var(--color-border-primary);
             border-radius: var(--radius);
         }

@@ -251,7 +251,7 @@ export interface SceneConfig {
     import?: () => Promise<any>
     /** Custom icon for the tabs */
     iconType?: FileSystemIconType
-    /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
+    /** If true, uses canvas background (--card) for the scene and its tab */
     canvasBackground?: boolean
 }
 
