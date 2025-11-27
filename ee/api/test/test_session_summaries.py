@@ -120,7 +120,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(data["patterns"][0]["pattern_name"], "Login Flow Pattern")
         self.assertEqual(data["patterns"][0]["severity"], "medium")
         self.assertEqual(data["patterns"][0]["stats"]["occurences"], 2)
-
         # Verify execute_summarize_session_group was called correctly
         mock_execute.assert_called_once_with(
             session_ids=["session1", "session2"],
@@ -137,14 +136,13 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Verify tracking was called
         mock_capture_started.assert_called_once()
         started_kwargs = mock_capture_started.call_args[1]
-        self.assertEqual(started_kwargs["source"], "api")
+        self.assertEqual(started_kwargs["summary_source"], "api")
         self.assertEqual(started_kwargs["summary_type"], "group")
         self.assertEqual(started_kwargs["session_ids"], ["session1", "session2"])
         self.assertFalse(started_kwargs["is_streaming"])
-
         mock_capture_generated.assert_called_once()
         generated_kwargs = mock_capture_generated.call_args[1]
-        self.assertEqual(generated_kwargs["source"], "api")
+        self.assertEqual(generated_kwargs["summary_source"], "api")
         self.assertEqual(generated_kwargs["summary_type"], "group")
         self.assertEqual(generated_kwargs["session_ids"], ["session1", "session2"])
         self.assertTrue(generated_kwargs["success"])

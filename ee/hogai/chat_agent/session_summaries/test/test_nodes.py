@@ -469,16 +469,13 @@ class TestSessionSummarizationNode(BaseTest):
             "00000000-0000-0000-0000-000000000001",
             "00000000-0000-0000-0000-000000000002",
         ]
-
         # Mock _generate_filter_query to avoid LLM call
         mock_generate_filter_query.return_value = "filtered query for test"
-
         # Mock SearchSessionRecordingsTool
         mock_filters = self._create_mock_filters()
         mock_tool_instance = MagicMock()
         mock_tool_instance._invoke_graph = AsyncMock(return_value={"output": mock_filters})
         mock_search_tool_class.create_tool_class = AsyncMock(return_value=mock_tool_instance)
-
         # Return 2 sessions (below threshold of 5)
         mock_query_runner_class.return_value = self._create_mock_query_runner(
             [
@@ -497,11 +494,8 @@ class TestSessionSummarizationNode(BaseTest):
             return {}
 
         mock_execute_summarize.side_effect = mock_summarize_side_effect
-
         state = self._create_test_state(query="test query", should_use_current_filters=False)
-
         result = async_to_sync(self.node.arun)(state, {"configurable": {"thread_id": str(conversation.id)}})
-
         # Verify individual summaries are returned
         self.assertIsInstance(result, PartialAssistantState)
         self.assertIsNotNone(result)
@@ -517,13 +511,13 @@ class TestSessionSummarizationNode(BaseTest):
         # Verify tracking was called
         mock_capture_started.assert_called_once()
         started_kwargs = mock_capture_started.call_args[1]
-        self.assertEqual(started_kwargs["source"], "chat")
+        self.assertEqual(started_kwargs["summary_source"], "chat")
         self.assertEqual(started_kwargs["summary_type"], "single")
         self.assertEqual(started_kwargs["session_ids"], session_ids)
         self.assertFalse(started_kwargs["is_streaming"])
         mock_capture_generated.assert_called_once()
         generated_kwargs = mock_capture_generated.call_args[1]
-        self.assertEqual(generated_kwargs["source"], "chat")
+        self.assertEqual(generated_kwargs["summary_source"], "chat")
         self.assertEqual(generated_kwargs["summary_type"], "single")
         self.assertEqual(generated_kwargs["session_ids"], session_ids)
         self.assertTrue(generated_kwargs["success"])

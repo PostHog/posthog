@@ -1249,7 +1249,7 @@ class SessionRecordingViewSet(
             user=user,
             team=self.team,
             tracking_id=tracking_id,
-            source="api",
+            summary_source="api",
             summary_type="single",
             is_streaming=True,
             session_ids=[session_id],
