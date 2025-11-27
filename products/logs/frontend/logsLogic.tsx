@@ -80,7 +80,7 @@ export const logsLogic = kea<logsLogicType>([
                 actions.setTimestampFormat(params.timestampFormat)
             }
             if (params.logsPageSize !== undefined && params.logsPageSize !== values.logsPageSize) {
-                actions.setLogsPageSize(params.logsPageSize)
+                actions.setLogsPageSize(parseInt(params.logsPageSize) || DEFAULT_LOGS_PAGE_SIZE)
             }
         }
         return {
