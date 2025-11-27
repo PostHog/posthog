@@ -3,6 +3,7 @@ import dagster
 from posthog.settings import TEST
 
 from dags import (
+    cache_favicons,
     web_pre_aggregated_accuracy,
     web_preaggregated,
     web_preaggregated_asset_checks,
@@ -39,6 +40,7 @@ defs = dagster.Definitions(
         web_preaggregated.web_pre_aggregated_bounces,
         web_preaggregated.web_pre_aggregated_stats,
         web_pre_aggregated_accuracy.web_pre_aggregated_accuracy,
+        cache_favicons.cache_favicons,
     ],
     asset_checks=[
         web_preaggregated_asset_checks.web_analytics_accuracy_check,

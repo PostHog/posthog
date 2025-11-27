@@ -50,6 +50,7 @@ import {
     RefreshType,
     SourceConfig,
     TileFilters,
+    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -615,6 +616,11 @@ export class ApiRequest {
 
     public comment(id: CommentType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.comments(teamId).addPathComponent(id)
+    }
+
+    // # Feed
+    public feed(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('feed')
     }
 
     // # Exports
@@ -1953,21 +1959,10 @@ const api = {
     },
 
     userProductList: {
-        async list(): Promise<
-            CountedPaginatedResponse<{
-                id: string
-                product_path: string
-                enabled: boolean
-                created_at: string
-                updated_at: string
-            }>
-        > {
+        async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
-        async updateByPath(data: {
-            product_path: string
-            enabled: boolean
-        }): Promise<{ id: string; product_path: string; enabled: boolean; created_at: string; updated_at: string }> {
+        async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
             return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
     },
@@ -2184,6 +2179,12 @@ const api = {
 
         async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
+        },
+    },
+
+    feed: {
+        async recentUpdates(days: number = 7): Promise<{ results: any[]; count: number }> {
+            return new ApiRequest().feed().withAction('recent_updates').withQueryString({ days }).get()
         },
     },
 
@@ -4310,6 +4311,17 @@ const api = {
     productIntents: {
         async update(data: ProductIntentProperties): Promise<TeamType> {
             return await new ApiRequest().addProductIntent().update({ data })
+        },
+    },
+    teamSettings: {
+        async asOf(at: string, scope?: string | string[]): Promise<Record<string, any>> {
+            const params: Record<string, any> = { at, ...(scope !== undefined ? { scope } : {}) }
+            return await new ApiRequest()
+                .environments()
+                .current()
+                .withAction('settings_as_of')
+                .withQueryString(toParams(params, true))
+                .get()
         },
     },
 
