@@ -8,6 +8,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     FuzzyInt,
+    NonAtomicBaseTest,
     QueryMatchingTest,
     _create_person,
     flush_persons_and_events,
@@ -17,9 +18,8 @@ from posthog.test.base import (
 from unittest.mock import call, patch
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, connections
 from django.db.utils import OperationalError
-from django.test import TransactionTestCase
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
@@ -6790,7 +6790,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(27):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6844,7 +6844,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(41):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(43):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -6855,7 +6855,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(23):
+        with self.assertNumQueries(24):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -6919,7 +6919,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -6936,7 +6936,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -7030,7 +7030,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(40):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(41):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -7681,7 +7681,7 @@ def slow_query(execute, sql, *args, **kwargs):
     return execute(f"SELECT pg_sleep(1); {sql}", *args, **kwargs)
 
 
-class TestResiliency(TransactionTestCase, QueryMatchingTest):
+class TestResiliency(NonAtomicBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()
 
@@ -7757,7 +7757,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is down
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
+        ):
             with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team, "example_id", groups={"organization": "org:1"}
@@ -7859,7 +7863,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is down
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
+        ):
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
@@ -7963,6 +7971,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             snapshot_postgres_queries_context(self),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
@@ -8061,6 +8070,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             self.assertNumQueries(0),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
@@ -8172,12 +8182,13 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         # now db is slow and times out
         with (
             snapshot_postgres_queries_context(self),
-            connection.execute_wrapper(slow_query),
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
             ),
-            self.assertNumQueries(4),
+            self.assertNumQueries(3),
         ):
             # no extra queries to get person properties for the second flag after first one failed
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
@@ -8272,6 +8283,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             snapshot_postgres_queries_context(self),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
@@ -8378,7 +8390,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
@@ -8389,6 +8401,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             snapshot_postgres_queries_context(self),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
