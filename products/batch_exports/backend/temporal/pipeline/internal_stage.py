@@ -233,18 +233,6 @@ async def _get_query(
             )
         else:
             query_template = EXPORT_TO_S3_FROM_PERSONS
-            if str(team_id) in settings.BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS:
-                filter_distinct_ids = """
-                HAVING
-                    (
-                        _timestamp >= {interval_start}::DateTime64
-                    )
-                    AND (
-                        _timestamp < {interval_end}::DateTime64
-                    )
-                """
-            else:
-                filter_distinct_ids = ""
             query = query_template.safe_substitute(
                 s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
@@ -254,7 +242,6 @@ async def _get_query(
                     data_interval_end=data_interval_end,
                 ),
                 num_partitions=num_partitions,
-                filter_distinct_ids=filter_distinct_ids,
             )
     else:
         if parameters.get("exclude_events", None):
