@@ -29,6 +29,7 @@ export type HogFunctionListPagination = {
     offset: number
     limit: number
     order?: string
+    createdBy?: string | null
 }
 
 export type HogFunctionListLogicProps = {
