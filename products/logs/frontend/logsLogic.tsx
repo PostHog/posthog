@@ -141,6 +141,20 @@ export const logsLogic = kea<logsLogicType>([
             })
         }
 
+        const updateUrlWithPageSize = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
+                return params
+            })
+        }
+
         return {
             setDateRange: () => buildUrlAndRunQuery(),
             setFilterGroup: () => buildUrlAndRunQuery(),
@@ -148,7 +162,7 @@ export const logsLogic = kea<logsLogicType>([
             setSeverityLevels: () => buildUrlAndRunQuery(),
             setServiceNames: () => buildUrlAndRunQuery(),
             setOrderBy: () => buildUrlAndRunQuery(),
-            setLogsPageSize: () => buildUrlAndRunQuery(),
+            setLogsPageSize: () => updateUrlWithPageSize(),
             setHighlightedLogId: () => updateHighlightURL(),
             setWrapBody: () => updateUrlWithDisplayPreferences(),
             setPrettifyJson: () => updateUrlWithDisplayPreferences(),
@@ -158,7 +172,8 @@ export const logsLogic = kea<logsLogicType>([
 
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
-        loadMoreLogs: true,
+        loadMoreLogs: (limit?: number) => ({ limit }),
+        truncateLogs: (limit: number) => ({ limit }),
         clearLogs: true,
         cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
@@ -341,6 +356,7 @@ export const logsLogic = kea<logsLogicType>([
             [] as LogMessage[],
             {
                 clearLogs: () => [],
+                truncateLogs: ({ limit }) => values.logs.slice(0, limit),
                 fetchLogs: async () => {
                     const logsController = new AbortController()
                     const signal = logsController.signal
@@ -363,7 +379,7 @@ export const logsLogic = kea<logsLogicType>([
                     parseLogAttributes(response.results)
                     return response.results
                 },
-                loadMoreLogs: async (_, breakpoint) => {
+                loadMoreLogs: async ({ limit }, breakpoint) => {
                     const logsController = new AbortController()
                     const signal = logsController.signal
                     actions.cancelInProgressLogs(logsController)
@@ -390,7 +406,7 @@ export const logsLogic = kea<logsLogicType>([
                     await breakpoint(300)
                     const response = await api.logs.query({
                         query: {
-                            limit: values.logsPageSize,
+                            limit: limit ?? values.logsPageSize,
                             orderBy: values.orderBy,
                             dateRange,
                             searchTerm: values.searchTerm,
@@ -662,6 +678,15 @@ export const logsLogic = kea<logsLogicType>([
                 if (logToPin) {
                     actions.pinLog(logToPin)
                 }
+            }
+        },
+        setLogsPageSize: ({ logsPageSize }) => {
+            const currentCount = values.logs.length
+
+            if (logsPageSize > currentCount && values.hasMoreLogsToLoad) {
+                actions.loadMoreLogs(logsPageSize - currentCount)
+            } else if (logsPageSize < currentCount && !values.hasLoadedMoreLogs) {
+                actions.truncateLogs(logsPageSize)
             }
         },
     })),

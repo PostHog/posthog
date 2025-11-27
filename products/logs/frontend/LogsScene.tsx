@@ -66,6 +66,7 @@ export function LogsScene(): JSX.Element {
         timestampFormat,
         isPinned,
         hasMoreLogsToLoad,
+        logsPageSize,
     } = useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline, loadMoreLogs } = useActions(logsLogic)
 
@@ -171,7 +172,7 @@ export function LogsScene(): JSX.Element {
                                 disabled={!hasMoreLogsToLoad || logsLoading}
                             >
                                 {hasMoreLogsToLoad
-                                    ? `Showing first ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'} – click to load more`
+                                    ? `Showing first ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'} – load up to ${logsPageSize} more`
                                     : `Showing all ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'}`}
                             </LemonButton>
                         </div>
