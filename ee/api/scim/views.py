@@ -156,7 +156,7 @@ class SCIMUsersView(SCIMBaseView):
                 },
             )
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "detail": "Invalid user data"},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid user data"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -172,7 +172,8 @@ class SCIMUserDetailView(SCIMBaseView):
     def handle_exception(self, exc):
         if isinstance(exc, User.DoesNotExist):
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "detail": "User not found"}, status=status.HTTP_404_NOT_FOUND
+                {"schemas": [constants.SchemaURI.ERROR], "status": 404, "detail": "User not found"},
+                status=status.HTTP_404_NOT_FOUND,
             )
         return super().handle_exception(exc)
 
@@ -197,7 +198,7 @@ class SCIMUserDetailView(SCIMBaseView):
                 },
             )
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "detail": "Invalid user data"},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid user data"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -219,7 +220,7 @@ class SCIMUserDetailView(SCIMBaseView):
                 },
             )
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "detail": "Failed to update user"},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Failed to update user"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -278,7 +279,7 @@ class SCIMGroupsView(SCIMBaseView):
                 },
             )
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "detail": "Invalid group data"},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid group data"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -294,7 +295,8 @@ class SCIMGroupDetailView(SCIMBaseView):
     def handle_exception(self, exc):
         if isinstance(exc, Role.DoesNotExist):
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "detail": "Group not found"}, status=status.HTTP_404_NOT_FOUND
+                {"schemas": [constants.SchemaURI.ERROR], "status": 404, "detail": "Group not found"},
+                status=status.HTTP_404_NOT_FOUND,
             )
         return super().handle_exception(exc)
 
@@ -319,7 +321,7 @@ class SCIMGroupDetailView(SCIMBaseView):
                 },
             )
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "detail": "Invalid group data"},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid group data"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -341,7 +343,7 @@ class SCIMGroupDetailView(SCIMBaseView):
                 },
             )
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "detail": "Failed to update group"},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Failed to update group"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
