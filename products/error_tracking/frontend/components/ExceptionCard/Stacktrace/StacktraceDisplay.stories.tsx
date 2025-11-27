@@ -7,9 +7,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { mswDecorator } from '~/mocks/browser'
 
 import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from '../../../__mocks__/events'
-import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './StacktraceBase'
 import { StacktraceGenericDisplay } from './StacktraceGenericDisplay'
-import { StacktraceTextDisplay } from './StacktraceTextDisplay'
 
 const meta: Meta = {
     title: 'ErrorTracking/StacktraceDisplay',
@@ -41,7 +39,7 @@ export default meta
 export function GenericDisplayPropertiesLoading(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="python_resolved" loading={true}>
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StacktraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -50,7 +48,7 @@ GenericDisplayPropertiesLoading.parameters = { testOptions: { waitForLoadersToDi
 export function GenericDisplayEmpty(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_empty">
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StacktraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -58,7 +56,7 @@ export function GenericDisplayEmpty(): JSX.Element {
 export function GenericDisplayWithStacktrace(): JSX.Element {
     return (
         <StacktraceWrapperAllEvents>
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StacktraceGenericDisplay />
         </StacktraceWrapperAllEvents>
     )
 }
@@ -66,7 +64,7 @@ export function GenericDisplayWithStacktrace(): JSX.Element {
 export function GenericDisplayWithJavascriptScriptError(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_script_error">
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StacktraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -74,7 +72,7 @@ export function GenericDisplayWithJavascriptScriptError(): JSX.Element {
 export function GenericDisplayWithMinifiedReactError(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_minified_react_error">
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StacktraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -82,43 +80,43 @@ export function GenericDisplayWithMinifiedReactError(): JSX.Element {
 export function GenericDisplayWithNonErrorPromiseRejection(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_non_error_promise_rejection">
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StacktraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
 
 ///////////////////// Text stacktraces
 
-export function TextDisplayEmpty(): JSX.Element {
-    return (
-        <ExceptionLogicWrapper eventName="javascript_empty">
-            <StacktraceTextDisplay {...DEFAULT_PROPS} />
-        </ExceptionLogicWrapper>
-    )
-}
+// export function TextDisplayEmpty(): JSX.Element {
+//     return (
+//         <ExceptionLogicWrapper eventName="javascript_empty">
+//             <StacktraceTextDisplay {...DEFAULT_PROPS} />
+//         </ExceptionLogicWrapper>
+//     )
+// }
 
-export function TextDisplayPropertiesLoading(): JSX.Element {
-    return (
-        <ExceptionLogicWrapper eventName="javascript_resolved">
-            <StacktraceTextDisplay {...DEFAULT_PROPS} />
-        </ExceptionLogicWrapper>
-    )
-}
+// export function TextDisplayPropertiesLoading(): JSX.Element {
+//     return (
+//         <ExceptionLogicWrapper eventName="javascript_resolved">
+//             <StacktraceTextDisplay {...DEFAULT_PROPS} />
+//         </ExceptionLogicWrapper>
+//     )
+// }
 
-export function TextDisplayWithStacktrace(): JSX.Element {
-    return (
-        <StacktraceWrapperAllEvents>
-            <StacktraceTextDisplay {...DEFAULT_PROPS} />
-        </StacktraceWrapperAllEvents>
-    )
-}
+// export function TextDisplayWithStacktrace(): JSX.Element {
+//     return (
+//         <StacktraceWrapperAllEvents>
+//             <StacktraceTextDisplay {...DEFAULT_PROPS} />
+//         </StacktraceWrapperAllEvents>
+//     )
+// }
 
 //////////////////// Utils
 
-const DEFAULT_PROPS = {
-    truncateMessage: true,
-    renderEmpty: () => <StacktraceEmptyDisplay />,
-} as StacktraceBaseDisplayProps
+// const DEFAULT_PROPS = {
+//     truncateMessage: true,
+//     renderEmpty: (exception: ErrorTrackingException) => <StacktraceEmptyDisplay exception={exception} />,
+// } as StacktraceBaseDisplayProps
 
 function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JSX.Element {
     const eventNames = Object.keys(TEST_EVENTS) as TestEventName[]

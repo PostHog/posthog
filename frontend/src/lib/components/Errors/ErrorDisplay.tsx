@@ -43,13 +43,11 @@ export function ErrorDisplay({
 
 export function ErrorDisplayContent(): JSX.Element {
     const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
-    const { type, value, sentryUrl, level, ingestionErrors, handled } = exceptionAttributes || {}
+    const { sentryUrl, ingestionErrors, handled } = exceptionAttributes || {}
     const browserInfo = concatValues(exceptionAttributes, 'browser', 'browserVersion')
     const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
-            <h1 className="mb-0">{type || level}</h1>
-            {!hasStacktrace && !!value && <div className="text-secondary italic">{value}</div>}
             <div className="flex flex-row gap-2 flex-wrap">
                 <TitledSnack
                     type="success"
@@ -90,7 +88,7 @@ export function ErrorDisplayContent(): JSX.Element {
                     </LemonBanner>
                 </>
             )}
-            {hasStacktrace && <StackTrace />}
+            <StackTrace />
         </div>
     )
 }
@@ -100,14 +98,13 @@ const StackTrace = (): JSX.Element => {
     return (
         <>
             <div className="flex gap-1 mt-6 justify-between items-center">
-                <h3 className="mb-0">Stack Trace</h3>
                 <LemonSwitch
                     checked={showAllFrames}
                     label="Show entire stack trace"
                     onChange={() => setShowAllFrames(!showAllFrames)}
                 />
             </div>
-            <ChainedStackTraces showAllFrames={showAllFrames} />
+            <ChainedStackTraces showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} />
         </>
     )
 }

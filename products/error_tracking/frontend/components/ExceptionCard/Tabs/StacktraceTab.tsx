@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
+import { ChainedStackTraces } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
+import posthog from 'lib/posthog-typed'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -22,9 +24,6 @@ import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
 import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
 import { useErrorTrackingExplainIssueMaxTool } from '../../ExplainIssueTool'
 import { FixModal } from '../FixModal'
-import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
-import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
-import { StacktraceTextDisplay } from '../Stacktrace/StacktraceTextDisplay'
 import { exceptionCardLogic } from '../exceptionCardLogic'
 import { SubHeader } from './SubHeader'
 
@@ -56,30 +55,31 @@ export function StacktraceTab({
     return (
         <TabsPrimitiveContent {...props}>
             <StacktraceTabSubHeader />
-            <StacktraceIssueDisplay
-                className="p-2"
-                truncateMessage={false}
-                issue={issue ?? undefined}
-                issueLoading={issueLoading}
-            />
+            <StacktraceIssueDisplay className="p-2" issue={issue ?? undefined} issueLoading={issueLoading} />
         </TabsPrimitiveContent>
     )
 }
 
 function StacktraceIssueDisplay({
     issue,
-    issueLoading,
-    ...stacktraceDisplayProps
+    className,
 }: {
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
-} & Omit<StacktraceBaseDisplayProps, 'renderEmpty'>): JSX.Element {
-    const { showAsText } = useValues(exceptionCardLogic)
-    const componentProps = {
-        ...stacktraceDisplayProps,
-        renderEmpty: () => <StacktraceEmptyDisplay />,
-    }
-    return showAsText ? <StacktraceTextDisplay {...componentProps} /> : <StacktraceGenericDisplay {...componentProps} />
+    className?: string
+}): JSX.Element {
+    const { showAllFrames } = useValues(exceptionCardLogic)
+    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    return (
+        <ChainedStackTraces
+            className={className}
+            showAllFrames={showAllFrames}
+            setShowAllFrames={setShowAllFrames}
+            onFirstFrameExpanded={() => {
+                posthog.capture('error_tracking_stacktrace_explored', { issue_id: issue?.id })
+            }}
+        />
+    )
 }
 
 function StacktraceTabSubHeader(): JSX.Element {

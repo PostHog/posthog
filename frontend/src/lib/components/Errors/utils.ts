@@ -232,7 +232,6 @@ export function formatResolvedName(
 
 export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace'>): string {
     const hasJavaFrames = exception.stacktrace?.frames?.some((frame) => frame.lang === 'java')
-
     return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
 }
 

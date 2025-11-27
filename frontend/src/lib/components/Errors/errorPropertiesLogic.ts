@@ -19,6 +19,7 @@ import {
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
+import { KnownExceptionRegistry } from './known-exceptions'
 import { stackFrameLogic } from './stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
@@ -87,6 +88,12 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             },
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
+        knownIssue: [
+            (s) => [s.exceptionList],
+            (exceptionList: ErrorTrackingException[]) => {
+                return KnownExceptionRegistry.matchFirst(exceptionList)
+            },
+        ],
     }),
 
     afterMount(({ values, actions }) => {
