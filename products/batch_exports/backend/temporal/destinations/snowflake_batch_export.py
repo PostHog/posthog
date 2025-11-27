@@ -355,8 +355,15 @@ class SnowflakeField(Field):
 
         return cls(field.name, snowflake_type, snowflake_type_to_data_type(snowflake_type), field.is_nullable)
 
+    @property
+    def snowflake_type_name(self) -> SnowflakeTypeName:
+        if self.snowflake_type.repeated is True:
+            return "ARRAY"
+        else:
+            return self.snowflake_type.name
+
     def to_destination_field(self) -> SnowflakeDestinationField:
-        return SnowflakeDestinationField(name=self.name, type=self.snowflake_type.name, is_nullable=self.nullable)
+        return SnowflakeDestinationField(name=self.name, type=self.snowflake_type_name, is_nullable=self.nullable)
 
 
 class SnowflakeTable(Table):
@@ -818,7 +825,7 @@ class SnowflakeClient:
                 Whether to include an 'IF NOT EXISTS' clause in the query such that it
                 won't fail if the table already exists.
         """
-        field_ddl = ", ".join(f'"{field.name}" {field.snowflake_type.name}' for field in table)
+        field_ddl = ", ".join(f'"{field.name}" {field.snowflake_type_name}' for field in table)
 
         if_not_exists = ""
         if exists_ok:
@@ -950,7 +957,7 @@ class SnowflakeClient:
         """
         select_fields = ", ".join(
             f'PARSE_JSON($1:"{field.name}")'
-            if field.data_type == JsonType() and field.name != "elements"
+            if field.data_type == JsonType() and field.name.lower() != "elements"
             else f'$1:"{field.name}"'
             for field in table
         )

@@ -4,6 +4,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import api from 'lib/api'
@@ -32,6 +33,7 @@ const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
 const DEFAULT_LOGS_PAGE_SIZE = 100
+const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 const parseLogAttributes = (logs: LogMessage[]): void => {
     logs.forEach((row) => {
@@ -266,7 +268,7 @@ export const logsLogic = kea<logsLogicType>([
             {
                 fetchLogs: () => true,
                 fetchLogsSuccess: () => false,
-                fetchLogsFailure: () => false,
+                fetchLogsFailure: () => true,
             },
         ],
         sparklineLoading: [
@@ -274,7 +276,7 @@ export const logsLogic = kea<logsLogicType>([
             {
                 fetchSparkline: () => true,
                 fetchSparklineSuccess: () => false,
-                fetchSparklineFailure: () => false,
+                fetchSparklineFailure: () => true,
             },
         ],
         openFilterOnInsert: [
@@ -492,7 +494,11 @@ export const logsLogic = kea<logsLogicType>([
                 const data = Object.entries(
                     sparkline.reduce((accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
-                            labels.push(humanFriendlyDetailedTime(currentItem.time))
+                            labels.push(
+                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
+                                    showNow: false,
+                                })
+                            )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
@@ -551,6 +557,16 @@ export const logsLogic = kea<logsLogicType>([
     })),
 
     listeners(({ values, actions }) => ({
+        fetchLogsFailure: ({ error }) => {
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+                lemonToast.error(`Failed to load logs: ${error}`)
+            }
+        },
+        loadMoreLogsFailure: ({ error }) => {
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+                lemonToast.error(`Failed to load more logs: ${error}`)
+            }
+        },
         runQuery: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
@@ -561,13 +577,13 @@ export const logsLogic = kea<logsLogicType>([
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
-                values.logsAbortController.abort('new query started')
+                values.logsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setLogsAbortController(logsAbortController)
         },
         cancelInProgressSparkline: ({ sparklineAbortController }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort('new query started')
+                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setSparklineAbortController(sparklineAbortController)
         },

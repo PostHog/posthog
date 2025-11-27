@@ -1,10 +1,18 @@
 import time
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from clickhouse_driver import Client
-from dagster import AssetExecutionContext, BackfillPolicy, Config, DailyPartitionsDefinition, asset, define_asset_job
+from dagster import (
+    AssetExecutionContext,
+    BackfillPolicy,
+    Config,
+    DailyPartitionsDefinition,
+    PartitionedConfig,
+    asset,
+    define_asset_job,
+)
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import get_cluster
@@ -24,16 +32,62 @@ MAX_PARTITIONS_PER_RUN = 1
 
 # Keep the number of concurrent runs low to avoid overloading ClickHouse and running into the dread "Too many parts".
 # This tag needs to also exist in Dagster Cloud (and the local dev dagster.yaml) for the concurrency limit to take effect.
-# concurrency:
-#   runs:
-#     tag_concurrency_limits:
-#       - key: 'sessions_backfill_concurrency'
-#         limit: 3
-#         value:
-#           applyLimitPerUniqueValue: true
+#
+# We use two levels of concurrency control:
+# 1. Global limit on total concurrent sessions backfill runs
+# 2. Per-DB-partition limit to ensure only one insert per shard per ClickHouse partition (YYYYMM)
+#
+# We use two tag keys (_0 and _1) because events from the 1st of a month can write to both
+# the previous and current month's DB partitions (sessions can span midnight).
+# See tags_for_sessions_partition() for details.
+#
+# dagster.yaml configuration:
+#   concurrency:
+#     runs:
+#       tag_concurrency_limits:
+#         - key: 'sessions_backfill_concurrency'
+#           limit: 3
+#         - key: 'sessions_db_partition_0'
+#           limit: 1
+#           value:
+#             applyLimitPerUniqueValue: true
+#         - key: 'sessions_db_partition_1'
+#           limit: 1
+#           value:
+#             applyLimitPerUniqueValue: true
 CONCURRENCY_TAG = {
     "sessions_backfill_concurrency": "sessions_v3",
 }
+
+
+def tags_for_sessions_partition(partition_key: str) -> dict[str, str]:
+    """Generate tags for a sessions backfill partition.
+
+    Uses two tag keys (sessions_db_partition_0 and sessions_db_partition_1) to ensure
+    only one concurrent insert per DB partition.
+
+    _0 is the current day's month, _1 is the previous day's month. These are usually
+    the same, but differ on the 1st of each month. This handles sessions spanning
+    midnight at month boundaries.
+
+    Example tags:
+    - 2025-10-31: {_0: "202510", _1: "202510"}
+    - 2025-11-01: {_0: "202511", _1: "202510"}
+    - 2025-11-02: {_0: "202511", _1: "202511"}
+
+    With applyLimitPerUniqueValue on both keys:
+    - 2025-10-31 vs 2025-11-01: Both have 202510 in _1 → blocked
+    - 2025-11-01 vs 2025-11-02: Both have 202511 in _0 → blocked
+    - 2025-10-01 vs 2025-11-01 vs 2025-12-01: Different values in both → allowed
+    """
+
+    date = datetime.strptime(partition_key, "%Y-%m-%d")
+    prev_date = date - timedelta(days=1)
+
+    return {
+        "sessions_db_partition_0": "s0_" + date.strftime("%Y%m"),
+        "sessions_db_partition_1": "s1_" + prev_date.strftime("%Y%m"),
+    }
 
 
 class SessionsBackfillConfig(Config):
@@ -45,7 +99,7 @@ class SessionsBackfillConfig(Config):
 
     clickhouse_settings: dict[str, Any] | None = None
     team_id_chunks: int | None = 16
-    max_unmerged_parts: int = 300
+    max_unmerged_parts: int = 100
     parts_check_poll_frequency_seconds: int = 30
     parts_check_max_wait_seconds: int = 3600
 
@@ -188,10 +242,16 @@ def sessions_v3_backfill_replay(context: AssetExecutionContext, config: Sessions
     )
 
 
+sessions_backfill_partitioned_config = PartitionedConfig(
+    partitions_def=daily_partitions,
+    run_config_for_partition_key_fn=lambda partition_key: {},
+    tags_for_partition_key_fn=tags_for_sessions_partition,
+)
+
 sessions_backfill_job = define_asset_job(
     name="sessions_v3_backfill_job",
     selection=["sessions_v3_backfill", "sessions_v3_replay_backfill"],
-    partitions_def=daily_partitions,
+    config=sessions_backfill_partitioned_config,
     tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value, **CONCURRENCY_TAG},
 )
 
