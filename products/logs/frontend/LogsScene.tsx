@@ -165,15 +165,17 @@ export function LogsScene(): JSX.Element {
                     {parsedLogs.length > 0 && (
                         <div className="m-2 flex items-center">
                             <LemonButton
-                                onClick={() => loadMoreLogs()}
+                                onClick={loadMoreLogs}
                                 loading={logsLoading}
                                 fullWidth
                                 center
                                 disabled={!hasMoreLogsToLoad || logsLoading}
                             >
-                                {hasMoreLogsToLoad
-                                    ? `Showing first ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'} – load up to ${logsPageSize} more`
-                                    : `Showing all ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'}`}
+                                {logsLoading
+                                    ? `Loading up to ${logsPageSize} more logs...`
+                                    : hasMoreLogsToLoad
+                                      ? `Showing first ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'} – load up to ${logsPageSize} more`
+                                      : `Showing all ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'}`}
                             </LemonButton>
                         </div>
                     )}

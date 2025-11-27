@@ -32,7 +32,7 @@ const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
-const DEFAULT_LOGS_PAGE_SIZE = 100
+const DEFAULT_LOGS_PAGE_SIZE: number = 100
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 const parseLogAttributes = (logs: LogMessage[]): void => {
@@ -151,6 +151,7 @@ export const logsLogic = kea<logsLogicType>([
         ] => {
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
+                actions.applyLogsPageSize(values.logsPageSize)
                 return params
             })
         }
@@ -172,8 +173,10 @@ export const logsLogic = kea<logsLogicType>([
 
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
-        loadMoreLogs: (limit?: number) => ({ limit }),
+        fetchNextLogsPage: (limit?: number) => ({ limit }),
+        loadMoreLogs: true,
         truncateLogs: (limit: number) => ({ limit }),
+        applyLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
         clearLogs: true,
         cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
@@ -296,16 +299,24 @@ export const logsLogic = kea<logsLogicType>([
                 fetchLogs: () => true,
                 fetchLogsSuccess: () => false,
                 fetchLogsFailure: () => true,
-                loadMoreLogs: () => true,
-                loadMoreLogsSuccess: () => false,
-                loadMoreLogsFailure: () => true,
+                fetchNextLogsPage: () => true,
+                fetchNextLogsPageSuccess: () => false,
+                fetchNextLogsPageFailure: () => true,
             },
         ],
         hasLoadedMoreLogs: [
             false as boolean,
             {
                 fetchLogsSuccess: () => false,
-                loadMoreLogsSuccess: () => true,
+                fetchNextLogsPageSuccess: () => true,
+            },
+        ],
+        userClickedLoadMore: [
+            false as boolean,
+            {
+                fetchLogsSuccess: () => false,
+                clearLogs: () => false,
+                loadMoreLogs: () => true,
             },
         ],
         sparklineLoading: [
@@ -379,7 +390,7 @@ export const logsLogic = kea<logsLogicType>([
                     parseLogAttributes(response.results)
                     return response.results
                 },
-                loadMoreLogs: async ({ limit }, breakpoint) => {
+                fetchNextLogsPage: async ({ limit }, breakpoint) => {
                     const logsController = new AbortController()
                     const signal = logsController.signal
                     actions.cancelInProgressLogs(logsController)
@@ -600,7 +611,7 @@ export const logsLogic = kea<logsLogicType>([
                 lemonToast.error(`Failed to load logs: ${error}`)
             }
         },
-        loadMoreLogsFailure: ({ error }) => {
+        fetchNextLogsPageFailure: ({ error }) => {
             if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
                 lemonToast.error(`Failed to load more logs: ${error}`)
             }
@@ -680,14 +691,17 @@ export const logsLogic = kea<logsLogicType>([
                 }
             }
         },
-        setLogsPageSize: ({ logsPageSize }) => {
+        applyLogsPageSize: ({ logsPageSize }) => {
             const currentCount = values.logs.length
 
             if (logsPageSize > currentCount && values.hasMoreLogsToLoad) {
-                actions.loadMoreLogs(logsPageSize - currentCount)
-            } else if (logsPageSize < currentCount && !values.hasLoadedMoreLogs) {
+                actions.fetchNextLogsPage(logsPageSize - currentCount)
+            } else if (logsPageSize < currentCount && !values.userClickedLoadMore) {
                 actions.truncateLogs(logsPageSize)
             }
+        },
+        loadMoreLogs: () => {
+            actions.fetchNextLogsPage()
         },
     })),
 ])
