@@ -73,7 +73,7 @@ def fetch_github_data_for_sdk(lib_name: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str] | None = None) -> dict[str, Any]:
+def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str | re.Pattern] | None = None) -> dict[str, Any]:
     """Helper function to fetch SDK data from GitHub releases API."""
 
     # By default we'll include anything in the list if not specified
@@ -127,7 +127,7 @@ def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str] | None = Non
 
 # This is used to avoid hitting the GitHub API too often
 # for requests coming from the same pod, this doesn't happen often but it's good to have it anyway
-local_releases_cache = {}
+local_releases_cache: dict[str, list[Any]] = {}
 
 
 def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
