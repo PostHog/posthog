@@ -142,7 +142,7 @@ const LeftHandColumn = (): JSX.Element => {
                 width: desiredSize ?? '30%',
                 minWidth: 320,
             }}
-            className="flex flex-col relative"
+            className="flex flex-col relative bg-surface-primary"
         >
             <TabsPrimitive
                 value={category}
@@ -198,7 +198,7 @@ const LeftHandColumn = (): JSX.Element => {
 }
 
 const ExceptionsTab = (): JSX.Element => {
-    const { eventsQuery, eventsQueryKey } = useValues(errorTrackingIssueSceneLogic)
+    const { eventsQuery, eventsQueryKey, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
 
     return (
@@ -217,7 +217,7 @@ const ExceptionsTab = (): JSX.Element => {
                 <EventsTable
                     query={eventsQuery}
                     queryKey={eventsQueryKey}
-                    selectedEvent={null}
+                    selectedEvent={selectedEvent}
                     onEventSelect={(selectedEvent) => {
                         if (selectedEvent) {
                             selectEvent(selectedEvent)

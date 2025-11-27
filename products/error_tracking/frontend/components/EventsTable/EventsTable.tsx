@@ -32,9 +32,13 @@ export interface EventsTableProps {
     onEventSelect: (event: ErrorEventType | null) => void
 }
 
-export function EventsTable({ query, queryKey, onEventSelect }: EventsTableProps): JSX.Element {
+export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: EventsTableProps): JSX.Element {
     const tagRenderer = useErrorTagRenderer()
     const dataSource = eventsSourceLogic({ queryKey, query })
+
+    function isEventSelected(record: ErrorEventType): boolean {
+        return selectedEvent ? selectedEvent.uuid === record.uuid : false
+    }
 
     function renderTitle(record: ErrorEventType): JSX.Element {
         return (
@@ -74,14 +78,24 @@ export function EventsTable({ query, queryKey, onEventSelect }: EventsTableProps
         return <TZLabel time={record.timestamp} />
     }
 
+    function renderUUID(record: ErrorEventType): JSX.Element {
+        // Click event is caught at the row level
+        return (
+            <div className="flex items-center">
+                <input type="radio" className="cursor-pointer" checked={isEventSelected(record)} onChange={() => {}} />
+            </div>
+        )
+    }
+
     return (
         <DataSourceTable<ErrorEventType>
             dataSource={dataSource}
             embedded
             stealth
-            onRowClick={undefined}
+            onRowClick={(record) => onEventSelect(record)}
             className="overflow-auto"
         >
+            <DataSourceTableColumn<ErrorEventType> width="10px" cellRenderer={renderUUID} />
             <DataSourceTableColumn<ErrorEventType> title="Exception" cellRenderer={renderTitle} />
             <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
             <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />
