@@ -291,12 +291,12 @@ function TabGroup({ tabs, children }: { tabs: string[]; children: ReactNode }): 
 }
 
 function TabList(): JSX.Element {
-    // Tab.List is not rendered, it's just for structure
+    // Tab.List is not rendered, it's just for compatibility with Website tabs
     return null
 }
 
 function TabItem(): JSX.Element {
-    // Individual Tab items are not rendered, handled by LemonTabs
+    // Individual Tab items are not rendered, it's just for compatibility with Website tabs
     return null
 }
 

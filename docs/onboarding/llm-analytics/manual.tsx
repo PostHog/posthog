@@ -1,5 +1,4 @@
 import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
-import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
 
 export const ManualInstallation = (): JSX.Element => {
     const { Markdown, Tab, CodeBlock, snippets, dedent } = useMDXComponents()
@@ -21,8 +20,8 @@ export const ManualInstallation = (): JSX.Element => {
     return (
         <>
             <Markdown>
-                If you're using a different server-side SDK or prefer to use the API, you can manually capture the data by calling the `capture`
-                method or using the [capture API](https://posthog.com/docs/api/capture).
+                If you're using a different server-side SDK or prefer to use the API, you can manually capture the data
+                by calling the `capture` method or using the [capture API](https://posthog.com/docs/api/capture).
             </Markdown>
 
             <Tab.Group tabs={languages.map((l) => l.label)}>
