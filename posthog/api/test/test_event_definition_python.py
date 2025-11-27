@@ -392,72 +392,12 @@ class TestPythonGeneratorAPI(APIBaseTest):
             types_file = tmpdir_path / "posthog_typed.py"
             types_file.write_text(python_content)
 
-            # Create test file that uses the generated code
-            test_file = tmpdir_path / "test_usage.py"
-            test_file.write_text(
-                """
-from datetime import datetime
-
-# Import typed module for type-safe captures
-import posthog_typed
-from posthog_typed import FileDownloadedProps, UserSignedUpProps
-
-# Import regular posthog for untyped/dynamic events
-import posthog
-
-# Test 1: Using posthog_typed.capture (type-checked)
-posthog_typed.capture(
-    "file_downloaded",
-    distinct_id="user_123",
-    properties={
-        "file_name": "document.pdf",
-        "file_size": 1024.0,
-        "downloaded_at": datetime.now(),  # required
-        "file_extension": "pdf",  # optional
-    },
-)
-
-# Test 2: Event with only required properties
-posthog_typed.capture(
-    "user_signed_up",
-    distinct_id="user_456",
-    properties={"email": "user@example.com", "plan": "free"},
-)
-
-# Test 3: posthog.capture for dynamic events (no type checking)
-posthog.capture(
-    "any_event",
-    distinct_id="user_789",
-    properties={"anything": "goes"},
-)
-
-# Test 4: Using TypedDict directly
-props: FileDownloadedProps = {
-    "file_name": "test.txt",
-    "file_size": 100.0,
-    "downloaded_at": datetime.now(),
-}
-posthog_typed.capture("file_downloaded", distinct_id="user_999", properties=props)
-
-# Test 5: Distinct_id is still optional
-posthog_typed.capture(
-    "file_downloaded",
-    properties={
-        "file_name": "document.pdf",
-        "file_size": 1024.0,
-        "downloaded_at": datetime.now(),  # required
-        "file_extension": "pdf",  # optional
-    },
-)
-"""
-            )
-
             # Create pyproject.toml for mypy config
             pyproject_file = tmpdir_path / "pyproject.toml"
             pyproject_file.write_text(
                 """
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.9"
 strict = false
 """
             )
@@ -485,24 +425,161 @@ strict = false
                     f"STDERR: {install_result.stderr}"
                 )
 
-            # Run mypy type checker using the venv's mypy
-            result = subprocess.run(
-                [str(venv_python), "-m", "mypy", str(test_file), "--config-file", str(pyproject_file)],
-                cwd=str(tmpdir_path),
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
+            # Define test cases: name -> (code, should_pass, expected_error_text)
+            test_cases = {
+                # Success cases - should pass type checking
+                "full_event_with_all_properties": (
+                    """
+posthog_typed.capture(
+    "file_downloaded",
+    distinct_id="user_123",
+    properties={
+        "file_name": "document.pdf",
+        "file_size": 1024.0,
+        "downloaded_at": datetime.now(),
+        "file_extension": "pdf",
+    },
+)
+""",
+                    True,
+                    None,
+                ),
+                "event_with_only_required_properties": (
+                    """
+posthog_typed.capture(
+    "user_signed_up",
+    distinct_id="user_456",
+    properties={"email": "user@example.com", "plan": "free"},
+)
+""",
+                    True,
+                    None,
+                ),
+                "using_typed_dict_directly": (
+                    """
+props: FileDownloadedProps = {
+    "file_name": "test.txt",
+    "file_size": 100.0,
+    "downloaded_at": datetime.now(),
+}
+posthog_typed.capture("file_downloaded", distinct_id="user_999", properties=props)
+""",
+                    True,
+                    None,
+                ),
+                "distinct_id_is_optional": (
+                    """
+posthog_typed.capture(
+    "file_downloaded",
+    properties={
+        "file_name": "document.pdf",
+        "file_size": 1024.0,
+        "downloaded_at": datetime.now(),
+    },
+)
+""",
+                    True,
+                    None,
+                ),
+                # Error cases - should fail type checking
+                # Note: mypy reports inline dict literals as "No overload variant matches" because it
+                # infers them as dict[str, object] rather than checking against the TypedDict.
+                # Using a typed variable (e.g. `props: FileDownloadedProps = {...}`) gives more
+                # specific errors like 'Missing key "file_size"' at the assignment.
+                "missing_required_property_file_size_inline": (
+                    """
+posthog_typed.capture(
+    "file_downloaded",
+    properties={
+        "file_name": "document.pdf",
+        "downloaded_at": datetime.now(),
+    },
+)
+""",
+                    False,
+                    "No overload variant",
+                ),
+                "missing_required_property_file_size_typed_variable": (
+                    """
+props: FileDownloadedProps = {
+    "file_name": "document.pdf",
+    "downloaded_at": datetime.now(),
+}
+posthog_typed.capture("file_downloaded", properties=props)
+""",
+                    False,
+                    'Missing key "file_size"',
+                ),
+                "wrong_type_string_instead_of_float_inline": (
+                    """
+posthog_typed.capture(
+    "file_downloaded",
+    properties={
+        "file_name": "document.pdf",
+        "file_size": "not a number",
+        "downloaded_at": datetime.now(),
+    },
+)
+""",
+                    False,
+                    "No overload variant",
+                ),
+                "wrong_type_string_instead_of_float_typed_variable": (
+                    """
+props: FileDownloadedProps = {
+    "file_name": "document.pdf",
+    "file_size": "not a number",
+    "downloaded_at": datetime.now(),
+}
+posthog_typed.capture("file_downloaded", properties=props)
+""",
+                    False,
+                    'incompatible type "str"; expected "float"',
+                ),
+                "unknown_event_name_typo": (
+                    """
+posthog_typed.capture(
+    "file_downloade",
+    properties={},
+)
+""",
+                    False,
+                    "No overload variant",
+                ),
+            }
 
-            # Assert type checking passed
-            self.assertEqual(
-                result.returncode,
-                0,
-                f"mypy type checking failed. This indicates the generated code has type errors.\n\n"
-                f"STDOUT:\n{result.stdout}\n\n"
-                f"STDERR:\n{result.stderr}\n\n"
-                f"Generated Python file:\n{python_content}",
-            )
+            # Run each test case
+            test_file = tmpdir_path / "test_usage.py"
+            failures = []
+
+            for name, (code, should_pass, expected_error) in test_cases.items():
+                test_content = f"""from datetime import datetime
+import posthog_typed
+from posthog_typed import FileDownloadedProps, UserSignedUpProps
+{code}"""
+                test_file.write_text(test_content)
+
+                result = subprocess.run(
+                    [str(venv_python), "-m", "mypy", str(test_file), "--config-file", str(pyproject_file)],
+                    cwd=str(tmpdir_path),
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+
+                if should_pass and result.returncode != 0:
+                    failures.append(f"{name}: expected to pass but failed:\n{result.stdout}")
+                elif not should_pass and result.returncode == 0:
+                    failures.append(f"{name}: expected to fail but passed")
+                elif not should_pass and expected_error and expected_error not in result.stdout:
+                    failures.append(f"{name}: expected '{expected_error}' in error output, got:\n{result.stdout}")
+
+            if failures:
+                self.fail(
+                    "Type checking failures:\n\n"
+                    + "\n\n".join(failures)
+                    + f"\n\nGenerated Python file:\n{python_content}"
+                )
 
     def _test_telemetry_called(self, mock_report) -> None:
         """Verify telemetry was called correctly"""
