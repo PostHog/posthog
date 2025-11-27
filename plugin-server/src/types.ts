@@ -359,12 +359,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
-    OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
-    OBJECT_STORAGE_REGION: string // s3 region
-    OBJECT_STORAGE_ENDPOINT: string // s3 endpoint
-    OBJECT_STORAGE_ACCESS_KEY_ID: string
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
