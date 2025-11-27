@@ -63,6 +63,7 @@
       round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
       round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
       round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
+      round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
       ucg.conversion_0 AS `Sign Up Conversions`,
       round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
   
@@ -75,7 +76,8 @@
           sum(cost) AS total_cost,
           sum(clicks) AS total_clicks,
           sum(impressions) AS total_impressions,
-          sum(reported_conversion) AS total_reported_conversions
+          sum(reported_conversion) AS total_reported_conversions,
+          sum(reported_conversion_value) AS total_reported_conversion_value
       
   FROM
           (
@@ -86,7 +88,8 @@
               toFloat(coalesce(impressions1, 0)) AS impressions,
               toFloat(coalesce(clicks1, 0)) AS clicks,
               toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-              toFloat(coalesce(conversions1, 0)) AS reported_conversion
+              toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+              toFloat(coalesce(0, 0)) AS reported_conversion_value
           
   FROM
               `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table

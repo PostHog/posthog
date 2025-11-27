@@ -48,7 +48,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads impo
 TEST_DATE_FROM = "2024-01-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
-EXPECTED_COLUMN_COUNT = 7
+EXPECTED_COLUMN_COUNT = 8
 EXPECTED_COLUMN_ALIASES = [
     "campaign",
     "id",
