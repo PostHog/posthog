@@ -16,7 +16,7 @@ import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 import { eventConfigModalLogic } from './eventConfigModalLogic'
 
 export function ActiveUsersInsights(): JSX.Element {
-    const { activityEvent, activeUsersInsights, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { activityEvent, activeUsersInsights, customerLabel, tabId } = useValues(customerAnalyticsSceneLogic)
     const { toggleModalOpen } = useActions(eventConfigModalLogic)
 
     // Check if using pageview as default, with no properties filter
@@ -38,7 +38,7 @@ export function ActiveUsersInsights(): JSX.Element {
                     </div>
                 </LemonBanner>
             )}
-            <h2 className="ml-1">Active users</h2>
+            <h2 className="ml-1">Active {customerLabel.plural}</h2>
             <div className="grid grid-cols-[3fr_1fr] gap-2">
                 {activeUsersInsights.map((insight, index) => {
                     return (
@@ -52,12 +52,16 @@ export function ActiveUsersInsights(): JSX.Element {
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { dauSeries, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { businessType, customerLabel, dauSeries, selectedGroupType, tabId } = useValues(customerAnalyticsSceneLogic)
     const uniqueKey = `power-users-${tabId}`
     const insightProps: InsightLogicProps<InsightVizNode> = {
         dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
         dashboardItemId: buildDashboardItemId(uniqueKey),
     }
+
+    const isB2c = businessType === 'b2c'
+    const buttonTo = isB2c ? urls.persons() : urls.groups(selectedGroupType)
+    const tooltip = isB2c ? 'Open people list' : `Open ${customerLabel.plural} list`
 
     const query = {
         kind: NodeKind.DataTableNode,
@@ -65,7 +69,7 @@ function PowerUsersTable(): JSX.Element {
         showSourceQueryOptions: false,
         source: {
             kind: NodeKind.ActorsQuery,
-            select: ['person', 'event_count'],
+            select: isB2c ? ['person', 'event_count'] : ['group', 'event_count'],
             source: {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
@@ -78,6 +82,7 @@ function PowerUsersTable(): JSX.Element {
                     trendsFilter: {
                         display: ChartDisplayType.ActionsTable,
                     },
+                    ...(isB2c ? {} : { aggregation_group_type_index: selectedGroupType }),
                 },
                 series: 0,
             },
@@ -89,8 +94,8 @@ function PowerUsersTable(): JSX.Element {
     return (
         <>
             <div className="flex items-center gap-2 -mb-2">
-                <h2 className="mb-0 ml-1">Power users</h2>
-                <LemonButton size="small" noPadding targetBlank to={urls.persons()} tooltip="Open people list" />
+                <h2 className="mb-0 ml-1">Power {customerLabel.plural}</h2>
+                <LemonButton size="small" noPadding targetBlank to={buttonTo} tooltip={tooltip} />
             </div>
             <Query
                 uniqueKey={uniqueKey}
@@ -99,6 +104,7 @@ function PowerUsersTable(): JSX.Element {
                 context={{
                     columns: {
                         event_count: { title: 'Event count' },
+                        group: { title: customerLabel.singular },
                     },
                     insightProps,
                 }}

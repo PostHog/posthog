@@ -15,7 +15,7 @@ use rdkafka::{
 };
 use time::OffsetDateTime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tokio_util::sync::CancellationToken;
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 const KAFKA_BROKERS: &str = "localhost:9092";
@@ -31,7 +31,7 @@ fn create_batch_kafka_consumer(
 ) -> Result<(
     BatchConsumer<CapturedEvent>,
     UnboundedReceiver<Batch<CapturedEvent>>,
-    CancellationToken,
+    oneshot::Sender<()>,
 )> {
     let mut config = ClientConfig::new();
     config
@@ -43,7 +43,7 @@ fn create_batch_kafka_consumer(
         .set("heartbeat.interval.ms", "2000");
 
     // Create shutdown channel - return sender so test can control shutdown
-    let shutdown_token = CancellationToken::new();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     let (chan_tx, chan_rx) = unbounded_channel();
 
@@ -51,14 +51,14 @@ fn create_batch_kafka_consumer(
         &config,
         Arc::new(TestRebalanceHandler::default()),
         chan_tx,
-        shutdown_token.clone(),
+        shutdown_rx,
         topic,
         batch_size,
         batch_timeout,
         Duration::from_secs(1),
     )?;
 
-    Ok((consumer, chan_rx, shutdown_token))
+    Ok((consumer, chan_rx, shutdown_tx))
 }
 
 /// Helper to send test messages
@@ -138,7 +138,7 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     send_test_messages(&test_topic, test_messages).await?;
 
-    let (consumer, mut batch_rx, shutdown_token) =
+    let (consumer, mut batch_rx, shutdown_tx) =
         create_batch_kafka_consumer(&test_topic, &group_id, batch_size, batch_timeout)?;
 
     // Start consumption in background task
@@ -149,7 +149,7 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
     // closes the batch submission channel
     let _shutdown_handle = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        shutdown_token.cancel();
+        let _ = shutdown_tx.send(());
     });
 
     tokio::time::sleep(Duration::from_millis(1)).await;
