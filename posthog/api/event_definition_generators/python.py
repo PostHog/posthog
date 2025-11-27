@@ -84,16 +84,16 @@ USAGE GUIDE
    import posthog_typed
 
    # posthog.capture(...) then becomes posthog_typed.capture(...):
-   posthog_typed.capture("event_name", "user_123", {{"property": "value"}})
+   posthog_typed.capture("event_name", distinct_id="user_123", properties={{"property": "value"}})
 3. Use posthog.capture for untyped/dynamic events:
    import posthog
 
-   posthog.capture("dynamic_event", "user_123", {{"anything": "goes"}})
+   posthog.capture("dynamic_event", distinct_id="user_123", properties={{"anything": "goes"}})
 
 Alternative: If you only use capture() and want a cleaner import:
    import posthog_typed as posthog
 
-   posthog.capture("event_name", "user_123", {{"property": "value"}})
+   posthog.capture("event_name", distinct_id="user_123", properties={{"property": "value"}})
 
 Note: This pattern means you won't have access to other SDK methods
 (identify, group, feature_enabled, etc.) unless you also import the
@@ -102,9 +102,10 @@ update the import.
 """
 {datetime_import}from typing import Any, Dict, Literal, Optional, TypedDict, overload
 
-from typing_extensions import NotRequired, Required
+from typing_extensions import NotRequired, Required, Unpack
 
 import posthog as _posthog
+from posthog.args import OptionalCaptureArgs
 
 
 '''
@@ -126,9 +127,7 @@ def _map_properties(event: str, properties: Any) -> Any:
 
 def capture(  # type: ignore[misc]  # mypy doesn't understand overload impl pattern
     event: str,
-    distinct_id: str,
-    properties: Any = None,
-    **kwargs: Any,
+    **kwargs: Unpack[OptionalCaptureArgs],
 ) -> Optional[str]:
     """
     Type-safe capture for defined events.
@@ -137,16 +136,17 @@ def capture(  # type: ignore[misc]  # mypy doesn't understand overload impl patt
     are provided and that property types match the schema.
 
     Args:
-        event: The event name (type-checked against EventName)
-        distinct_id: The user's distinct ID
-        properties: Event properties (type-checked against the event's schema)
-        **kwargs: Additional arguments passed to posthog.capture()
-
+        event: The event name (type-checked against defined events)
+        **kwargs: Capture arguments from posthog.args.OptionalCaptureArgs (including the typed properties)
     Returns:
         The UUID of the captured event, or None if capture failed.
     """
+    properties = kwargs.get("properties")
     mapped_properties = _map_properties(event, properties)
-    return _posthog.capture(event=event, distinct_id=distinct_id, properties=mapped_properties, **kwargs)
+    if mapped_properties is not properties:
+        kwargs = dict(kwargs)
+        kwargs["properties"] = mapped_properties
+    return _posthog.capture(event=event, **kwargs)
 '''
 
         return (
@@ -207,14 +207,17 @@ def capture(  # type: ignore[misc]  # mypy doesn't understand overload impl patt
         class_name = self._to_class_name(event_name)
         escaped_event_name = self._escape_python_string(event_name)
         has_required_property = any(p.is_required for p in properties)
-        properties_type = class_name if has_required_property else f"{class_name} | None = ..."
+        properties_type = class_name if has_required_property else f"Optional[{class_name}] = ..."
 
+        # type: ignore[misc] suppresses "Overlap between argument names and ** TypedDict items"
+        # This is intentional: we want our typed `properties` param to take precedence over
+        # the generic one in OptionalCaptureArgs, while still getting type hints for other kwargs
         return f"""@overload
-def capture(
+def capture(  # type: ignore[misc]  # This is needed to ensure our typed `properties` take precedence over the SDK kwargs
     event: Literal["{escaped_event_name}"],
-    distinct_id: str,
+    *,
     properties: {properties_type},
-    **kwargs: Any,
+    **kwargs: Unpack[OptionalCaptureArgs],
 ) -> Optional[str]: ..."""
 
     def _map_property_type(self, property_type: str) -> str:

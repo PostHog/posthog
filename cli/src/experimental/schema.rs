@@ -88,17 +88,16 @@ You can add optional properties through the option functions:
    import posthog_typed
 
    # posthog.capture(...) then becomes posthog_typed.capture(...):
-   posthog_typed.capture("event_name", "user_123", {{"property": "value"}})
-
+   posthog_typed.capture("event_name", distinct_id="user_123", properties={{"property": "value"}})
 3. Use posthog.capture for untyped/dynamic events:
    import posthog
 
-   posthog.capture("dynamic_event", "user_123", {{"anything": "goes"}})
+   posthog.capture("dynamic_event", distinct_id="user_123", properties={{"anything": "goes"}})
 
 Alternative: If you only use capture() and want a cleaner import:
    import posthog_typed as posthog
 
-   posthog.capture("event_name", "user_123", {{"property": "value"}})
+   posthog.capture("event_name", distinct_id="user_123", properties={{"property": "value"}})
 
 Note: This pattern means you won't have access to other SDK methods
 (identify, group, feature_enabled, etc.) unless you also import the
