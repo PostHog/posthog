@@ -32,7 +32,7 @@ const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
-const DEFAULT_LOGS_PAGE_SIZE = 100
+const DEFAULT_LOGS_PAGE_SIZE: number = 100
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 const parseLogAttributes = (logs: LogMessage[]): void => {
@@ -79,6 +79,9 @@ export const logsLogic = kea<logsLogicType>([
             if (params.timestampFormat && params.timestampFormat !== values.timestampFormat) {
                 actions.setTimestampFormat(params.timestampFormat)
             }
+            if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
+                actions.setLogsPageSize(+params.logsPageSize)
+            }
         }
         return {
             '*': urlToAction,
@@ -86,7 +89,7 @@ export const logsLogic = kea<logsLogicType>([
     }),
 
     tabAwareActionToUrl(({ actions, values }) => {
-        const buildURL = (): [
+        const buildUrlAndRunQuery = (): [
             string,
             Params,
             Record<string, any>,
@@ -102,6 +105,7 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
                 updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
+                updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
                 actions.runQuery()
                 return params
             })
@@ -137,14 +141,30 @@ export const logsLogic = kea<logsLogicType>([
             })
         }
 
+        const updateUrlWithPageSize = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
+                actions.applyLogsPageSize(values.logsPageSize)
+                return params
+            })
+        }
+
         return {
-            setDateRange: () => buildURL(),
-            setFilterGroup: () => buildURL(),
-            setSearchTerm: () => buildURL(),
-            setSeverityLevels: () => buildURL(),
-            setServiceNames: () => buildURL(),
+            setDateRange: () => buildUrlAndRunQuery(),
+            setFilterGroup: () => buildUrlAndRunQuery(),
+            setSearchTerm: () => buildUrlAndRunQuery(),
+            setSeverityLevels: () => buildUrlAndRunQuery(),
+            setServiceNames: () => buildUrlAndRunQuery(),
+            setOrderBy: () => buildUrlAndRunQuery(),
+            setLogsPageSize: () => updateUrlWithPageSize(),
             setHighlightedLogId: () => updateHighlightURL(),
-            setOrderBy: () => buildURL(),
             setWrapBody: () => updateUrlWithDisplayPreferences(),
             setPrettifyJson: () => updateUrlWithDisplayPreferences(),
             setTimestampFormat: () => updateUrlWithDisplayPreferences(),
@@ -153,7 +173,10 @@ export const logsLogic = kea<logsLogicType>([
 
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
+        fetchNextLogsPage: (limit?: number) => ({ limit }),
         loadMoreLogs: true,
+        truncateLogs: (limit: number) => ({ limit }),
+        applyLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
         clearLogs: true,
         cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
@@ -187,9 +210,16 @@ export const logsLogic = kea<logsLogicType>([
         unpinLog: (logId: string) => ({ logId }),
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
+        setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
     }),
 
     reducers({
+        logsPageSize: [
+            DEFAULT_LOGS_PAGE_SIZE,
+            {
+                setLogsPageSize: (_, { logsPageSize }) => logsPageSize,
+            },
+        ],
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
             {
@@ -269,8 +299,12 @@ export const logsLogic = kea<logsLogicType>([
                 fetchLogs: () => true,
                 fetchLogsSuccess: () => false,
                 fetchLogsFailure: () => true,
+                fetchNextLogsPage: () => true,
+                fetchNextLogsPageSuccess: () => false,
+                fetchNextLogsPageFailure: () => true,
             },
         ],
+
         sparklineLoading: [
             false as boolean,
             {
@@ -319,6 +353,7 @@ export const logsLogic = kea<logsLogicType>([
             [] as LogMessage[],
             {
                 clearLogs: () => [],
+                truncateLogs: ({ limit }) => values.logs.slice(0, limit),
                 fetchLogs: async () => {
                     const logsController = new AbortController()
                     const signal = logsController.signal
@@ -326,7 +361,7 @@ export const logsLogic = kea<logsLogicType>([
 
                     const response = await api.logs.query({
                         query: {
-                            limit: DEFAULT_LOGS_PAGE_SIZE,
+                            limit: values.logsPageSize,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
@@ -341,7 +376,7 @@ export const logsLogic = kea<logsLogicType>([
                     parseLogAttributes(response.results)
                     return response.results
                 },
-                loadMoreLogs: async (_, breakpoint) => {
+                fetchNextLogsPage: async ({ limit }, breakpoint) => {
                     const logsController = new AbortController()
                     const signal = logsController.signal
                     actions.cancelInProgressLogs(logsController)
@@ -368,7 +403,7 @@ export const logsLogic = kea<logsLogicType>([
                     await breakpoint(300)
                     const response = await api.logs.query({
                         query: {
-                            limit: DEFAULT_LOGS_PAGE_SIZE,
+                            limit: limit ?? values.logsPageSize,
                             orderBy: values.orderBy,
                             dateRange,
                             searchTerm: values.searchTerm,
@@ -562,7 +597,7 @@ export const logsLogic = kea<logsLogicType>([
                 lemonToast.error(`Failed to load logs: ${error}`)
             }
         },
-        loadMoreLogsFailure: ({ error }) => {
+        fetchNextLogsPageFailure: ({ error }) => {
             if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
                 lemonToast.error(`Failed to load more logs: ${error}`)
             }
@@ -641,6 +676,19 @@ export const logsLogic = kea<logsLogicType>([
                     actions.pinLog(logToPin)
                 }
             }
+        },
+        applyLogsPageSize: ({ logsPageSize }) => {
+            const currentCount = values.logs.length
+
+            if (logsPageSize > currentCount && values.hasMoreLogsToLoad) {
+                actions.fetchNextLogsPage(logsPageSize - currentCount)
+            } else if (logsPageSize < currentCount) {
+                actions.truncateLogs(logsPageSize)
+                actions.setHasMoreLogsToLoad(true)
+            }
+        },
+        loadMoreLogs: () => {
+            actions.fetchNextLogsPage()
         },
     })),
 ])
