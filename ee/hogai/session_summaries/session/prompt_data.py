@@ -77,6 +77,10 @@ class SessionSummaryPromptData:
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:
                 event_timestamp = simplified_event[timestamp_index]
+                if isinstance(event_timestamp, str):
+                    # Sometimes timestamps are stringified (when cache is hit), so it's safe to convert back to datetime.
+                    # It will be converted back to ISO next, but the conversion is required to confirm it's a valid datetime.
+                    event_timestamp = prepare_datetime(event_timestamp)
                 if not isinstance(event_timestamp, datetime):
                     msg = f"Timestamp is not a datetime: {event_timestamp}"
                     logger.error(msg, session_id=session_id, signals_type="session-summaries")
