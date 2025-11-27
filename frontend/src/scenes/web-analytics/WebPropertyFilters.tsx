@@ -86,6 +86,7 @@ export const WebPropertyFilters = (): JSX.Element => {
                 type="secondary"
                 data-attr="show-web-analytics-filters"
                 onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
+                size="small"
             >
                 Filters
             </LemonButton>
