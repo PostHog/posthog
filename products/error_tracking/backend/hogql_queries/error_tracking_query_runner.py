@@ -783,7 +783,6 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 event_tuple = result.get(event_key)
                 if event_tuple and len(event_tuple) >= 4:
                     properties = event_tuple[3]
-                    # Properties might be a dict or need conversion
                     if isinstance(properties, dict):
                         session_id = properties.get("$session_id")
                         if session_id and session_id != "":
@@ -799,7 +798,6 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"])),
             where=ast.And(
                 exprs=[
-                    # Filter by date range first to match ORDER BY primary key
                     # Sessions can start before errors occur, so look back 1 day
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
@@ -815,13 +813,11 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         left=ast.Field(chain=["min_first_timestamp"]),
                         right=ast.Constant(value=self.date_to),
                     ),
-                    # Then filter by team_id (second in ORDER BY)
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["team_id"]),
                         right=ast.Constant(value=self.team.pk),
                     ),
-                    # Finally filter by session_id (third in ORDER BY)
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
                         left=ast.Field(chain=["session_id"]),
@@ -832,7 +828,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             group_by=[ast.Field(chain=["session_id"])],
         )
 
-        result = execute_hogql_query(
+        response = execute_hogql_query(
             query=session_check_query,
             team=self.team,
             query_type="ErrorTrackingSessionRecordingsCheck",
@@ -841,7 +837,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         )
 
         # Return set of session IDs that exist
-        return {row[0] for row in result.results if row}
+        return {row[0] for row in response.results if row}
 
 
 def search_tokenizer(query: str) -> list[str]:
