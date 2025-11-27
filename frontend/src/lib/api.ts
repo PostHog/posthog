@@ -2948,20 +2948,28 @@ const api = {
             search,
             types,
             limit,
+            offset,
+            enabled,
+            order,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             search?: string
             types?: HogFunctionTypeType[]
             limit?: number
+            offset?: number
+            enabled?: boolean
+            order?: string
         }): Promise<CountedPaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
                     filter_groups,
-                    // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
                     ...(search ? { search } : {}),
                     ...(limit ? { limit } : {}),
+                    ...(offset ? { offset } : {}),
+                    ...(enabled !== undefined ? { enabled } : {}),
+                    ...(order ? { order } : {}),
                 })
                 .get()
         },
