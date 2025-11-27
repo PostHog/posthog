@@ -31,6 +31,7 @@ export interface CellActionProps {
     value: unknown
 }
 
+/** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>

@@ -38,9 +38,7 @@ export enum QueryFeature {
     hideLoadNextButton,
     testAccountFilters,
     highlightExceptionEventRows,
-    /** Enables custom row actions via QueryContext.rowActions */
     rowActions,
-    /** Enables custom cell actions via QueryContextColumn.cellActions */
     cellActions,
 }
 

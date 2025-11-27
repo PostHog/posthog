@@ -97,7 +97,6 @@ const hogQLQuery: DataTableNode = {
     columns: ['event', 'person', 'timestamp', 'properties.$browser'],
 }
 
-// Cell Actions - demonstrates custom cell action menus for specific columns
 const CellActionsContext: QueryContext = {
     showQueryEditor: false,
     extraDataTableQueryFeatures: [QueryFeature.cellActions],
@@ -149,7 +148,6 @@ WithCellActions.parameters = {
     },
 }
 
-// Row Actions - demonstrates custom row action menus at the end of each row
 const RowActionsContext: QueryContext = {
     showQueryEditor: false,
     extraDataTableQueryFeatures: [QueryFeature.rowActions],
@@ -204,7 +202,6 @@ WithRowActions.parameters = {
     },
 }
 
-// Combined Cell Actions and Row Actions
 const CombinedActionsContext: QueryContext = {
     showQueryEditor: false,
     extraDataTableQueryFeatures: [QueryFeature.cellActions, QueryFeature.rowActions],
