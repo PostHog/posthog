@@ -102,13 +102,8 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         cohorts_count = 0
         kafka_producer = KafkaProducer()
 
-        for idx, _cohort in enumerate(cohorts, 1):
-            if idx % 100 == 0 or idx == len(cohorts):
-                heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)}",)
-                logger.info(f"Processed {idx}/{len(cohorts)} cohorts so far")
-
-            max_retries = 3
-            retry_delay_seconds = 5
+        max_retries = 3
+        retry_delay_seconds = 5
 
         @database_sync_to_async
         def build_query(cohort_obj):
@@ -118,7 +113,10 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             current_members_sql, _ = prepare_and_print_ast(current_members_query, hogql_context, "clickhouse")
             return current_members_sql, hogql_context.values
 
-        for _idx, cohort in enumerate(cohorts, 1):
+        for idx, cohort in enumerate(cohorts, 1):
+            if idx % 100 == 0 or idx == len(cohorts):
+                heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)}",)
+                logger.info(f"Processed {idx}/{len(cohorts)} cohorts so far")
             for retry_attempt in range(1, max_retries + 1):
                 try:
                     cohort_max_execution_time = 60 * retry_attempt
