@@ -20,6 +20,31 @@
 # name: GroupsViewSetTestCase.test_related_groups.1
   '''
   /* user_id:0 request:_snapshot_ */
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['01795392-cc00-0003-7dc7-67a694604d72']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: GroupsViewSetTestCase.test_related_groups.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['01795392-cc00-0003-7dc7-67a694604d72']
+  GROUP BY person_id
+  '''
+# ---
+# name: GroupsViewSetTestCase.test_related_groups.3
+  '''
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT $group_1 AS group_key
   FROM events e
   JOIN
