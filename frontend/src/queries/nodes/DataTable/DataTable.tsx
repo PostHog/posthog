@@ -10,6 +10,7 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -27,6 +28,7 @@ import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
+import { CellActions } from '~/queries/nodes/DataTable/CellActions'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
@@ -285,10 +287,43 @@ export function DataTable({
                     }
                     return { props: { colSpan: 0 } }
                 } else if (result) {
-                    if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
-                        return renderColumn(key, result[index], result, recordIndex, rowCount, query, setQuery, context)
+                    const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays) ? result[index] : result[key]
+                    const cellContent = renderColumn(
+                        key,
+                        value,
+                        result,
+                        recordIndex,
+                        rowCount,
+                        query,
+                        setQuery,
+                        context
+                    )
+
+                    // Wrap with cell actions if the column has cellActions defined and the feature is enabled
+                    const hasCellActions =
+                        context?.columns?.[key]?.cellActions ||
+                        getContextColumn(key, context?.columns).queryContextColumn?.cellActions
+
+                    if (
+                        hasCellActions &&
+                        (sourceFeatures.has(QueryFeature.cellActions) ||
+                            context?.extraDataTableQueryFeatures?.includes(QueryFeature.cellActions))
+                    ) {
+                        return (
+                            <CellActions
+                                columnName={key}
+                                query={query}
+                                record={result}
+                                recordIndex={recordIndex}
+                                value={value}
+                                context={context}
+                            >
+                                {cellContent}
+                            </CellActions>
+                        )
                     }
-                    return renderColumn(key, result[key], result, recordIndex, rowCount, query, setQuery, context)
+
+                    return cellContent
                 }
             },
             sorter: undefined, // using custom sorting code
@@ -609,6 +644,27 @@ export function DataTable({
                               return <EventRowActions event={result[columnsInResponse.indexOf('*')]} />
                           }
                           return null
+                      },
+                      width: 0,
+                  },
+              ]
+            : []),
+        ...(context?.rowActions &&
+        (sourceFeatures.has(QueryFeature.rowActions) ||
+            context?.extraDataTableQueryFeatures?.includes(QueryFeature.rowActions))
+            ? [
+                  {
+                      dataIndex: '__row_actions' as any,
+                      title: '',
+                      render: function RenderRowActions(_: any, row: DataTableRow, recordIndex: number) {
+                          if (row.label) {
+                              return { props: { colSpan: 0 } }
+                          }
+                          const actions = context.rowActions?.({ record: row, recordIndex, query })
+                          if (!actions) {
+                              return null
+                          }
+                          return <More overlay={actions} />
                       },
                       width: 0,
                   },
