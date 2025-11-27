@@ -266,7 +266,7 @@ export const logsLogic = kea<logsLogicType>([
             {
                 fetchLogs: () => true,
                 fetchLogsSuccess: () => false,
-                fetchLogsFailure: () => false,
+                fetchLogsFailure: () => true,
             },
         ],
         sparklineLoading: [
@@ -274,7 +274,7 @@ export const logsLogic = kea<logsLogicType>([
             {
                 fetchSparkline: () => true,
                 fetchSparklineSuccess: () => false,
-                fetchSparklineFailure: () => false,
+                fetchSparklineFailure: () => true,
             },
         ],
         openFilterOnInsert: [
