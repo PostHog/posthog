@@ -115,7 +115,7 @@ def create_v1_span_with_conversation(
 def create_v2_logs_with_conversation(
     trace_id: str = "af4e25c0d86a2f7bebd2e0c84f072499",
     span_id: str = "a19561fe0a9d2d73",
-) -> dict:
+) -> list[dict]:
     """
     Create v2 OTEL logs request with multi-turn conversation.
 
@@ -124,8 +124,16 @@ def create_v2_logs_with_conversation(
     - Body contains content directly (not nested in message for input)
     - gen_ai.choice logs have message wrapper with role/content + finish_reason
     - Event names: gen_ai.system.message, gen_ai.user.message, gen_ai.choice
+
+    Returns a list of dicts, each containing:
+    - log: parsed log record dict
+    - resource: dict of resource attributes for this log
+    - scope: dict of instrumentation scope info for this log
     """
     base_time = 1700000000000000000
+    resource = {"service.name": "test-service"}
+    # Match actual scope name from real instrumentation
+    scope = {"name": "opentelemetry.instrumentation.openai_v2", "version": "2.0.0"}
 
     logs = [
         # System message
@@ -241,12 +249,8 @@ def create_v2_logs_with_conversation(
         },
     ]
 
-    return {
-        "logs": logs,
-        "resource": {"service.name": "test-service"},
-        # Match actual scope name from real instrumentation
-        "scope": {"name": "opentelemetry.instrumentation.openai_v2", "version": "2.0.0"},
-    }
+    # Return in per-item format with resource/scope context
+    return [{"log": log, "resource": resource, "scope": scope} for log in logs]
 
 
 def create_v2_span_metadata(

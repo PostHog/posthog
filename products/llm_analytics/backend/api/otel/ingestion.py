@@ -239,7 +239,7 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
             {
                 "status": "success",
                 "message": "Traces ingested successfully",
-                "spans_received": len(parsed_request["spans"]),
+                "spans_received": len(parsed_request),
                 "events_created": len(events),
             },
             status=status.HTTP_200_OK,
@@ -269,40 +269,41 @@ def otel_traces_endpoint(request: HttpRequest, project_id: int) -> Response:
         )
 
 
-def parse_otlp_trace_request(protobuf_data: bytes) -> dict[str, Any]:
+def parse_otlp_trace_request(protobuf_data: bytes) -> list[dict[str, Any]]:
     """
     Parse OTLP ExportTraceServiceRequest from protobuf bytes.
 
-    Returns dict with:
-    - spans: list of parsed span dicts
-    - resource: dict of resource attributes
-    - scope: dict of instrumentation scope info
+    Returns list of dicts, each containing:
+    - span: parsed span dict
+    - resource: dict of resource attributes for this span
+    - scope: dict of instrumentation scope info for this span
     """
     return parse_otlp_request(protobuf_data)
 
 
-def validate_otlp_request(parsed_request: dict[str, Any]) -> list[dict[str, Any]]:
+def validate_otlp_request(parsed_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Validate OTLP request against limits.
 
     Returns list of validation errors (empty if valid).
     """
     errors = []
-    spans = parsed_request.get("spans", [])
 
     # Check span count
-    if len(spans) > OTEL_LIMITS["MAX_SPANS_PER_REQUEST"]:
+    if len(parsed_items) > OTEL_LIMITS["MAX_SPANS_PER_REQUEST"]:
         errors.append(
             {
                 "field": "request.spans",
-                "value": len(spans),
+                "value": len(parsed_items),
                 "limit": OTEL_LIMITS["MAX_SPANS_PER_REQUEST"],
-                "message": f"Request contains {len(spans)} spans, maximum is {OTEL_LIMITS['MAX_SPANS_PER_REQUEST']}. Configure batch size in your OTel SDK (e.g., OTEL_BSP_MAX_EXPORT_BATCH_SIZE).",
+                "message": f"Request contains {len(parsed_items)} spans, maximum is {OTEL_LIMITS['MAX_SPANS_PER_REQUEST']}. Configure batch size in your OTel SDK (e.g., OTEL_BSP_MAX_EXPORT_BATCH_SIZE).",
             }
         )
 
     # Validate each span
-    for i, span in enumerate(spans):
+    for i, item in enumerate(parsed_items):
+        span = item.get("span", {})
+
         # Check span name length
         span_name = span.get("name", "")
         if len(span_name) > OTEL_LIMITS["MAX_SPAN_NAME_LENGTH"]:
@@ -366,7 +367,7 @@ def validate_otlp_request(parsed_request: dict[str, Any]) -> list[dict[str, Any]
     return errors
 
 
-def transform_spans_to_ai_events(parsed_request: dict[str, Any], baggage: dict[str, str]) -> list[dict[str, Any]]:
+def transform_spans_to_ai_events(parsed_items: list[dict[str, Any]], baggage: dict[str, str]) -> list[dict[str, Any]]:
     """
     Transform OTel spans to PostHog AI events.
 
@@ -374,15 +375,18 @@ def transform_spans_to_ai_events(parsed_request: dict[str, Any], baggage: dict[s
     1. PostHog native (posthog.ai.*)
     2. GenAI semantic conventions (gen_ai.*)
 
+    Each item contains its own span, resource, and scope context to correctly
+    handle requests with multiple resource_spans/scope_spans.
+
     Note: Returns only events ready to send. Events that are first arrivals
     (cached, waiting for logs) are filtered out.
     """
-    spans = parsed_request.get("spans", [])
-    resource = parsed_request.get("resource", {})
-    scope = parsed_request.get("scope", {})
-
     events = []
-    for span in spans:
+    for item in parsed_items:
+        span = item.get("span", {})
+        resource = item.get("resource", {})
+        scope = item.get("scope", {})
+
         event = transform_span_to_ai_event(span, resource, scope, baggage)
         if event is not None:  # Filter out first arrivals (cached, waiting for logs)
             events.append(event)
@@ -543,7 +547,7 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
             {
                 "status": "success",
                 "message": "Logs ingested successfully",
-                "logs_received": len(parsed_request["logs"]),
+                "logs_received": len(parsed_request),
                 "events_created": len(events),
             },
             status=status.HTTP_200_OK,
@@ -573,28 +577,29 @@ def otel_logs_endpoint(request: HttpRequest, project_id: int) -> Response:
         )
 
 
-def validate_otlp_logs_request(parsed_request: dict[str, Any]) -> list[dict[str, Any]]:
+def validate_otlp_logs_request(parsed_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Validate OTLP logs request against limits.
 
     Returns list of validation errors (empty if valid).
     """
     errors = []
-    logs = parsed_request.get("logs", [])
 
     # Check log count
-    if len(logs) > OTEL_LIMITS["MAX_LOGS_PER_REQUEST"]:
+    if len(parsed_items) > OTEL_LIMITS["MAX_LOGS_PER_REQUEST"]:
         errors.append(
             {
                 "field": "request.logs",
-                "value": len(logs),
+                "value": len(parsed_items),
                 "limit": OTEL_LIMITS["MAX_LOGS_PER_REQUEST"],
-                "message": f"Request contains {len(logs)} logs, maximum is {OTEL_LIMITS['MAX_LOGS_PER_REQUEST']}. Configure batch size in your OTel SDK.",
+                "message": f"Request contains {len(parsed_items)} logs, maximum is {OTEL_LIMITS['MAX_LOGS_PER_REQUEST']}. Configure batch size in your OTel SDK.",
             }
         )
 
     # Validate each log record
-    for i, log_record in enumerate(logs):
+    for i, item in enumerate(parsed_items):
+        log_record = item.get("log", {})
+
         # Check attribute count
         attributes = log_record.get("attributes", {})
         if len(attributes) > OTEL_LIMITS["MAX_ATTRIBUTES_PER_LOG"]:
@@ -634,7 +639,7 @@ def validate_otlp_logs_request(parsed_request: dict[str, Any]) -> list[dict[str,
     return errors
 
 
-def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str, Any]]:
+def transform_logs_to_ai_events(parsed_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Transform OTel log records to PostHog AI events.
 
@@ -642,37 +647,47 @@ def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str
     arrive in the SAME HTTP request. We must accumulate ALL logs for the same span BEFORE
     calling the event merger to avoid race conditions where the trace consumes partial logs.
 
+    Each item contains its own log, resource, and scope context to correctly
+    handle requests with multiple resource_logs/scope_logs.
+
     Note: Returns only events ready to send. Events that are first arrivals
     (cached, waiting for traces) are filtered out.
     """
-    logs = parsed_request.get("logs", [])
-    resource = parsed_request.get("resource", {})
-    scope = parsed_request.get("scope", {})
-
     # Group logs by (trace_id, span_id) to accumulate them before merging
+    # Store full items (with resource/scope) not just log records
     from collections import defaultdict
 
-    logs_by_span = defaultdict(list)
+    logs_by_span: dict[tuple[str | None, str | None], list[dict[str, Any]]] = defaultdict(list)
 
-    for log_record in logs:
+    for item in parsed_items:
+        log_record = item.get("log", {})
         trace_id = log_record.get("trace_id", "")
         span_id = log_record.get("span_id", "")
 
         if trace_id and span_id:
-            logs_by_span[(trace_id, span_id)].append(log_record)
+            logs_by_span[(trace_id, span_id)].append(item)
         else:
             # No trace/span ID - process individually
-            logs_by_span[(None, None)].append(log_record)
+            logs_by_span[(None, None)].append(item)
 
     events = []
 
     # Process each span's logs together
-    for (trace_id, span_id), span_logs in logs_by_span.items():
+    for (trace_id, span_id), span_items in logs_by_span.items():
         if trace_id and span_id:
             # Accumulate properties from all logs for this span
+            # Use the first item's resource/scope (logs from same span should have same context)
+            first_item = span_items[0]
+            resource = first_item.get("resource", {})
+            scope = first_item.get("scope", {})
+
             accumulated_props = {}
-            for log_record in span_logs:
-                props = build_event_properties(log_record, log_record.get("attributes", {}), resource, scope)
+            for item in span_items:
+                log_record = item.get("log", {})
+                # Use each log's own resource/scope for property building
+                item_resource = item.get("resource", {})
+                item_scope = item.get("scope", {})
+                props = build_event_properties(log_record, log_record.get("attributes", {}), item_resource, item_scope)
                 # Merge properties with special handling for arrays
                 for key, value in props.items():
                     if key in ("$ai_input", "$ai_output_choices"):
@@ -692,9 +707,10 @@ def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str
 
             if merged is not None:
                 # Ready to send - create event
-                event_type = determine_event_type(span_logs[0], span_logs[0].get("attributes", {}))
-                timestamp = calculate_timestamp(span_logs[0])
-                distinct_id = extract_distinct_id(resource, span_logs[0].get("attributes", {}))
+                first_log = first_item.get("log", {})
+                event_type = determine_event_type(first_log, first_log.get("attributes", {}))
+                timestamp = calculate_timestamp(first_log)
+                distinct_id = extract_distinct_id(resource, first_log.get("attributes", {}))
 
                 # Generate consistent UUID from trace_id + span_id
                 import uuid
@@ -712,7 +728,10 @@ def transform_logs_to_ai_events(parsed_request: dict[str, Any]) -> list[dict[str
                 events.append(event)
         else:
             # No trace/span ID - process logs individually (shouldn't happen in normal v2)
-            for log_record in span_logs:
+            for item in span_items:
+                log_record = item.get("log", {})
+                resource = item.get("resource", {})
+                scope = item.get("scope", {})
                 event = transform_log_to_ai_event(log_record, resource, scope)
                 if event is not None:
                     events.append(event)

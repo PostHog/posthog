@@ -13,31 +13,34 @@ from opentelemetry.proto.logs.v1.logs_pb2 import LogRecord
 from .parser import parse_any_value, parse_attributes
 
 
-def parse_otlp_logs_request(protobuf_data: bytes) -> dict[str, Any]:
+def parse_otlp_logs_request(protobuf_data: bytes) -> list[dict[str, Any]]:
     """
     Parse OTLP ExportLogsServiceRequest from protobuf bytes.
 
-    Returns a dict with:
-    - logs: list of parsed log record dicts
-    - resource: dict of resource attributes
-    - scope: dict of instrumentation scope info
+    Returns a list of dicts, each containing:
+    - log: parsed log record dict
+    - resource: dict of resource attributes for this log
+    - scope: dict of instrumentation scope info for this log
+
+    Each log carries its own resource/scope context to handle requests
+    containing multiple resource_logs/scope_logs correctly.
     """
     request = ExportLogsServiceRequest()
     request.ParseFromString(protobuf_data)
 
-    parsed_logs = []
-    resource_attrs = {}
-    scope_info = {}
+    results = []
 
     # OTLP structure: resource_logs -> scope_logs -> log_records
     for resource_logs in request.resource_logs:
         # Extract resource attributes (service.name, etc.)
+        resource_attrs = {}
         if resource_logs.HasField("resource"):
             resource_attrs = parse_attributes(resource_logs.resource.attributes)
 
         # Iterate through scope logs
         for scope_logs in resource_logs.scope_logs:
             # Extract instrumentation scope
+            scope_info = {}
             if scope_logs.HasField("scope"):
                 scope_info = {
                     "name": scope_logs.scope.name,
@@ -45,16 +48,18 @@ def parse_otlp_logs_request(protobuf_data: bytes) -> dict[str, Any]:
                     "attributes": parse_attributes(scope_logs.scope.attributes) if scope_logs.scope.attributes else {},
                 }
 
-            # Parse each log record
+            # Parse each log record with its resource/scope context
             for log_record in scope_logs.log_records:
                 parsed_log = parse_log_record(log_record)
-                parsed_logs.append(parsed_log)
+                results.append(
+                    {
+                        "log": parsed_log,
+                        "resource": resource_attrs,
+                        "scope": scope_info,
+                    }
+                )
 
-    return {
-        "logs": parsed_logs,
-        "resource": resource_attrs,
-        "scope": scope_info,
-    }
+    return results
 
 
 def parse_log_record(log_record: LogRecord) -> dict[str, Any]:

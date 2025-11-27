@@ -12,31 +12,34 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from opentelemetry.proto.trace.v1.trace_pb2 import Span
 
 
-def parse_otlp_request(protobuf_data: bytes) -> dict[str, Any]:
+def parse_otlp_request(protobuf_data: bytes) -> list[dict[str, Any]]:
     """
     Parse OTLP ExportTraceServiceRequest from protobuf bytes.
 
-    Returns a dict with:
-    - spans: list of parsed span dicts
-    - resource: dict of resource attributes
-    - scope: dict of instrumentation scope info
+    Returns a list of dicts, each containing:
+    - span: parsed span dict
+    - resource: dict of resource attributes for this span
+    - scope: dict of instrumentation scope info for this span
+
+    Each span carries its own resource/scope context to handle requests
+    containing multiple resource_spans/scope_spans correctly.
     """
     request = ExportTraceServiceRequest()
     request.ParseFromString(protobuf_data)
 
-    parsed_spans = []
-    resource_attrs = {}
-    scope_info = {}
+    results = []
 
     # OTLP structure: resource_spans -> scope_spans -> spans
     for resource_spans in request.resource_spans:
         # Extract resource attributes (service.name, etc.)
+        resource_attrs = {}
         if resource_spans.HasField("resource"):
             resource_attrs = parse_attributes(resource_spans.resource.attributes)
 
         # Iterate through scope spans
         for scope_spans in resource_spans.scope_spans:
             # Extract instrumentation scope
+            scope_info = {}
             if scope_spans.HasField("scope"):
                 scope_info = {
                     "name": scope_spans.scope.name,
@@ -46,16 +49,18 @@ def parse_otlp_request(protobuf_data: bytes) -> dict[str, Any]:
                     else {},
                 }
 
-            # Parse each span
+            # Parse each span with its resource/scope context
             for span in scope_spans.spans:
                 parsed_span = parse_span(span)
-                parsed_spans.append(parsed_span)
+                results.append(
+                    {
+                        "span": parsed_span,
+                        "resource": resource_attrs,
+                        "scope": scope_info,
+                    }
+                )
 
-    return {
-        "spans": parsed_spans,
-        "resource": resource_attrs,
-        "scope": scope_info,
-    }
+    return results
 
 
 def parse_span(span: Span) -> dict[str, Any]:

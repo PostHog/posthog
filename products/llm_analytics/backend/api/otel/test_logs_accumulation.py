@@ -11,29 +11,33 @@ from unittest.mock import patch
 from products.llm_analytics.backend.api.otel.ingestion import transform_logs_to_ai_events
 
 
+def _make_parsed_items(logs: list[dict], resource: dict, scope: dict) -> list[dict]:
+    """Helper to convert old format to new per-item format."""
+    return [{"log": log, "resource": resource, "scope": scope} for log in logs]
+
+
 def test_multiple_user_messages_accumulate():
     """Test that multiple user messages accumulate into $ai_input array."""
     # Simulate multiple log records for same span with different user messages
-    parsed_request = {
-        "logs": [
-            {
-                "trace_id": "trace123",
-                "span_id": "span456",
-                "attributes": {"event.name": "gen_ai.user.message"},
-                "body": {"content": "hi there"},
-                "time_unix_nano": 1000000000,
-            },
-            {
-                "trace_id": "trace123",
-                "span_id": "span456",
-                "attributes": {"event.name": "gen_ai.user.message"},
-                "body": {"content": "k bye"},
-                "time_unix_nano": 2000000000,
-            },
-        ],
-        "resource": {"service.name": "test-service"},
-        "scope": {"name": "test-scope"},
-    }
+    logs = [
+        {
+            "trace_id": "trace123",
+            "span_id": "span456",
+            "attributes": {"event.name": "gen_ai.user.message"},
+            "body": {"content": "hi there"},
+            "time_unix_nano": 1000000000,
+        },
+        {
+            "trace_id": "trace123",
+            "span_id": "span456",
+            "attributes": {"event.name": "gen_ai.user.message"},
+            "body": {"content": "k bye"},
+            "time_unix_nano": 2000000000,
+        },
+    ]
+    resource = {"service.name": "test-service"}
+    scope = {"name": "test-scope"}
+    parsed_items = _make_parsed_items(logs, resource, scope)
 
     # Mock event merger to return merged properties on second call
     with patch("products.llm_analytics.backend.api.otel.event_merger.cache_and_merge_properties") as mock_merger:
@@ -47,7 +51,7 @@ def test_multiple_user_messages_accumulate():
 
         mock_merger.side_effect = merger_side_effect
 
-        _events = transform_logs_to_ai_events(parsed_request)
+        _events = transform_logs_to_ai_events(parsed_items)
 
         # Verify accumulation happened before calling merger
         # The merger should have been called once with both messages accumulated
@@ -62,43 +66,42 @@ def test_multiple_user_messages_accumulate():
 
 def test_user_and_assistant_messages_accumulate():
     """Test that conversation history (including assistant messages) goes into $ai_input."""
-    parsed_request = {
-        "logs": [
-            {
-                "trace_id": "trace789",
-                "span_id": "span012",
-                "attributes": {"event.name": "gen_ai.user.message"},
-                "body": {"content": "hello"},
-                "time_unix_nano": 1000000000,
+    logs = [
+        {
+            "trace_id": "trace789",
+            "span_id": "span012",
+            "attributes": {"event.name": "gen_ai.user.message"},
+            "body": {"content": "hello"},
+            "time_unix_nano": 1000000000,
+        },
+        {
+            "trace_id": "trace789",
+            "span_id": "span012",
+            "attributes": {"event.name": "gen_ai.assistant.message"},
+            "body": {"content": "hi there!"},
+            "time_unix_nano": 2000000000,
+        },
+        {
+            "trace_id": "trace789",
+            "span_id": "span012",
+            "attributes": {"event.name": "gen_ai.user.message"},
+            "body": {"content": "tell me a joke"},
+            "time_unix_nano": 3000000000,
+        },
+        {
+            "trace_id": "trace789",
+            "span_id": "span012",
+            "attributes": {"event.name": "gen_ai.choice"},
+            "body": {
+                "message": {"role": "assistant", "content": "Why did the chicken cross the road?"},
+                "finish_reason": "stop",
             },
-            {
-                "trace_id": "trace789",
-                "span_id": "span012",
-                "attributes": {"event.name": "gen_ai.assistant.message"},
-                "body": {"content": "hi there!"},
-                "time_unix_nano": 2000000000,
-            },
-            {
-                "trace_id": "trace789",
-                "span_id": "span012",
-                "attributes": {"event.name": "gen_ai.user.message"},
-                "body": {"content": "tell me a joke"},
-                "time_unix_nano": 3000000000,
-            },
-            {
-                "trace_id": "trace789",
-                "span_id": "span012",
-                "attributes": {"event.name": "gen_ai.choice"},
-                "body": {
-                    "message": {"role": "assistant", "content": "Why did the chicken cross the road?"},
-                    "finish_reason": "stop",
-                },
-                "time_unix_nano": 4000000000,
-            },
-        ],
-        "resource": {"service.name": "test-service"},
-        "scope": {"name": "test-scope"},
-    }
+            "time_unix_nano": 4000000000,
+        },
+    ]
+    resource = {"service.name": "test-service"}
+    scope = {"name": "test-scope"}
+    parsed_items = _make_parsed_items(logs, resource, scope)
 
     with patch("products.llm_analytics.backend.api.otel.event_merger.cache_and_merge_properties") as mock_merger:
 
@@ -110,7 +113,7 @@ def test_user_and_assistant_messages_accumulate():
 
         mock_merger.side_effect = merger_side_effect
 
-        _events = transform_logs_to_ai_events(parsed_request)
+        _events = transform_logs_to_ai_events(parsed_items)
 
         # Verify conversation history (user + assistant) accumulated in $ai_input
         # and only current response in $ai_output_choices
@@ -131,52 +134,51 @@ def test_user_and_assistant_messages_accumulate():
 
 def test_tool_messages_accumulate():
     """Test that tool messages are properly handled and accumulate in conversation history."""
-    parsed_request = {
-        "logs": [
-            {
-                "trace_id": "trace999",
-                "span_id": "span888",
-                "attributes": {"event.name": "gen_ai.user.message"},
-                "body": {"content": "What's the weather in Paris?"},
-                "time_unix_nano": 1000000000,
+    logs = [
+        {
+            "trace_id": "trace999",
+            "span_id": "span888",
+            "attributes": {"event.name": "gen_ai.user.message"},
+            "body": {"content": "What's the weather in Paris?"},
+            "time_unix_nano": 1000000000,
+        },
+        {
+            "trace_id": "trace999",
+            "span_id": "span888",
+            "attributes": {"event.name": "gen_ai.assistant.message"},
+            "body": {
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {"name": "get_weather", "arguments": '{"location":"Paris"}'},
+                    }
+                ],
             },
-            {
-                "trace_id": "trace999",
-                "span_id": "span888",
-                "attributes": {"event.name": "gen_ai.assistant.message"},
-                "body": {
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": "call_123",
-                            "type": "function",
-                            "function": {"name": "get_weather", "arguments": '{"location":"Paris"}'},
-                        }
-                    ],
-                },
-                "time_unix_nano": 2000000000,
+            "time_unix_nano": 2000000000,
+        },
+        {
+            "trace_id": "trace999",
+            "span_id": "span888",
+            "attributes": {"event.name": "gen_ai.tool.message"},
+            "body": {"content": "Sunny, 18°C", "id": "call_123"},
+            "time_unix_nano": 3000000000,
+        },
+        {
+            "trace_id": "trace999",
+            "span_id": "span888",
+            "attributes": {"event.name": "gen_ai.choice"},
+            "body": {
+                "message": {"role": "assistant", "content": "The weather in Paris is sunny with 18°C."},
+                "finish_reason": "stop",
             },
-            {
-                "trace_id": "trace999",
-                "span_id": "span888",
-                "attributes": {"event.name": "gen_ai.tool.message"},
-                "body": {"content": "Sunny, 18°C", "id": "call_123"},
-                "time_unix_nano": 3000000000,
-            },
-            {
-                "trace_id": "trace999",
-                "span_id": "span888",
-                "attributes": {"event.name": "gen_ai.choice"},
-                "body": {
-                    "message": {"role": "assistant", "content": "The weather in Paris is sunny with 18°C."},
-                    "finish_reason": "stop",
-                },
-                "time_unix_nano": 4000000000,
-            },
-        ],
-        "resource": {"service.name": "test-service"},
-        "scope": {"name": "test-scope"},
-    }
+            "time_unix_nano": 4000000000,
+        },
+    ]
+    resource = {"service.name": "test-service"}
+    scope = {"name": "test-scope"}
+    parsed_items = _make_parsed_items(logs, resource, scope)
 
     with patch("products.llm_analytics.backend.api.otel.event_merger.cache_and_merge_properties") as mock_merger:
 
@@ -188,7 +190,7 @@ def test_tool_messages_accumulate():
 
         mock_merger.side_effect = merger_side_effect
 
-        _events = transform_logs_to_ai_events(parsed_request)
+        _events = transform_logs_to_ai_events(parsed_items)
 
         # Verify tool message was properly accumulated
         assert mock_merger.call_count == 1
@@ -221,34 +223,33 @@ def test_tool_messages_accumulate():
 
 def test_non_array_properties_are_overwritten():
     """Test that non-array properties use last-value-wins behavior."""
-    parsed_request = {
-        "logs": [
-            {
-                "trace_id": "trace111",
-                "span_id": "span222",
-                "attributes": {
-                    "event.name": "gen_ai.user.message",
-                    "gen_ai.request.model": "gpt-3.5",
-                    "gen_ai.usage.input_tokens": 10,
-                },
-                "body": {"content": "hello"},
-                "time_unix_nano": 1000000000,
+    logs = [
+        {
+            "trace_id": "trace111",
+            "span_id": "span222",
+            "attributes": {
+                "event.name": "gen_ai.user.message",
+                "gen_ai.request.model": "gpt-3.5",
+                "gen_ai.usage.input_tokens": 10,
             },
-            {
-                "trace_id": "trace111",
-                "span_id": "span222",
-                "attributes": {
-                    "event.name": "gen_ai.choice",
-                    "gen_ai.response.model": "gpt-4",  # Different model in response
-                    "gen_ai.usage.output_tokens": 20,
-                },
-                "body": {"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"},
-                "time_unix_nano": 2000000000,
+            "body": {"content": "hello"},
+            "time_unix_nano": 1000000000,
+        },
+        {
+            "trace_id": "trace111",
+            "span_id": "span222",
+            "attributes": {
+                "event.name": "gen_ai.choice",
+                "gen_ai.response.model": "gpt-4",  # Different model in response
+                "gen_ai.usage.output_tokens": 20,
             },
-        ],
-        "resource": {"service.name": "test-service"},
-        "scope": {"name": "test-scope"},
-    }
+            "body": {"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"},
+            "time_unix_nano": 2000000000,
+        },
+    ]
+    resource = {"service.name": "test-service"}
+    scope = {"name": "test-scope"}
+    parsed_items = _make_parsed_items(logs, resource, scope)
 
     with patch("products.llm_analytics.backend.api.otel.event_merger.cache_and_merge_properties") as mock_merger:
 
@@ -259,7 +260,7 @@ def test_non_array_properties_are_overwritten():
 
         mock_merger.side_effect = merger_side_effect
 
-        _events = transform_logs_to_ai_events(parsed_request)
+        _events = transform_logs_to_ai_events(parsed_items)
 
         # Verify non-array properties were overwritten (last value wins)
         call_args = mock_merger.call_args
@@ -271,24 +272,23 @@ def test_non_array_properties_are_overwritten():
 
 def test_single_log_event_works():
     """Test that single log events still work (no accumulation needed)."""
-    parsed_request = {
-        "logs": [
-            {
-                "trace_id": "trace333",
-                "span_id": "span444",
-                "attributes": {"event.name": "gen_ai.user.message"},
-                "body": {"content": "single message"},
-                "time_unix_nano": 1000000000,
-            }
-        ],
-        "resource": {"service.name": "test-service"},
-        "scope": {"name": "test-scope"},
-    }
+    logs = [
+        {
+            "trace_id": "trace333",
+            "span_id": "span444",
+            "attributes": {"event.name": "gen_ai.user.message"},
+            "body": {"content": "single message"},
+            "time_unix_nano": 1000000000,
+        }
+    ]
+    resource = {"service.name": "test-service"}
+    scope = {"name": "test-scope"}
+    parsed_items = _make_parsed_items(logs, resource, scope)
 
     with patch("products.llm_analytics.backend.api.otel.event_merger.cache_and_merge_properties") as mock_merger:
         mock_merger.return_value = None  # First arrival, cache
 
-        _events = transform_logs_to_ai_events(parsed_request)
+        _events = transform_logs_to_ai_events(parsed_items)
 
         # Verify single message was processed
         assert mock_merger.call_count == 1
