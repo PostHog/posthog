@@ -1509,7 +1509,10 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentRetentionMetric)
 
-        event_filter = event_or_action_to_filter(self.team, self.metric.start_event)
+        if isinstance(self.metric.start_event, ExperimentDataWarehouseNode):
+            event_filter = data_warehouse_node_to_filter(self.team, self.metric.start_event)
+        else:
+            event_filter = event_or_action_to_filter(self.team, self.metric.start_event)
         conversion_window_seconds = self._get_conversion_window_seconds()
 
         return parse_expr(
@@ -1532,7 +1535,10 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentRetentionMetric)
 
-        event_filter = event_or_action_to_filter(self.team, self.metric.completion_event)
+        if isinstance(self.metric.completion_event, ExperimentDataWarehouseNode):
+            event_filter = data_warehouse_node_to_filter(self.team, self.metric.completion_event)
+        else:
+            event_filter = event_or_action_to_filter(self.team, self.metric.completion_event)
 
         # Completion events can occur within the retention window after the start event
         # The retention window end could extend beyond the experiment end date
