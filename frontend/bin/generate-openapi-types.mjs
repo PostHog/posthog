@@ -187,6 +187,7 @@ export default defineConfig({
 }
 
 // Main execution
+
 const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
 const productFolders = discoverProductFolders()
 const groupedSchemas = buildGroupedSchemasByTag(schema)
@@ -200,17 +201,23 @@ for (const [tag, groupedSchema] of groupedSchemas.entries()) {
         continue
     }
 
+    const pathCount = Object.keys(groupedSchema.paths).length
+    const schemaCount = Object.keys(groupedSchema.components?.schemas || {}).length
+
     const tempFile = path.join(tmpDir, `${tag.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`)
     fs.writeFileSync(tempFile, JSON.stringify(groupedSchema, null, 2))
 
     try {
         generateTypesForSchema(tempFile, outputDir, tag, tmpDir)
+
         generated++
     } catch (err) {
-        console.error(`  ⚠️  Failed to generate types for "${tag}": ${err.message}`)
+        console.error(`   ⚠️  Failed: ${err.message}\n`)
         failed++
     }
 }
 
 // Cleanup temp dir
 fs.rmSync(tmpDir, { recursive: true, force: true })
+
+// Summary
