@@ -3553,6 +3553,8 @@ export interface EarlyAccessFeatureType {
     stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
+    /** Custom JSON payload for the early access feature */
+    payload?: Record<string, any>
     created_at: string
     _create_in_folder?: string | null
 }
