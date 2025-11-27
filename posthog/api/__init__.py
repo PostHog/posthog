@@ -98,6 +98,7 @@ from . import (
     plugin_log_entry,
     proxy_record,
     query,
+    quick_filters,
     scheduled_change,
     schema_property_group,
     search,
@@ -786,6 +787,13 @@ environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
     "environment_error_tracking_git_provider_file_links",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"quick_filters",
+    quick_filters.QuickFilterViewSet,
+    "project_quick_filters",
     ["team_id"],
 )
 

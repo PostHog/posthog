@@ -24259,6 +24259,14 @@
             "required": ["query"],
             "type": "object"
         },
+        "QuickFilterContext": {
+            "enum": ["error-tracking-issue-filters", "logs-filters"],
+            "type": "string"
+        },
+        "QuickFilterType": {
+            "enum": ["manual-options", "auto-discovery"],
+            "type": "string"
+        },
         "ReasoningMessage": {
             "additionalProperties": false,
             "properties": {
