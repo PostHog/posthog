@@ -957,7 +957,7 @@ class SnowflakeClient:
         """
         select_fields = ", ".join(
             f'PARSE_JSON($1:"{field.name}")'
-            if field.data_type == JsonType() and field.name != "elements"
+            if field.data_type == JsonType() and field.name.lower() != "elements"
             else f'$1:"{field.name}"'
             for field in table
         )
