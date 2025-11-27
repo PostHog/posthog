@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -16,6 +16,9 @@ from ee.hogai.session_summaries.session.input_data import (
     add_context_and_filter_events,
     get_session_events,
 )
+
+# Timestamp after the mock session start time (2025-03-31T18:40:32.302000Z)
+MOCK_EVENT_TIMESTAMP = datetime(2025, 3, 31, 18, 40, 39, 302000, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -95,7 +98,7 @@ def test_get_improved_elements_chain_elements():
         (
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 ["Click me"],
                 [],
@@ -113,7 +116,7 @@ def test_get_improved_elements_chain_elements():
             ),
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 ["Click me"],
                 ["button"],
@@ -131,7 +134,7 @@ def test_get_improved_elements_chain_elements():
         (
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 [],
                 [],
@@ -155,7 +158,7 @@ def test_get_improved_elements_chain_elements():
         (
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 [],
                 [],
@@ -173,7 +176,7 @@ def test_get_improved_elements_chain_elements():
             ),
             (
                 "$autocapture",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 ["Click me", "Create project"],
                 ["button", "a"],
@@ -191,7 +194,7 @@ def test_get_improved_elements_chain_elements():
         (
             (
                 "user_clicked_button",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 [],
                 [],
@@ -209,7 +212,7 @@ def test_get_improved_elements_chain_elements():
             ),
             (
                 "user_clicked_button",
-                None,
+                MOCK_EVENT_TIMESTAMP,
                 "",
                 [],
                 [],
@@ -227,13 +230,17 @@ def test_get_improved_elements_chain_elements():
 )
 def test_add_context_and_filter_events(
     mock_event_indexes: dict[str, int],
+    mock_session_start_time: datetime,
     input_event: tuple[Any, ...],
     expected_event: tuple[Any, ...] | None,
     should_keep: bool,
 ):
     test_columns = list(mock_event_indexes.keys())
     updated_columns, updated_events = add_context_and_filter_events(
-        session_events_columns=test_columns, session_events=[input_event], session_id="test_session_id"
+        session_events_columns=test_columns,
+        session_events=[input_event],
+        session_id="test_session_id",
+        session_start_time=mock_session_start_time,
     )
 
     # Check columns are updated (and columns excessive from LLM context are removed)
@@ -247,6 +254,88 @@ def test_add_context_and_filter_events(
         assert updated_events[0] == expected_event
     else:
         assert len(updated_events) == 0
+
+
+@pytest.mark.parametrize(
+    "event_timestamps,expected_kept_count",
+    [
+        # All events before replay start - none kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start
+                datetime(2025, 3, 31, 18, 40, 31, 0, tzinfo=UTC),  # Before start
+                datetime(2025, 3, 31, 18, 40, 32, 302000, tzinfo=UTC),  # Exactly at start (filtered)
+            ],
+            0,
+        ),
+        # First event before, second at start, third after - only third kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start
+                datetime(2025, 3, 31, 18, 40, 32, 302000, tzinfo=UTC),  # Exactly at start (filtered)
+                datetime(2025, 3, 31, 18, 40, 33, 0, tzinfo=UTC),  # After start
+            ],
+            1,
+        ),
+        # All events after replay start - all kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 33, 0, tzinfo=UTC),  # After start
+                datetime(2025, 3, 31, 18, 40, 34, 0, tzinfo=UTC),  # After start
+                datetime(2025, 3, 31, 18, 40, 35, 0, tzinfo=UTC),  # After start
+            ],
+            3,
+        ),
+        # Mix: two before, one after - one kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start
+                datetime(2025, 3, 31, 18, 40, 31, 0, tzinfo=UTC),  # Before start
+                datetime(2025, 3, 31, 18, 40, 39, 302000, tzinfo=UTC),  # After start
+            ],
+            1,
+        ),
+    ],
+)
+def test_filter_events_before_replay_start(
+    mock_raw_events_columns: list[str],
+    mock_session_start_time: datetime,
+    event_timestamps: list[datetime],
+    expected_kept_count: int,
+):
+    """Test that events occurring before or exactly at replay start are filtered out."""
+    # Create events with different timestamps but valid context (so they're not filtered for other reasons)
+    events: list[tuple[Any, ...]] = []
+    for i, ts in enumerate(event_timestamps):
+        events.append(
+            (
+                "$pageview",  # System event - not filtered for lack of context
+                ts,
+                "",
+                [],
+                [],
+                None,
+                None,
+                None,
+                [],
+                "",
+                [],
+                [],
+                [],
+                [],
+                [],
+                f"00000000-0000-0000-0001-00000000000{i}",
+            )
+        )
+
+    updated_columns, updated_events = add_context_and_filter_events(
+        session_events_columns=mock_raw_events_columns,
+        session_events=events,
+        session_id="test_session_id",
+        session_start_time=mock_session_start_time,
+    )
+
+    assert len(updated_events) == expected_kept_count
 
 
 @pytest.mark.parametrize(
