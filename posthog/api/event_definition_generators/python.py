@@ -99,6 +99,25 @@ Note: This pattern means you won't have access to other SDK methods
 (identify, group, feature_enabled, etc.) unless you also import the
 original posthog module separately. But this way you only need to
 update the import.
+
+TYPE CHECKING TIPS
+==================
+For the best type error messages, use typed variables instead of inline dicts:
+
+    # Less specific error ("No overload variant matches"):
+    posthog_typed.capture("my_event", properties={{"key": "value"}})
+
+    # More specific error ("Missing key 'required_field'"):
+    props: MyEventProps = {{"key": "value"}}  # <-- Error shown here
+    posthog_typed.capture("my_event", properties=props)
+
+ABOUT TYPE IGNORE COMMENTS
+==========================
+This file contains `# type: ignore[misc]` comments. These are intentional;
+- They suppress mypy warnings about overlapping TypedDict keys between our typed
+  `properties` parameter and the SDK's `OptionalCaptureArgs`.
+- This overlap is by design: we want our per-event typed properties to take
+  precedence while still inheriting other SDK kwargs like `distinct_id`, `timestamp`, etc.
 """
 {datetime_import}from typing import Any, Dict, Literal, Optional, TypedDict, overload
 
@@ -210,9 +229,9 @@ def capture(  # type: ignore[misc]  # mypy doesn't understand overload impl patt
         has_required_property = any(p.is_required for p in properties)
         properties_type = class_name if has_required_property else f"Optional[{class_name}] = ..."
 
-        # type: ignore[misc] suppresses "Overlap between argument names and ** TypedDict items"
-        # This is intentional: we want our typed `properties` param to take precedence over
-        # the generic one in OptionalCaptureArgs, while still getting type hints for other kwargs
+        # Note: The generated code uses `type: ignore[misc]` to suppress "Overlap between argument
+        # names and ** TypedDict items". This is intentional: we want our typed `properties` param
+        # to take precedence over the generic one in OptionalCaptureArgs, for type hints on other kwargs
         return f"""@overload
 def capture(  # type: ignore[misc]  # This is needed to ensure our typed `properties` take precedence over the SDK kwargs
     event: Literal["{escaped_event_name}"],
