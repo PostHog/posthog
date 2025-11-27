@@ -2,6 +2,7 @@ from posthog.temporal.data_modeling.ducklake_copy_workflow import (
     DuckLakeCopyDataModelingWorkflow,
     copy_data_modeling_model_to_ducklake_activity,
     prepare_data_modeling_ducklake_metadata_activity,
+    verify_ducklake_copy_activity,
 )
 from posthog.temporal.data_modeling.run_workflow import (
     RunWorkflow,
@@ -27,4 +28,5 @@ ACTIVITIES = [
     cleanup_running_jobs_activity,
     prepare_data_modeling_ducklake_metadata_activity,
     copy_data_modeling_model_to_ducklake_activity,
+    verify_ducklake_copy_activity,
 ]

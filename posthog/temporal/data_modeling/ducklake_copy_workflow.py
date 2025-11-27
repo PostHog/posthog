@@ -18,10 +18,18 @@ from posthog.ducklake.common import (
     get_config,
     normalize_endpoint,
 )
+from posthog.ducklake.verification import (
+    DuckLakeCopyVerificationParameter,
+    DuckLakeCopyVerificationQuery,
+    get_data_modeling_verification_queries,
+)
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_modeling.metrics import get_ducklake_copy_data_modeling_finished_metric
+from posthog.temporal.data_modeling.metrics import (
+    get_ducklake_copy_data_modeling_finished_metric,
+    get_ducklake_copy_data_modeling_verification_metric,
+)
 from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
@@ -38,8 +46,10 @@ class DuckLakeCopyModelMetadata:
     saved_query_name: str
     normalized_name: str
     source_glob_uri: str
+    source_table_uri: str
     schema_name: str
     table_name: str
+    verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -47,6 +57,18 @@ class DuckLakeCopyActivityInputs:
     team_id: int
     job_id: str
     model: DuckLakeCopyModelMetadata
+
+
+@dataclasses.dataclass
+class DuckLakeCopyVerificationResult:
+    name: str
+    passed: bool
+    observed_value: float | None = None
+    expected_value: float | None = None
+    tolerance: float | None = None
+    description: str | None = None
+    sql: str | None = None
+    error: str | None = None
 
 
 @activity.defn
@@ -76,11 +98,13 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 saved_query_name=saved_query.name,
                 normalized_name=normalized_name,
                 source_glob_uri=_build_ducklake_source_glob(model.file_uris),
+                source_table_uri=model.table_uri,
                 schema_name=_sanitize_ducklake_identifier(
                     f"{DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
                     default_prefix=DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX,
                 ),
                 table_name=_sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
+                verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
             )
         )
 
@@ -118,6 +142,125 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
         conn.close()
 
 
+@activity.defn
+def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[DuckLakeCopyVerificationResult]:
+    """Run configured DuckDB verification queries to ensure the copy matches the source."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
+
+    if not inputs.model.verification_queries:
+        logger.info("No DuckLake verification queries configured - skipping")
+        return []
+
+    config = get_config()
+    conn = duckdb.connect()
+    alias = "ducklake_dev"
+    results: list[DuckLakeCopyVerificationResult] = []
+
+    try:
+        _configure_source_storage(conn, logger)
+        configure_connection(conn, config, install_extension=True)
+        _attach_ducklake_catalog(conn, config, alias=alias)
+
+        format_values = {
+            "ducklake_table": f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}",
+            "ducklake_schema": f"{alias}.{inputs.model.schema_name}",
+            "ducklake_alias": alias,
+            "schema_name": inputs.model.schema_name,
+            "table_name": inputs.model.table_name,
+        }
+
+        for query in inputs.model.verification_queries:
+            rendered_sql = query.sql.format(**format_values)
+            params = [_resolve_verification_parameter(param, inputs) for param in query.parameters]
+
+            try:
+                row = conn.execute(rendered_sql, params).fetchone()
+            except Exception as exc:
+                logger.warning(
+                    "DuckLake verification query failed",
+                    check=query.name,
+                    error=str(exc),
+                )
+                results.append(
+                    DuckLakeCopyVerificationResult(
+                        name=query.name,
+                        passed=False,
+                        expected_value=query.expected_value,
+                        tolerance=query.tolerance,
+                        description=query.description,
+                        sql=rendered_sql,
+                        error=str(exc),
+                    )
+                )
+                continue
+
+            if not row:
+                logger.warning("DuckLake verification query returned no rows", check=query.name)
+                results.append(
+                    DuckLakeCopyVerificationResult(
+                        name=query.name,
+                        passed=False,
+                        expected_value=query.expected_value,
+                        tolerance=query.tolerance,
+                        description=query.description,
+                        sql=rendered_sql,
+                        error="Query returned no rows",
+                    )
+                )
+                continue
+
+            raw_value = row[0]
+            try:
+                observed = float(raw_value)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "DuckLake verification query returned a non-numeric value",
+                    check=query.name,
+                    value=raw_value,
+                )
+                results.append(
+                    DuckLakeCopyVerificationResult(
+                        name=query.name,
+                        passed=False,
+                        expected_value=query.expected_value,
+                        tolerance=query.tolerance,
+                        description=query.description,
+                        sql=rendered_sql,
+                        error="Query did not return a numeric value",
+                    )
+                )
+                continue
+
+            diff = abs(observed - (query.expected_value or 0.0))
+            tolerance = query.tolerance or 0.0
+            passed = diff <= tolerance
+            log_method = logger.info if passed else logger.warning
+            log_method(
+                "DuckLake verification result",
+                check=query.name,
+                observed_value=observed,
+                expected_value=query.expected_value,
+                tolerance=tolerance,
+            )
+
+            results.append(
+                DuckLakeCopyVerificationResult(
+                    name=query.name,
+                    passed=passed,
+                    observed_value=observed,
+                    expected_value=query.expected_value,
+                    tolerance=tolerance,
+                    description=query.description,
+                    sql=rendered_sql,
+                )
+            )
+    finally:
+        conn.close()
+
+    return results
+
+
 @workflow.defn(name="ducklake-copy.data-modeling")
 class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
     """Temporal workflow that copies data modeling outputs into the DuckLake bucket."""
@@ -150,15 +293,40 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
 
         try:
             for target in metadata:
+                activity_inputs = DuckLakeCopyActivityInputs(team_id=inputs.team_id, job_id=inputs.job_id, model=target)
                 await workflow.execute_activity(
                     copy_data_modeling_model_to_ducklake_activity,
-                    DuckLakeCopyActivityInputs(team_id=inputs.team_id, job_id=inputs.job_id, model=target),
+                    activity_inputs,
                     start_to_close_timeout=dt.timedelta(minutes=30),
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(
                         maximum_attempts=2,
                     ),
                 )
+
+                verification_results = await workflow.execute_activity(
+                    verify_ducklake_copy_activity,
+                    activity_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=1,
+                    ),
+                )
+
+                if verification_results:
+                    for result in verification_results:
+                        status = "passed" if result.passed else "failed"
+                        get_ducklake_copy_data_modeling_verification_metric(result.name, status).add(1)
+
+                failed_checks = [result for result in verification_results if not result.passed]
+                if failed_checks:
+                    workflow.logger.error(
+                        "DuckLake verification failed",
+                        model_label=target.model_label,
+                        failures=[dataclasses.asdict(result) for result in failed_checks],
+                    )
+                    raise RuntimeError("DuckLake copy verification failed")
         except Exception:
             get_ducklake_copy_data_modeling_finished_metric(status="failed").add(1)
             raise
@@ -290,3 +458,26 @@ def _build_ducklake_source_glob(file_uris: list[str]) -> str:
         normalized_base = f"{normalized_base}/{relative_prefix}"
 
     return f"{normalized_base.rstrip('/')}/**/*.parquet"
+
+
+def _resolve_verification_parameter(
+    parameter: DuckLakeCopyVerificationParameter, inputs: DuckLakeCopyActivityInputs
+) -> str | int:
+    model = inputs.model
+    mapping: dict[DuckLakeCopyVerificationParameter, str | int] = {
+        DuckLakeCopyVerificationParameter.TEAM_ID: inputs.team_id,
+        DuckLakeCopyVerificationParameter.JOB_ID: inputs.job_id,
+        DuckLakeCopyVerificationParameter.MODEL_LABEL: model.model_label,
+        DuckLakeCopyVerificationParameter.SAVED_QUERY_ID: model.saved_query_id,
+        DuckLakeCopyVerificationParameter.SAVED_QUERY_NAME: model.saved_query_name,
+        DuckLakeCopyVerificationParameter.NORMALIZED_NAME: model.normalized_name,
+        DuckLakeCopyVerificationParameter.SOURCE_GLOB_URI: model.source_glob_uri,
+        DuckLakeCopyVerificationParameter.SOURCE_TABLE_URI: model.source_table_uri,
+        DuckLakeCopyVerificationParameter.SCHEMA_NAME: model.schema_name,
+        DuckLakeCopyVerificationParameter.TABLE_NAME: model.table_name,
+    }
+
+    if parameter not in mapping:
+        raise ValueError(f"Unsupported DuckLake verification parameter '{parameter}'")
+
+    return mapping[parameter]

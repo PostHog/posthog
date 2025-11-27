@@ -4,12 +4,14 @@ import pytest
 
 from django.test import override_settings
 
+from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.temporal.data_modeling import ducklake_copy_workflow as ducklake_module
 from posthog.temporal.data_modeling.ducklake_copy_workflow import (
     DuckLakeCopyActivityInputs,
     DuckLakeCopyModelMetadata,
     copy_data_modeling_model_to_ducklake_activity,
     prepare_data_modeling_ducklake_metadata_activity,
+    verify_ducklake_copy_activity,
 )
 from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
@@ -53,8 +55,11 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     assert model_metadata.model_label == saved_query.id.hex
     assert model_metadata.saved_query_name == saved_query.name
     assert model_metadata.source_glob_uri == f"{table_uri}/**/*.parquet"
+    assert model_metadata.source_table_uri == table_uri
     assert model_metadata.schema_name == f"data_modeling_team_{ateam.pk}"
     assert model_metadata.table_name == f"model_{saved_query.id.hex}"
+    assert model_metadata.verification_queries
+    assert model_metadata.verification_queries[0].name == "row_count_delta_vs_ducklake"
 
 
 @pytest.mark.asyncio
@@ -100,8 +105,10 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
         source_glob_uri="s3://source/table/**/*.parquet",
+        source_table_uri="s3://source/table",
         schema_name="data_modeling_team_1",
         table_name="model_a",
+        verification_queries=[],
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -125,4 +132,111 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     assert table_calls and "ducklake_dev.data_modeling_team_1.model_a" in table_calls[0]
     assert "read_parquet('s3://source/table/**/*.parquet')" in table_calls[0]
     assert any("ATTACH" in statement for statement in fake_conn.sql_statements), "Expected DuckLake catalog attach"
+    assert fake_conn.closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_verify_ducklake_copy_activity_runs_queries(monkeypatch, activity_environment):
+    class FakeDuckDBConnection:
+        def __init__(self, rows: list[tuple]):
+            self.rows = rows
+            self.closed = False
+            self.executed: list[tuple[str, tuple]] = []
+            self.sql_statements: list[str] = []
+
+        def execute(self, statement: str, params: list | None = None):
+            self.executed.append((statement, tuple(params or [])))
+            return self
+
+        def sql(self, statement: str):
+            self.sql_statements.append(statement)
+
+        def fetchone(self):
+            return self.rows.pop(0) if self.rows else None
+
+        def close(self):
+            self.closed = True
+
+    fake_conn = FakeDuckDBConnection(rows=[(0,)])
+    monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
+
+    metadata = DuckLakeCopyModelMetadata(
+        model_label="model_a",
+        saved_query_id=str(uuid.uuid4()),
+        saved_query_name="ducklake_model",
+        normalized_name="ducklake_model",
+        source_glob_uri="s3://source/table/**/*.parquet",
+        source_table_uri="s3://source/table",
+        schema_name="data_modeling_team_1",
+        table_name="model_a",
+        verification_queries=[
+            DuckLakeCopyVerificationQuery(
+                name="row_count",
+                sql="SELECT COUNT(*) FROM read_delta(?)",
+                parameters=(DuckLakeCopyVerificationParameter.SOURCE_TABLE_URI,),
+                tolerance=0,
+            )
+        ],
+    )
+    inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-verify", model=metadata)
+
+    results = activity_environment.run(verify_ducklake_copy_activity, inputs)
+
+    assert len(results) == 1
+    assert results[0].passed is True
+    assert fake_conn.closed is True
+    ducklake_call = next((call for call in fake_conn.executed if "read_delta" in call[0]), None)
+    assert ducklake_call is not None
+    assert ducklake_call[1][0] == metadata.source_table_uri
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_verify_ducklake_copy_activity_reports_failures(monkeypatch, activity_environment):
+    class FakeDuckDBConnection:
+        def __init__(self, rows: list[tuple]):
+            self.rows = rows
+            self.closed = False
+            self.sql_statements: list[str] = []
+
+        def execute(self, statement: str, params: list | None = None):
+            return self
+
+        def sql(self, statement: str):
+            self.sql_statements.append(statement)
+
+        def fetchone(self):
+            return self.rows.pop(0) if self.rows else None
+
+        def close(self):
+            self.closed = True
+
+    fake_conn = FakeDuckDBConnection(rows=[(10,)])
+    monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
+
+    metadata = DuckLakeCopyModelMetadata(
+        model_label="model_b",
+        saved_query_id=str(uuid.uuid4()),
+        saved_query_name="ducklake_model",
+        normalized_name="ducklake_model",
+        source_glob_uri="s3://source/table/**/*.parquet",
+        source_table_uri="s3://source/table",
+        schema_name="data_modeling_team_1",
+        table_name="model_b",
+        verification_queries=[
+            DuckLakeCopyVerificationQuery(
+                name="row_count",
+                sql="SELECT COUNT(*) FROM read_delta(?)",
+                parameters=(DuckLakeCopyVerificationParameter.SOURCE_TABLE_URI,),
+                tolerance=0,
+            )
+        ],
+    )
+    inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-verify", model=metadata)
+
+    results = activity_environment.run(verify_ducklake_copy_activity, inputs)
+
+    assert len(results) == 1
+    assert results[0].passed is False
     assert fake_conn.closed is True
