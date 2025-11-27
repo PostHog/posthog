@@ -783,9 +783,11 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 event_tuple = result.get(event_key)
                 if event_tuple and len(event_tuple) >= 4:
                     properties = event_tuple[3]
-                    session_id = properties.get("$session_id")
-                    if session_id and session_id != "":
-                        session_ids.add(session_id)
+                    # Properties might be a dict or need conversion
+                    if isinstance(properties, dict):
+                        session_id = properties.get("$session_id")
+                        if session_id and session_id != "":
+                            session_ids.add(session_id)
 
         # If no session IDs, return empty set
         if not session_ids:
