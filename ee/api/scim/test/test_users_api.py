@@ -135,7 +135,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "active": True,
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Users", data=user_data, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
@@ -172,7 +174,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "active": True,
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Users", data=user_data, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
 
@@ -191,7 +195,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "active": True,
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Users", data=user_data_first, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data_first, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         first_user = User.objects.get(email="repeat@example.com")
@@ -205,7 +211,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "active": True,
         }
 
-        response = self.client.post(f"/scim/v2/{self.domain.id}/Users", data=user_data_second, format="json")
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data_second, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
 
@@ -241,6 +249,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         data = response.json()
         assert data["userName"] == "test@example.com"
         assert data["name"]["givenName"] == "Test"
+        assert data["name"]["familyName"] == "User"
         assert data["active"] is True
         assert "groups" in data
         assert any(g.get("display") == "Engineers" for g in data["groups"])
@@ -258,7 +267,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "replace", "value": {"active": False}}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
 
@@ -300,7 +311,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "active": True,
         }
 
-        response = self.client.put(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=put_data, format="json")
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=put_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -318,7 +331,9 @@ class TestSCIMUsersAPI(APILicensedTest):
         }
 
         fake_user_id = 999999999
-        response = self.client.put(f"/scim/v2/{self.domain.id}/Users/{fake_user_id}", data=put_data, format="json")
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{fake_user_id}", data=put_data, content_type="application/scim+json"
+        )
 
         assert (
             response.status_code == status.HTTP_404_NOT_FOUND
@@ -352,7 +367,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         }
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Users/{user_b.id}", data=put_data_conflict, format="json"
+            f"/scim/v2/{self.domain.id}/Users/{user_b.id}", data=put_data_conflict, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -365,7 +380,9 @@ class TestSCIMUsersAPI(APILicensedTest):
         }
 
         fake_user_id = 999999999
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{fake_user_id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{fake_user_id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert (
             response.status_code == status.HTTP_404_NOT_FOUND
@@ -392,7 +409,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -415,7 +434,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -441,7 +462,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -460,7 +483,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "replace", "path": "name.givenName", "value": "UpdatedFirst"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -482,7 +507,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -507,7 +534,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             ],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -529,7 +558,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "name", "value": {"givenName": "New", "familyName": "Name"}}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -547,7 +578,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "active", "value": True}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
@@ -565,7 +598,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "name.givenName", "value": "Ada"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -585,7 +620,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "add", "path": "emails[primary eq true].value", "value": "primary@example.com"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -608,7 +645,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "name.familyName"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -628,7 +667,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "name.familyName"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
@@ -648,7 +689,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "emails"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         user.refresh_from_db()
@@ -667,7 +710,9 @@ class TestSCIMUsersAPI(APILicensedTest):
             "Operations": [{"op": "remove", "path": "emails[primary eq true].value"}],
         }
 
-        response = self.client.patch(f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json")
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         user.refresh_from_db()
