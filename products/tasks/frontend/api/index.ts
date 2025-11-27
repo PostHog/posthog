@@ -6,6 +6,14 @@
  * OpenAPI spec version: 1.0.0
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
+import type {
+    ErrorResponse,
+    PaginatedTaskList,
+    PatchedTask,
+    PatchedTaskUpdatePositionRequest,
+    Task,
+    TasksListParams,
+} from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -23,186 +31,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export interface PaginatedTaskList {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: Task[]
-}
-
-/**
- * Serializer for extracted tasks
- */
-export interface Task {
-    title: string
-    description?: string
-    /** @nullable */
-    assignee?: string | null
-}
-
-export interface PatchedTask {
-    readonly id?: string
-    /** @nullable */
-    readonly task_number?: number | null
-    readonly slug?: string
-    /** @maxLength 255 */
-    title?: string
-    description?: string
-    origin_product?: OriginProductEnum
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    position?: number
-    /**
-     * GitHub integration for this task
-     * @nullable
-     */
-    github_integration?: number | null
-    /** Repository configuration with organization and repository fields */
-    repository_config?: unknown
-    readonly repository_list?: string
-    readonly primary_repository?: string
-    readonly latest_run?: string
-    readonly created_at?: string
-    readonly updated_at?: string
-    readonly created_by?: UserBasic
-}
-
-export interface PatchedTaskUpdatePositionRequest {
-    /** New position for the task */
-    position?: number
-}
-
-export type ErrorResponseError = { [key: string]: unknown }
-
-export interface ErrorResponse {
-    error: ErrorResponseError
-}
-
-/**
- * * `error_tracking` - Error Tracking
- * `eval_clusters` - Eval Clusters
- * `user_created` - User Created
- * `support_queue` - Support Queue
- * `session_summaries` - Session Summaries
- */
-export type OriginProductEnum = (typeof OriginProductEnum)[keyof typeof OriginProductEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OriginProductEnum = {
-    error_tracking: 'error_tracking',
-    eval_clusters: 'eval_clusters',
-    user_created: 'user_created',
-    support_queue: 'support_queue',
-    session_summaries: 'session_summaries',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicHedgehogConfig = { [key: string]: unknown } | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicRoleAtOrganization = { ...RoleAtOrganizationEnum, ...BlankEnum, ...NullEnum } as const
-/**
- * @nullable
- */
-export type UserBasicRoleAtOrganization =
-    | (typeof UserBasicRoleAtOrganization)[keyof typeof UserBasicRoleAtOrganization]
-    | null
-
-export interface UserBasic {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicHedgehogConfig
-    /** @nullable */
-    role_at_organization?: UserBasicRoleAtOrganization
-}
-
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
-
-export type TasksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Filter by repository organization
-     * @minLength 1
-     */
-    organization?: string
-    /**
-     * Filter by origin product
-     * @minLength 1
-     */
-    origin_product?: string
-    /**
-     * Filter by repository name (can include org/repo format)
-     * @minLength 1
-     */
-    repository?: string
-    /**
-     * Filter by task run stage
-     * @minLength 1
-     */
-    stage?: string
-}
 
 /**
  * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.

@@ -159,7 +159,7 @@ function generateTypesForSchema(schemaFile, outputDir, tag, tmpDir) {
 
     const outputFile = path.join(outputDir, 'index.ts')
 
-    // Create orval config for this schema - single file mode with PostHog's api client
+    // Create orval config for this schema - split mode separates schemas from functions
     const configFile = path.join(tmpDir, 'orval.config.mjs')
     const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
     const config = `
@@ -169,7 +169,7 @@ export default defineConfig({
     input: '${schemaFile}',
     output: {
       target: '${outputFile}',
-      mode: 'single',
+      mode: 'split',
       client: 'fetch',
       override: {
         mutator: {
@@ -188,11 +188,16 @@ export default defineConfig({
         cwd: repoRoot,
     })
 
-    // Add eslint-disable header to generated file
-    const content = fs.readFileSync(outputFile, 'utf8')
+    // Add eslint-disable header to generated files
     const header = '/* eslint-disable */\n'
-    if (!content.startsWith(header)) {
-        fs.writeFileSync(outputFile, header + content)
+    for (const file of fs.readdirSync(outputDir)) {
+        if (file.endsWith('.ts')) {
+            const filePath = path.join(outputDir, file)
+            const content = fs.readFileSync(filePath, 'utf8')
+            if (!content.startsWith(header)) {
+                fs.writeFileSync(filePath, header + content)
+            }
+        }
     }
 }
 
