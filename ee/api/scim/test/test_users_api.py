@@ -249,6 +249,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         data = response.json()
         assert data["userName"] == "test@example.com"
         assert data["name"]["givenName"] == "Test"
+        assert data["name"]["familyName"] == "User"
         assert data["active"] is True
         assert "groups" in data
         assert any(g.get("display") == "Engineers" for g in data["groups"])
