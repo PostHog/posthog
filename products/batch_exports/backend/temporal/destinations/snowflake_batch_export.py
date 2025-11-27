@@ -356,7 +356,7 @@ class SnowflakeField(Field):
         return cls(field.name, snowflake_type, snowflake_type_to_data_type(snowflake_type), field.is_nullable)
 
     @property
-    def snowflake_type_name(self) -> str:
+    def snowflake_type_name(self) -> SnowflakeTypeName:
         if self.snowflake_type.repeated is True:
             return "ARRAY"
         else:
