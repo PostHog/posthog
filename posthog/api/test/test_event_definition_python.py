@@ -19,19 +19,20 @@ class TestPythonGenerator(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("snake_case", "downloaded_file", "DownloadedFileProps"),
-            ("kebab_case", "user-signed-up", "UserSignedUpProps"),
-            ("dollar_prefix", "$pageview", "PageviewProps"),
-            ("mixed_case", "API-Request", "ApiRequestProps"),
-            ("with_numbers", "test_123", "Test123Props"),
-            ("multiple_underscores", "___test___", "TestProps"),
-            ("empty_string", "", "EventProps"),
-            ("starts_with_number", "123_start", "Event123StartProps"),
-            ("only_numbers", "123456", "Event123456Props"),
+            ("snake_case", "downloaded_file", "capture_downloaded_file"),
+            ("kebab_case", "user-signed-up", "capture_user_signed_up"),
+            ("dollar_prefix", "$pageview", "capture_pageview"),
+            ("mixed_case", "API-Request", "capture_api_request"),
+            ("with_numbers", "test_123", "capture_test_123"),
+            ("multiple_underscores", "___test___", "capture_test"),
+            ("empty_string", "", "capture_event"),
+            ("starts_with_number", "123_start", "capture_event_123_start"),
+            ("only_numbers", "123456", "capture_event_123456"),
+            ("spaces", "dashboard mode toggled", "capture_dashboard_mode_toggled"),
         ]
     )
-    def test_to_class_name(self, name, event_name, expected_output):
-        result = self.generator._to_class_name(event_name)
+    def test_to_method_name(self, name, event_name, expected_output):
+        result = self.generator._to_method_name(event_name)
         self.assertEqual(
             expected_output,
             result,
@@ -58,7 +59,6 @@ class TestPythonGenerator(APIBaseTest):
         ]
     )
     def test_to_python_identifier(self, name, input_name, expected_output):
-        """Test property name to Python identifier conversion"""
         result = self.generator._to_python_identifier(input_name)
         self.assertEqual(
             expected_output,
@@ -69,121 +69,134 @@ class TestPythonGenerator(APIBaseTest):
     def test_get_unique_name_collision_handling(self):
         used_names: set[str] = set()
 
-        # First usage - no collision
         name1 = self.generator._get_unique_name("file_name", used_names)
         self.assertEqual(name1, "file_name")
         self.assertIn("file_name", used_names)
 
-        # Second usage of same base - should get suffix
         name2 = self.generator._get_unique_name("file_name", used_names)
         self.assertEqual(name2, "file_name_2")
         self.assertIn("file_name_2", used_names)
 
-        # Third usage
         name3 = self.generator._get_unique_name("file_name", used_names)
         self.assertEqual(name3, "file_name_3")
 
-    def test_generate_typed_dict_without_properties(self):
-        result, mappings = self.generator._generate_typed_dict("123_simple", [])
+    def test_generate_capture_method_without_properties(self):
+        method = self.generator._generate_capture_method("simple_event", [])
 
         self.assertEqual(
-            result.strip(),
-            '''class Event123SimpleProps(TypedDict, total=False):
-    """Properties for the `123_simple` event (no schema defined)"""
-    pass''',
+            method.strip(),
+            '''def capture_simple_event(
+        self,
+        *,
+        extra_properties: Optional[Dict[str, Any]] = None,
+        **kwargs: Unpack[OptionalCaptureArgs],
+    ) -> Optional[str]:
+        """Capture a `simple_event` event."""
+        return self.capture("simple_event", properties=extra_properties, **kwargs)''',
         )
-        self.assertEqual(mappings, {})
 
-    def test_generate_typed_dict_with_properties(self):
-        result, mappings = self.generator._generate_typed_dict(
-            "file_uploaded",
+    def test_generate_capture_method_with_only_optional(self):
+        method = self.generator._generate_capture_method(
+            "file_downloaded",
             [
-                self._create_mock_property('file_"name', "DateTime", required=True),
-                self._create_mock_property("file_name", "String", required=True),  # Collides after conversion
-                self._create_mock_property("file_size", "Numeric", required=True),
-                self._create_mock_property("is-active", "Boolean", required=False),
-                self._create_mock_property("object", "Object", required=False),
-                self._create_mock_property("class", "String", required=True),  # reserved keyword
+                self._create_mock_property("label", "String", required=False),
+                self._create_mock_property("value", "Numeric", required=False),
             ],
         )
 
         self.assertEqual(
-            result.strip(),
-            '''class FileUploadedProps(TypedDict, total=False):
-    """Properties for the `file_uploaded` event"""
-    class_: Required[str]
-    file_name: Required[datetime]
-    file_name_2: Required[str]
-    file_size: Required[float]
-    is_active: NotRequired[bool]
-    object: NotRequired[Dict[str, Any]]''',
-        )
-        self.assertEqual(
-            mappings,
-            {"class_": "class", "file_name": 'file_"name', "file_name_2": "file_name", "is_active": "is-active"},
-        )
-
-    def test_generate_overload_with_no_required_properties(self):
-        overload = self.generator._generate_overload(
-            "no_required_properties",
-            [
-                self._create_mock_property("is-active", "Boolean", required=False),
-                self._create_mock_property("object", "Object", required=False),
-            ],
-        )
-
-        self.assertEqual(
-            overload.strip(),
-            """@overload
-def capture(  # type: ignore[misc]  # This is needed to ensure our typed `properties` take precedence over the SDK kwargs
-    event: Literal["no_required_properties"],
-    *,
-    properties: Optional[NoRequiredPropertiesProps] = ...,
-    **kwargs: Unpack[OptionalCaptureArgs],
-) -> Optional[str]: ...""",
+            method.strip(),
+            '''def capture_file_downloaded(
+        self,
+        *,
+        # Optional event properties
+        label: Optional[str] = None,
+        value: Optional[float] = None,
+        # Additional untyped properties
+        extra_properties: Optional[Dict[str, Any]] = None,
+        # SDK kwargs (distinct_id, timestamp, etc.)
+        **kwargs: Unpack[OptionalCaptureArgs],
+    ) -> Optional[str]:
+        """Capture a `file_downloaded` event with type-safe properties."""
+        properties: Dict[str, Any] = {}
+        if label is not None:
+            properties["label"] = label
+        if value is not None:
+            properties["value"] = value
+        if extra_properties is not None:
+            properties.update(extra_properties)
+        return self.capture("file_downloaded", properties=properties, **kwargs)''',
         )
 
-    def test_generate_overload_with_required_properties(self):
-        overload = self.generator._generate_overload(
-            "with_required_properties",
+    def test_generate_capture_method_with_mixed_properties(self):
+        method = self.generator._generate_capture_method(
+            "file_downloaded",
             [
                 self._create_mock_property("file_name", "String", required=True),
                 self._create_mock_property("file_size", "Numeric", required=True),
-                self._create_mock_property("is-active", "Boolean", required=False),
-                self._create_mock_property("object", "Object", required=False),
+                self._create_mock_property("file-size", "Array", required=True),  # Collision
+                self._create_mock_property("file_extension", "String", required=False),
+                self._create_mock_property("label", "String", required=False),
+                self._create_mock_property("value", "Numeric", required=False),
+                self._create_mock_property('foo"bar', "String", required=True),
+                self._create_mock_property("class", "String", required=False),
             ],
         )
 
         self.assertEqual(
-            overload.strip(),
-            """@overload
-def capture(  # type: ignore[misc]  # This is needed to ensure our typed `properties` take precedence over the SDK kwargs
-    event: Literal["with_required_properties"],
-    *,
-    properties: WithRequiredPropertiesProps,
-    **kwargs: Unpack[OptionalCaptureArgs],
-) -> Optional[str]: ...""",
+            method.strip(),
+            '''def capture_file_downloaded(
+        self,
+        *,
+        # Required event properties
+        file_size: List[Any],
+        file_name: str,
+        file_size_2: float,
+        foo_bar: str,
+        # Optional event properties
+        class_: Optional[str] = None,
+        file_extension: Optional[str] = None,
+        label: Optional[str] = None,
+        value: Optional[float] = None,
+        # Additional untyped properties
+        extra_properties: Optional[Dict[str, Any]] = None,
+        # SDK kwargs (distinct_id, timestamp, etc.)
+        **kwargs: Unpack[OptionalCaptureArgs],
+    ) -> Optional[str]:
+        """Capture a `file_downloaded` event with type-safe properties."""
+        properties: Dict[str, Any] = {"file-size": file_size, "file_name": file_name, "file_size": file_size_2, "foo\\"bar": foo_bar}
+        if class_ is not None:
+            properties["class"] = class_
+        if file_extension is not None:
+            properties["file_extension"] = file_extension
+        if label is not None:
+            properties["label"] = label
+        if value is not None:
+            properties["value"] = value
+        if extra_properties is not None:
+            properties.update(extra_properties)
+        return self.capture("file_downloaded", properties=properties, **kwargs)''',
         )
 
     def test_full_generation_empty_output(self):
-        """
-        This test 'globally' checks the output of the `generate` function when no data is passed.
-        """
         code = self.generator.generate([], {})  # type: ignore[arg-type]
 
-        # Check header
         self.assertIn("GENERATED FILE - DO NOT EDIT", code)
-        self.assertIn("auto-generated by PostHog", code)
         self.assertNotIn("from datetime import datetime", code)
+        self.assertIn(
+            '''class PosthogTyped(Posthog):
+    """
+    A type-safe PostHog client with per-event capture methods.
 
-        # Check key components in the body
-        self.assertIn("""_PROPERTY_MAPPINGS: Dict[str, Dict[str, str]] = {}""", code)
+    Drop-in replacement for Posthog that provides IDE autocomplete
+    and type checking via capture_<event_name>() methods.
+    """
+
+    pass''',
+            code,
+        )
 
     def test_full_generation_output(self):
-        """
-        This test 'globally' checks the output of the `generate` function.
-        This is only done globally as the 'critical' parts have already been covered in other tests here.
-        """
         event = MagicMock()
         event.id = "1"
         event.name = 'simple_"event'
@@ -192,56 +205,50 @@ def capture(  # type: ignore[misc]  # This is needed to ensure our typed `proper
                 self._create_mock_property("user_id", "String", required=True),
                 self._create_mock_property("c'ount", "Numeric", required=False),
                 self._create_mock_property("file-name", "String", required=True),
-                self._create_mock_property("file_name", "Object", required=True),  # Collision
+                self._create_mock_property("file_name", "Object", required=True),
                 self._create_mock_property("created_at", "DateTime", required=False),
                 self._create_mock_property("optional_items", "Array", required=False),
-            ]
+            ],
         }
 
         code = self.generator.generate([event], schema_map)  # type: ignore[arg-type]
 
-        # Check header
         self.assertIn("GENERATED FILE - DO NOT EDIT", code)
-        self.assertIn("auto-generated by PostHog", code)
         self.assertIn("from datetime import datetime", code)
+        self.assertIn("class PosthogTyped(Posthog):", code)
 
-        # Check key components in the body
         self.assertIn(
-            """# Property name mappings (EventName => Python identifier -> original property name)
-_PROPERTY_MAPPINGS: Dict[str, Dict[str, str]] = {
-    "simple_\\"event": {
-        "c_ount": "c'ount",
-        "file_name": "file-name",
-        "file_name_2": "file_name",
-    },
-}""",
-            code,
-        )
-        self.assertIn(
-            '''class SimpleEventProps(TypedDict, total=False):
-    """Properties for the `simple_\\"event` event"""
-    file_name: Required[str]
-    file_name_2: Required[Dict[str, Any]]
-    user_id: Required[str]
-    c_ount: NotRequired[float]
-    created_at: NotRequired[datetime]
-    optional_items: NotRequired[list[Any]]''',
-            code,
-        )
-        self.assertIn(
-            """# Type-safe capture overloads
-@overload
-def capture(  # type: ignore[misc]  # This is needed to ensure our typed `properties` take precedence over the SDK kwargs
-    event: Literal["simple_\\"event"],
-    *,
-    properties: SimpleEventProps,
-    **kwargs: Unpack[OptionalCaptureArgs],
-) -> Optional[str]: ...""",
+            '''def capture_simple_event(
+        self,
+        *,
+        # Required event properties
+        file_name: str,
+        file_name_2: Dict[str, Any],
+        user_id: str,
+        # Optional event properties
+        c_ount: Optional[float] = None,
+        created_at: Optional[datetime] = None,
+        optional_items: Optional[List[Any]] = None,
+        # Additional untyped properties
+        extra_properties: Optional[Dict[str, Any]] = None,
+        # SDK kwargs (distinct_id, timestamp, etc.)
+        **kwargs: Unpack[OptionalCaptureArgs],
+    ) -> Optional[str]:
+        """Capture a `simple_\\"event` event with type-safe properties."""
+        properties: Dict[str, Any] = {"file-name": file_name, "file_name": file_name_2, "user_id": user_id}
+        if c_ount is not None:
+            properties["c'ount"] = c_ount
+        if created_at is not None:
+            properties["created_at"] = created_at
+        if optional_items is not None:
+            properties["optional_items"] = optional_items
+        if extra_properties is not None:
+            properties.update(extra_properties)
+        return self.capture("simple_\\"event", properties=properties, **kwargs)''',
             code,
         )
 
     def _create_mock_property(self, name: str, property_type: str, required: bool = False) -> MagicMock:
-        """Create a mock SchemaPropertyGroupProperty for testing"""
         prop = MagicMock()
         prop.name = name
         prop.property_type = property_type
@@ -302,42 +309,36 @@ class TestPythonGeneratorAPI(APIBaseTest):
 
     @patch("posthog.api.event_definition_generators.base.report_user_action")
     def test_python_endpoint_success(self, mock_report):
-        """Test that the python endpoint returns valid code"""
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/python")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
 
-        # Check response structure
         self.assertIn("content", data)
         self.assertIn("event_count", data)
         self.assertIn("schema_hash", data)
         self.assertIn("generator_version", data)
 
-        # Check code content
         code = data["content"]
-        self.assertIn("import posthog", code)
-        self.assertIn("class FileDownloadedProps", code)
-        self.assertIn("class UserSignedUpProps", code)
+        self.assertIn("from posthog import Posthog", code)
+        self.assertIn("class PosthogTyped(Posthog):", code)
+        self.assertIn("def capture_file_downloaded(", code)
+        self.assertIn("def capture_user_signed_up(", code)
 
-        # Verify telemetry was called
         self._test_telemetry_called(mock_report)
 
     def test_python_endpoint_excludes_non_whitelisted_system_events(self):
-        # $autocapture should be excluded
-        # $pageview is whitelisted and should be included
         EventDefinition.objects.create(team=self.team, project=self.project, name="$autocapture")
         EventDefinition.objects.create(team=self.team, project=self.project, name="$pageview")
 
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/python")
 
         code = response.json()["content"]
-        self.assertNotIn("Autocapture", code)
-        self.assertIn("Pageview", code)
+        self.assertNotIn("capture_autocapture", code)
+        self.assertIn("capture_pageview", code)
 
     @patch("posthog.api.event_definition_generators.base.report_user_action")
     def test_python_endpoint_handles_no_events(self, mock_report):
-        """Test endpoint behavior when no events exist"""
         EventDefinition.objects.filter(team=self.team).delete()
 
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/python")
@@ -345,12 +346,12 @@ class TestPythonGeneratorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["event_count"], 0)
-        self.assertIn("import posthog", data["content"])
+        self.assertIn("from posthog import Posthog", data["content"])
+        self.assertIn("class PosthogTyped(Posthog):", data["content"])
 
         self._test_telemetry_called(mock_report)
 
     def test_python_schema_hash_is_deterministic(self):
-        """Test that schema_hash is deterministic for the same schema"""
         response1 = self.client.get(f"/api/projects/{self.project.id}/event_definitions/python")
         hash1 = response1.json()["schema_hash"]
 
@@ -397,7 +398,7 @@ class TestPythonGeneratorAPI(APIBaseTest):
             # Create pyproject.toml for mypy config
             pyproject_file = tmpdir_path / "pyproject.toml"
             # If we upgrade the minimum version, to Python >=3.11 we can also get rid of the `from typing_extensions`
-            # import as those types are fully supported by then..
+            # import as those types are fully supported by then.
             pyproject_file.write_text(
                 """
 [tool.mypy]
@@ -431,18 +432,15 @@ strict = false
 
             # Define test cases: name -> (code, should_pass, expected_error_text)
             test_cases = {
-                # Success cases - should pass type checking
                 "full_event_with_all_properties": (
                     """
-posthog_typed.capture(
-    "file_downloaded",
+client = PosthogTyped("fake_key", host="http://localhost")
+client.capture_file_downloaded(
+    file_name="document.pdf",
+    file_size=1024.0,
+    downloaded_at=datetime.now(),
+    file_extension="pdf",
     distinct_id="user_123",
-    properties={
-        "file_name": "document.pdf",
-        "file_size": 1024.0,
-        "downloaded_at": datetime.now(),
-        "file_extension": "pdf",
-    },
 )
 """,
                     True,
@@ -450,102 +448,75 @@ posthog_typed.capture(
                 ),
                 "event_with_only_required_properties": (
                     """
-posthog_typed.capture(
-    "user_signed_up",
+client = PosthogTyped("fake_key", host="http://localhost")
+client.capture_user_signed_up(
+    email="user@example.com",
+    plan="free",
     distinct_id="user_456",
-    properties={"email": "user@example.com", "plan": "free"},
 )
-""",
-                    True,
-                    None,
-                ),
-                "using_typed_dict_directly": (
-                    """
-props: FileDownloadedProps = {
-    "file_name": "test.txt",
-    "file_size": 100.0,
-    "downloaded_at": datetime.now(),
-}
-posthog_typed.capture("file_downloaded", distinct_id="user_999", properties=props)
 """,
                     True,
                     None,
                 ),
                 "distinct_id_is_optional": (
                     """
-posthog_typed.capture(
-    "file_downloaded",
-    properties={
-        "file_name": "document.pdf",
-        "file_size": 1024.0,
-        "downloaded_at": datetime.now(),
-    },
+client = PosthogTyped("fake_key", host="http://localhost")
+client.capture_file_downloaded(
+    file_name="document.pdf",
+    file_size=1024.0,
+    downloaded_at=datetime.now(),
 )
 """,
                     True,
                     None,
                 ),
-                # Error cases - should fail type checking
-                # Note: mypy reports inline dict literals as "No overload variant matches" because it
-                # infers them as dict[str, object] rather than checking against the TypedDict.
-                # Using a typed variable (e.g. `props: FileDownloadedProps = {...}`) gives more
-                # specific errors like 'Missing key "file_size"' at the assignment.
-                "missing_required_property_file_size_inline": (
+                "missing_required_property_file_size": (
                     """
-posthog_typed.capture(
-    "file_downloaded",
-    properties={
-        "file_name": "document.pdf",
-        "downloaded_at": datetime.now(),
-    },
+client = PosthogTyped("fake_key", host="http://localhost")
+client.capture_file_downloaded(
+    file_name="document.pdf",
+    downloaded_at=datetime.now(),
+    distinct_id="user_123",
 )
 """,
                     False,
-                    "No overload variant",
+                    'Missing named argument "file_size"',
                 ),
-                "missing_required_property_file_size_typed_variable": (
+                "wrong_type_string_instead_of_float": (
                     """
-props: FileDownloadedProps = {
-    "file_name": "document.pdf",
-    "downloaded_at": datetime.now(),
-}
-posthog_typed.capture("file_downloaded", properties=props)
-""",
-                    False,
-                    'Missing key "file_size"',
-                ),
-                "wrong_type_string_instead_of_float_typed_variable": (
-                    """
-props: FileDownloadedProps = {
-    "file_name": "document.pdf",
-    "file_size": "not a number",
-    "downloaded_at": datetime.now(),
-}
-posthog_typed.capture("file_downloaded", properties=props)
-""",
-                    False,
-                    'TypedDict item "file_size" has type "float"',
-                ),
-                "unknown_event_name_typo": (
-                    """
-posthog_typed.capture(
-    "file_downloade",
-    properties={},
+client = PosthogTyped("fake_key", host="http://localhost")
+client.capture_file_downloaded(
+    file_name="document.pdf",
+    file_size="not a number",
+    downloaded_at=datetime.now(),
+    distinct_id="user_123",
 )
 """,
                     False,
-                    "No overload variant",
+                    'Argument "file_size" to "capture_file_downloaded"',
+                ),
+                "extra_properties_allowed": (
+                    """
+client = PosthogTyped("fake_key", host="http://localhost")
+client.capture_file_downloaded(
+    file_name="document.pdf",
+    file_size=1024.0,
+    downloaded_at=datetime.now(),
+    extra_properties={"custom_field": "custom_value", "another": 123},
+    distinct_id="user_123",
+)
+""",
+                    True,
+                    None,
                 ),
             }
 
-            # Run each test case
             test_file = tmpdir_path / "test_usage.py"
             failures = []
 
             for name, (code, should_pass, expected_error) in test_cases.items():
                 test_content = f"""from datetime import datetime
-import posthog_typed
-from posthog_typed import FileDownloadedProps, UserSignedUpProps
+from posthog_typed import PosthogTyped
 {code}"""
                 test_file.write_text(test_content)
 
@@ -572,7 +543,6 @@ from posthog_typed import FileDownloadedProps, UserSignedUpProps
                 )
 
     def _test_telemetry_called(self, mock_report) -> None:
-        """Verify telemetry was called correctly"""
         self.assertEqual(mock_report.call_count, 1)
         call_args = mock_report.call_args
         self.assertEqual(call_args[0][0], self.user)

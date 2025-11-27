@@ -82,26 +82,22 @@ You can add optional properties through the option functions:
 1. Save the generated file in your project (if not generated there already):
    mv {output_path} <your-project>/posthog_typed.py
 
-2. Migrate towards `posthog_typed.capture` for type-safe event tracking:
-   import posthog
-   import posthog_typed
+2. Import and use the typed PostHog client:
+   from posthog_typed import PosthogTyped
 
-   # posthog.capture(...) then becomes posthog_typed.capture(...):
-   posthog_typed.capture("event_name", distinct_id="user_123", properties={{"property": "value"}})
-3. Use posthog.capture for untyped/dynamic events:
-   import posthog
+   client = PosthogTyped("<ph_project_api_key>", host="<ph_client_api_host>")
 
-   posthog.capture("dynamic_event", distinct_id="user_123", properties={{"anything": "goes"}})
+   # Use typed capture methods with full IDE autocomplete:
+   client.capture_event_name(
+       required_property="value",
+       distinct_id="user_123",
+   )
 
-Alternative: If you only use capture() and want a cleaner import:
-   import posthog_typed as posthog
-
-   posthog.capture("event_name", distinct_id="user_123", properties={{"property": "value"}})
-
-Note: This pattern means you won't have access to other SDK methods
-(identify, group, feature_enabled, etc.) unless you also import the
-original posthog module separately. But this way you only need to
-update the import.
+3. All standard Posthog methods are available:
+   client.identify(...)
+   client.capture(...)  # For untyped/dynamic events
+   client.flush()
+   client.shutdown()
 "#
             ),
         }
