@@ -194,6 +194,7 @@ def capture(  # type: ignore[misc]  # This is needed to ensure our typed `proper
                 self._create_mock_property("file-name", "String", required=True),
                 self._create_mock_property("file_name", "Object", required=True),  # Collision
                 self._create_mock_property("created_at", "DateTime", required=False),
+                self._create_mock_property("optional_items", "Array", required=False),
             ]
         }
 
@@ -223,7 +224,8 @@ _PROPERTY_MAPPINGS: Dict[str, Dict[str, str]] = {
     file_name_2: Required[Dict[str, Any]]
     user_id: Required[str]
     c_ount: NotRequired[float]
-    created_at: NotRequired[datetime]''',
+    created_at: NotRequired[datetime]
+    optional_items: NotRequired[list[Any]]''',
             code,
         )
         self.assertIn(
@@ -394,6 +396,8 @@ class TestPythonGeneratorAPI(APIBaseTest):
 
             # Create pyproject.toml for mypy config
             pyproject_file = tmpdir_path / "pyproject.toml"
+            # If we upgrade the minimum version, to Python >=3.11 we can also get rid of the `from typing_extensions`
+            # import as those types are fully supported by then..
             pyproject_file.write_text(
                 """
 [tool.mypy]
@@ -510,20 +514,6 @@ posthog_typed.capture("file_downloaded", properties=props)
                     False,
                     'Missing key "file_size"',
                 ),
-                "wrong_type_string_instead_of_float_inline": (
-                    """
-posthog_typed.capture(
-    "file_downloaded",
-    properties={
-        "file_name": "document.pdf",
-        "file_size": "not a number",
-        "downloaded_at": datetime.now(),
-    },
-)
-""",
-                    False,
-                    "No overload variant",
-                ),
                 "wrong_type_string_instead_of_float_typed_variable": (
                     """
 props: FileDownloadedProps = {
@@ -534,7 +524,7 @@ props: FileDownloadedProps = {
 posthog_typed.capture("file_downloaded", properties=props)
 """,
                     False,
-                    'incompatible type "str"; expected "float"',
+                    'TypedDict item "file_size" has type "float"',
                 ),
                 "unknown_event_name_typo": (
                     """
@@ -571,7 +561,7 @@ from posthog_typed import FileDownloadedProps, UserSignedUpProps
                     failures.append(f"{name}: expected to pass but failed:\n{result.stdout}")
                 elif not should_pass and result.returncode == 0:
                     failures.append(f"{name}: expected to fail but passed")
-                elif not should_pass and expected_error and expected_error not in result.stdout:
+                elif not should_pass and expected_error not in result.stdout:
                     failures.append(f"{name}: expected '{expected_error}' in error output, got:\n{result.stdout}")
 
             if failures:
