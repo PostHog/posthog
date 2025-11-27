@@ -294,20 +294,16 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             <SceneDivider />
 
             <div className="flex flex-wrap">
-                {isEvent && definition.created_at && (
+                {isEvent && (
                     <div className="flex flex-col flex-1">
                         <h5>First seen</h5>
-                        <b>
-                            <TZLabel time={definition.created_at} />
-                        </b>
+                        <b>{definition.created_at ? <TZLabel time={definition.created_at} /> : '-'}</b>
                     </div>
                 )}
-                {isEvent && definition.last_seen_at && (
+                {isEvent && (
                     <div className="flex flex-col flex-1">
                         <h5>Last seen</h5>
-                        <b>
-                            <TZLabel time={definition.last_seen_at} />
-                        </b>
+                        <b>{definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : '-'}</b>
                     </div>
                 )}
                 {isEvent && (

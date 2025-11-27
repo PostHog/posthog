@@ -128,7 +128,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     {
         title: (
             <span>
-                LAST EVENT AT{' '}
+                LAST EVENT{' '}
                 <Tooltip title="This gets refreshed every night, click 'Scan Events' to refresh manually">
                     <IconInfo />
                 </Tooltip>
@@ -140,7 +140,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
         },
     },
     {
-        title: '# Events in the last 7 days',
+        title: '# events, last 7 days',
         dataIndex: 'count',
         render: function RenderCount(_, record) {
             return <div className="text-xs text-muted-alt">{record.count}</div>
@@ -337,7 +337,7 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                             )}
                         </span>
                     </div>
-                    <small>Current version: {sdk.currentVersion}</small>
+                    <small>Latest version available: {sdk.currentVersion}</small>
                 </div>
 
                 <div className="flex flex-row gap-2">

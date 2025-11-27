@@ -18,13 +18,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -32,7 +31,6 @@ import {
     AvailableFeature,
     ChartDisplayType,
     FilterLogicalOperator,
-    ProductKey,
     ReplayTabs,
 } from '~/types'
 

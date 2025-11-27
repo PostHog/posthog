@@ -34,8 +34,8 @@ function formatPayloadForCodeExample(payload: Record<string, any>): string {
                 return `    "${key}": {}${comma}  // Add ${key} here`
             }
 
-            // Format variables_values specially
-            if (key === 'variables_values' && typeof value === 'object') {
+            // Format variables specially
+            if (key === 'variables' && typeof value === 'object') {
                 const varEntries = Object.entries(value)
                 if (varEntries.length === 0) {
                     return `    "${key}": {\n      // No variables defined\n    }${comma}`

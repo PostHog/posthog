@@ -86,9 +86,10 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             if (params.filterTestAccounts && !equal(params.filterTestAccounts, values.filterTestAccounts)) {
                 actions.setFilterTestAccounts(params.filterTestAccounts)
             }
-            if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
-                actions.setSearchQuery(params.searchQuery)
-                actions.setTaxonomicSearchQuery(params.searchQuery)
+            const newQuery = params.searchQuery ? params.searchQuery.toString() : null
+            if (newQuery && !equal(newQuery, values.searchQuery)) {
+                actions.setSearchQuery(newQuery)
+                actions.setTaxonomicSearchQuery(newQuery)
             }
         }
         return {

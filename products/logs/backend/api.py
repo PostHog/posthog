@@ -1,5 +1,4 @@
 import datetime as dt
-import itertools
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -21,13 +20,14 @@ from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
 
-    @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
+        requested_limit = min(query_data.get("limit", 1000), 2000)
         logs_query_params = {
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),
@@ -35,7 +35,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "orderBy": query_data.get("orderBy"),
             "searchTerm": query_data.get("searchTerm", None),
             "filterGroup": query_data.get("filterGroup", None),
-            "limit": min(query_data.get("limit", 1000), 2000),
+            "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
         }
         query = LogsQuery(**logs_query_params)
 
@@ -139,10 +139,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             yield from response.results
 
-        results = list(itertools.islice(results_generator(query, logs_query_params), logs_query_params["limit"]))
-        return Response({"query": query, "results": results}, status=200)
+        results = list(results_generator(query, logs_query_params))
+        has_more = len(results) > requested_limit
+        results = results[:requested_limit]  # Rm the +1 we used to check for another page
+        return Response({"query": query, "results": results, "hasMore": has_more}, status=200)
 
-    @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         query_data = request.data.get("query", {})
 
@@ -159,7 +161,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response(response.results, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("search", "")
 
@@ -196,7 +198,7 @@ FROM (
                 r.append(entry)
         return Response(r, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("value", "")
         key = request.GET.get("key", "")

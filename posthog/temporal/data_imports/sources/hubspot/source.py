@@ -50,6 +50,12 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
+            "missing or unknown hub id": None,
+        }
+
     # TODO: clean up hubspot job inputs to not have two auth config options
     def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:
         if "hubspot_integration_id" in job_inputs.keys():

@@ -19,9 +19,7 @@ export const statsHandler: ToolBase<typeof schema>['handler'] = async (context: 
         throw new Error(`Failed to get survey stats: ${result.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(result.data, null, 2) }],
-    }
+    return result.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

@@ -10,13 +10,14 @@ import {
     EventsQuery,
     HogQLQuery,
     SessionAttributionExplorerQuery,
+    SessionsQuery,
     TracesQuery,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isSessionAttributionExplorerQuery } from '~/queries/utils'
+import { isHogQLQuery, isSessionAttributionExplorerQuery, isSessionsQuery } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
 
 interface EventPropertyFiltersProps<
-    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery,
+    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery,
 > {
     query: Q
     setQuery?: (query: Q) => void
@@ -25,11 +26,15 @@ interface EventPropertyFiltersProps<
 
 let uniqueNode = 0
 export function EventPropertyFilters<
-    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery,
+    Q extends EventsNode | EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | SessionsQuery | TracesQuery,
 >({ query, setQuery, taxonomicGroupTypes }: EventPropertyFiltersProps<Q>): JSX.Element {
     const [id] = useState(() => uniqueNode++)
     const properties =
-        isHogQLQuery(query) || isSessionAttributionExplorerQuery(query) ? query.filters?.properties : query.properties
+        isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)
+            ? query.filters?.properties
+            : isSessionsQuery(query)
+              ? query.eventProperties
+              : query.properties
     const eventNames =
         isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)
             ? []
@@ -56,6 +61,8 @@ export function EventPropertyFilters<
             onChange={(value: AnyPropertyFilter[]) => {
                 if (isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)) {
                     setQuery?.({ ...query, filters: { ...query.filters, properties: value } })
+                } else if (isSessionsQuery(query)) {
+                    setQuery?.({ ...query, eventProperties: value })
                 } else {
                     setQuery?.({ ...query, properties: value })
                 }

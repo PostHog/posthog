@@ -196,9 +196,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             }
         },
     })),
-    listeners(({ sharedListeners, values }) => ({
+    listeners(({ actions, sharedListeners, values }) => ({
         setSceneState: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
+            actions.loadExperimentData()
         },
         setEditMode: (payload, breakpoint, action, previousState) => {
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)

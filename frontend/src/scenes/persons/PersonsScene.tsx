@@ -14,7 +14,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { OnboardingStepKey, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
 
 import { personsSceneLogic } from './personsSceneLogic'
 

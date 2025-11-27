@@ -16,6 +16,7 @@ env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
     DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
+    PERSONS_DB_WRITER_URL: postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test
     KAFKA_HOSTS: kafka:9092
     DISABLE_SECURE_SSL_REDIRECT: 1
     SECURE_COOKIES: 0
@@ -40,6 +41,13 @@ env:
     PGUSER: posthog
     PGPASSWORD: posthog
     PGPORT: 5432
+    OIDC_RSA_PRIVATE_KEY: ${{ secrets.OIDC_RSA_PRIVATE_KEY }}
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
+    AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
+    AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -104,10 +112,10 @@ jobs:
                     echo "Workflow triggered by: $AUTHOR"
                     if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
                       echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
+                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
                       echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "✓ Running in UPDATE mode - snapshots can be updated"
+                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
                     fi
                   fi
 
@@ -123,7 +131,6 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-                  fetch-depth: 50 # Need enough history for flap detection to find last human commit
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -298,22 +305,23 @@ jobs:
                   echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
                   echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
 
                   # Build and run Rust migrations using dedicated container
+                  # Use posthog_persons_e2e_test as the separate persons database for e2e tests
+                  # This keeps posthog_e2e_test as the default DB with old non-partitioned schema (Django migrations only)
                   docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
-                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest all
-
-                  # Build and run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
-                  docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
+                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test" \
                     -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
                     posthog-migrations:latest all
 
@@ -328,7 +336,7 @@ jobs:
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
-                  python manage.py runserver 8000 &> /tmp/server.log &
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 1 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers

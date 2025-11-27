@@ -1,14 +1,15 @@
-import hashlib
 from datetime import datetime
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
-from django.db.models import Manager, Q
+from django.db.models import Manager
 
 import orjson
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 
+from posthog.api.event_definition_generators.base import EventDefinitionGenerator
+from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -18,7 +19,7 @@ from posthog.constants import AvailableFeature, EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition, EventSchema, Team
+from posthog.models import EventDefinition, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -106,6 +107,16 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "post_to_slack",
         )
 
+    def validate_name(self, value):
+        # For creation, check if event definition with this name already exists
+        if not self.instance:  # Only for creation, not updates
+            view = self.context.get("view")
+            if view:
+                existing = EventDefinition.objects.filter(team_id=view.team_id, name=value).exists()
+                if existing:
+                    raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
+        return value
+
     def validate(self, data):
         validated_data = super().validate(data)
 
@@ -114,6 +125,50 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
 
         return validated_data
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        # Get viewset from context to access organization_id and team_id
+        view = self.context.get("view")
+        if not view:
+            raise serializers.ValidationError("View context is required")
+
+        # Type narrowing for mypy
+        assert view is not None
+
+        validated_data["team_id"] = view.team_id
+        validated_data["project_id"] = view.project_id
+        # Set timestamps to None - will be populated when first real event is ingested
+        validated_data["created_at"] = None
+        validated_data["last_seen_at"] = None
+
+        # Remove fields that don't exist on the model
+        validated_data.pop("post_to_slack", None)
+
+        event_definition = super().create(validated_data)
+
+        # Report user action for analytics
+        if request and request.user:
+            report_user_action(
+                cast(User, request.user),
+                "event definition created",
+                {"name": event_definition.name},
+            )
+
+        # Log activity for audit trail
+        if request and request.user:
+            log_activity(
+                organization_id=cast(UUIDT, view.organization_id),
+                team_id=view.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(event_definition.id),
+                scope="EventDefinition",
+                activity="created",
+                detail=Detail(name=event_definition.name, changes=None),
+            )
+
+        return event_definition
 
     def update(self, event_definition: EventDefinition, validated_data):
         request = self.context.get("request")
@@ -130,6 +185,7 @@ class EventDefinitionViewSet(
     TaggedItemViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
@@ -257,6 +313,70 @@ class EventDefinitionViewSet(
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
 
+    def perform_create(self, serializer):
+        """Handle context and side effects for event definition creation."""
+        user = cast(User, self.request.user)
+
+        # Build save kwargs - only include updated_by for enterprise
+        save_kwargs: dict[str, Any] = {
+            "team_id": self.team_id,
+            "project_id": self.project_id,
+            "created_at": None,  # Will be populated when first real event is ingested
+            "last_seen_at": None,
+        }
+
+        # Add updated_by only for EnterpriseEventDefinition
+        if hasattr(serializer.Meta.model, "updated_by"):
+            save_kwargs["updated_by"] = user
+
+        event_definition = serializer.save(**save_kwargs)
+
+        # Log activity for audit trail
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(self.request),
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="created",
+            detail=Detail(name=event_definition.name, changes=None),
+        )
+
+    def perform_update(self, serializer):
+        """Handle context and side effects for event definition updates."""
+        user = cast(User, self.request.user)
+        instance = serializer.instance
+
+        # Capture before state for activity logging
+        before_state = {k: instance.__dict__[k] for k in serializer.validated_data.keys() if k in instance.__dict__}
+        # Handle tags None -> [] to avoid spurious activity logs
+        if "tags" not in before_state or before_state["tags"] is None:
+            before_state["tags"] = []
+
+        # Only pass updated_by for EnterpriseEventDefinition
+        save_kwargs: dict[str, Any] = {}
+        if hasattr(instance, "updated_by"):
+            save_kwargs["updated_by"] = user
+
+        event_definition = serializer.save(**save_kwargs)
+
+        # Log activity for audit trail
+        from posthog.models.activity_logging.activity_log import dict_changes_between
+
+        changes = dict_changes_between("EventDefinition", before_state, serializer.validated_data, True)
+
+        log_activity(
+            organization_id=None,
+            team_id=self.team_id,
+            user=user,
+            item_id=str(event_definition.id),
+            scope="EventDefinition",
+            activity="changed",
+            was_impersonated=is_impersonated_session(self.request),
+            detail=Detail(name=str(event_definition.name), changes=changes),
+        )
+
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: EventDefinition = self.get_object()
         instance_id: str = str(instance.id)
@@ -280,74 +400,43 @@ class EventDefinitionViewSet(
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    # Version of the TypeScript generator - increment when changing the structure
-    # This ensures clients update even when schemas don't change
-    TYPESCRIPT_GENERATOR_VERSION = "1.0.0"
-
     @action(detail=False, methods=["GET"], url_path="typescript", required_scopes=["event_definition:read"])
     def typescript_definitions(self, *args, **kwargs):
         """Generate TypeScript definitions from event schemas"""
-        # System events that users should be able to manually capture
-        # These are commonly used in user code and should be typed
-        included_system_events = [
-            "$pageview",  # Manually captured in SPAs (React Router, Vue Router, etc.)
-            "$pageleave",  # Sometimes manually captured alongside $pageview
-            "$screen",  # Manually captured in mobile apps (iOS, Android, React Native, Flutter)
-        ]
+        # Version of the TypeScript generator - increment when changing the structure
+        # This ensures clients update even when schemas don't change
+        # TODO migrate to its own custom generator.
+        generator_version = "1.0.0"
+        language = "TypeScript"
 
-        # Fetch event definitions: either non-system events or explicitly included system events
-        event_definitions = (
-            EventDefinition.objects.filter(team__project_id=self.project_id)
-            .filter(
-                Q(name__in=included_system_events)  # Include whitelisted system events
-                | ~Q(name__startswith="$")  # Include all non-system events
-            )
-            .order_by("name")
+        # Fetch event definitions and schemas using shared helper
+        event_definitions, schema_map = EventDefinitionGenerator.fetch_event_definitions_and_schemas(self.project_id)
+
+        # Calculate the deterministic hash for this update
+        schema_hash = EventDefinitionGenerator.calculate_schema_hash(
+            generator_version,
+            event_definitions,
+            schema_map,
         )
-
-        # Fetch all event schemas with their property groups
-        event_schemas = (
-            EventSchema.objects.filter(event_definition__team__project_id=self.project_id)
-            .select_related("property_group")
-            .prefetch_related("property_group__properties")
-        )
-
-        # Build a mapping of event_definition_id -> property group properties
-        schema_map: dict[str, list[Any]] = {}
-        for event_schema in event_schemas:
-            event_id = str(event_schema.event_definition_id)
-            if event_id not in schema_map:
-                schema_map[event_id] = []
-            schema_map[event_id].extend(event_schema.property_group.properties.all())
-
-        # Calculate deterministic hash based on schema data AND generator version
-        # This ensures clients update when either schemas or generator structure changes
-        schema_data = []
-        for event_def in event_definitions:
-            properties = schema_map.get(str(event_def.id), [])
-            prop_data = [(p.name, p.property_type, p.is_required) for p in properties]
-            schema_data.append((event_def.name, sorted(prop_data)))
-
-        # Include version in hash calculation
-        hash_input = {
-            "version": self.TYPESCRIPT_GENERATOR_VERSION,
-            "schemas": schema_data,
-        }
-        schema_hash = hashlib.sha256(orjson.dumps(hash_input, option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
 
         # Generate TypeScript definitions
-        ts_content = self._generate_typescript(event_definitions, schema_map)
+        ts_content = self._generate_typescript(generator_version, event_definitions, schema_map)
+
+        # Report telemetry for this generation request
+        EventDefinitionGenerator.record_report_generation(
+            language, generator_version, self.request.user, self.team_id, self.project_id
+        )
 
         return response.Response(
             {
                 "content": ts_content,
                 "event_count": len(event_definitions),
                 "schema_hash": schema_hash,
-                "generator_version": self.TYPESCRIPT_GENERATOR_VERSION,
+                "generator_version": generator_version,
             }
         )
 
-    def _generate_typescript(self, event_definitions, schema_map):
+    def _generate_typescript(self, generator_version: str, event_definitions, schema_map):
         """Generate complete TypeScript module with type definitions and exports"""
         # Generate file header
         header = f"""/**
@@ -355,7 +444,7 @@ class EventDefinitionViewSet(
  *
  * This file was auto-generated by PostHog
  * Generated at: {datetime.now().isoformat()}
- * Generator version: {self.TYPESCRIPT_GENERATOR_VERSION}
+ * Generator version: {generator_version}
  *
  * Provides capture() for type-safe events and captureRaw() for flexibility
  */
@@ -540,6 +629,38 @@ export * from 'posthog-js'
             "Object": "Record<string, any>",
         }
         return type_map.get(property_type, "any")
+
+    @action(detail=False, methods=["GET"], url_path="golang", required_scopes=["event_definition:read"])
+    def golang_definitions(self, *args, **kwargs):
+        """Generate Go code definitions from event schemas"""
+        generator = GolangGenerator()
+
+        # Fetch event definitions and schemas using shared helper
+        event_definitions, schema_map = EventDefinitionGenerator.fetch_event_definitions_and_schemas(self.project_id)
+
+        # Calculate the deterministic hash for this update
+        schema_hash = generator.calculate_schema_hash(generator.generator_version(), event_definitions, schema_map)
+
+        # Generate Go code using the generator
+        go_content = generator.generate(event_definitions, schema_map)
+
+        # Report telemetry for this generation request
+        generator.record_report_generation(
+            generator.language_name(),
+            generator.generator_version(),
+            self.request.user,
+            self.team_id,
+            self.project_id,
+        )
+
+        return response.Response(
+            {
+                "content": go_content,
+                "event_count": len(event_definitions),
+                "schema_hash": schema_hash,
+                "generator_version": generator.generator_version(),
+            }
+        )
 
     @action(detail=True, methods=["GET"], url_path="metrics")
     def metrics_totals(self, *args, **kwargs):

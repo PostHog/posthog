@@ -5654,11 +5654,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     properties={"key": "value"},
                 )
 
+        # Test line graph with explicit_date=False (whole day periods)
         with freeze_time(freeze_time_at.isoformat()):
             response = TrendsQueryRunner(
                 query=self._create_trends_query(
                     date_from="-7d",
                     date_to=None,
+                    explicit_date=False,
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                     trends_filters=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
@@ -5687,12 +5689,52 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(2, value)
         self.assertEqual(11, response.results[1]["data"][0])
 
-        # Test with bold number to make sure it represents just a week
+        # Test line graph with explicit_date=True (rolling window with current time)
         with freeze_time(freeze_time_at.isoformat()):
             response = TrendsQueryRunner(
                 query=self._create_trends_query(
                     date_from="-7d",
                     date_to=None,
+                    explicit_date=True,
+                    interval=IntervalType.DAY,
+                    series=[EventsNode(event="$pageview")],
+                    trends_filters=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                    compare_filters=compare_filters,
+                ),
+                team=self.team,
+            ).calculate()
+
+        self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
+
+        # Check compare labels
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("previous", response.results[1]["compare_label"])
+
+        # Should have 8 days of data
+        self.assertEqual(8, len(response.results[0]["data"]))
+        self.assertEqual(8, len(response.results[1]["data"]))
+
+        # With explicit_date=True: today=1 event (9PM only),
+        # days between=2 events, oldest day=1 event (11PM only)
+        self.assertEqual(1, response.results[0]["data"][0])
+        for value in response.results[0]["data"][1:-1]:
+            self.assertEqual(2, value)
+        self.assertEqual(1, response.results[0]["data"][-1])
+
+        # With explicit_date=True: today=1 event (9PM only),
+        # days between=2 events, oldest day=1 event (11PM only)
+        self.assertEqual(1, response.results[1]["data"][0])
+        for value in response.results[1]["data"][1:-1]:
+            self.assertEqual(2, value)
+        self.assertEqual(1, response.results[1]["data"][-1])
+
+        # Test with bold number and explicit_date=False (whole day periods)
+        with freeze_time(freeze_time_at.isoformat()):
+            response = TrendsQueryRunner(
+                query=self._create_trends_query(
+                    date_from="-7d",
+                    date_to=None,
+                    explicit_date=False,
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                     trends_filters=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
@@ -5703,6 +5745,29 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
         for result in response.results:
+            # With explicit_date=False, the 7-day window is padded to full day boundaries
+            # This includes the extra events at the boundaries (10 events at start and end)
+            self.assertEqual(25, result["aggregated_value"])
+
+        # Test with bold number and explicit_date=True (rolling window with current time)
+        with freeze_time(freeze_time_at.isoformat()):
+            response = TrendsQueryRunner(
+                query=self._create_trends_query(
+                    date_from="-7d",
+                    date_to=None,
+                    interval=IntervalType.DAY,
+                    series=[EventsNode(event="$pageview")],
+                    trends_filters=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                    compare_filters=compare_filters,
+                    explicit_date=True,
+                ),
+                team=self.team,
+            ).calculate()
+
+        self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
+        for result in response.results:
+            # With explicit_date=True, the rolling window is precise from now-7d to now
+            # This excludes the extra events (exactly 7 days * 2 events = 14)
             self.assertEqual(14, result["aggregated_value"])
 
     def test_trends_daily_compare_to_previous_period(self):

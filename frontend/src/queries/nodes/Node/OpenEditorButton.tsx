@@ -16,6 +16,7 @@ export function OpenEditorButton({ query, ...props }: OpenEditorButtonProps): JS
             to={query ? urls.insightNew({ query }) : undefined}
             icon={<IconPreview />}
             tooltip="Open as a new insight"
+            size="small"
             {...props}
         />
     )

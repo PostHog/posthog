@@ -6,6 +6,7 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
+import { createRedisV2Pool } from '~/common/redis/redis-v2'
 
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
@@ -16,7 +17,6 @@ import { insertHogFunction as _insertHogFunction, createHogFunction } from './_t
 import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-import { createCdpRedisPool } from './redis'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
@@ -533,7 +533,7 @@ describe('CDP API', () => {
     describe('hog function states', () => {
         beforeEach(async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(team)
-            const redis = createCdpRedisPool(hub)
+            const redis = createRedisV2Pool(hub, 'cdp')
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
         })
 
