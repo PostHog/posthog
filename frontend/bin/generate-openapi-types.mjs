@@ -239,8 +239,94 @@ for (const [tag, groupedSchema] of groupedSchemas.entries()) {
 // Cleanup temp dir
 fs.rmSync(tmpDir, { recursive: true, force: true })
 
+// Check for potential duplicate types in frontend/src
+function findPotentialDuplicates(generatedFiles) {
+    const duplicates = []
+    const frontendSrc = path.resolve(frontendRoot, 'src')
+
+    for (const file of generatedFiles) {
+        const content = fs.readFileSync(file, 'utf8')
+        // Extract interface/type names from generated file
+        const typeNames = [...content.matchAll(/^export (?:interface|type) (\w+)/gm)].map((m) => m[1])
+
+        for (const typeName of typeNames) {
+            // Skip response/request types and params - these are generated-specific
+            if (
+                typeName.endsWith('Response') ||
+                typeName.endsWith('Request') ||
+                typeName.endsWith('Params') ||
+                typeName.startsWith('get') ||
+                typeName.includes('Response200') ||
+                typeName.includes('Response201')
+            ) {
+                continue
+            }
+
+            // Skip query-related types - these come from JSON schema, not OpenAPI
+            if (
+                typeName.endsWith('Query') ||
+                typeName.endsWith('Filter') ||
+                typeName.endsWith('Node') ||
+                typeName.endsWith('Result') ||
+                typeName.endsWith('Toggle') ||
+                typeName.includes('HogQL') ||
+                typeName.includes('Breakdown') ||
+                typeName.includes('Funnel') ||
+                typeName.includes('Retention') ||
+                typeName.includes('Trends') ||
+                typeName.includes('Paths') ||
+                typeName.includes('Lifecycle') ||
+                typeName.includes('Stickiness')
+            ) {
+                continue
+            }
+
+            // Search for same name in frontend/src (excluding the generated files)
+            try {
+                const result = execSync(
+                    `rg -l "^export (interface|type) ${typeName}\\b" "${frontendSrc}" --glob "*.ts" --glob "*.tsx" 2>/dev/null || true`,
+                    { encoding: 'utf8' }
+                ).trim()
+
+                if (result) {
+                    const locations = result.split('\n').filter((l) => !l.includes('/api/index.ts'))
+                    if (locations.length > 0) {
+                        duplicates.push({ typeName, generatedIn: file, manualIn: locations })
+                    }
+                }
+            } catch {
+                // rg not found or other error, skip
+            }
+        }
+    }
+
+    return duplicates
+}
+
 // Summary
 console.log(`Done! Generated ${generated} API client(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+
+// Check for duplicates
+const generatedFiles = matchedTags
+    .map((tag) => {
+        const dir = getOutputDirForTag(tag, productFolders)
+        return dir ? path.join(dir, 'index.ts') : null
+    })
+    .filter((f) => f && fs.existsSync(f))
+
+const duplicates = findPotentialDuplicates(generatedFiles)
+if (duplicates.length > 0) {
+    console.log('')
+    console.log('⚠️  Potential duplicate types found (manual types that may match generated ones):')
+    for (const { typeName, manualIn } of duplicates) {
+        console.log(`   ${typeName}`)
+        for (const loc of manualIn) {
+            console.log(`      └─ ${path.relative(repoRoot, loc)}`)
+        }
+    }
+    console.log('')
+    console.log('   Consider removing manual types and importing from generated API client instead.')
+}
 
 if (unmatchedTags.length > 0 || generated === 0) {
     console.log('')
