@@ -206,8 +206,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             else:
                 capture_exception(chdb_error)
 
-            tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True, name="get_columns",
-                        product=Product.WAREHOUSE)
+            tag_queries(
+                team_id=self.team.pk,
+                table_id=self.id,
+                warehouse_query=True,
+                name="get_columns",
+                product=Product.WAREHOUSE,
+            )
 
             # The cluster is a little broken right now, and so this can intermittently fail.
             # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
@@ -257,8 +262,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 table_size_mib=self.size_in_s3_mib,
             )
 
-            tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True, name="get_max_value_for_column",
-                        product=Product.WAREHOUSE)
+            tag_queries(
+                team_id=self.team.pk,
+                table_id=self.id,
+                warehouse_query=True,
+                name="get_max_value_for_column",
+                product=Product.WAREHOUSE,
+            )
             result = sync_execute(
                 f"SELECT max(`{column}`) FROM {s3_table_func}",
                 args=placeholder_context.values,
@@ -296,8 +306,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             capture_exception(chdb_error)
 
             try:
-                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True, name="get_count",
-                            product=Product.WAREHOUSE)
+                tag_queries(
+                    team_id=self.team.pk,
+                    table_id=self.id,
+                    warehouse_query=True,
+                    name="get_count",
+                    product=Product.WAREHOUSE,
+                )
 
                 result = sync_execute(
                     f"SELECT count() FROM {s3_table_func}",
