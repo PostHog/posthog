@@ -3495,6 +3495,31 @@
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
+# name: TestFeatureFlag.test_creating_static_cohort.23
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT id,
+         argMax(properties, version),
+         argMax(is_identified, version),
+         argMax(created_at, version)
+  FROM person
+  WHERE team_id = 99999
+    AND id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY id
+  HAVING argMax(is_deleted, version) = 0
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.24
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id,
+         groupArray(distinct_id)
+  FROM person_distinct_id2
+  WHERE team_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY person_id
+  '''
+# ---
 # name: TestFeatureFlag.test_creating_static_cohort.3
   '''
   SELECT "posthog_project"."id",
