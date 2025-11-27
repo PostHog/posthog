@@ -1,16 +1,10 @@
 {
     "languages": {
-        "python": {
-            "output_path": "posthog_typed.py",
-            "schema_hash": "1a8d3aab13e960564dfdd07f37c6844d",
-            "updated_at": "2025-11-27T15:55:43.094568+00:00",
-            "event_count": 80
-        },
         "typescript": {
             "output_path": "frontend/src/lib/posthog-typed.ts",
-            "schema_hash": "2fc898ec652576bb12ff733478d6c3a9",
-            "updated_at": "2025-11-27T15:39:35.632359+00:00",
-            "event_count": 76
+            "schema_hash": "7a0ce391306a233ff52edddcb7b3dcc5",
+            "updated_at": "2025-11-04T07:37:13.518309+00:00",
+            "event_count": 32
         }
     }
 }
