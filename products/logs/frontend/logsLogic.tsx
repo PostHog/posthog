@@ -304,13 +304,6 @@ export const logsLogic = kea<logsLogicType>([
                 fetchNextLogsPageFailure: () => true,
             },
         ],
-        hasLoadedMoreLogs: [
-            false as boolean,
-            {
-                fetchLogsSuccess: () => false,
-                fetchNextLogsPageSuccess: () => true,
-            },
-        ],
         userClickedLoadMore: [
             false as boolean,
             {
