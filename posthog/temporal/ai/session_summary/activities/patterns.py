@@ -123,9 +123,9 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     )
     # Ensure we got all the summaries, as it's crucial to keep the order of sessions to match them with ids
     if len(ready_summaries) != len(inputs.single_session_summaries_inputs):
-        raise ValueError(
-            f"Expected {len(inputs.single_session_summaries_inputs)} session summaries, got {len(ready_summaries)}, when splitting into chunks for patterns extraction"
-        )
+        msg = f"Expected {len(inputs.single_session_summaries_inputs)} session summaries, got {len(ready_summaries)}, when splitting into chunks for patterns extraction"
+        temporalio.activity.logger.error(msg, extra={"signals_type": "session-summaries"})
+        raise ValueError(msg)
     # Calculate tokens for each session summary, mapped by session_id to preserve input order
     tokens_per_session: dict[str, int] = {}
     for summary in ready_summaries:
@@ -141,17 +141,20 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
         session_id = summary_input.session_id
         summary_tokens = tokens_per_session.get(session_id)
         if summary_tokens is None:
-            raise ValueError(
+            msg = (
                 f"Missing token estimation for session {session_id} when splitting into chunks for patterns extraction"
             )
+            temporalio.activity.logger.error(msg, extra={"session_id": session_id, "signals_type": "session-summaries"})
+            raise ValueError(msg)
         # Check if single session exceeds the limit
         if base_template_tokens + summary_tokens > PATTERNS_EXTRACTION_MAX_TOKENS:
             # Check if it fits within the single entity max tokens limit
             if base_template_tokens + summary_tokens <= SINGLE_ENTITY_MAX_TOKENS:
-                logger.warning(
+                temporalio.activity.logger.warning(
                     f"Session {session_id} exceeds PATTERNS_EXTRACTION_MAX_TOKENS "
                     f"({base_template_tokens + summary_tokens} tokens) but fits within "
-                    f"SINGLE_ENTITY_MAX_TOKENS. Processing it in a separate chunk."
+                    f"SINGLE_ENTITY_MAX_TOKENS. Processing it in a separate chunk.",
+                    extra={"session_id": session_id, "signals_type": "session-summaries"},
                 )
                 # Save current chunk if not empty
                 if current_chunk:
@@ -163,9 +166,10 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
                 continue
             else:
                 # Session is too large even for single entity processing
-                logger.error(
+                temporalio.activity.logger.error(
                     f"Session {session_id} exceeds even SINGLE_ENTITY_MAX_TOKENS "
-                    f"({base_template_tokens + summary_tokens} tokens). Skipping this session."
+                    f"({base_template_tokens + summary_tokens} tokens). Skipping this session.",
+                    extra={"session_id": session_id, "signals_type": "session-summaries"},
                 )
                 continue
 
@@ -195,9 +199,9 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         state_id=generate_state_id_from_session_ids(session_ids),
     )
     if redis_output_key is None:
-        raise ValueError(
-            f"Failed to generate Redis output key for extracted patterns for sessions: {','.join(session_ids)}"
-        )
+        msg = f"Failed to generate Redis output key for extracted patterns for sessions: {','.join(session_ids)}"
+        temporalio.activity.logger.error(msg, extra={"signals_type": "session-summaries"})
+        raise ValueError(msg)
     # Check if patterns extracted are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
     success = await get_data_class_from_redis(
         redis_client=redis_client,
@@ -312,8 +316,9 @@ async def _generate_patterns_assignments(
     for _, task in tasks.items():
         res: RawSessionGroupPatternAssignmentsList | Exception = task.result()
         if isinstance(res, Exception):
-            logger.warning(
-                f"Patterns assignments generation failed for chunk from sessions ({logging_session_ids(session_ids)}) for user {user_id}: {res}"
+            temporalio.activity.logger.warning(
+                f"Patterns assignments generation failed for chunk from sessions ({logging_session_ids(session_ids)}) for user {user_id}: {res}",
+                extra={"user_id": user_id, "signals_type": "session-summaries"},
             )
             continue
         patterns_assignments_list_of_lists.append(res)
@@ -325,7 +330,9 @@ async def _generate_patterns_assignments(
             f"Too many patterns failed to assign session events, when summarizing {len(session_ids)} "
             f"sessions ({logging_session_ids(session_ids)}) for user {user_id}"
         )
-        logger.error(exception_message)
+        temporalio.activity.logger.error(
+            exception_message, extra={"user_id": user_id, "signals_type": "session-summaries"}
+        )
         raise ApplicationError(exception_message)
     return patterns_assignments_list_of_lists
 
@@ -425,7 +432,9 @@ async def assign_events_to_patterns_activity(
     try:
         user = await database_sync_to_async(User.objects.get, thread_sensitive=False)(id=inputs.user_id)
     except User.DoesNotExist:
-        raise ValueError(f"User with id {inputs.user_id} not found, when trying to store session group summary in DB")
+        msg = f"User with id {inputs.user_id} not found, when trying to store session group summary in DB"
+        temporalio.activity.logger.error(msg, extra={"user_id": inputs.user_id, "signals_type": "session-summaries"})
+        raise ValueError(msg)
     session_group_summary = await SessionGroupSummary.objects.acreate(
         team_id=inputs.team_id,
         title=inputs.summary_title or "Group summary",
@@ -470,22 +479,31 @@ async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatte
             )
             if chunk_pattern is None:
                 # Raise error if chunk is missing
-                raise ValueError(f"Chunk patterns not found in Redis for key {chunk_key}")
+                msg = f"Chunk patterns not found in Redis for key {chunk_key}"
+                temporalio.activity.logger.error(
+                    msg, extra={"redis_key": chunk_key, "signals_type": "session-summaries"}
+                )
+                raise ValueError(msg)
             chunk_patterns.append(chunk_pattern)
         except ValueError as err:
             # Raise error if any chunk is missing or malformed
-            logger.exception(
+            temporalio.activity.logger.exception(
                 f"Failed to retrieve chunk patterns from Redis key {chunk_key} when combining patterns from chunks: {err}",
-                redis_key=chunk_key,
-                user_id=inputs.user_id,
-                session_ids=inputs.session_ids,
+                extra={
+                    "redis_key": chunk_key,
+                    "user_id": inputs.user_id,
+                    "session_ids": inputs.session_ids,
+                    "signals_type": "session-summaries",
+                },
             )
             raise
     if not chunk_patterns:
-        raise ApplicationError(
+        msg = (
             f"No chunk patterns could be retrieved for sessions {inputs.session_ids} "
             f"for user {inputs.user_id}. All chunks may be missing or corrupted."
         )
+        temporalio.activity.logger.error(msg, extra={"user_id": inputs.user_id, "signals_type": "session-summaries"})
+        raise ApplicationError(msg)
 
     # Generate prompt for combining patterns from chunks
     combined_patterns_prompt = generate_session_group_patterns_combination_prompt(

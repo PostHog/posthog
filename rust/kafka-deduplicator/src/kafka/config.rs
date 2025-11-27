@@ -17,6 +17,7 @@ impl ConsumerConfigBuilder {
 
         // PostHog standard defaults for consumer
         config
+            .set("enable.auto.offset.store", "false") // Manual store for full control
             .set("enable.auto.commit", "false") // Manual commit for exactly-once semantics
             .set("auto.offset.reset", "earliest") // Don't miss data
             .set("session.timeout.ms", "30000")

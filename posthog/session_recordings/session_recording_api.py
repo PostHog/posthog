@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests
@@ -1578,7 +1579,7 @@ def list_recordings_from_query(
             with timer("load_prepend_recording"), tracer.start_as_current_span("load_prepend_recording"):
                 s3_persisted_recording = (
                     SessionRecording.objects.filter(team=team, session_id=session_recording_id_to_prepend)
-                    .exclude(object_storage_path=None)
+                    .exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
                     .first()
                 )
 
@@ -1613,7 +1614,7 @@ def list_recordings_from_query(
 
             persisted_recordings_queryset = SessionRecording.objects.filter(
                 team=team, session_id__in=sorted_session_ids
-            ).exclude(object_storage_path=None)
+            ).exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
 
             persisted_recordings = persisted_recordings_queryset.all()
 
