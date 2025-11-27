@@ -110,8 +110,6 @@ const recordingDisabledReason = (
                 set it on all events.
             </>
         )
-    } else if (!hasRecording) {
-        return 'No recording for this event'
     } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
         return (
             <>
@@ -122,6 +120,8 @@ const recordingDisabledReason = (
                 not all recordings are captured.
             </>
         )
+    } else if (!hasRecording) {
+        return 'No recording for this event'
     }
     return null
 }
