@@ -30,7 +30,11 @@ export function ActiveUsersInsights(): JSX.Element {
                     You are currently using the pageview event to define user activity. Consider using a more specific
                     event or action to track activity accurately.
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
-                        <LemonButton to={urls.customerAnalyticsConfiguration()} type="primary">
+                        <LemonButton
+                            data-attr="customer-analytics-configure-activity-event"
+                            to={urls.customerAnalyticsConfiguration()}
+                            type="primary"
+                        >
                             Configure activity event
                         </LemonButton>
                     </div>

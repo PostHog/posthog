@@ -70,7 +70,12 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
                 <LemonBanner type="warning">
                     This insight requires configuration.
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
-                        <LemonButton to={urls.customerAnalyticsConfiguration()} type="primary" onClick={handleClick}>
+                        <LemonButton
+                            data-attr="customer-analytics-insight-configure-events"
+                            to={urls.customerAnalyticsConfiguration()}
+                            type="primary"
+                            onClick={handleClick}
+                        >
                             Configure events
                         </LemonButton>
                     </div>

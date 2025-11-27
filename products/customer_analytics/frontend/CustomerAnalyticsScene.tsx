@@ -46,6 +46,7 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                             to={urls.customerAnalyticsConfiguration()}
                             tooltip="Configure customer analytics"
                             children="Configure"
+                            data-attr="customer-analytics-config"
                         />
                     }
                 />
