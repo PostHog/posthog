@@ -7453,8 +7453,7 @@
             "additionalProperties": false,
             "properties": {
                 "match_field": {
-                    "enum": ["campaign_name", "campaign_id"],
-                    "type": "string"
+                    "$ref": "#/definitions/MatchField"
                 }
             },
             "required": ["match_field"],
@@ -18697,6 +18696,10 @@
                 "primarySource"
             ],
             "type": "object"
+        },
+        "MatchField": {
+            "enum": ["campaign_name", "campaign_id"],
+            "type": "string"
         },
         "MatchedRecording": {
             "additionalProperties": false,

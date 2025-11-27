@@ -1,5 +1,7 @@
 # Bing Ads Marketing Source Adapter
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.hogql import ast
 
 from products.marketing_analytics.backend.hogql_queries.constants import (
@@ -17,6 +19,8 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
     - campaign_table: DataWarehouse table with campaign data
     - stats_table: DataWarehouse table with campaign performance report
     """
+
+    _source_type = NativeMarketingSource.BING_ADS
 
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:

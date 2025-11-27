@@ -585,18 +585,6 @@ class CalendarHeatmapMathType(StrEnum):
     DAU = "dau"
 
 
-class MatchField(StrEnum):
-    CAMPAIGN_NAME = "campaign_name"
-    CAMPAIGN_ID = "campaign_id"
-
-
-class CampaignFieldPreference(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    match_field: MatchField
-
-
 class ChartDisplayCategory(StrEnum):
     TIME_SERIES = "TimeSeries"
     CUMULATIVE_TIME_SERIES = "CumulativeTimeSeries"
@@ -2145,6 +2133,11 @@ class MarketingIntegrationConfig(
         MarketingIntegrationConfig5,
         MarketingIntegrationConfig6,
     ]
+
+
+class MatchField(StrEnum):
+    CAMPAIGN_NAME = "campaign_name"
+    CAMPAIGN_ID = "campaign_id"
 
 
 class MatchedRecordingEvent(BaseModel):
@@ -4158,6 +4151,13 @@ class Series(BaseModel):
     )
     label: str
     value: int
+
+
+class CampaignFieldPreference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    match_field: MatchField
 
 
 class Settings(BaseModel):
