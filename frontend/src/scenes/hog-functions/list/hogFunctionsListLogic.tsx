@@ -23,6 +23,7 @@ export type HogFunctionListFilters = {
     search?: string
     showPaused?: boolean
     statusFilter?: 'all' | 'active' | 'paused'
+    createdBy?: string | null
 }
 
 export type HogFunctionListPagination = {
@@ -210,13 +211,23 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         loading: [(s) => [s.hogFunctionsDataLoading], (loading) => loading],
 
         filteredHogFunctions: [
-            (s) => [s.hogFunctions, s.user, (_, props) => props.manualFunctions ?? []],
+            (s) => [s.hogFunctions, s.user, s.filters, (_, props) => props.manualFunctions ?? []],
             (
                 hogFunctions: HogFunctionType[],
                 user: UserType | null,
+                filters: HogFunctionListFilters,
                 manualFunctions: HogFunctionType[]
             ): HogFunctionType[] => {
-                return [...hogFunctions, ...manualFunctions].filter((x) => shouldShowHogFunction(x, user))
+                const { createdBy } = filters
+                return [...hogFunctions, ...manualFunctions].filter((x) => {
+                    if (!shouldShowHogFunction(x, user)) {
+                        return false
+                    }
+                    if (createdBy && x.created_by?.uuid !== createdBy) {
+                        return false
+                    }
+                    return true
+                })
             },
         ],
 

@@ -48,6 +48,7 @@ export function HogFunctionList({
         setPagination,
         setSearchValue,
         setStatusFilter,
+        setFilters,
     } = useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
