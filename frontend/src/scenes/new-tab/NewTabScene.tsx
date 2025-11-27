@@ -26,7 +26,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()
-        router.actions.push(urls.max(undefined, nextQuestion))
+        router.actions.push(urls.ai(undefined, nextQuestion))
     }
 
     // The active commands are just the items in newTabSceneDataInclude

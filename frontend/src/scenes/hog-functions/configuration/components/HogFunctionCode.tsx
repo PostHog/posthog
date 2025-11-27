@@ -9,6 +9,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import MaxTool from 'scenes/max/MaxTool'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { HogFunctionTemplateOptions } from './HogFunctionTemplateOptions'
 
@@ -159,6 +161,10 @@ export function HogFunctionCode(): JSX.Element {
             identifier="create_hog_transformation_function"
             context={{
                 current_hog_code: configuration.hog ?? '',
+            }}
+            contextDescription={{
+                text: 'Current Hog code',
+                icon: iconForType('data_warehouse'),
             }}
             callback={(toolOutput: string) => {
                 // Store the old value before changing

@@ -1,9 +1,10 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -113,7 +114,18 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             revenueAnalyticsSettingsLogic,
             ['events', 'dataWarehouseSources', 'goals as revenueGoals'],
         ],
-        actions: [dataWarehouseSettingsLogic, ['loadSourcesSuccess']],
+        actions: [
+            dataWarehouseSettingsLogic,
+            ['loadSourcesSuccess'],
+            eventUsageLogic,
+            [
+                'reportRevenueAnalyticsMRRModeChanged',
+                'reportRevenueAnalyticsDateRangeChanged',
+                'reportRevenueAnalyticsFilterApplied',
+                'reportRevenueAnalyticsBreakdownAdded',
+                'reportRevenueAnalyticsBreakdownRemoved',
+            ],
+        ],
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -350,6 +362,23 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        setMRRMode: ({ mrrMode }) => {
+            actions.reportRevenueAnalyticsMRRModeChanged(mrrMode)
+        },
+        setDates: ({ dateFrom, dateTo }) => {
+            actions.reportRevenueAnalyticsDateRangeChanged(dateFrom, dateTo)
+        },
+        setRevenueAnalyticsFilters: ({ revenueAnalyticsFilters }) => {
+            actions.reportRevenueAnalyticsFilterApplied(revenueAnalyticsFilters.length)
+        },
+        addBreakdown: ({ breakdown }) => {
+            actions.reportRevenueAnalyticsBreakdownAdded(breakdown.property, breakdown.type)
+        },
+        removeBreakdown: ({ breakdown }) => {
+            actions.reportRevenueAnalyticsBreakdownRemoved(breakdown.property, breakdown.type)
+        },
+    })),
     tabAwareActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),

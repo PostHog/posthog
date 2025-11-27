@@ -89,13 +89,27 @@ pub async fn export_logs_http(
             Json(json!({"error": format!("Invalid token")})),
         ));
     }
-    let export_request = ExportLogsServiceRequest::decode(body.as_ref()).map_err(|e| {
-        error!("Failed to decode protobuf: {}", e);
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Failed to decode protobuf: {}", e)})),
-        )
-    })?;
+
+    // Try to decode as Protobuf, if this fails, try JSON.
+    // We do this over relying on Content-Type headers to be as permissive as possible in what we accept.
+    let export_request = match ExportLogsServiceRequest::decode(body.as_ref()) {
+        Ok(request) => request,
+        Err(proto_err) => match serde_json::from_slice(&body) {
+            Ok(request) => request,
+            Err(json_err) => {
+                error!(
+                    "Failed to decode JSON: {} or Protobuf: {}",
+                    json_err, proto_err
+                );
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)}),
+                    ),
+                ));
+            }
+        },
+    };
 
     let mut rows: Vec<KafkaLogRow> = Vec::new();
     for resource_logs in export_request.resource_logs {
@@ -120,6 +134,7 @@ pub async fn export_logs_http(
         }
     }
 
+    let row_count = rows.len();
     if let Err(e) = service.sink.write(token, rows, body.len() as u64).await {
         error!("Failed to send logs to Kafka: {}", e);
         return Err((
@@ -127,7 +142,7 @@ pub async fn export_logs_http(
             Json(json!({"error": format!("Internal server error")})),
         ));
     } else {
-        debug!("Successfully sent logs to Kafka");
+        debug!("Successfully sent {} logs to Kafka", row_count);
     }
 
     // Return empty JSON object per OTLP spec

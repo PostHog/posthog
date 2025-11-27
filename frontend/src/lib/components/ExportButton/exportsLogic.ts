@@ -96,13 +96,13 @@ export const exportsLogic = kea<exportsLogicType>([
         startExport: async ({ exportData }) => {
             if (isLocalExport(exportData.export_context)) {
                 try {
-                    downloadBlob(
-                        new Blob([exportData.export_context.localData], { type: exportData.export_context.mediaType }),
-                        exportData.export_context.filename
-                    )
+                    const blob = new Blob([exportData.export_context.localData], {
+                        type: exportData.export_context.mediaType,
+                    })
+                    downloadBlob(blob, exportData.export_context.filename)
                     lemonToast.success('Export complete!')
-                } catch {
-                    lemonToast.error('Export failed!')
+                } catch (e: any) {
+                    lemonToast.error(`Export failed with error: ${e.message}`)
                 }
                 return
             }

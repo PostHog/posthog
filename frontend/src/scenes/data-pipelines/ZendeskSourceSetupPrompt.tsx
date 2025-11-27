@@ -8,7 +8,7 @@ import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 interface ZendeskSourceSetupPromptProps {
     children: React.ReactNode

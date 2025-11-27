@@ -137,7 +137,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                const useUseCaseSelection = values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === true
+                const useUseCaseSelection = values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
                 const redirectUrl = useUseCaseSelection ? urls.useCaseSelection() : urls.products()
                 actions.switchTeam(currentProject.id, redirectUrl)
             }

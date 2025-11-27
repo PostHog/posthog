@@ -15,7 +15,9 @@ from posthog.tasks.alerts.checks import (
     reset_stuck_alerts_task,
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
+from posthog.tasks.feature_flags import cleanup_stale_flags_expiry_tracking_task, refresh_expiring_flags_cache_entries
 from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
@@ -128,6 +130,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="team metadata expiry tracking cleanup",
     )
 
+    # Flags cache sync - hourly
+    sender.add_periodic_task(
+        crontab(hour="*", minute="15"),
+        refresh_expiring_flags_cache_entries.s(),
+        name="refresh expiring flags cache entries",
+    )
+
+    # Flags cache expiry tracking cleanup - daily at 3:15 AM
+    sender.add_periodic_task(
+        crontab(hour="3", minute="15"),
+        cleanup_stale_flags_expiry_tracking_task.s(),
+        name="flags cache expiry tracking cleanup",
+    )
+
     # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour="0", minute="0"),
@@ -149,6 +165,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             send_org_usage_reports.s(organization_ids=delayed_orgs),
             name="send delayed org usage reports",
         )
+
+    # Send LLM Analytics usage reports daily at 4:15 AM UTC
+    sender.add_periodic_task(
+        crontab(hour="4", minute="15"),
+        send_llm_analytics_usage_reports.s(),
+        name="send llm analytics usage reports",
+    )
 
     # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
     sender.add_periodic_task(
