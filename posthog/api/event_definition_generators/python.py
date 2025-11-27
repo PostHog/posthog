@@ -28,7 +28,7 @@ class PythonGenerator(EventDefinitionGenerator):
 
         for event_def in event_definitions:
             properties = schema_map.get(str(event_def.id), [])
-            event_name = self._escape_python_string(event_def.name)
+            event_name = event_def.name
 
             # Check if any property uses DateTime type thus if we need to import the datetime module
             if any(prop.property_type == "DateTime" for prop in properties) and not datetime_import:
@@ -56,9 +56,11 @@ class PythonGenerator(EventDefinitionGenerator):
             ]
             for event_name in sorted(event_property_mappings.keys()):
                 mappings = event_property_mappings[event_name]
-                mappings_lines.append(f'    "{event_name}": {{')
+                escaped_event = self._escape_python_string(event_name)
+                mappings_lines.append(f'    "{escaped_event}": {{')
                 for py_name, orig_name in sorted(mappings.items()):
-                    mappings_lines.append(f'        "{py_name}": "{orig_name}",')
+                    escaped_orig = self._escape_python_string(orig_name)
+                    mappings_lines.append(f'        "{py_name}": "{escaped_orig}",')
                 mappings_lines.append("    },")
             mappings_lines.append("}")
             property_mappings_section = "\n".join(mappings_lines) + "\n"
@@ -73,7 +75,6 @@ Generated at: {now}
 Generator version: {self.generator_version()}
 
 Provides type-safe event tracking with validated event names and properties.
-Your editor (VS Code, PyCharm, etc.) will provide autocomplete and validation automatically.
 
 USAGE GUIDE
 ===========
@@ -167,17 +168,21 @@ def capture(  # type: ignore[misc]  # mypy doesn't understand overload impl patt
             when calling the API.
         """
         class_name = self._to_class_name(event_name)
+        escaped_event_name = self._escape_python_string(event_name)
 
         if not properties:
             # Event with no schema - accept any properties
             return (
                 f'''class {class_name}(TypedDict, total=False):
-    """Properties for the `{event_name}` event (no schema defined)"""
+    """Properties for the `{escaped_event_name}` event (no schema defined)"""
     pass''',
                 {},
             )
 
-        lines = [f"class {class_name}(TypedDict, total=False):", f'    """Properties for the `{event_name}` event"""']
+        lines = [
+            f"class {class_name}(TypedDict, total=False):",
+            f'    """Properties for the `{escaped_event_name}` event"""',
+        ]
 
         used_names: set[str] = set()
         tracked_property_mappings: dict[str, str] = {}
@@ -186,24 +191,24 @@ def capture(  # type: ignore[misc]  # mypy doesn't understand overload impl patt
         sorted_props = sorted(properties, key=lambda p: (not p.is_required, p.name))
         for prop in sorted_props:
             py_type = self._map_property_type(prop.property_type)
-            escaped_prop_name = self._escape_python_string(prop.name)
-            prop_name = self._get_unique_name(self._to_python_identifier(escaped_prop_name), used_names)
+            prop_name = self._get_unique_name(self._to_python_identifier(prop.name), used_names)
             wrapper = "Required" if prop.is_required else "NotRequired"
             lines.append(f"    {prop_name}: {wrapper}[{py_type}]")
 
             if prop_name != prop.name:
-                tracked_property_mappings[prop_name] = self._escape_python_string(prop.name)
+                tracked_property_mappings[prop_name] = prop.name
 
         return "\n".join(lines), tracked_property_mappings
 
     def _generate_overload(self, event_name: str, properties: list[SchemaPropertyGroupProperty]) -> str:
         class_name = self._to_class_name(event_name)
+        escaped_event_name = self._escape_python_string(event_name)
         has_required_property = any(p.is_required for p in properties)
         properties_type = class_name if has_required_property else f"{class_name} | None = ..."
 
         return f"""@overload
 def capture(
-    event: Literal["{event_name}"],
+    event: Literal["{escaped_event_name}"],
     distinct_id: str,
     properties: {properties_type},
     **kwargs: Any,

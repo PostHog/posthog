@@ -120,7 +120,7 @@ class TestPythonGenerator(APIBaseTest):
         )
         self.assertEqual(
             mappings,
-            {"class_": "class", "file_name": 'file_\\"name', "file_name_2": "file_name", "is_active": "is-active"},
+            {"class_": "class", "file_name": 'file_"name', "file_name_2": "file_name", "is_active": "is-active"},
         )
 
     def test_generate_overload_with_no_required_properties(self):
@@ -176,7 +176,7 @@ def capture(
         schema_map = {
             "1": [
                 self._create_mock_property("user_id", "String", required=True),
-                self._create_mock_property('c"ount', "Numeric", required=False),
+                self._create_mock_property("c'ount", "Numeric", required=False),
                 self._create_mock_property("file-name", "String", required=True),
                 self._create_mock_property("file_name", "Object", required=True),  # Collision
                 # self._create_mock_property("created_at", "DateTime", required=True), # Create in the python implementation below
