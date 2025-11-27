@@ -208,7 +208,6 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         defaultDocsPath: '/docs/data-warehouse',
         activityScope: 'DataWarehouse',
-        layout: 'app-raw-no-header',
         description:
             'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
         iconType: 'data_warehouse',

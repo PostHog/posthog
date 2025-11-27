@@ -300,7 +300,7 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
         count_outside_range=0,
         count_other_team=0,
         duplicate=False,
-        properties=event["properties"],
+        properties={**event["properties"], "$current_url": "http://localhost.org"},
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         event_name=event["event"],
         table="sharded_events",
@@ -320,13 +320,17 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
         sort_key="session_id",
     )
 
-    snowflake_cursor.execute(f'SELECT "session_id", "end_timestamp" FROM "{table_name}"')
+    snowflake_cursor.execute(f'SELECT "session_id", "end_timestamp", "urls" FROM "{table_name}"')
     rows = list(snowflake_cursor.fetchall())
     new_event = new_events[0]
     new_event_properties = new_event["properties"] or {}
     assert len(rows) == 1
     assert rows[0][0] == new_event_properties["$session_id"]
     assert rows[0][1] == dt.datetime.fromisoformat(new_event["timestamp"])
+    # Snowflake client doesn't evaluate arrays to python lists.
+    # The presence of new lines is an indicator that 'urls' is of the correct type as
+    # that's how snowflake displays arrays.
+    assert rows[0][2] == '[\n  "http://localhost.org"\n]'
 
 
 async def test_insert_into_snowflake_activity_removes_internal_stage_files(

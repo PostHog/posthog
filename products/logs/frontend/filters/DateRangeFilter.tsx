@@ -58,18 +58,16 @@ export const DateRangeFilter = (): JSX.Element => {
     const { setDateRange } = useActions(logsLogic)
 
     return (
-        <span className="rounded bg-surface-primary">
-            <DateFilter
-                size="small"
-                dateFrom={dateRange.date_from}
-                dateTo={dateRange.date_to}
-                dateOptions={dateMapping}
-                onChange={(changedDateFrom, changedDateTo) => {
-                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                }}
-                allowTimePrecision
-                allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks', 'months']}
-            />
-        </span>
+        <DateFilter
+            size="small"
+            dateFrom={dateRange.date_from}
+            dateTo={dateRange.date_to}
+            dateOptions={dateMapping}
+            onChange={(changedDateFrom, changedDateTo) => {
+                setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+            }}
+            allowTimePrecision
+            allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks', 'months']}
+        />
     )
 }

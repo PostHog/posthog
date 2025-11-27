@@ -8,139 +8,124 @@ SELECT_FROM_PERSONS = """
 SELECT
     persons.team_id AS team_id,
     persons.distinct_id AS distinct_id,
-    persons.person_id AS person_id,
+    toString(persons.person_id) AS person_id,
     persons.properties AS properties,
     persons.person_distinct_id_version AS person_distinct_id_version,
     persons.person_version AS person_version,
     persons.created_at AS created_at,
     persons._inserted_at AS _inserted_at,
-    persons.is_deleted AS is_deleted
+    toBool(persons.is_deleted) AS is_deleted
 FROM (
-    with new_persons as (
-        select
-            id,
-            max(version) as version,
-            argMax(_timestamp, person.version) AS _timestamp2
-        from
-            person
-        where
-            team_id = {team_id}::Int64
-            and id in (
-                select
-                    id
-                from
-                    person
-                where
-                    team_id = {team_id}::Int64
-                    and _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
-            )
-        group by
-            id
-        having
-            (
-                _timestamp2 >= {interval_start}::DateTime64
-                AND _timestamp2 < {interval_end}::DateTime64
-            )
-    ),
-    new_distinct_ids as (
+    WITH new_persons AS (
         SELECT
-            argMax(person_id, person_distinct_id2.version) as person_id
-        from
-            person_distinct_id2
-        where
-            team_id = {team_id}::Int64
-            and distinct_id in (
-                select
-                    distinct_id
-                from
-                    person_distinct_id2
-                where
-                    team_id = {team_id}::Int64
-                    and _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
-            )
-        group by
-            distinct_id
-        having
-            (
-                argMax(_timestamp, person_distinct_id2.version) >= {interval_start}::DateTime64
-                AND argMax(_timestamp, person_distinct_id2.version) < {interval_end}::DateTime64
-            )
-    ),
-    all_new_persons as (
-        select
             id,
-            version
-        from
-            new_persons
-        UNION
-        ALL
-        select
-            id,
-            max(version)
-        from
+            max(version) AS version2,
+            argMax(_timestamp, person.version) AS _timestamp2
+        FROM
             person
-        where
+        WHERE
             team_id = {team_id}::Int64
-            and id in new_distinct_ids
-        group by
+            AND _timestamp >= {interval_start}::DateTime64
+            AND _timestamp < {interval_end}::DateTime64
+        GROUP BY
             id
+        HAVING
+            _timestamp2 >= {interval_start}::DateTime64
+            AND _timestamp2 < {interval_end}::DateTime64
+    ),
+    new_distinct_ids AS (
+        SELECT
+            distinct_id,
+            person_id,
+            max(version) AS version2,
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp2
+        FROM
+            person_distinct_id2
+        WHERE
+            team_id = {team_id}::Int64
+            AND _timestamp >= {interval_start}::DateTime64
+            AND _timestamp < {interval_end}::DateTime64
+        GROUP BY
+            distinct_id,
+            person_id
+        HAVING
+            _timestamp2 >= {interval_start}::DateTime64
+            AND _timestamp2 < {interval_end}::DateTime64
+    ),
+    combined_new_person_distinct_id_pairs AS (
+        SELECT
+            distinct_id,
+            argMax(person_id, person_distinct_id2.version) AS person_id2,
+            max(version) AS version
+        FROM
+            person_distinct_id2
+        WHERE
+            team_id = {team_id}::Int64
+            AND (
+                distinct_id IN (
+                    SELECT
+                        distinct_id
+                    FROM
+                        new_distinct_ids
+                )
+                OR person_id IN (
+                    SELECT
+                        id
+                    FROM
+                        new_persons
+                )
+            )
+        GROUP BY
+            distinct_id
     )
-    select
-        p.team_id AS team_id,
+    SELECT
+        pd.team_id AS team_id,
         pd.distinct_id AS distinct_id,
-        toString(p.id) AS person_id,
-        p.properties AS properties,
-        pd.version AS person_distinct_id_version,
-        p.version AS person_version,
-        p.created_at AS created_at,
-        toBool(p.is_deleted) AS is_deleted,
+        argMax(pd.person_id, pd.version) AS person_id,
+        max(p.version) AS person_version,
+        max(pd.version) AS person_distinct_id_version,
+        argMax(p.properties, p.version) AS properties,
+        argMax(p.created_at, p.version) AS created_at,
+        argMax(p.is_deleted, p.version) AS is_deleted,
         multiIf(
             (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                argMax(pd._timestamp, p.version) >= {interval_start}::DateTime64
+                AND argMax(pd._timestamp, p.version) < {interval_end}::DateTime64
             )
             AND NOT (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                argMax(p._timestamp, p.version) >= {interval_start}::DateTime64
+                AND argMax(p._timestamp, p.version) < {interval_end}::DateTime64
             ),
-            pd._timestamp,
+            argMax(pd._timestamp, p.version),
             (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                argMax(p._timestamp, p.version) >= {interval_start}::DateTime64
+                AND argMax(p._timestamp, p.version) < {interval_end}::DateTime64
             )
             AND NOT (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                argMax(pd._timestamp, p.version) >= {interval_start}::DateTime64
+                AND argMax(pd._timestamp, p.version) < {interval_end}::DateTime64
             ),
-            p._timestamp,
-            least(p._timestamp, pd._timestamp)
+            argMax(p._timestamp, p.version),
+            least(argMax(p._timestamp, p.version), argMax(pd._timestamp, p.version))
         ) AS _inserted_at
-    from
+    FROM
         person p
-        INNER JOIN (
+        INNER JOIN person_distinct_id2 pd
+            ON p.id = pd.person_id
+            AND pd.team_id = p.team_id
+    WHERE
+        pd.team_id = {team_id}::Int64
+        AND (pd.distinct_id, pd.person_id, pd.version) IN (
             SELECT
                 distinct_id,
-                max(version) AS version,
-                argMax(person_id, person_distinct_id2.version) AS person_id2,
-                argMax(_timestamp, person_distinct_id2.version) AS _timestamp
+                person_id2,
+                version
             FROM
-                person_distinct_id2
-            WHERE
-                team_id = {team_id}::Int64
-                and person_id IN (
-                    select
-                        id
-                    from
-                        all_new_persons
-                )
-            GROUP BY
-                distinct_id
-        ) AS pd ON p.id = pd.person_id2
-    where
-        team_id = {team_id}::Int64
-        and (id, version) in all_new_persons
+                combined_new_person_distinct_id_pairs
+        )
+    GROUP BY
+        pd.team_id,
+        pd.distinct_id
     ORDER BY
         _inserted_at
 ) AS persons
@@ -787,152 +772,137 @@ SETTINGS
     log_comment={log_comment}
 """)
 
+
 EXPORT_TO_S3_FROM_PERSONS = Template("""
 INSERT INTO FUNCTION
-   s3(
-       '$s3_folder/export_{{_partition_id}}.arrow',
-       '$s3_key',
-       '$s3_secret',
-       'ArrowStream'
+    s3(
+        '$s3_folder/export_{{_partition_id}}.arrow',
+        '$s3_key',
+        '$s3_secret',
+        'ArrowStream'
     )
     PARTITION BY rand() %% $num_partitions
 SELECT
     persons.team_id AS team_id,
     persons.distinct_id AS distinct_id,
-    persons.person_id AS person_id,
+    toString(persons.person_id) AS person_id,
     persons.properties AS properties,
     persons.person_distinct_id_version AS person_distinct_id_version,
     persons.person_version AS person_version,
     persons.created_at AS created_at,
     persons._inserted_at AS _inserted_at,
-    persons.is_deleted AS is_deleted
+    toBool(persons.is_deleted) AS is_deleted
 FROM (
-    with new_persons as (
-        select
-            id,
-            max(version) as version,
-            argMax(_timestamp, person.version) AS _timestamp2
-        from
-            person
-        where
-            team_id = {team_id}::Int64
-            and id in (
-                select
-                    id
-                from
-                    person
-                where
-                    team_id = {team_id}::Int64
-                    and _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
-            )
-        group by
-            id
-        having
-            (
-                _timestamp2 >= {interval_start}::DateTime64
-                AND _timestamp2 < {interval_end}::DateTime64
-            )
-    ),
-    new_distinct_ids as (
+    WITH new_persons AS (
         SELECT
-            argMax(person_id, person_distinct_id2.version) as person_id
-        from
-            person_distinct_id2
-        where
-            team_id = {team_id}::Int64
-            and distinct_id in (
-                select
-                    distinct_id
-                from
-                    person_distinct_id2
-                where
-                    team_id = {team_id}::Int64
-                    and _timestamp >= {interval_start}::DateTime64
-                    AND _timestamp < {interval_end}::DateTime64
-            )
-        group by
-            distinct_id
-        having
-            (
-                argMax(_timestamp, person_distinct_id2.version) >= {interval_start}::DateTime64
-                AND argMax(_timestamp, person_distinct_id2.version) < {interval_end}::DateTime64
-            )
-    ),
-    all_new_persons as (
-        select
             id,
-            version
-        from
-            new_persons
-        UNION
-        ALL
-        select
-            id,
-            max(version)
-        from
+            max(version) AS version2,
+            argMax(_timestamp, person.version) AS _timestamp2
+        FROM
             person
-        where
+        WHERE
             team_id = {team_id}::Int64
-            and id in new_distinct_ids
-        group by
+            AND _timestamp >= {interval_start}::DateTime64
+            AND _timestamp < {interval_end}::DateTime64
+        GROUP BY
             id
+        HAVING
+            _timestamp2 >= {interval_start}::DateTime64
+            AND _timestamp2 < {interval_end}::DateTime64
+    ),
+    new_distinct_ids AS (
+        SELECT
+            distinct_id,
+            person_id,
+            max(version) AS version2,
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp2
+        FROM
+            person_distinct_id2
+        WHERE
+            team_id = {team_id}::Int64
+            AND _timestamp >= {interval_start}::DateTime64
+            AND _timestamp < {interval_end}::DateTime64
+        GROUP BY
+            distinct_id,
+            person_id
+        HAVING
+            _timestamp2 >= {interval_start}::DateTime64
+            AND _timestamp2 < {interval_end}::DateTime64
+    ),
+    combined_new_person_distinct_id_pairs AS (
+        SELECT
+            distinct_id,
+            argMax(person_id, person_distinct_id2.version) AS person_id2,
+            max(version) AS version
+        FROM
+            person_distinct_id2
+        WHERE
+            team_id = {team_id}::Int64
+            AND (
+                distinct_id IN (
+                    SELECT
+                        distinct_id
+                    FROM
+                        new_distinct_ids
+                )
+                OR person_id IN (
+                    SELECT
+                        id
+                    FROM
+                        new_persons
+                )
+            )
+        GROUP BY
+            distinct_id
     )
-    select
-        p.team_id AS team_id,
+    SELECT
+        pd.team_id AS team_id,
         pd.distinct_id AS distinct_id,
-        toString(p.id) AS person_id,
-        p.properties AS properties,
-        pd.version AS person_distinct_id_version,
-        p.version AS person_version,
-        p.created_at AS created_at,
-        toBool(p.is_deleted) AS is_deleted,
+        argMax(pd.person_id, pd.version) AS person_id,
+        max(p.version) AS person_version,
+        max(pd.version) AS person_distinct_id_version,
+        argMax(p.properties, p.version) AS properties,
+        argMax(p.created_at, p.version) AS created_at,
+        argMax(p.is_deleted, p.version) AS is_deleted,
         multiIf(
             (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                argMax(pd._timestamp, p.version) >= {interval_start}::DateTime64
+                AND argMax(pd._timestamp, p.version) < {interval_end}::DateTime64
             )
             AND NOT (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                argMax(p._timestamp, p.version) >= {interval_start}::DateTime64
+                AND argMax(p._timestamp, p.version) < {interval_end}::DateTime64
             ),
-            pd._timestamp,
+            argMax(pd._timestamp, p.version),
             (
-                p._timestamp >= {interval_start}::DateTime64
-                AND p._timestamp < {interval_end}::DateTime64
+                argMax(p._timestamp, p.version) >= {interval_start}::DateTime64
+                AND argMax(p._timestamp, p.version) < {interval_end}::DateTime64
             )
             AND NOT (
-                pd._timestamp >= {interval_start}::DateTime64
-                AND pd._timestamp < {interval_end}::DateTime64
+                argMax(pd._timestamp, p.version) >= {interval_start}::DateTime64
+                AND argMax(pd._timestamp, p.version) < {interval_end}::DateTime64
             ),
-            p._timestamp,
-            least(p._timestamp, pd._timestamp)
+            argMax(p._timestamp, p.version),
+            least(argMax(p._timestamp, p.version), argMax(pd._timestamp, p.version))
         ) AS _inserted_at
-    from
+    FROM
         person p
-        INNER JOIN (
+        INNER JOIN person_distinct_id2 pd
+            ON p.id = pd.person_id
+            AND pd.team_id = p.team_id
+    WHERE
+        pd.team_id = {team_id}::Int64
+        AND (pd.distinct_id, pd.person_id, pd.version) IN (
             SELECT
                 distinct_id,
-                max(version) AS version,
-                argMax(person_id, person_distinct_id2.version) AS person_id2,
-                argMax(_timestamp, person_distinct_id2.version) AS _timestamp
+                person_id2,
+                version
             FROM
-                person_distinct_id2
-            WHERE
-                team_id = {team_id}::Int64
-                and person_id IN (
-                    select
-                        id
-                    from
-                        all_new_persons
-                )
-            GROUP BY
-                distinct_id
-            $filter_distinct_ids
-        ) AS pd ON p.id = pd.person_id2
-    where
-        team_id = {team_id}::Int64
-        and (id, version) in all_new_persons
+                combined_new_person_distinct_id_pairs
+        )
+    GROUP BY
+        pd.team_id,
+        pd.distinct_id
 ) AS persons
 SETTINGS
     max_bytes_before_external_group_by=50000000000,

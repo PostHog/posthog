@@ -267,7 +267,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             </div>
                             <div className="flex flex-col w-full h-full">
                                 {countedElements.length ? (
-                                    countedElements.map(({ element, count, actionStep }, index) => {
+                                    countedElements.map(({ element, count }, index) => {
+                                        const text = element.innerText?.trim().substring(0, 255)
+                                        const tagName = element.tagName.toLowerCase()
                                         return (
                                             <LemonButton
                                                 key={index}
@@ -283,12 +285,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                                 >
                                                     <div>
                                                         {index + 1}.&nbsp;
-                                                        {actionStep?.text ||
-                                                            (actionStep?.tag_name ? (
-                                                                <code>&lt;{actionStep.tag_name}&gt;</code>
-                                                            ) : (
-                                                                <em>Element</em>
-                                                            ))}
+                                                        {text || <code>&lt;{tagName}&gt;</code>}
                                                     </div>
                                                     <div>{count} clicks</div>
                                                 </div>

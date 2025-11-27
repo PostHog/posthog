@@ -49,4 +49,6 @@ pub const MESSAGES_SKIPPED_REVOKED: &str = "kafka_messages_skipped_revoked_total
 pub const BATCH_CONSUMER_MESSAGES_RECEIVED: &str = "kafka_batch_consumer_messages_received";
 
 /// rdkafka consumption errors received
-pub const BATCH_CONSUMER_KAFKA_ERRORS: &str = "kafka_batch_consumer_kafka_errors";
+pub const BATCH_CONSUMER_KAFKA_ERROR: &str = "kafka_batch_consumer_kafka_error";
+
+pub const BATCH_CONSUMER_MESSAGE_ERROR: &str = "kafka_batch_consumer_message_error";
