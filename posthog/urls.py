@@ -30,11 +30,10 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.github_sdk_versions import github_sdk_versions
 from posthog.api.query import progress
+from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
 from posthog.api.survey import public_survey_page, surveys
-from posthog.api.team_sdk_versions import team_sdk_versions
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
@@ -173,8 +172,7 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
-    path("api/sdk_versions/", github_sdk_versions),
-    path("api/team_sdk_versions/", team_sdk_versions),
+    path("api/sdk_doctor/", sdk_doctor),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
