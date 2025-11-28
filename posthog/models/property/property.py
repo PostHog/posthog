@@ -89,6 +89,7 @@ VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
     "event_metadata": ["key", "value"],
     "person": ["key", "value"],
+    "person_on_event": ["key", "value"],
     "data_warehouse": ["key", "value"],
     "data_warehouse_person_property": ["key", "value"],
     "error_tracking_issue": ["key", "value"],
