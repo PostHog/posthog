@@ -1,7 +1,3 @@
-/**
- * Self-contained utility functions for the new running time calculator.
- *
- */
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -10,17 +6,102 @@ import { isExperimentFunnelMetric, isExperimentMeanMetric } from '~/queries/sche
 import type { Experiment } from '~/types'
 import { ExperimentMetricMathType } from '~/types'
 
-// Variance scaling factors for estimating variance from mean
 const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
 const VARIANCE_SCALING_FACTOR_SUM = 0.25
 
-/**
- * Extract the baseline value from experiment results based on metric type.
- * Returns the control group's performance metric:
- * - For count metrics: average events per user
- * - For sum metrics: average property value per user
- * - For funnel metrics: conversion rate
- */
+export type MetricMathType = 'funnel' | 'count' | 'sum'
+
+export function calculateVariance(metricType: MetricMathType, baselineValue: number): number | null {
+    switch (metricType) {
+        case 'funnel':
+            return null // variance embedded in p(1-p) formula
+        case 'count':
+            return VARIANCE_SCALING_FACTOR_TOTAL_COUNT * baselineValue
+        case 'sum':
+            return VARIANCE_SCALING_FACTOR_SUM * baselineValue ** 2
+    }
+}
+
+export function calculateSampleSize(
+    metricType: MetricMathType,
+    baselineValue: number,
+    mde: number,
+    numberOfVariants: number
+): number | null {
+    if (mde === 0) {
+        return null
+    }
+
+    const mdeDecimal = mde / 100
+    const d = mdeDecimal * baselineValue
+
+    if (d === 0) {
+        return null
+    }
+
+    let sampleSizeFormula: number
+
+    if (metricType === 'funnel') {
+        /**
+         * Binomial metric (conversion rate):
+         *
+         * - `baselineValue` is the baseline conversion rate (probability of success).
+         * - MDE is applied as a percentage of this rate to compute `d`.
+         *
+         * Formula:
+         * d = MDE * conversionRate
+         *
+         * Sample size formula:
+         * N = (16 * p * (1 - p)) / d^2
+         *
+         * Where:
+         * - `p` is the conversion rate (baseline success probability).
+         * - The variance is inherent in `p(1 - p)`, which represents binomial variance.
+         */
+        sampleSizeFormula = (16 * baselineValue * (1 - baselineValue)) / d ** 2
+    } else {
+        /**
+         * Count or Sum metric:
+         *
+         * For count metrics:
+         * - `baselineValue` is the average number of events per user (e.g., clicks per user).
+         *
+         * For sum metrics (continuous property):
+         * - `baselineValue` is the average property value per user (e.g., revenue per user).
+         *
+         * Formula:
+         * d = MDE * baselineValue
+         *
+         * Sample size formula:
+         * N = (16 * variance) / d^2
+         *
+         * Where:
+         * - `16` comes from statistical power analysis:
+         *    - Based on a 95% confidence level (Z_alpha/2 = 1.96) and 80% power (Z_beta = 0.84),
+         *      the combined squared Z-scores yield approximately 16.
+         * - `variance` is estimated from the baseline value using scaling factors.
+         */
+        const variance = calculateVariance(metricType, baselineValue)
+        if (variance === null) {
+            return null
+        }
+        sampleSizeFormula = (16 * variance) / d ** 2
+    }
+
+    return Math.ceil(sampleSizeFormula * numberOfVariants)
+}
+
+export function getMetricMathType(metric: ExperimentMetric): MetricMathType {
+    if (isExperimentFunnelMetric(metric)) {
+        return 'funnel'
+    }
+    if (isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.Sum) {
+        return 'sum'
+    }
+    return 'count'
+}
+
+// Returns: avg events/user (count), avg property value/user (sum), or conversion rate (funnel)
 export function calculateBaselineValue(
     baseline: CachedNewExperimentQueryResponse['baseline'],
     metric: ExperimentMetric
@@ -51,151 +132,19 @@ export function calculateBaselineValue(
     return null
 }
 
-/**
- * Calculate variance from experiment results
- */
 export function calculateVarianceFromResults(baselineValue: number, metric: ExperimentMetric): number | null {
-    if (isExperimentMeanMetric(metric)) {
-        if (metric.source.math === ExperimentMetricMathType.Sum) {
-            const averagePropertyValuePerUser = baselineValue
-            return VARIANCE_SCALING_FACTOR_SUM * averagePropertyValuePerUser ** 2
-        }
-
-        // Default to TotalCount for mean metrics (when math is undefined or TotalCount)
-        const averageEventsPerUser = baselineValue
-        return VARIANCE_SCALING_FACTOR_TOTAL_COUNT * averageEventsPerUser
-    }
-
-    if (isExperimentFunnelMetric(metric)) {
-        // Funnel metrics don't need separate variance calculation
-        // The variance is embedded in the formula: p(1-p)
-        return null
-    }
-
-    lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
-    return null
+    return calculateVariance(getMetricMathType(metric), baselineValue)
 }
 
-/**
- * Calculate the recommended sample size needed for the experiment.
- *
- * This simplified version is designed for the new calculator that extracts metrics
- * from actual experiment results. The `baselineValue` parameter represents different things
- * depending on the metric type:
- * - For Sum metrics: average property value per user
- * - For Count metrics: average events per user
- * - For Funnel metrics: conversion rate
- */
 export function calculateRecommendedSampleSize(
     metric: ExperimentMetric,
     minimumDetectableEffect: number,
     baselineValue: number,
-    variance: number | null, // null for funnel metrics
     numberOfVariants: number
 ): number | null {
-    const minimumDetectableEffectDecimal = minimumDetectableEffect / 100
-
-    if (minimumDetectableEffectDecimal === 0) {
-        lemonToast.error('Minimum detectable effect cannot be 0')
-        return null
-    }
-
-    let d // Represents the absolute effect size (difference we want to detect)
-    let sampleSizeFormula
-
-    if (isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.Sum) {
-        /**
-         * Continuous property metric:
-         *
-         * - `averagePropertyValuePerUser` is the average value of the measured property per user (e.g., revenue per user).
-         * - MDE is applied as a percentage of this mean to compute `d`.
-         *
-         * Formula:
-         *
-         * d = MDE * averagePropertyValuePerUser
-         */
-        const averagePropertyValuePerUser = baselineValue
-        d = minimumDetectableEffectDecimal * averagePropertyValuePerUser
-
-        /**
-         * Sample Size Formula for Continuous metrics:
-         *
-         * N = (16 * variance) / d^2
-         *
-         * Where:
-         * - `variance` is the estimated variance of the continuous property.
-         * - The formula is identical to the Count metric case.
-         */
-        if (variance === null) {
-            lemonToast.error('Mean metric (Sum) requires variance, but got null')
-            return null
-        }
-        sampleSizeFormula = (16 * variance) / d ** 2
-    } else if (isExperimentMeanMetric(metric)) {
-        /**
-         * Count Per User Metric (default for mean metrics when *math* is undefined or TotalCount):
-         * - `averageEventsPerUser` is the average number of events per user (e.g., clicks per user).
-         * - MDE is applied as a percentage of this average to compute `d`.
-         *
-         * Formula:
-         * d = MDE * averageEventsPerUser
-         */
-        const averageEventsPerUser = baselineValue
-        d = minimumDetectableEffectDecimal * averageEventsPerUser
-
-        /**
-         * Sample size formula:
-         *
-         * N = (16 * variance) / d^2
-         *
-         * Where:
-         * - `16` comes from statistical power analysis:
-         *    - Based on a 95% confidence level (Z_alpha/2 = 1.96) and 80% power (Z_beta = 0.84),
-         *      the combined squared Z-scores yield approximately 16.
-         * - `variance` is the estimated variance of the event count per user.
-         * - `d` is the absolute effect size (MDE * averageEventsPerUser).
-         */
-        if (variance === null) {
-            lemonToast.error('Mean metric (TotalCount) requires variance, but got null')
-            return null
-        }
-        sampleSizeFormula = (16 * variance) / d ** 2
-    } else if (isExperimentFunnelMetric(metric)) {
-        /**
-         * Binomial metric (conversion rate):
-         *
-         * - `conversionRate` is the baseline conversion rate (probability of success).
-         * - MDE is applied as an absolute percentage change.
-         *
-         * Formula:
-         *
-         * d = MDE * conversionRate
-         */
-        const conversionRate = baselineValue
-        d = minimumDetectableEffectDecimal * conversionRate
-
-        /**
-         * Sample size formula:
-         *
-         * N = (16 * p * (1 - p)) / d^2
-         *
-         * Where:
-         * - `p` is the conversion rate (baseline success probability).
-         * - `d` is the absolute MDE (e.g., detecting a 5% increase means `d = 0.05`).
-         * - The variance is inherent in `p(1 - p)`, which represents binomial variance.
-         */
-        sampleSizeFormula = (16 * conversionRate * (1 - conversionRate)) / d ** 2
-    } else {
-        lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
-        return null
-    }
-
-    return Math.ceil(sampleSizeFormula * numberOfVariants)
+    return calculateSampleSize(getMetricMathType(metric), baselineValue, minimumDetectableEffect, numberOfVariants)
 }
 
-/**
- * Calculate total current exposures across all variants
- */
 export function calculateCurrentExposures(results: CachedNewExperimentQueryResponse | null): number | null {
     if (!results) {
         return null
@@ -207,9 +156,6 @@ export function calculateCurrentExposures(results: CachedNewExperimentQueryRespo
     return baselineCount + variantCount
 }
 
-/**
- * Calculate days elapsed since experiment started
- */
 export function calculateDaysElapsed(startDate: string | null): number | null {
     if (!startDate) {
         return null
@@ -218,9 +164,6 @@ export function calculateDaysElapsed(startDate: string | null): number | null {
     return dayjs().diff(dayjs(startDate), 'days', true) // fractional days
 }
 
-/**
- * Calculate exposure rate (exposures per day)
- */
 export function calculateExposureRate(currentExposures: number | null, daysElapsed: number | null): number | null {
     if (!currentExposures || !daysElapsed || daysElapsed < 0.1) {
         return null
@@ -229,9 +172,6 @@ export function calculateExposureRate(currentExposures: number | null, daysElaps
     return currentExposures / daysElapsed
 }
 
-/**
- * Calculate estimated remaining days to reach recommended sample size
- */
 export function calculateRemainingDays(
     recommendedSampleSize: number | null,
     currentExposures: number | null,
@@ -250,10 +190,7 @@ export function calculateRemainingDays(
     return remainingSample / exposureRate
 }
 
-/**
- * Calculate all experiment time estimates from validated metric and experiment data.
- * Caller must ensure metric, result.baseline, and experiment.start_date are present.
- */
+// Caller must ensure metric, result.baseline, and experiment.start_date are present
 export function calculateExperimentTimeEstimate(
     metric: ExperimentMetric,
     result: CachedNewExperimentQueryResponse,
@@ -270,14 +207,12 @@ export function calculateExperimentTimeEstimate(
         return { currentExposures: null, recommendedSampleSize: null, exposureRate: null, estimatedRemainingDays: null }
     }
 
-    const variance = calculateVarianceFromResults(baselineValue, metric)
     const numberOfVariants = experiment.feature_flag?.filters.multivariate?.variants.length ?? 2
 
     const recommendedSampleSize = calculateRecommendedSampleSize(
         metric,
         minimumDetectableEffect,
         baselineValue,
-        variance,
         numberOfVariants
     )
 
