@@ -30,7 +30,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Logs',
             intents: [ProductKey.LOGS],
-            category: 'Unreleased',
+            category: 'Tools',
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),

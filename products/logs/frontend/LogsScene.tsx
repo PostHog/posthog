@@ -27,6 +27,8 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -64,8 +66,11 @@ export function LogsScene(): JSX.Element {
         sparklineLoading,
         timestampFormat,
         isPinned,
+        hasMoreLogsToLoad,
+        logsPageSize,
+        logsRemainingToLoad,
     } = useValues(logsLogic)
-    const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
+    const { runQuery, setDateRangeFromSparkline, loadMoreLogs } = useActions(logsLogic)
 
     useEffect(() => {
         runQuery()
@@ -79,7 +84,7 @@ export function LogsScene(): JSX.Element {
         timestampFormat === 'absolute'
             ? {
                   formatDate: 'YYYY-MM-DD',
-                  formatTime: 'HH:mm:ss',
+                  formatTime: 'HH:mm:ss.SSS',
               }
             : {}
 
@@ -131,7 +136,7 @@ export function LogsScene(): JSX.Element {
             </div>
             <SceneDivider />
             <div>
-                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height))] z-20 bg-primary pt-2">
+                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height)-3px)] z-20 bg-primary pt-2">
                     <div className="pb-2">
                         <DisplayOptions />
                     </div>
@@ -159,6 +164,23 @@ export function LogsScene(): JSX.Element {
                         tzLabelFormat={tzLabelFormat}
                         showPinnedWithOpacity
                     />
+                    {parsedLogs.length > 0 && (
+                        <div className="m-2 flex items-center">
+                            <LemonButton
+                                onClick={loadMoreLogs}
+                                loading={logsLoading}
+                                fullWidth
+                                center
+                                disabled={!hasMoreLogsToLoad || logsLoading}
+                            >
+                                {logsLoading
+                                    ? 'Loading more logs...'
+                                    : hasMoreLogsToLoad
+                                      ? `Click to load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
+                                      : `Showing all ${humanFriendlyNumber(parsedLogs.length)} logs`}
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
             </div>
         </SceneContent>
@@ -217,6 +239,18 @@ function LogsTable({
                 }
                 columns={[
                     {
+                        title: '#',
+                        key: 'row_number',
+                        width: 0,
+                        render: (_, record, index) => (
+                            <span
+                                className={cn('text-muted font-mono text-xs', isPinned(record.uuid) ? 'opacity-0' : '')}
+                            >
+                                {index + 1}
+                            </span>
+                        ),
+                    },
+                    {
                         title: '',
                         key: 'actions',
                         width: 0,
@@ -247,7 +281,9 @@ function LogsTable({
                         key: 'timestamp',
                         dataIndex: 'timestamp',
                         width: 180,
-                        render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
+                        render: (_, { timestamp }) => (
+                            <TZLabel time={timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
+                        ),
                     },
                     {
                         title: 'Level',
@@ -283,7 +319,7 @@ function LogsTable({
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const { expandedAttributeBreaksdowns } = useValues(logsLogic)
+    const { expandedAttributeBreaksdowns, tabId } = useValues(logsLogic)
     const { addFilter, toggleAttributeBreakdown } = useActions(logsLogic)
 
     const attributes = log.attributes
@@ -352,7 +388,9 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                 noIndent: true,
                 showRowExpansionToggle: false,
                 isRowExpanded: (record) => expandedAttributeBreaksdowns.includes(record.key),
-                expandedRowRender: (record) => <AttributeBreakdowns attribute={record.key} addFilter={addFilter} />,
+                expandedRowRender: (record) => (
+                    <AttributeBreakdowns attribute={record.key} addFilter={addFilter} tabId={tabId} />
+                ),
             }}
         />
     )
@@ -415,45 +453,78 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, prettifyJson, timestampFormat } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat } = useActions(logsLogic)
+    const {
+        orderBy,
+        wrapBody,
+        prettifyJson,
+        timestampFormat,
+        logsPageSize,
+        totalLogsMatchingFilters,
+        parsedLogs,
+        sparklineLoading,
+    } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat, setLogsPageSize } = useActions(logsLogic)
 
     return (
-        <div className="flex gap-2">
-            <LemonSegmentedButton
-                value={orderBy}
-                onChange={setOrderBy}
-                options={[
-                    {
-                        value: 'earliest',
-                        label: 'Earliest',
-                    },
-                    {
-                        value: 'latest',
-                        label: 'Latest',
-                    },
-                ]}
-                size="small"
-            />
-            <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
-            <LemonCheckbox
-                checked={prettifyJson}
-                bordered
-                onChange={setPrettifyJson}
-                label="Prettify JSON"
-                size="small"
-            />
-            <LemonSelect
-                value={timestampFormat}
-                icon={<IconClock />}
-                onChange={(value) => setTimestampFormat(value)}
-                size="small"
-                type="secondary"
-                options={[
-                    { value: 'absolute', label: 'Absolute' },
-                    { value: 'relative', label: 'Relative' },
-                ]}
-            />
+        <div className="flex justify-between">
+            <div className="flex gap-2">
+                <LemonSegmentedButton
+                    value={orderBy}
+                    onChange={setOrderBy}
+                    options={[
+                        {
+                            value: 'earliest',
+                            label: 'Earliest',
+                        },
+                        {
+                            value: 'latest',
+                            label: 'Latest',
+                        },
+                    ]}
+                    size="small"
+                />
+                <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+                <LemonCheckbox
+                    checked={prettifyJson}
+                    bordered
+                    onChange={setPrettifyJson}
+                    label="Prettify JSON"
+                    size="small"
+                />
+                <LemonSelect
+                    value={timestampFormat}
+                    icon={<IconClock />}
+                    onChange={(value) => setTimestampFormat(value)}
+                    size="small"
+                    type="secondary"
+                    options={[
+                        { value: 'absolute', label: 'Absolute' },
+                        { value: 'relative', label: 'Relative' },
+                    ]}
+                />
+            </div>
+            <div className="flex items-center gap-4">
+                {!sparklineLoading && totalLogsMatchingFilters > 0 && (
+                    <span className="text-muted text-xs">
+                        Showing {humanFriendlyNumber(parsedLogs.length)} of{' '}
+                        {humanFriendlyNumber(totalLogsMatchingFilters)} logs
+                    </span>
+                )}
+                <LemonField.Pure label="Page size" inline className="items-center gap-2">
+                    <LemonSelect
+                        value={logsPageSize}
+                        onChange={(value: number) => setLogsPageSize(value)}
+                        size="small"
+                        type="secondary"
+                        options={[
+                            { value: 100, label: '100' },
+                            { value: 200, label: '200' },
+                            { value: 500, label: '500' },
+                            { value: 1000, label: '1000' },
+                        ]}
+                    />
+                </LemonField.Pure>
+            </div>
         </div>
     )
 }

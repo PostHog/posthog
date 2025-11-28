@@ -67,6 +67,8 @@ import type {
     ProductKey,
     QuerySchema,
     QueryStatus,
+    QuickFilterContext,
+    QuickFilterType,
     RecordingOrder,
     RecordingsQuery,
     RevenueAnalyticsConfig,
@@ -3553,6 +3555,8 @@ export interface EarlyAccessFeatureType {
     stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
+    /** Custom JSON payload for the early access feature */
+    payload?: Record<string, any>
     created_at: string
     _create_in_folder?: string | null
 }
@@ -6104,4 +6108,22 @@ export interface EnrichedPatternAssignedEvent {
     event: string
     event_type: string | null
     event_index: number
+}
+
+export interface QuickFilterOption {
+    id: string
+    value: string | string[] | null
+    label: string
+    operator: PropertyOperator
+}
+
+export interface QuickFilter {
+    id: string
+    name: string
+    property_name: string
+    type: QuickFilterType
+    options: QuickFilterOption[]
+    contexts: QuickFilterContext[]
+    created_at: string
+    updated_at: string
 }

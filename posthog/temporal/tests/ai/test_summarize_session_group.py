@@ -1078,7 +1078,7 @@ class TestSummarizeSessionGroupWorkflow:
             results = []
             async for update in execute_summarize_session_group(
                 session_ids=session_ids,
-                user_id=mock_user.id,
+                user=mock_user,
                 team=mock_team,
                 min_timestamp=datetime.now() - timedelta(days=1),
                 max_timestamp=datetime.now(),
@@ -1578,7 +1578,7 @@ class TestPatternExtractionChunking:
             patch(
                 "posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings"
             ) as mock_estimate,
-            patch("posthog.temporal.ai.session_summary.activities.patterns.logger") as mock_logger,
+            patch("temporalio.activity.logger") as mock_logger,
         ):
             mock_estimate.side_effect = [1000, 500, 160000, 250000, 600]
 

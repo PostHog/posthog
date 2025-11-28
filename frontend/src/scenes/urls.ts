@@ -43,6 +43,7 @@ export const urls = {
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
+    feed: (): string => '/feed',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',

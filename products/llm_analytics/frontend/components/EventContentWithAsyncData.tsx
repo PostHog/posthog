@@ -1,0 +1,96 @@
+import { ConversationMessagesDisplay } from '../ConversationDisplay/ConversationMessagesDisplay'
+import { useAIData } from '../hooks/useAIData'
+import { normalizeMessages } from '../utils'
+import { AIDataLoading } from './AIDataLoading'
+
+interface EventContentGenerationProps {
+    eventId: string
+    rawInput: unknown
+    rawOutput: unknown
+    tools: unknown
+    errorData: unknown
+    httpStatus: unknown
+    raisedError: boolean
+    searchQuery?: string
+}
+
+export function EventContentGeneration({
+    eventId,
+    rawInput,
+    rawOutput,
+    tools,
+    errorData,
+    httpStatus,
+    raisedError,
+    searchQuery,
+}: EventContentGenerationProps): JSX.Element {
+    const { input, output, isLoading } = useAIData({
+        uuid: eventId,
+        properties: {
+            $ai_input: rawInput,
+            $ai_output_choices: rawOutput,
+        },
+    })
+
+    if (isLoading) {
+        return <AIDataLoading variant="block" />
+    }
+
+    return (
+        <ConversationMessagesDisplay
+            inputNormalized={normalizeMessages(input, 'user', tools)}
+            outputNormalized={normalizeMessages(output, 'assistant')}
+            errorData={errorData}
+            httpStatus={typeof httpStatus === 'number' ? httpStatus : undefined}
+            raisedError={raisedError}
+            searchQuery={searchQuery}
+        />
+    )
+}
+
+interface EventContentDisplayAsyncProps {
+    eventId: string
+    rawInput: unknown
+    rawOutput: unknown
+    raisedError?: boolean
+}
+
+export function EventContentDisplayAsync({
+    eventId,
+    rawInput,
+    rawOutput,
+    raisedError,
+}: EventContentDisplayAsyncProps): JSX.Element {
+    const { input, output, isLoading } = useAIData({
+        uuid: eventId,
+        properties: {
+            $ai_input: rawInput,
+            $ai_output_choices: rawOutput,
+        },
+    })
+
+    if (isLoading) {
+        return <AIDataLoading variant="block" />
+    }
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <h3 className="font-semibold mb-2">Input</h3>
+                <pre className="p-2 bg-surface-secondary rounded text-xs overflow-auto">
+                    {JSON.stringify(input, null, 2)}
+                </pre>
+            </div>
+            <div>
+                <h3 className="font-semibold mb-2">Output</h3>
+                <pre
+                    className={`p-2 rounded text-xs overflow-auto ${
+                        raisedError ? 'bg-danger-highlight' : 'bg-surface-secondary'
+                    }`}
+                >
+                    {JSON.stringify(output, null, 2)}
+                </pre>
+            </div>
+        </div>
+    )
+}
