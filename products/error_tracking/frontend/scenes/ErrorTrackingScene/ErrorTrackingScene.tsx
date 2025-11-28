@@ -164,7 +164,7 @@ const Header = (): JSX.Element => {
 
 const IngestionStatusCheck = (): JSX.Element | null => {
     return (
-        <LemonBanner type="warning">
+        <LemonBanner type="warning" className="my-2">
             <p>
                 <strong>No Exception events have been detected!</strong>
             </p>
