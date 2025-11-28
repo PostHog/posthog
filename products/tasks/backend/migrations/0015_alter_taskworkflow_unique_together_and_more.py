@@ -79,16 +79,36 @@ class Migration(migrations.Migration):
             ],
             database_operations=[
                 migrations.RunSQL(
-                    sql="ALTER TABLE posthog_task_progress DROP CONSTRAINT IF EXISTS posthog_task_progress_team_id_fkey;",
-                    reverse_sql="ALTER TABLE posthog_task_progress ADD CONSTRAINT posthog_task_progress_team_id_fkey FOREIGN KEY (team_id) REFERENCES posthog_team(id) ON DELETE CASCADE;",
+                    sql="ALTER TABLE posthog_task_progress DROP CONSTRAINT IF EXISTS posthog_task_progress_team_id_f7089d31_fk_posthog_team_id;",
+                    reverse_sql="ALTER TABLE posthog_task_progress ADD CONSTRAINT posthog_task_progress_team_id_f7089d31_fk_posthog_team_id FOREIGN KEY (team_id) REFERENCES posthog_team(id) ON DELETE CASCADE;",
                 ),
                 migrations.RunSQL(
-                    sql="ALTER TABLE posthog_task_progress DROP CONSTRAINT IF EXISTS posthog_task_progress_task_id_fkey;",
-                    reverse_sql="ALTER TABLE posthog_task_progress ADD CONSTRAINT posthog_task_progress_task_id_fkey FOREIGN KEY (task_id) REFERENCES posthog_task(id) ON DELETE CASCADE;",
+                    sql="ALTER TABLE posthog_task_progress DROP CONSTRAINT IF EXISTS posthog_task_progress_task_id_29a9ae43_fk_posthog_task_id;",
+                    reverse_sql="ALTER TABLE posthog_task_progress ADD CONSTRAINT posthog_task_progress_task_id_29a9ae43_fk_posthog_task_id FOREIGN KEY (task_id) REFERENCES posthog_task(id) ON DELETE CASCADE;",
                 ),
                 migrations.RunSQL(
-                    sql="ALTER TABLE posthog_task_workflow DROP CONSTRAINT IF EXISTS posthog_task_workflow_team_id_fkey;",
-                    reverse_sql="ALTER TABLE posthog_task_workflow ADD CONSTRAINT posthog_task_workflow_team_id_fkey FOREIGN KEY (team_id) REFERENCES posthog_team(id) ON DELETE CASCADE;",
+                    sql="ALTER TABLE posthog_task_workflow DROP CONSTRAINT IF EXISTS posthog_task_workflow_team_id_5ec1d2ee_fk_posthog_team_id;",
+                    reverse_sql="ALTER TABLE posthog_task_workflow ADD CONSTRAINT posthog_task_workflow_team_id_5ec1d2ee_fk_posthog_team_id FOREIGN KEY (team_id) REFERENCES posthog_team(id) ON DELETE CASCADE;",
+                ),
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_workflow_stage DROP CONSTRAINT IF EXISTS posthog_workflow_sta_fallback_stage_id_1afe2fd4_fk_posthog_w;",
+                    reverse_sql="ALTER TABLE posthog_workflow_stage ADD CONSTRAINT posthog_workflow_sta_fallback_stage_id_1afe2fd4_fk_posthog_w FOREIGN KEY (fallback_stage_id) REFERENCES posthog_workflow_stage(id) ON DELETE SET NULL;",
+                ),
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_workflow_stage DROP CONSTRAINT IF EXISTS posthog_workflow_sta_workflow_id_aab23a48_fk_posthog_t;",
+                    reverse_sql="ALTER TABLE posthog_workflow_stage ADD CONSTRAINT posthog_workflow_sta_workflow_id_aab23a48_fk_posthog_t FOREIGN KEY (workflow_id) REFERENCES posthog_task_workflow(id) ON DELETE CASCADE;",
+                ),
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_task DROP CONSTRAINT IF EXISTS posthog_task_current_stage_id_9f282f7b_fk_posthog_w;",
+                    reverse_sql="ALTER TABLE posthog_task ADD CONSTRAINT posthog_task_current_stage_id_9f282f7b_fk_posthog_w FOREIGN KEY (current_stage_id) REFERENCES posthog_workflow_stage(id) ON DELETE SET NULL;",
+                ),
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_task DROP CONSTRAINT IF EXISTS posthog_task_workflow_id_0b39c75b_fk_posthog_task_workflow_id;",
+                    reverse_sql="ALTER TABLE posthog_task ADD CONSTRAINT posthog_task_workflow_id_0b39c75b_fk_posthog_task_workflow_id FOREIGN KEY (workflow_id) REFERENCES posthog_task_workflow(id) ON DELETE SET NULL;",
+                ),
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_task_run DROP CONSTRAINT IF EXISTS posthog_task_run_current_stage_id_2f86e8d0_fk_posthog_w;",
+                    reverse_sql="ALTER TABLE posthog_task_run ADD CONSTRAINT posthog_task_run_current_stage_id_2f86e8d0_fk_posthog_w FOREIGN KEY (current_stage_id) REFERENCES posthog_workflow_stage(id) ON DELETE SET NULL;",
                 ),
             ],
         ),
