@@ -691,7 +691,7 @@ describe('CookielessManager', () => {
 
             it('should drop only the event with out-of-range timestamp, not other events in batch', async () => {
                 // Create an event with a timestamp that's too old (more than 72h + timezone buffer in the past)
-                const oldTimestamp = new Date('2025-01-05T11:00:00') // 5 days before "now" (2025-01-10)
+                const oldTimestamp = new Date('2025-01-05T11:00:00Z') // 5 days before "now" (2025-01-10)
                 const eventWithOldTimestamp = deepFreeze({
                     ...event,
                     now: oldTimestamp.toISOString(),
@@ -731,7 +731,7 @@ describe('CookielessManager', () => {
 
             it('should drop events with timestamps too far in the future', async () => {
                 // Create an event with a timestamp that's too far in the future
-                const futureTimestamp = new Date('2025-01-12T11:00:00') // 2 days after "now" (2025-01-10)
+                const futureTimestamp = new Date('2025-01-12T11:00:00Z') // 2 days after "now" (2025-01-10)
                 const eventWithFutureTimestamp = deepFreeze({
                     ...event,
                     now: futureTimestamp.toISOString(),
@@ -762,7 +762,7 @@ describe('CookielessManager', () => {
             })
 
             it('should include ingestion warning for dropped events', async () => {
-                const oldTimestamp = new Date('2025-01-05T11:00:00')
+                const oldTimestamp = new Date('2025-01-05T11:00:00Z')
                 const eventWithOldTimestamp = deepFreeze({
                     ...event,
                     now: oldTimestamp.toISOString(),
