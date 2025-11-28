@@ -18811,6 +18811,10 @@
                 "filter_test_accounts": {
                     "type": "boolean"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many recordings the user requested to use. Skip if user did not indicate preference."
+                },
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
                     "default": "start_time"
