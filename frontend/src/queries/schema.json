@@ -9,6 +9,7 @@
                 "$ai_trace",
                 "$ai_metric",
                 "$ai_feedback",
+                "$ai_evaluation",
                 "$ai_trace_summary"
             ],
             "type": "string"
@@ -3640,6 +3641,9 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -3650,6 +3654,9 @@
                         "type": "array"
                     },
                     "type": "object"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "insight": {
                     "items": {
@@ -4832,6 +4839,12 @@
                 },
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
+                "hogql": {
                     "type": "string"
                 },
                 "is_cached": {
@@ -7443,6 +7456,17 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "CampaignFieldPreference": {
+            "additionalProperties": false,
+            "properties": {
+                "match_field": {
+                    "enum": ["campaign_name", "campaign_id"],
+                    "type": "string"
+                }
+            },
+            "required": ["match_field"],
             "type": "object"
         },
         "Category": {
@@ -13293,6 +13317,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentRatioMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRetentionMetric"
                 }
             ]
         },
@@ -13445,7 +13472,7 @@
             "type": "object"
         },
         "ExperimentMetricType": {
-            "enum": ["funnel", "mean", "ratio"],
+            "enum": ["funnel", "mean", "ratio", "retention"],
             "type": "string"
         },
         "ExperimentMetricTypeProps": {
@@ -13458,6 +13485,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentRatioMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRetentionMetricTypeProps"
                 }
             ]
         },
@@ -13508,6 +13538,9 @@
                     },
                     "type": "array"
                 },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -13518,6 +13551,9 @@
                         "type": "array"
                     },
                     "type": "object"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "insight": {
                     "items": {
@@ -13655,6 +13691,121 @@
                 }
             },
             "required": ["metric_type", "numerator", "denominator"],
+            "type": "object"
+        },
+        "ExperimentRetentionMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
+                "completion_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "retention",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "retention_window_end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "sharedMetricId": {
+                    "type": "number"
+                },
+                "start_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "start_handling": {
+                    "enum": ["first_seen", "last_seen"],
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "completion_event",
+                "kind",
+                "metric_type",
+                "retention_window_end",
+                "retention_window_start",
+                "retention_window_unit",
+                "start_event",
+                "start_handling"
+            ],
+            "type": "object"
+        },
+        "ExperimentRetentionMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "completion_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "metric_type": {
+                    "const": "retention",
+                    "type": "string"
+                },
+                "retention_window_end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "start_event": {
+                    "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "start_handling": {
+                    "enum": ["first_seen", "last_seen"],
+                    "type": "string"
+                }
+            },
+            "required": [
+                "metric_type",
+                "start_event",
+                "completion_event",
+                "retention_window_start",
+                "retention_window_end",
+                "retention_window_unit",
+                "start_handling"
+            ],
             "type": "object"
         },
         "ExperimentSignificanceCode": {
@@ -14316,6 +14467,7 @@
                 "insight/stickiness",
                 "insight/hog",
                 "team_activity",
+                "feed",
                 "home",
                 "apps",
                 "live",
@@ -17366,6 +17518,13 @@
                 "level": {
                     "$ref": "#/definitions/LogSeverityLevel"
                 },
+                "live_logs_checkpoint": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "new": {
+                    "type": "boolean"
+                },
                 "observed_timestamp": {
                     "format": "date-time",
                     "type": "string"
@@ -17450,6 +17609,9 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "liveLogsCheckpoint": {
+                    "type": "string"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -17674,11 +17836,21 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
+            "enum": ["ID", "Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
-            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source", "reported_conversion"],
+            "enum": [
+                "id",
+                "campaign",
+                "clicks",
+                "cost",
+                "currency",
+                "date",
+                "impressions",
+                "source",
+                "reported_conversion"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsConfig": {
@@ -17689,6 +17861,12 @@
                 },
                 "attribution_window_days": {
                     "type": "number"
+                },
+                "campaign_field_preferences": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/CampaignFieldPreference"
+                    },
+                    "type": "object"
                 },
                 "campaign_name_mappings": {
                     "additionalProperties": {
@@ -18633,6 +18811,10 @@
                 "filter_test_accounts": {
                     "type": "boolean"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many recordings the user requested to use. Skip if user did not indicate preference."
+                },
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
                     "default": "start_time"
@@ -18775,6 +18957,12 @@
                         "$ref": "#/definitions/ExperimentBreakdownResult"
                     },
                     "type": "array"
+                },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "variant_results": {
                     "anyOf": [
@@ -19513,6 +19701,7 @@
                 "revenue_analytics_event_created",
                 "revenue_analytics_data_source_connected",
                 "nav_panel_advertisement_clicked",
+                "feature_preview_enabled",
                 "vercel_integration"
             ],
             "type": "string"
@@ -20902,6 +21091,9 @@
                             },
                             "type": "array"
                         },
+                        "clickhouse_sql": {
+                            "type": "string"
+                        },
                         "credible_intervals": {
                             "additionalProperties": {
                                 "items": {
@@ -20912,6 +21104,9 @@
                                 "type": "array"
                             },
                             "type": "object"
+                        },
+                        "hogql": {
+                            "type": "string"
                         },
                         "insight": {
                             "items": {
@@ -24087,6 +24282,14 @@
             "required": ["query"],
             "type": "object"
         },
+        "QuickFilterContext": {
+            "enum": ["error-tracking-issue-filters", "logs-filters"],
+            "type": "string"
+        },
+        "QuickFilterType": {
+            "enum": ["manual-options", "auto-discovery"],
+            "type": "string"
+        },
         "ReasoningMessage": {
             "additionalProperties": false,
             "properties": {
@@ -26952,6 +27155,9 @@
                 "date": {
                     "type": "string"
                 },
+                "id": {
+                    "type": "string"
+                },
                 "impressions": {
                     "type": "string"
                 },
@@ -28828,6 +29034,46 @@
             "required": ["distinct_id", "email", "first_name", "id", "uuid"],
             "type": "object"
         },
+        "UserProductListItem": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "product_path": {
+                    "type": "string"
+                },
+                "reason": {
+                    "$ref": "#/definitions/UserProductListReason"
+                },
+                "reason_text": {
+                    "type": ["string", "null"]
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "product_path", "enabled", "reason", "reason_text", "created_at", "updated_at"],
+            "type": "object"
+        },
+        "UserProductListReason": {
+            "enum": [
+                "onboarding",
+                "product_intent",
+                "used_by_colleagues",
+                "used_similar_products",
+                "used_on_separate_team",
+                "new_product",
+                "sales_led"
+            ],
+            "type": "string"
+        },
         "VectorSearchQuery": {
             "additionalProperties": false,
             "properties": {
@@ -30524,6 +30770,22 @@
         },
         "isExperimentRatioMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentRatioMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentRetentionMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentRetentionMetric",
             "properties": {
                 "namedArgs": {
                     "additionalProperties": false,

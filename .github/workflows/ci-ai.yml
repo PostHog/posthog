@@ -31,6 +31,7 @@ jobs:
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
                   ref: ${{ github.event.pull_request.head.ref }}
                   fetch-depth: 0
+                  filter: blob:none
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -52,7 +53,7 @@ jobs:
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.8.19
+                  version: 0.9.9
 
             - name: Install python dependencies
               shell: bash

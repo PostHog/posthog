@@ -219,7 +219,7 @@ const AddBreakdownButton = (): JSX.Element => {
                 disabledReason={breakdownProperties.length >= 2 ? 'You can only have up to 2 breakdowns' : undefined}
                 size="small"
             >
-                Add breakdown
+                Breakdown
             </LemonButton>
         </BreakdownPopover>
     )

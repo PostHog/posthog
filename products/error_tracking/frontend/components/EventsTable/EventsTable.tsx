@@ -12,6 +12,7 @@ import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isString } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
@@ -32,9 +33,13 @@ export interface EventsTableProps {
     onEventSelect: (event: ErrorEventType | null) => void
 }
 
-export function EventsTable({ query, queryKey, onEventSelect }: EventsTableProps): JSX.Element {
+export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: EventsTableProps): JSX.Element {
     const tagRenderer = useErrorTagRenderer()
     const dataSource = eventsSourceLogic({ queryKey, query })
+
+    function isEventSelected(record: ErrorEventType): boolean {
+        return selectedEvent ? selectedEvent.uuid === record.uuid : false
+    }
 
     function renderTitle(record: ErrorEventType): JSX.Element {
         return (
@@ -74,13 +79,27 @@ export function EventsTable({ query, queryKey, onEventSelect }: EventsTableProps
         return <TZLabel time={record.timestamp} />
     }
 
+    function renderRowSelectedIndicator(record: ErrorEventType): JSX.Element {
+        return (
+            <div
+                className={cn(
+                    'w-1 min-h-[84px]',
+                    isEventSelected(record)
+                        ? 'bg-primary-3000 hover:bg-primary-3000'
+                        : 'hover:bg-color-accent-highlight-secondary'
+                )}
+            />
+        )
+    }
+
     return (
         <DataSourceTable<ErrorEventType>
             dataSource={dataSource}
             embedded
-            onRowClick={undefined}
+            onRowClick={(record) => onEventSelect(record)}
             className="overflow-auto"
         >
+            <DataSourceTableColumn<ErrorEventType> className="p-0" cellRenderer={renderRowSelectedIndicator} />
             <DataSourceTableColumn<ErrorEventType> title="Exception" cellRenderer={renderTitle} />
             <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
             <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />

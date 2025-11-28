@@ -53,6 +53,10 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             const numeratorName = getDefaultName(metric.numerator)
             const denominatorName = getDefaultName(metric.denominator)
             return `${numeratorName || 'Numerator'} / ${denominatorName || 'Denominator'}`
+        case ExperimentMetricType.RETENTION:
+            const startEventName = getDefaultName(metric.start_event)
+            const completionEventName = getDefaultName(metric.completion_event)
+            return `${startEventName || 'Start event'} / ${completionEventName || 'Completion event'}`
         default:
             return 'Untitled metric'
     }

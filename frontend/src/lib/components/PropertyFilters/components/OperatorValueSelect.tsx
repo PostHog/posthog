@@ -48,6 +48,10 @@ export interface OperatorValueSelectProps {
      * i.e. it limits the options shown from the options that would have been shown
      * **/
     operatorAllowlist?: Array<PropertyOperator>
+    /**
+     * Force single-select mode regardless of operator type
+     * **/
+    forceSingleSelect?: boolean
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -101,6 +105,7 @@ export function OperatorValueSelect({
     editable,
     startVisible,
     operatorAllowlist,
+    forceSingleSelect,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -246,6 +251,7 @@ export function OperatorValueSelect({
                         groupTypeIndex={groupTypeIndex}
                         editable={editable}
                         size={size}
+                        forceSingleSelect={forceSingleSelect}
                     />
                 </div>
             )}

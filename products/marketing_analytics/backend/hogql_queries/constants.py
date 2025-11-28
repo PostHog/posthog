@@ -41,10 +41,14 @@ TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
 
 # Fallback query when no valid adapters are found
-FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION} WHERE 1=0"
+FALLBACK_EMPTY_QUERY = f"SELECT 'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION} WHERE 1=0"
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {
+    MarketingAnalyticsBaseColumns.ID: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.ID,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.ID]),
+    ),
     MarketingAnalyticsBaseColumns.CAMPAIGN: ast.Alias(
         alias=MarketingAnalyticsBaseColumns.CAMPAIGN,
         expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.CAMPAIGN]),
@@ -138,6 +142,7 @@ BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBase
 # Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {
     MarketingAnalyticsColumnsSchemaNames.CAMPAIGN: {"required": True},
+    MarketingAnalyticsColumnsSchemaNames.ID: {"required": False},
     MarketingAnalyticsColumnsSchemaNames.SOURCE: {"required": True},
     MarketingAnalyticsColumnsSchemaNames.CLICKS: {"required": False},
     MarketingAnalyticsColumnsSchemaNames.COST: {"required": True},
@@ -201,6 +206,7 @@ TABLE_PATTERNS = {
 
 # Column kind mapping for WebAnalyticsItemBase
 COLUMN_KIND_MAPPING = {
+    MarketingAnalyticsBaseColumns.ID: "unit",
     MarketingAnalyticsBaseColumns.CAMPAIGN: "unit",
     MarketingAnalyticsBaseColumns.SOURCE: "unit",
     MarketingAnalyticsBaseColumns.COST: "currency",
@@ -213,6 +219,7 @@ COLUMN_KIND_MAPPING = {
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
 IS_INCREASE_BAD_MAPPING = {
+    MarketingAnalyticsBaseColumns.ID: False,
     MarketingAnalyticsBaseColumns.CAMPAIGN: False,
     MarketingAnalyticsBaseColumns.SOURCE: False,
     MarketingAnalyticsBaseColumns.COST: True,  # Higher cost is bad
@@ -266,8 +273,9 @@ def to_marketing_analytics_data(
             kind = "unit"
             is_increase_bad = False  # More conversions is good
 
-    # For string columns (Campaign, Source), preserve the string values
+    # For string columns (ID, Campaign, Source), preserve the string values
     if kind == "unit" and key in [
+        MarketingAnalyticsBaseColumns.ID.value,
         MarketingAnalyticsBaseColumns.CAMPAIGN.value,
         MarketingAnalyticsBaseColumns.SOURCE.value,
     ]:
