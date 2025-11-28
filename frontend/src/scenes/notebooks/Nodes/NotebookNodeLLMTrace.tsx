@@ -35,6 +35,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(logic)
     const { tracesQuery } = useValues(logic)
     const context = useTracesQueryContext()
+    const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
 
     if (!expanded) {
         return null
@@ -45,7 +46,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
             <LLMAnalyticsSetupPrompt className="border-none">
                 <Query
                     uniqueKey={logicKey}
-                    attachTo={groupLogic}
+                    attachTo={attachTo}
                     query={{
                         ...tracesQuery,
                         embedded: true,

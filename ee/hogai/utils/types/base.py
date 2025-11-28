@@ -253,6 +253,10 @@ class BaseStateWithMessages(BaseState):
     The mode of the agent.
     """
 
+    @property
+    def agent_mode_or_default(self) -> AgentMode:
+        return self.agent_mode or AgentMode.PRODUCT_ANALYTICS
+
 
 class BaseStateWithTasks(BaseState):
     tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)

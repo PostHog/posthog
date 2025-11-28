@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, hog_flow, llm_gateway, metalytics, my_notifications, project
+from posthog.api import data_color_theme, feed, hog_flow, llm_gateway, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
@@ -98,6 +98,7 @@ from . import (
     plugin_log_entry,
     proxy_record,
     query,
+    quick_filters,
     scheduled_change,
     schema_property_group,
     search,
@@ -110,6 +111,7 @@ from . import (
     user_home_settings,
     web_vitals,
 )
+from .column_configuration import ColumnConfigurationViewSet
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
@@ -252,6 +254,13 @@ projects_router.register(
 )
 environment_dashboards_router, legacy_project_dashboards_router = register_grandfathered_environment_nested_viewset(
     r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
+)
+
+environments_router.register(
+    r"column_configurations",
+    ColumnConfigurationViewSet,
+    "environment_column_configurations",
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(
@@ -781,6 +790,13 @@ environments_router.register(
     ["team_id"],
 )
 
+environments_router.register(
+    r"quick_filters",
+    quick_filters.QuickFilterViewSet,
+    "project_quick_filters",
+    ["team_id"],
+)
+
 projects_router.register(
     r"live_debugger_breakpoints",
     live_debugger.LiveDebuggerBreakpointViewSet,
@@ -854,6 +870,8 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
+
+projects_router.register(r"feed", feed.FeedViewSet, "project_feed", ["project_id"])
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]

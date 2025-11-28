@@ -8,6 +8,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     FuzzyInt,
+    NonAtomicBaseTest,
     QueryMatchingTest,
     _create_person,
     flush_persons_and_events,
@@ -17,9 +18,8 @@ from posthog.test.base import (
 from unittest.mock import call, patch
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, connections
 from django.db.utils import OperationalError
-from django.test import TransactionTestCase
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
@@ -1293,7 +1293,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
@@ -1319,7 +1319,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.client.logout()
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
@@ -1355,7 +1355,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Try to access other team's flag using this team's secret key + other team's project_api_key in body
         response = self.client.get(
             f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config?token={other_team.api_token}",
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
         )
 
         # Should be forbidden due to team mismatch
@@ -3288,7 +3288,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3373,7 +3373,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3483,7 +3483,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3669,7 +3669,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -3839,7 +3839,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -3850,7 +3850,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             for _ in range(5):
                 response = self.client.get(
                     f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                    headers={"authorization": f"Bearer {personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -3911,7 +3911,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             response = self.client.get(
                 f"/api/feature_flag/?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -3922,14 +3922,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             for _ in range(4):
                 response = self.client.get(
                     f"/api/feature_flag/?token={self.team.api_token}",
-                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                    headers={"authorization": f"Bearer {personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             # local evaluation still works
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                headers={"authorization": f"Bearer {personal_api_key}"},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4068,7 +4068,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             def make_request_and_assert_requests_recorded(expected_requests=None):
                 response = self.client.get(
                     f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                    headers={"authorization": f"Bearer {personal_api_key}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(
@@ -4146,7 +4146,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Make request using project secret key authentication
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            HTTP_AUTHORIZATION=f"Bearer {self.team.secret_api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
         )
 
         # Verify successful response
@@ -5452,15 +5452,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Call to flags gets rate limited
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/projects/{self.team.pk}/feature_flags", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(
@@ -5483,8 +5481,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # but not call to local evaluation
         for _ in range(7):
             response = self.client.get(
-                f"/api/feature_flag/local_evaluation",
-                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -6090,8 +6087,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # First request should miss cache and populate it
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6133,8 +6129,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Test cache for send_cohorts=true
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6166,8 +6161,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Populate cache
         self.client.logout()
         response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -6221,12 +6215,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Populate both cache variants
         self.client.logout()
         response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
         )
 
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
@@ -6239,12 +6231,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Make new requests to get potentially updated cache
         self.client.logout()
         updated_response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation", headers={"authorization": f"Bearer {personal_api_key}"}
         )
         updated_response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            f"/api/feature_flag/local_evaluation?send_cohorts", headers={"authorization": f"Bearer {personal_api_key}"}
         )
 
         self.assertEqual(updated_response1.status_code, status.HTTP_200_OK)
@@ -6800,7 +6790,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(27):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -6854,7 +6844,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(41):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(43):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -6865,7 +6855,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(23):
+        with self.assertNumQueries(24):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -6929,7 +6919,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -6946,7 +6936,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -7040,7 +7030,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(40):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(41):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -7691,7 +7681,7 @@ def slow_query(execute, sql, *args, **kwargs):
     return execute(f"SELECT pg_sleep(1); {sql}", *args, **kwargs)
 
 
-class TestResiliency(TransactionTestCase, QueryMatchingTest):
+class TestResiliency(NonAtomicBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()
 
@@ -7767,7 +7757,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is down
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
+        ):
             with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(
                     self.team, "example_id", groups={"organization": "org:1"}
@@ -7869,7 +7863,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is down
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
+        ):
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
@@ -7973,6 +7971,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             snapshot_postgres_queries_context(self),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
@@ -8071,6 +8070,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             self.assertNumQueries(0),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
@@ -8182,12 +8182,13 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         # now db is slow and times out
         with (
             snapshot_postgres_queries_context(self),
-            connection.execute_wrapper(slow_query),
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            connections["persons_db_writer"].execute_wrapper(QueryTimeoutWrapper()),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
             ),
-            self.assertNumQueries(4),
+            self.assertNumQueries(3),
         ):
             # no extra queries to get person properties for the second flag after first one failed
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
@@ -8282,6 +8283,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             snapshot_postgres_queries_context(self),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,
@@ -8388,7 +8390,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(37):
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
@@ -8399,6 +8401,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with (
             snapshot_postgres_queries_context(self),
             connection.execute_wrapper(slow_query),
+            connections["persons_db_writer"].execute_wrapper(slow_query),
             patch(
                 "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
                 500,

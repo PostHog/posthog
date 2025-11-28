@@ -1,14 +1,18 @@
 import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import api from 'lib/api'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
@@ -23,12 +27,33 @@ import { ParsedLogMessage } from './types'
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
 const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
+const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
+const DEFAULT_WRAP_BODY = true
+const DEFAULT_PRETTIFY_JSON = true
+const DEFAULT_LOGS_PAGE_SIZE: number = 100
+const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
+const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
+
+const parseLogAttributes = (logs: LogMessage[]): void => {
+    logs.forEach((row) => {
+        Object.keys(row.attributes).forEach((key) => {
+            const value = row.attributes[key]
+            row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
+        })
+    })
+}
+
+export interface LogsLogicProps {
+    tabId: string
+}
 
 export const logsLogic = kea<logsLogicType>([
+    props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsLogic']),
-
-    urlToAction(({ actions, values }) => {
+    tabAwareScene(),
+    tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
                 actions.setDateRange(params.dateRange)
@@ -45,8 +70,20 @@ export const logsLogic = kea<logsLogicType>([
             if (params.serviceNames && !equal(params.serviceNames, values.serviceNames)) {
                 actions.setServiceNames(params.serviceNames)
             }
+            if (params.highlightedLogId !== undefined && params.highlightedLogId !== values.highlightedLogId) {
+                actions.setHighlightedLogId(params.highlightedLogId)
+            }
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
+            }
+            if (params.wrapBody !== undefined && params.wrapBody !== values.wrapBody) {
+                actions.setWrapBody(params.wrapBody)
+            }
+            if (params.prettifyJson !== undefined && params.prettifyJson !== values.prettifyJson) {
+                actions.setPrettifyJson(params.prettifyJson)
+            }
+            if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
+                actions.setLogsPageSize(+params.logsPageSize)
             }
         }
         return {
@@ -54,8 +91,8 @@ export const logsLogic = kea<logsLogicType>([
         }
     }),
 
-    actionToUrl(({ actions, values }) => {
-        const buildURL = (): [
+    tabAwareActionToUrl(({ actions, values }) => {
+        const buildUrlAndRunQuery = (): [
             string,
             Params,
             Record<string, any>,
@@ -69,29 +106,88 @@ export const logsLogic = kea<logsLogicType>([
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.serviceNames, DEFAULT_SERVICE_NAMES)
+                updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
+                updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
                 actions.runQuery()
                 return params
             })
         }
 
+        const updateHighlightURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'highlightedLogId', values.highlightedLogId, DEFAULT_HIGHLIGHTED_LOG_ID)
+                return params
+            })
+        }
+
+        const updateUrlWithDisplayPreferences = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'wrapBody', values.wrapBody, DEFAULT_WRAP_BODY)
+                updateSearchParams(params, 'prettifyJson', values.prettifyJson, DEFAULT_PRETTIFY_JSON)
+                return params
+            })
+        }
+
+        const updateUrlWithPageSize = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'logsPageSize', values.logsPageSize, DEFAULT_LOGS_PAGE_SIZE)
+                actions.applyLogsPageSize(values.logsPageSize)
+                return params
+            })
+        }
+
         return {
-            setDateRange: () => buildURL(),
-            setFilterGroup: () => buildURL(),
-            setSearchTerm: () => buildURL(),
-            setSeverityLevels: () => buildURL(),
-            setServiceNames: () => buildURL(),
-            setOrderBy: () => buildURL(),
+            setDateRange: () => buildUrlAndRunQuery(),
+            setFilterGroup: () => buildUrlAndRunQuery(),
+            setSearchTerm: () => buildUrlAndRunQuery(),
+            setSeverityLevels: () => buildUrlAndRunQuery(),
+            setServiceNames: () => buildUrlAndRunQuery(),
+            setOrderBy: () => buildUrlAndRunQuery(),
+            setLogsPageSize: () => updateUrlWithPageSize(),
+            setHighlightedLogId: () => updateHighlightURL(),
+            setWrapBody: () => updateUrlWithDisplayPreferences(),
+            setPrettifyJson: () => updateUrlWithDisplayPreferences(),
         }
     }),
 
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
+        fetchNextLogsPage: (limit?: number) => ({ limit }),
+        loadMoreLogs: true,
+        truncateLogs: (limit: number) => ({ limit }),
+        applyLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
+        clearLogs: true,
         cancelInProgressLogs: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         cancelInProgressSparkline: (sparklineAbortController: AbortController | null) => ({ sparklineAbortController }),
+        cancelInProgressLiveTail: (liveTailAbortController: AbortController | null) => ({ liveTailAbortController }),
         setLogsAbortController: (logsAbortController: AbortController | null) => ({ logsAbortController }),
         setSparklineAbortController: (sparklineAbortController: AbortController | null) => ({
             sparklineAbortController,
+        }),
+        setLiveTailAbortController: (liveTailAbortController: AbortController | null) => ({
+            liveTailAbortController,
         }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
@@ -100,6 +196,8 @@ export const logsLogic = kea<logsLogicType>([
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
         setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
+        setLiveLogsCheckpoint: (liveLogsCheckpoint: string | null) => ({ liveLogsCheckpoint }),
+
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
             filterGroup,
             openFilterOnInsert,
@@ -108,7 +206,6 @@ export const logsLogic = kea<logsLogicType>([
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
         setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
-        setTimestampFormat: (timestampFormat: 'absolute' | 'relative') => ({ timestampFormat }),
         addFilter: (key: string, value: string, operator: PropertyOperator = PropertyOperator.Exact) => ({
             key,
             value,
@@ -117,69 +214,87 @@ export const logsLogic = kea<logsLogicType>([
         togglePinLog: (logId: string) => ({ logId }),
         pinLog: (log: LogMessage) => ({ log }),
         unpinLog: (logId: string) => ({ logId }),
+        setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
+        setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
+        setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
+        setLiveTailRunning: (enabled: boolean) => ({ enabled }),
+        setLiveTailInterval: (interval: number) => ({ interval }),
+        pollForNewLogs: true,
+        setLogs: (logs: LogMessage[]) => ({ logs }),
+        setSparkline: (sparkline: any[]) => ({ sparkline }),
+        expireLiveTail: () => true,
+        setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
+        addLogsToSparkline: (logs: LogMessage[]) => logs,
     }),
 
     reducers({
+        logsPageSize: [
+            DEFAULT_LOGS_PAGE_SIZE,
+            {
+                setLogsPageSize: (_, { logsPageSize }) => logsPageSize,
+            },
+        ],
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
         orderBy: [
             DEFAULT_ORDER_BY,
-            { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
         searchTerm: [
             '' as LogsQuery['searchTerm'],
-            { persist: true },
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
         severityLevels: [
             DEFAULT_SEVERITY_LEVELS,
-            { persist: true },
             {
                 setSeverityLevels: (_, { severityLevels }) => severityLevels,
             },
         ],
         serviceNames: [
             DEFAULT_SERVICE_NAMES,
-            { persist: true },
             {
                 setServiceNames: (_, { serviceNames }) => serviceNames,
             },
         ],
         filterGroup: [
             DEFAULT_UNIVERSAL_GROUP_FILTER,
-            { persist: false },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
         ],
         wrapBody: [
-            true as boolean,
+            DEFAULT_WRAP_BODY as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
             },
         ],
-        prettifyJson: [
-            true as boolean,
-            { persist: true },
+        liveLogsCheckpoint: [
+            null as string | null,
+            { persist: false },
             {
-                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
+                setLiveLogsCheckpoint: (_, { liveLogsCheckpoint }) => liveLogsCheckpoint,
             },
         ],
-        timestampFormat: [
-            'absolute' as 'absolute' | 'relative',
-            { persist: true },
+        liveTailExpired: [
+            true as boolean,
+            { persist: false },
             {
-                setTimestampFormat: (_, { timestampFormat }) => timestampFormat,
+                setLiveTailExpired: (_, { liveTailExpired }) => liveTailExpired,
+                fetchLogsSuccess: () => false,
+            },
+        ],
+        prettifyJson: [
+            DEFAULT_PRETTIFY_JSON as boolean,
+            {
+                setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
         logsAbortController: [
@@ -192,6 +307,12 @@ export const logsLogic = kea<logsLogicType>([
             null as AbortController | null,
             {
                 setSparklineAbortController: (_, { sparklineAbortController }) => sparklineAbortController,
+            },
+        ],
+        liveTailAbortController: [
+            null as AbortController | null,
+            {
+                setLiveTailAbortController: (_, { liveTailAbortController }) => liveTailAbortController,
             },
         ],
         hasRunQuery: [
@@ -207,8 +328,12 @@ export const logsLogic = kea<logsLogicType>([
                 fetchLogs: () => true,
                 fetchLogsSuccess: () => false,
                 fetchLogsFailure: () => true,
+                fetchNextLogsPage: () => true,
+                fetchNextLogsPageSuccess: () => false,
+                fetchNextLogsPageFailure: () => true,
             },
         ],
+
         sparklineLoading: [
             false as boolean,
             {
@@ -237,12 +362,40 @@ export const logsLogic = kea<logsLogicType>([
                 unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
             },
         ],
+        liveTailRunning: [
+            false as boolean,
+            {
+                setLiveTailRunning: (_, { enabled }) => enabled,
+                runQuery: () => false,
+            },
+        ],
+        liveTailPollInterval: [
+            DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS as number,
+            {
+                setLiveTailInterval: (_, { interval }) => interval,
+            },
+        ],
+        highlightedLogId: [
+            DEFAULT_HIGHLIGHTED_LOG_ID,
+            {
+                setHighlightedLogId: (_, { highlightedLogId }) => highlightedLogId,
+            },
+        ],
+        hasMoreLogsToLoad: [
+            true as boolean,
+            {
+                setHasMoreLogsToLoad: (_, { hasMoreLogsToLoad }) => hasMoreLogsToLoad,
+                clearLogs: () => true,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
         logs: [
             [] as LogMessage[],
             {
+                clearLogs: () => [],
+                truncateLogs: ({ limit }) => values.logs.slice(0, limit),
                 fetchLogs: async () => {
                     const logsController = new AbortController()
                     const signal = logsController.signal
@@ -250,8 +403,7 @@ export const logsLogic = kea<logsLogicType>([
 
                     const response = await api.logs.query({
                         query: {
-                            limit: 100,
-                            offset: values.logs.length,
+                            limit: values.logsPageSize,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
@@ -262,14 +414,53 @@ export const logsLogic = kea<logsLogicType>([
                         signal,
                     })
                     actions.setLogsAbortController(null)
-                    response.results.forEach((row) => {
-                        Object.keys(row.attributes).forEach((key) => {
-                            const value = row.attributes[key]
-                            row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
-                        })
-                    })
+                    actions.setHasMoreLogsToLoad(!!response.hasMore)
+                    parseLogAttributes(response.results)
                     return response.results
                 },
+                fetchNextLogsPage: async ({ limit }, breakpoint) => {
+                    const logsController = new AbortController()
+                    const signal = logsController.signal
+                    actions.cancelInProgressLogs(logsController)
+
+                    let dateRange: DateRange
+
+                    if (values.orderBy === 'earliest') {
+                        if (!values.newestLogTimestamp) {
+                            return values.logs
+                        }
+                        dateRange = {
+                            date_from: values.newestLogTimestamp,
+                            date_to: values.utcDateRange.date_to,
+                        }
+                    } else {
+                        if (!values.oldestLogTimestamp) {
+                            return values.logs
+                        }
+                        dateRange = {
+                            date_from: values.utcDateRange.date_from,
+                            date_to: values.oldestLogTimestamp,
+                        }
+                    }
+                    await breakpoint(300)
+                    const response = await api.logs.query({
+                        query: {
+                            limit: limit ?? values.logsPageSize,
+                            orderBy: values.orderBy,
+                            dateRange,
+                            searchTerm: values.searchTerm,
+                            filterGroup: values.filterGroup as PropertyGroupFilter,
+                            severityLevels: values.severityLevels,
+                            serviceNames: values.serviceNames,
+                        },
+                        signal,
+                    })
+                    actions.setLogsAbortController(null)
+                    actions.setHasMoreLogsToLoad(!!response.hasMore)
+                    parseLogAttributes(response.results)
+                    return [...values.logs, ...response.results]
+                },
+                setLogs: ({ logs }) => logs,
             },
         ],
         sparkline: [
@@ -294,11 +485,40 @@ export const logsLogic = kea<logsLogicType>([
                     actions.setSparklineAbortController(null)
                     return response
                 },
+                setSparkline: ({ sparkline }) => sparkline,
             },
         ],
     })),
 
-    selectors(() => ({
+    selectors({
+        tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
+        liveTailDisabledReason: [
+            (s) => [s.orderBy, s.dateRange, s.logsLoading, s.liveTailExpired],
+            (
+                orderBy: LogsQuery['orderBy'],
+                dateRange: DateRange,
+                logsLoading: boolean,
+                liveTailExpired: boolean
+            ): string | undefined => {
+                if (orderBy !== 'latest') {
+                    return 'Live tail only works with "Latest" ordering'
+                }
+
+                if (dateRange.date_to) {
+                    return 'Live tail requires an open-ended time range'
+                }
+
+                if (logsLoading) {
+                    return 'Wait for query to finish'
+                }
+
+                if (liveTailExpired) {
+                    return 'Live tail has expired, run search again to live tail'
+                }
+
+                return undefined
+            },
+        ],
         utcDateRange: [
             (s) => [s.dateRange],
             (dateRange) => ({
@@ -345,9 +565,35 @@ export const logsLogic = kea<logsLogicType>([
             (s) => [s.pinnedLogs],
             (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
         ],
+        visibleLogsTimeRange: [
+            (s) => [s.parsedLogs, s.orderBy],
+            (
+                parsedLogs: ParsedLogMessage[],
+                orderBy: LogsQuery['orderBy']
+            ): { date_from: string; date_to: string } | null => {
+                if (parsedLogs.length === 0) {
+                    return null
+                }
+                const firstTimestamp = parsedLogs[0].timestamp
+                const lastTimestamp = parsedLogs[parsedLogs.length - 1].timestamp
+
+                // When orderBy is 'latest', first log is newest, last log is oldest
+                // When orderBy is 'earliest', first log is oldest, last log is newest
+                if (orderBy === 'latest') {
+                    return {
+                        date_from: dayjs(lastTimestamp).toISOString(),
+                        date_to: dayjs(firstTimestamp).toISOString(),
+                    }
+                }
+                return {
+                    date_from: dayjs(firstTimestamp).toISOString(),
+                    date_to: dayjs(lastTimestamp).toISOString(),
+                }
+            },
+        ],
         sparklineData: [
             (s) => [s.sparkline],
-            (sparkline) => {
+            (sparkline: any[]) => {
                 let lastTime = ''
                 let i = -1
                 const labels: string[] = []
@@ -355,16 +601,20 @@ export const logsLogic = kea<logsLogicType>([
                 const data = Object.entries(
                     sparkline.reduce((accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
-                            labels.push(humanFriendlyDetailedTime(currentItem.time))
+                            labels.push(
+                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
+                                    showNow: false,
+                                })
+                            )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
                         }
                         const key = currentItem.level
                         if (!accumulator[key]) {
-                            accumulator[key] = Array(sparkline.length)
+                            accumulator[key] = [...Array(sparkline.length)].map(() => 0)
                         }
-                        accumulator[key][i] = currentItem.count
+                        accumulator[key][i] += currentItem.count
                         return accumulator
                     }, {})
                 )
@@ -385,27 +635,80 @@ export const logsLogic = kea<logsLogicType>([
                 return { data, labels, dates }
             },
         ],
-    })),
+        oldestLogTimestamp: [
+            (s) => [s.logs],
+            (logs): string | null => {
+                if (!logs.length) {
+                    return null
+                }
+                const oldest = logs.reduce((min, log) => {
+                    const logTime = dayjs(log.timestamp)
+                    return !min || logTime.isBefore(dayjs(min)) ? log.timestamp : min
+                }, logs[0].timestamp)
+                return oldest
+            },
+        ],
+        newestLogTimestamp: [
+            (s) => [s.logs],
+            (logs): string | null => {
+                if (!logs.length) {
+                    return null
+                }
+                const newest = logs.reduce((max, log) => {
+                    const logTime = dayjs(log.timestamp)
+                    return !max || logTime.isAfter(dayjs(max)) ? log.timestamp : max
+                }, logs[0].timestamp)
+                return newest
+            },
+        ],
+        totalLogsMatchingFilters: [
+            (s) => [s.sparkline],
+            (sparkline): number => sparkline.reduce((sum, item) => sum + item.count, 0),
+        ],
+        logsRemainingToLoad: [
+            (s) => [s.totalLogsMatchingFilters, s.logs],
+            (totalLogsMatchingFilters, logs): number => totalLogsMatchingFilters - logs.length,
+        ],
+    }),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
+        fetchLogsFailure: ({ error }) => {
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+                lemonToast.error(`Failed to load logs: ${error}`)
+            }
+        },
+        fetchNextLogsPageFailure: ({ error }) => {
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+                lemonToast.error(`Failed to load more logs: ${error}`)
+            }
+        },
         runQuery: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
             }
+            actions.clearLogs()
             actions.fetchLogs()
             actions.fetchSparkline()
+            actions.cancelInProgressLiveTail(null)
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
-                values.logsAbortController.abort('new query started')
+                values.logsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setLogsAbortController(logsAbortController)
         },
         cancelInProgressSparkline: ({ sparklineAbortController }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort('new query started')
+                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
             }
             actions.setSparklineAbortController(sparklineAbortController)
+        },
+        cancelInProgressLiveTail: ({ liveTailAbortController }) => {
+            if (values.liveTailAbortController !== null) {
+                values.liveTailAbortController.abort('live tail request cancelled')
+            }
+            actions.setLiveTailAbortController(liveTailAbortController)
+            cache.disposables.dispose('liveTailTimer')
         },
         toggleAttributeBreakdown: ({ key }) => {
             const breakdowns = [...values.expandedAttributeBreaksdowns]
@@ -432,6 +735,13 @@ export const logsLogic = kea<logsLogicType>([
                 date_to: dateTo,
             }
             actions.setDateRange(newDateRange)
+        },
+        expireLiveTail: async ({}, breakpoint) => {
+            await breakpoint(30000)
+            if (values.liveTailRunning) {
+                return
+            }
+            actions.setLiveTailExpired(true)
         },
         addFilter: ({ key, value, operator }) => {
             const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
@@ -460,6 +770,160 @@ export const logsLogic = kea<logsLogicType>([
                 if (logToPin) {
                     actions.pinLog(logToPin)
                 }
+            }
+        },
+        applyLogsPageSize: ({ logsPageSize }) => {
+            const currentCount = values.logs.length
+
+            if (logsPageSize > currentCount && values.hasMoreLogsToLoad) {
+                actions.fetchNextLogsPage(logsPageSize - currentCount)
+            } else if (logsPageSize < currentCount) {
+                actions.truncateLogs(logsPageSize)
+                actions.setHasMoreLogsToLoad(true)
+            }
+        },
+        loadMoreLogs: () => {
+            actions.fetchNextLogsPage()
+        },
+        setLiveTailRunning: async ({ enabled }) => {
+            if (enabled) {
+                actions.pollForNewLogs()
+            } else {
+                actions.cancelInProgressLiveTail(null)
+                actions.expireLiveTail()
+            }
+        },
+        pollForNewLogs: async () => {
+            if (!values.liveTailRunning || values.orderBy !== 'latest' || document.hidden) {
+                return
+            }
+
+            const liveTailController = new AbortController()
+            const signal = liveTailController.signal
+            actions.cancelInProgressLiveTail(liveTailController)
+            let duration = 0
+
+            try {
+                const start = Date.now()
+                const response = await api.logs.query({
+                    query: {
+                        limit: values.logsPageSize,
+                        orderBy: values.orderBy,
+                        dateRange: values.utcDateRange,
+                        searchTerm: values.searchTerm,
+                        filterGroup: values.filterGroup as PropertyGroupFilter,
+                        severityLevels: values.severityLevels,
+                        serviceNames: values.serviceNames,
+                        liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,
+                    },
+                    signal,
+                })
+                duration = Date.now() - start
+
+                if (response.results.length > 0) {
+                    // the live_logs_checkpoint is the latest known timestamp for which we know we have all logs up to that point
+                    // it's returned from clickhouse as a value on every log row - but the value is fixed per query
+                    actions.setLiveLogsCheckpoint(response.results[0].live_logs_checkpoint ?? null)
+                }
+
+                response.results.forEach((row) => {
+                    Object.keys(row.attributes).forEach((key) => {
+                        const value = row.attributes[key]
+                        row.attributes[key] = typeof value === 'string' ? value : JSON.stringify(value)
+                    })
+                })
+
+                const existingUuids = new Set(values.logs.map((log) => log.uuid))
+                const newLogs = response.results.filter((log) => !existingUuids.has(log.uuid))
+
+                if (newLogs.length > 0) {
+                    actions.setLiveTailInterval(DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS)
+                    actions.setLogs(
+                        [
+                            ...newLogs.map((log) => ({ ...log, new: true })),
+                            ...values.logs.map((log) => ({ ...log, new: false })),
+                        ]
+                            .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+                            .slice(0, values.logsPageSize)
+                    )
+                    actions.addLogsToSparkline(newLogs)
+                } else {
+                    const newInterval = Math.min(
+                        values.liveTailPollInterval * 1.5,
+                        DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS
+                    )
+                    actions.setLiveTailInterval(newInterval)
+                }
+            } catch (error) {
+                if (signal.aborted) {
+                    return
+                }
+                console.error('Live tail polling error:', error)
+                actions.setLiveTailRunning(false)
+            } finally {
+                actions.setLiveTailAbortController(null)
+                if (values.liveTailRunning) {
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(
+                            () => {
+                                actions.pollForNewLogs()
+                            },
+                            Math.max(duration, values.liveTailPollInterval)
+                        )
+                        return () => clearTimeout(timerId)
+                    }, 'liveTailTimer')
+                }
+            }
+        },
+        // insert logs into the sparkline data
+        addLogsToSparkline: (logs: LogMessage[]) => {
+            // if the sparkline hasn't loaded do nothing.
+            if (!values.sparkline || values.sparkline.length < 2) {
+                return
+            }
+
+            const first_bucket = values.sparklineData.dates[0]
+            const last_bucket = values.sparklineData.dates[values.sparklineData.dates.length - 1]
+            const sparklineTimeWindow = dayjs(last_bucket).diff(first_bucket, 'seconds')
+            const interval = dayjs(values.sparklineData.dates[1]).diff(first_bucket, 'seconds')
+            let latest_time_bucket = dayjs(last_bucket)
+
+            const sparklineMap: Map<string, { time: string; level: string; count: number }> = new Map()
+
+            for (const bucket of values.sparkline) {
+                const key = `${dayjs(bucket.time).toISOString()}_${bucket.level}`
+                sparklineMap.set(key, { ...bucket })
+            }
+
+            for (const log of logs) {
+                const time_bucket = dayjs.unix(Math.floor(dayjs(log.timestamp).unix() / interval) * interval)
+                if (time_bucket.isAfter(latest_time_bucket)) {
+                    latest_time_bucket = time_bucket
+                }
+                const key = `${time_bucket.toISOString()}_${log.level}`
+                if (sparklineMap.has(key)) {
+                    sparklineMap.get(key)!.count += 1
+                } else {
+                    sparklineMap.set(key, { time: time_bucket.toISOString(), level: log.level, count: 1 })
+                }
+            }
+            actions.setSparkline(
+                Array.from(sparklineMap.values())
+                    .sort((a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.level.localeCompare(b.level))
+                    .filter((item) => latest_time_bucket.diff(dayjs(item.time), 'seconds') <= sparklineTimeWindow)
+            )
+        },
+    })),
+
+    events(({ values, actions }) => ({
+        beforeUnmount: () => {
+            actions.setLiveTailRunning(false)
+            actions.cancelInProgressLiveTail(null)
+            if (values.logsAbortController) {
+                values.logsAbortController.abort('unmounting component')
+            }
+            if (values.sparklineAbortController) {
+                values.sparklineAbortController.abort('unmounting component')
             }
         },
     })),

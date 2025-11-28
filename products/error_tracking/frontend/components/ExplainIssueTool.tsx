@@ -1,24 +1,26 @@
 import { IconList } from '@posthog/icons'
 
-import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import {
     ErrorTrackingExplainIssueToolContext,
     ErrorTrackingRelationalIssue,
+    ProductIntentContext,
     ProductKey,
 } from '~/queries/schema/schema-general'
 
 import { useStacktraceDisplay } from '../hooks/use-stacktrace-display'
 
 export function useErrorTrackingExplainIssueMaxTool(
-    issueId: ErrorTrackingRelationalIssue['id']
+    issueId: ErrorTrackingRelationalIssue['id'],
+    issueName: ErrorTrackingRelationalIssue['name']
 ): ReturnType<typeof useMaxTool> {
     const { ready, stacktraceText } = useStacktraceDisplay()
 
     const context: ErrorTrackingExplainIssueToolContext = {
         stacktrace: stacktraceText,
-        issue_id: issueId,
+        issue_name: issueName ?? issueId,
     }
 
     const maxToolResult = useMaxTool({

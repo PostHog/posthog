@@ -21,6 +21,7 @@ from products.data_warehouse.backend.models import DataWarehouseTable, ExternalD
 from products.data_warehouse.backend.models.credential import DataWarehouseCredential
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
+    BingAdsConfig,
     ExternalConfig,
     GoogleAdsConfig,
     LinkedinAdsConfig,
@@ -30,6 +31,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     TikTokAdsConfig,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.bigquery import BigQueryAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
@@ -46,8 +48,8 @@ from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads impo
 TEST_DATE_FROM = "2024-01-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
-EXPECTED_COLUMN_COUNT = 6
-EXPECTED_COLUMN_ALIASES = ["campaign", "source", "impressions", "clicks", "cost", "reported_conversion"]
+EXPECTED_COLUMN_COUNT = 7
+EXPECTED_COLUMN_ALIASES = ["campaign", "id", "source", "impressions", "clicks", "cost", "reported_conversion"]
 
 
 logger = logging.getLogger(__name__)
@@ -675,6 +677,43 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "video_watched_6s": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
                 },
             ),
+            "bing_campaigns": DataConfig(
+                csv_filename="test/bing_ads/campaigns.csv",
+                table_name="bingads_campaigns",
+                platform="Bing Ads",
+                source_type="BingAds",
+                bucket_suffix="bing_campaigns",
+                column_schema={
+                    "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "budget_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "daily_budget": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "campaign_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "languages": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "time_zone": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
+            "bing_campaign_performance_report": DataConfig(
+                csv_filename="test/bing_ads/campaign_performance_report.csv",
+                table_name="bingads_campaign_performance_report",
+                platform="Bing Ads",
+                source_type="BingAds",
+                bucket_suffix="bing_campaign_performance_report",
+                column_schema={
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "clicks": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "impressions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "spend": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "currency_code": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "time_period": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "average_cpc": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "ctr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversion_rate": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                },
+            ),
         }
 
     def setUp(self):
@@ -1018,6 +1057,24 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "TikTokAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "TikTokAdsAdapter should return list of errors"
 
+    def test_bing_ads_adapter_validation_consistency(self):
+        """Test Bing Ads adapter validation consistency."""
+        campaign_table = self._create_mock_table("bingads_campaigns", "BingAds")
+        stats_table = self._create_mock_table("bingads_campaign_performance_report", "BingAds")
+
+        config = BingAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="BingAds",
+            source_id="test_consistency",
+        )
+
+        adapter = BingAdsAdapter(config=config, context=self.context)
+        result = adapter.validate()
+
+        assert result.is_valid, "BingAdsAdapter validation should succeed"
+        assert isinstance(result.errors, list), "BingAdsAdapter should return list of errors"
+
     # ================================================================
     # QUERY GENERATION TESTS
     # ================================================================
@@ -1124,6 +1181,25 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert query is not None, "TikTokAdsAdapter should generate a query"
         self._validate_query_structure(query, "TikTokAdsAdapter")
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_bing_ads_native_query_generation(self):
+        """Test Bing Ads native adapter query generation with JOIN."""
+        campaign_table = self._create_mock_table("bing_campaigns", "BingAds")
+        stats_table = self._create_mock_table("bing_campaign_performance_report", "BingAds")
+
+        config = BingAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="BingAds",
+            source_id="bing_ads",
+        )
+
+        adapter = BingAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "BingAdsAdapter should generate a query"
+        self._validate_query_structure(query, "BingAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
     def test_tiktok_ads_query_generation(self):
@@ -1342,16 +1418,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "BigQueryAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[5] or 0) for row in results)
 
         assert len(results) == 14, "Expected 14 campaigns from BigQuery CSV"
         assert abs(total_cost - 18.66) < 0.01, f"Expected cost $18.66, got ${total_cost}"
         assert total_impressions == 1676, f"Expected 1676 impressions, got {total_impressions}"
         assert total_clicks == 12, f"Expected 12 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[2] for row in results]
         assert all(source == "Unknown Source" for source in sources), "All sources should be 'Unknown Source'"
 
     def test_google_ads_adapter_with_real_data(self):
@@ -1375,16 +1452,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "GoogleAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[4] or 0) for row in results)
 
         assert len(results) == 12, "Expected 12 campaigns from Google Ads JOIN"
         assert abs(total_cost - 644.50) < 0.01, f"Expected cost $644.50, got ${total_cost}"
         assert total_impressions == 1687, f"Expected 1687 impressions, got {total_impressions}"
         assert total_clicks == 72, f"Expected 72 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[2] for row in results]
         assert all(source == "google" for source in sources), "All sources should be 'google'"
 
     def test_linkedin_ads_adapter_with_real_data(self):
@@ -1408,16 +1486,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "Expected adapter to build a valid query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[4] or 0) for row in results)
 
         assert len(results) == 5, "Expected 5 campaigns from LinkedIn Ads JOIN"
         assert abs(total_cost - 1600.00) < 0.01, f"Expected cost $1600.00, got ${total_cost}"
         assert total_impressions == 485, f"Expected 485 impressions, got {total_impressions}"
         assert total_clicks == 26, f"Expected 26 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[2] for row in results]
         assert all(source == "linkedin" for source in sources), "All sources should be 'linkedin'"
 
     def test_reddit_ads_adapter_with_real_data(self):
@@ -1441,16 +1520,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "RedditAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[4] or 0) for row in results)
 
         assert len(results) == 10, "Expected 10 campaigns from Reddit Ads JOIN"
         assert abs(total_cost - 90.6) < 0.01, f"Expected cost $90.6, got ${total_cost}"
         assert total_impressions == 14299, f"Expected 14299 impressions, got {total_impressions}"
         assert total_clicks == 454, f"Expected 454 clicks, got {total_clicks}"
 
-        sources = [row[1] for row in results]
+        sources = [row[2] for row in results]
         assert all(source == "reddit" for source in sources), "All sources should be 'reddit'"
 
     def test_multi_adapter_union_with_real_data(self):
@@ -1503,9 +1583,10 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         union_query = ast.SelectSetQuery.create_from_queries([facebook_query, tiktok_query], "UNION ALL")
         results = self._execute_query_and_validate(union_query)
 
-        total_cost = sum(float(row[4] or 0) for row in results)
-        total_impressions = sum(int(row[2] or 0) for row in results)
-        total_clicks = sum(int(row[3] or 0) for row in results)
+        # Column indices: 0=id, 1=campaign, 2=source, 3=impressions, 4=clicks, 5=cost
+        total_cost = sum(float(row[5] or 0) for row in results)
+        total_impressions = sum(int(row[3] or 0) for row in results)
+        total_clicks = sum(int(row[4] or 0) for row in results)
 
         assert len(results) == 28, "Expected 28 campaigns from union (BigQuery: 14 + S3: 14)"
         assert abs(total_cost - 127.17) < 0.01, f"Expected cost $127.17 (combined sources), got ${total_cost}"

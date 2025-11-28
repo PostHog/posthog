@@ -35,7 +35,10 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
             messages=[AssistantMessage(content="Session summary: 10 sessions analyzed with 5 key patterns found")]
         )
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode", return_value=mock_node_instance):
+        with patch(
+            "ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode",
+            return_value=mock_node_instance,
+        ):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda") as mock_runnable:
                 mock_chain = MagicMock()
                 mock_chain.ainvoke = AsyncMock(return_value=mock_result)
@@ -70,7 +73,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 await self.tool._arun_impl(
                     session_summarization_query="analyze mobile user sessions",
@@ -93,7 +96,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 await self.tool._arun_impl(
                     session_summarization_query="watch last 300 session recordings",
@@ -110,7 +113,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 with self.assertRaises(MaxToolFatalError) as context:
                     await self.tool._arun_impl(
@@ -133,7 +136,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 with self.assertRaises(MaxToolFatalError) as context:
                     await self.tool._arun_impl(
@@ -157,7 +160,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 result, artifact = await self.tool._arun_impl(
                     session_summarization_query="summarize sessions",
@@ -197,7 +200,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.session_summaries.nodes.SessionSummarizationNode"):
+        with patch("ee.hogai.chat_agent.session_summaries.nodes.SessionSummarizationNode"):
             with patch("ee.hogai.tools.session_summarization.RunnableLambda", return_value=mock_chain):
                 await tool._arun_impl(
                     session_summarization_query="new query",
