@@ -73,6 +73,7 @@ node_modules/
 object_storage/
 data/seaweedfs/
 .migration-checkpoint.json
+.postgres-backups/
 playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
 # pyright config (keep this until we have a standardized one)

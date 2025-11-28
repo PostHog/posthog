@@ -3,10 +3,10 @@
 [project]
 name = "posthog"
 version = "0.0.0"
-requires-python = "==3.12.11" # Leave patch version so that we don't accidentally upgrade minor versions
+requires-python = "==3.12.12" # Pin full version to control Python upgrades explicitly
 dependencies = [
     "aioboto3==15.4.0",
-    "aiohttp==3.11.10",
+    "aiohttp==3.13.2",
     "aiokafka>=0.8",
     "anthropic==0.69.0",
     "antlr4-python3-runtime==4.13.1",
@@ -94,7 +94,7 @@ dependencies = [
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
     "pyarrow==18.1.0",
-    "pydantic==2.10.3",
+    "pydantic~=2.12.0",
     "pyjwt~=2.10.0",
     "pympler==1.1",
     "pymssql==2.3.5",
@@ -194,7 +194,7 @@ dev = [
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
     "dagster-dg-cli>=1.10.18",
-    "datamodel-code-generator==0.28.5",
+    "datamodel-code-generator~=0.36.0",
     "debugpy>=1.8.0",
     "deepdiff>=8.6.1",
     "django-linear-migrations~=2.17.0",
