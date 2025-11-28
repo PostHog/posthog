@@ -73,7 +73,8 @@ export const llmAnalyticsAIDataLogic = kea<llmAnalyticsAIDataLogicType>([
                 },
                 loadAIDataForEventFailure: (state, params) => {
                     const newSet = new Set(state)
-                    newSet.delete(params.eventId)
+                    const { eventId } = params.errorObject
+                    newSet.delete(eventId)
                     return newSet
                 },
             },
