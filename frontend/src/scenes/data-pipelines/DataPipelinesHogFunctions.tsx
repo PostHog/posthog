@@ -85,7 +85,6 @@ export function DataPipelinesHogFunctions({
             ) : null}
             <SceneSection>
                 <HogFunctionList
-                    syncFiltersWithUrl
                     logicKey={logicKey}
                     type={kind}
                     additionalTypes={additionalKinds}
