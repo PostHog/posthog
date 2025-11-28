@@ -530,9 +530,9 @@ export const LLMMessageDisplay = React.memo(
                                     description="message content"
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                                 />
-                                {typeof content === 'string' && content.trim().length > 0 && (
-                                    <MessageActionsMenu content={content} />
-                                )}
+                                <MessageActionsMenu
+                                    content={typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
+                                />
                             </>
                         )}
                     </div>

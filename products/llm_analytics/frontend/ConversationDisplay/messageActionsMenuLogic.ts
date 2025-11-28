@@ -1,8 +1,8 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { messageActionsMenuLogicType } from './messageActionsMenuLogicType'
 
@@ -53,9 +53,6 @@ export interface MessageActionsMenuLogicProps {
 export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'ConversationDisplay', 'messageActionsMenuLogic']),
     props({} as MessageActionsMenuLogicProps),
-    connect({
-        values: [maxGlobalLogic, ['dataProcessingAccepted']],
-    }),
     key((props) => props.content.slice(0, 100)),
     actions({
         setShowTranslatePopover: (show: boolean) => ({ show }),
@@ -97,6 +94,10 @@ export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
         currentLanguageLabel: [
             (s) => [s.targetLanguage],
             (targetLanguage) => SUPPORTED_LANGUAGES.find((lang) => lang.value === targetLanguage)?.label || 'English',
+        ],
+        dataProcessingAccepted: [
+            () => [organizationLogic.selectors.currentOrganization],
+            (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,
         ],
     }),
     loaders(({ values }) => ({
