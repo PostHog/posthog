@@ -219,11 +219,11 @@ export function BatchExportConfiguration(): JSX.Element {
                                                     taxonomicGroupTypes={
                                                         selectedModel === 'events'
                                                             ? [
-                                                                TaxonomicFilterGroupType.EventProperties,
-                                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                                                TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.HogQLExpression,
-                                                            ]
+                                                                  TaxonomicFilterGroupType.EventProperties,
+                                                                  TaxonomicFilterGroupType.EventFeatureFlags,
+                                                                  TaxonomicFilterGroupType.PersonProperties,
+                                                                  TaxonomicFilterGroupType.HogQLExpression,
+                                                              ]
                                                             : []
                                                     }
                                                     onChange={(filters: AnyPropertyFilter[]) => {
