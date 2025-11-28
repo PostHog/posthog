@@ -4752,10 +4752,10 @@ class PersonOnEventPropertyFilter(BaseModel):
         extra="forbid",
     )
     key: str
-    label: Optional[str] = None
+    label: str | None = None
     operator: PropertyOperator
     type: Literal["person_on_event"] = Field(default="person_on_event", description="Person properties on the event")
-    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+    value: list[str | float | bool] | str | float | bool | None = None
 
 
 class PlanningStep(BaseModel):
