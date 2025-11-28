@@ -218,10 +218,6 @@ class PostHogSCIMUser(SCIMUser):
                 defaults={
                     "username": user_name,
                     "active": is_active,
-                },
-                create_defaults={
-                    "username": user_name,
-                    "active": is_active,
                     "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
                 },
             )
@@ -276,8 +272,7 @@ class PostHogSCIMUser(SCIMUser):
                     SCIMProvisionedUser.objects.update_or_create(
                         user=self.obj,
                         organization_domain=self._organization_domain,
-                        defaults={"active": True},
-                        create_defaults={
+                        defaults={
                             "active": True,
                             "username": self.obj.email,
                             "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
@@ -309,8 +304,7 @@ class PostHogSCIMUser(SCIMUser):
                 SCIMProvisionedUser.objects.update_or_create(
                     user=self.obj,
                     organization_domain=self._organization_domain,
-                    defaults={"username": value},
-                    create_defaults={
+                    defaults={
                         "username": value,
                         "active": True,
                         "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
@@ -338,8 +332,7 @@ class PostHogSCIMUser(SCIMUser):
                 SCIMProvisionedUser.objects.update_or_create(
                     user=self.obj,
                     organization_domain=self._organization_domain,
-                    defaults={"active": True},
-                    create_defaults={
+                    defaults={
                         "active": True,
                         "username": self.obj.email,
                         "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
@@ -373,8 +366,7 @@ class PostHogSCIMUser(SCIMUser):
                 SCIMProvisionedUser.objects.update_or_create(
                     user=self.obj,
                     organization_domain=self._organization_domain,
-                    defaults={"username": value},
-                    create_defaults={
+                    defaults={
                         "username": value,
                         "active": True,
                         "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
