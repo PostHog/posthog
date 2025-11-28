@@ -1,6 +1,8 @@
 import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
 import React from 'react'
 
+const propertyColumnStyle = { minWidth: '150px' }
+
 export const EmbeddingEvent = (): JSX.Element => {
     const { Markdown, dedent } = useMDXComponents()
 
@@ -20,13 +22,13 @@ export const EmbeddingEvent = (): JSX.Element => {
                 <table className="my-4">
                     <thead>
                         <tr>
-                            <th style={{ minWidth: '150px' }}>Property</th>
+                            <th style={propertyColumnStyle}>Property</th>
                             <th>Description</th>
                         </tr>
                     </thead>
                     <tbody>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_trace_id</code>
                         </td>
                         <td>
@@ -38,7 +40,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_session_id</code>
                         </td>
                         <td>
@@ -50,7 +52,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_span_id</code>
                         </td>
                         <td>
@@ -58,7 +60,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_span_name</code>
                         </td>
                         <td>
@@ -70,7 +72,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_parent_id</code>
                         </td>
                         <td>
@@ -78,7 +80,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_model</code>
                         </td>
                         <td>
@@ -90,7 +92,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_provider</code>
                         </td>
                         <td>
@@ -102,7 +104,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_input</code>
                         </td>
                         <td>
@@ -114,7 +116,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_input_tokens</code>
                         </td>
                         <td>
@@ -122,7 +124,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_latency</code>
                         </td>
                         <td>
@@ -130,7 +132,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_http_status</code>
                         </td>
                         <td>
@@ -138,7 +140,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_base_url</code>
                         </td>
                         <td>
@@ -150,7 +152,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_request_url</code>
                         </td>
                         <td>
@@ -162,7 +164,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_is_error</code>
                         </td>
                         <td>
@@ -170,7 +172,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_error</code>
                         </td>
                         <td>
@@ -193,13 +195,13 @@ export const EmbeddingEvent = (): JSX.Element => {
                 <table className="my-4">
                     <thead>
                         <tr>
-                            <th style={{ minWidth: '150px' }}>Property</th>
+                            <th style={propertyColumnStyle}>Property</th>
                             <th>Description</th>
                         </tr>
                     </thead>
                     <tbody>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_input_cost_usd</code>
                         </td>
                         <td>
@@ -207,7 +209,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_output_cost_usd</code>
                         </td>
                         <td>
@@ -215,7 +217,7 @@ export const EmbeddingEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_total_cost_usd</code>
                         </td>
                         <td>

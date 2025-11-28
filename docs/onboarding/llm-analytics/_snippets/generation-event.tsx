@@ -1,6 +1,8 @@
 import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
 import React from 'react'
 
+const propertyColumnStyle = { minWidth: '150px' }
+
 export const GenerationEvent = (): JSX.Element => {
     const { Markdown, dedent, CodeBlock } = useMDXComponents()
 
@@ -20,13 +22,13 @@ export const GenerationEvent = (): JSX.Element => {
                 <table className="my-4">
                     <thead>
                         <tr>
-                            <th style={{ minWidth: '150px' }}>Property</th>
+                            <th style={propertyColumnStyle}>Property</th>
                             <th>Description</th>
                         </tr>
                     </thead>
                     <tbody>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_trace_id</code>
                         </td>
                         <td>
@@ -40,7 +42,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_session_id</code>
                         </td>
                         <td>
@@ -52,7 +54,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_span_id</code>
                         </td>
                         <td>
@@ -60,7 +62,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_span_name</code>
                         </td>
                         <td>
@@ -72,7 +74,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_parent_id</code>
                         </td>
                         <td>
@@ -80,7 +82,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_model</code>
                         </td>
                         <td>
@@ -92,7 +94,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_provider</code>
                         </td>
                         <td>
@@ -104,7 +106,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_input</code>
                         </td>
                         <td>
@@ -145,7 +147,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_input_tokens</code>
                         </td>
                         <td>
@@ -153,7 +155,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_output_choices</code>
                         </td>
                         <td>
@@ -190,7 +192,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_output_tokens</code>
                         </td>
                         <td>
@@ -198,7 +200,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_latency</code>
                         </td>
                         <td>
@@ -206,7 +208,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_http_status</code>
                         </td>
                         <td>
@@ -214,7 +216,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_base_url</code>
                         </td>
                         <td>
@@ -226,7 +228,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_request_url</code>
                         </td>
                         <td>
@@ -238,7 +240,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_is_error</code>
                         </td>
                         <td>
@@ -246,7 +248,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_error</code>
                         </td>
                         <td>
@@ -271,13 +273,13 @@ export const GenerationEvent = (): JSX.Element => {
                 <table className="my-4">
                     <thead>
                         <tr>
-                            <th style={{ minWidth: '150px' }}>Property</th>
+                            <th style={propertyColumnStyle}>Property</th>
                             <th>Description</th>
                         </tr>
                     </thead>
                     <tbody>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_input_cost_usd</code>
                         </td>
                         <td>
@@ -285,7 +287,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_output_cost_usd</code>
                         </td>
                         <td>
@@ -293,7 +295,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_request_cost_usd</code>
                         </td>
                         <td>
@@ -301,7 +303,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_web_search_cost_usd</code>
                         </td>
                         <td>
@@ -309,7 +311,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_total_cost_usd</code>
                         </td>
                         <td>
@@ -326,13 +328,13 @@ export const GenerationEvent = (): JSX.Element => {
                 <table className="my-4">
                     <thead>
                         <tr>
-                            <th style={{ minWidth: '150px' }}>Property</th>
+                            <th style={propertyColumnStyle}>Property</th>
                             <th>Description</th>
                         </tr>
                     </thead>
                     <tbody>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_input_token_price</code>
                         </td>
                         <td>
@@ -342,7 +344,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_output_token_price</code>
                         </td>
                         <td>
@@ -352,7 +354,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_cache_read_token_price</code>
                         </td>
                         <td>
@@ -360,7 +362,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_cache_write_token_price</code>
                         </td>
                         <td>
@@ -368,7 +370,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_request_price</code>
                         </td>
                         <td>
@@ -376,7 +378,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_request_count</code>
                         </td>
                         <td>
@@ -386,7 +388,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_web_search_price</code>
                         </td>
                         <td>
@@ -394,7 +396,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_web_search_count</code>
                         </td>
                         <td>
@@ -411,13 +413,13 @@ export const GenerationEvent = (): JSX.Element => {
                 <table className="my-4">
                     <thead>
                         <tr>
-                            <th style={{ minWidth: '150px' }}>Property</th>
+                            <th style={propertyColumnStyle}>Property</th>
                             <th>Description</th>
                         </tr>
                     </thead>
                     <tbody>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_cache_read_input_tokens</code>
                         </td>
                         <td>
@@ -425,7 +427,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_cache_creation_input_tokens</code>
                         </td>
                         <td>
@@ -442,13 +444,13 @@ export const GenerationEvent = (): JSX.Element => {
                 <table className="my-4">
                     <thead>
                         <tr>
-                            <th style={{ minWidth: '150px' }}>Property</th>
+                            <th style={propertyColumnStyle}>Property</th>
                             <th>Description</th>
                         </tr>
                     </thead>
                     <tbody>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_temperature</code>
                         </td>
                         <td>
@@ -456,7 +458,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_stream</code>
                         </td>
                         <td>
@@ -464,7 +466,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_max_tokens</code>
                         </td>
                         <td>
@@ -472,7 +474,7 @@ export const GenerationEvent = (): JSX.Element => {
                         </td>
                     </tr>
                     <tr>
-                        <td style={{ minWidth: '150px' }}>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_tools</code>
                         </td>
                         <td>
