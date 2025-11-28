@@ -22,9 +22,7 @@ import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
 import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
 import { useErrorTrackingExplainIssueMaxTool } from '../../ExplainIssueTool'
 import { FixModal } from '../FixModal'
-import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
-import { StacktraceTextDisplay } from '../Stacktrace/StacktraceTextDisplay'
 import { exceptionCardLogic } from '../exceptionCardLogic'
 import { SubHeader } from './SubHeader'
 
@@ -93,31 +91,24 @@ export function StacktraceTab({
                     </ShowDropDownMenu>
                 </ButtonGroupPrimitive>
             </SubHeader>
-            <StacktraceIssueDisplay
-                className="p-2"
-                truncateMessage={false}
-                issue={issue ?? undefined}
-                issueLoading={issueLoading}
-            />
+            <StacktraceIssueDisplay className="p-2" issue={issue ?? undefined} issueLoading={issueLoading} />
             <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} issueId={issueId} />
         </TabsPrimitiveContent>
     )
 }
 
 function StacktraceIssueDisplay({
-    issue,
-    issueLoading,
-    ...stacktraceDisplayProps
+    className,
 }: {
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
-} & Omit<StacktraceBaseDisplayProps, 'renderEmpty'>): JSX.Element {
-    const { showAsText } = useValues(exceptionCardLogic)
-    const componentProps = {
-        ...stacktraceDisplayProps,
-        renderEmpty: () => <StacktraceEmptyDisplay />,
-    }
-    return showAsText ? <StacktraceTextDisplay {...componentProps} /> : <StacktraceGenericDisplay {...componentProps} />
+} & { className?: string }): JSX.Element {
+    // const { showAsText, showAllFrames } = useValues(exceptionCardLogic)
+    // const componentProps = {
+    //     ...stacktraceDisplayProps,
+    //     renderEmpty: () => <StacktraceEmptyDisplay />,
+    // }
+    return <StacktraceGenericDisplay className={className} />
 }
 
 function ShowDropDownMenu({ children }: { children: React.ReactNode }): JSX.Element {

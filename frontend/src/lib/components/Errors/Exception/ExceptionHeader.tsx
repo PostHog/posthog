@@ -19,25 +19,6 @@ export type ExceptionHeaderProps = {
     truncate?: boolean
 }
 
-// export function ExceptionHeader({ exception, part, fingerprint }: ExceptionHeaderProps): JSX.Element {
-//     const type = formatType(exception)
-//     const value = exception.value
-
-//     return (
-//         <div className="flex flex-col gap-0.5 mb-2">
-//             <h3 className="StackTrace__type mb-0 flex items-center" title={type}>
-//                 {type}
-//                 {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
-//             </h3>
-//             {value && (
-//                 <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
-//                     {value}
-//                 </div>
-//             )}
-//         </div>
-//     )
-// }
-
 export function ExceptionHeader({
     exception,
     runtime,
