@@ -43,12 +43,12 @@ const CORE_TAGS = new Set([
 
 function getOutputDirForTag(tag, productFolders) {
     if (CORE_TAGS.has(tag)) {
-        return path.resolve(frontendRoot, 'src', 'api')
+        return path.resolve(frontendRoot, 'src', 'generated')
     }
     // Normalize tag: convert hyphens to underscores to match folder names
     const normalizedTag = tag.replace(/-/g, '_')
     if (productFolders.has(normalizedTag)) {
-        return path.resolve(productsDir, normalizedTag, 'frontend', 'api')
+        return path.resolve(productsDir, normalizedTag, 'frontend', 'generated')
     }
     return null // Tag doesn't match any product or core
 }

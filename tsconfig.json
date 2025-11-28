@@ -53,8 +53,8 @@
         "frontend/dist/**/*",
         "**/*.mdx",
         // Generated API types have ordering issues from orval - exclude from strict checking
-        "frontend/src/api/**/*",
-        "products/**/frontend/api/**/*"
+        "frontend/src/generated/**/*",
+        "products/**/frontend/generated/**/*"
     ],
     "ts-node": {
         "compilerOptions": {
