@@ -14,7 +14,6 @@ import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/not
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
-import { AnyPropertyFilter } from '~/types'
 
 import { AddInsightsToNotebookModal } from '../AddInsightsToNotebookModal/AddInsightsToNotebookModal'
 import { Editor } from './Editor'
@@ -29,7 +28,6 @@ export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
     initialContent?: JSONContent
     editable?: boolean
-    canvasFiltersOverride?: AnyPropertyFilter[]
 }
 
 export function Notebook({
@@ -38,9 +36,8 @@ export function Notebook({
     editable = true,
     initialAutofocus = 'start',
     initialContent,
-    canvasFiltersOverride,
 }: NotebookProps): JSX.Element {
-    const logicProps: NotebookLogicProps = { shortId, mode, canvasFiltersOverride }
+    const logicProps: NotebookLogicProps = { shortId, mode }
     const logic = notebookLogic(logicProps)
     const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
         useValues(logic)
