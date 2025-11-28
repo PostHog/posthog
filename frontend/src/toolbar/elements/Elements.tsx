@@ -29,9 +29,10 @@ export function Elements(): JSX.Element {
         relativePositionCompensation,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
-    const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+    const { highestClickCount, clickmapsEnabled } = useValues(heatmapToolbarMenuLogic)
+    const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
 
-    const shiftPressed = useShiftKeyPressed()
+    const shiftPressed = useShiftKeyPressed(clickmapsEnabled ? refreshClickmap : undefined)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
     const { theme } = useValues(toolbarLogic)
