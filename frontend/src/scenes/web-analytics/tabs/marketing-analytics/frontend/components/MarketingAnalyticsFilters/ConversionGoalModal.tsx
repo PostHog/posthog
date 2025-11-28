@@ -5,7 +5,7 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
@@ -82,7 +82,8 @@ export function ConversionGoalModal(): JSX.Element {
 
     const handleLoadConfiguredGoal = useCallback(
         (goal: ConversionGoalFilter): void => {
-            setConversionGoalInput(goal)
+            // Generate a new ID so changes are always detected when applying
+            setConversionGoalInput({ ...goal, conversion_goal_id: uuid() })
         },
         [setConversionGoalInput]
     )

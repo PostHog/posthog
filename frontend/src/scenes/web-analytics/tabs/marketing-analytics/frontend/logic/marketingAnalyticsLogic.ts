@@ -206,6 +206,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             null as ConversionGoalFilter | null,
             {
                 setDraftConversionGoal: (_, { goal }) => goal,
+                resetConversionGoalInput: () => null,
             },
         ],
         conversionGoalInput: [
