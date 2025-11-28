@@ -2,7 +2,8 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from ee.hogai.tools.replay.summarize_sessions import FilterSessionRecordingsTool, SummarizeSessionsTool
+from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
+from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 
 from ..factory import AgentModeDefinition
 from ..toolkit import AgentToolkit
