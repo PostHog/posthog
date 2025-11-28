@@ -166,7 +166,22 @@ export const logsLogic = kea<logsLogicType>([
             })
         }
 
+        const clearInitialLogsLimit = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'initialLogsLimit', null, DEFAULT_INITIAL_LOGS_LIMIT)
+                return params
+            })
+        }
+
         return {
+            fetchLogsSuccess: () => clearInitialLogsLimit(),
             setDateRange: () => buildUrlAndRunQuery(),
             setFilterGroup: () => buildUrlAndRunQuery(),
             setSearchTerm: () => buildUrlAndRunQuery(),
