@@ -463,6 +463,12 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
     }
 
+    // # LLM Analytics
+
+    public llmAnalyticsTranslate(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
+    }
+
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('insights')
@@ -1716,6 +1722,14 @@ const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
+        },
+    },
+    llmAnalytics: {
+        translate(params: {
+            text: string
+            targetLanguage?: string
+        }): Promise<{ translation: string; detected_language?: string; provider: string }> {
+            return new ApiRequest().llmAnalyticsTranslate().create({ data: params })
         },
     },
     insights: {
