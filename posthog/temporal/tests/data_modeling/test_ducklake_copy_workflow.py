@@ -39,10 +39,6 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     await database_sync_to_async(saved_query.save)(update_fields=["columns"])
     job_id = uuid.uuid4().hex
     table_uri = f"s3://source/team_{ateam.pk}_model_{saved_query.id.hex}/modeling/{saved_query.normalized_name}"
-    file_uris = [
-        f"{table_uri}/part-0.parquet",
-        f"{table_uri}/chunk=1/part-1.parquet",
-    ]
     inputs = DataModelingDuckLakeCopyInputs(
         team_id=ateam.pk,
         job_id=job_id,
@@ -51,7 +47,6 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
                 model_label=saved_query.id.hex,
                 saved_query_id=str(saved_query.id),
                 table_uri=table_uri,
-                file_uris=file_uris,
             )
         ],
     )
@@ -63,7 +58,6 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     model_metadata = metadata[0]
     assert model_metadata.model_label == saved_query.id.hex
     assert model_metadata.saved_query_name == saved_query.name
-    assert model_metadata.source_glob_uri == f"{table_uri}/**/*.parquet"
     assert model_metadata.source_table_uri == table_uri
     assert model_metadata.schema_name == f"data_modeling_team_{ateam.pk}"
     assert model_metadata.table_name == f"model_{saved_query.id.hex}"
@@ -126,12 +120,11 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
         }
         await database_sync_to_async(saved_query.save)(update_fields=["columns"])
 
-    def _table_resources(saved_query):
-        table_uri = f"s3://source/team_{ateam.pk}_model_{saved_query.id.hex}/modeling/{saved_query.normalized_name}"
-        return table_uri, [f"{table_uri}/part-0.parquet"]
+    def _table_uri(saved_query):
+        return f"s3://source/team_{ateam.pk}_model_{saved_query.id.hex}/modeling/{saved_query.normalized_name}"
 
-    override_table_uri, override_files = _table_resources(override_query)
-    inherit_table_uri, inherit_files = _table_resources(inherit_query)
+    override_table_uri = _table_uri(override_query)
+    inherit_table_uri = _table_uri(inherit_query)
 
     inputs = DataModelingDuckLakeCopyInputs(
         team_id=ateam.pk,
@@ -141,13 +134,11 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
                 model_label=override_label,
                 saved_query_id=str(override_query.id),
                 table_uri=override_table_uri,
-                file_uris=override_files,
             ),
             DuckLakeCopyModelInput(
                 model_label=inherited_label,
                 saved_query_id=str(inherit_query.id),
                 table_uri=inherit_table_uri,
-                file_uris=inherit_files,
             ),
         ],
     )
@@ -208,7 +199,6 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
         saved_query_id=str(uuid.uuid4()),
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
-        source_glob_uri="s3://source/table/**/*.parquet",
         source_table_uri="s3://source/table",
         schema_name="data_modeling_team_1",
         table_name="model_a",
@@ -227,14 +217,17 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     schema_calls = [
         statement for statement, _ in fake_conn_calls if statement.startswith("CREATE SCHEMA IF NOT EXISTS")
     ]
-    table_calls = [statement for statement, _ in fake_conn_calls if statement.startswith("CREATE OR REPLACE TABLE")]
+    table_calls = [
+        (statement, params) for statement, params in fake_conn_calls if statement.startswith("CREATE OR REPLACE TABLE")
+    ]
 
     assert configure_args["install_extension"] is True
     assert configure_args["bucket"] == ducklake_module.get_config()["DUCKLAKE_DATA_BUCKET"]
     assert ensured["called"] is True
     assert schema_calls and "ducklake_dev.data_modeling_team_1" in schema_calls[0]
-    assert table_calls and "ducklake_dev.data_modeling_team_1.model_a" in table_calls[0]
-    assert "read_parquet('s3://source/table/**/*.parquet')" in table_calls[0]
+    assert table_calls and "ducklake_dev.data_modeling_team_1.model_a" in table_calls[0][0]
+    assert "delta_scan(?)" in table_calls[0][0]
+    assert table_calls[0][1] == (metadata.source_table_uri,)
     assert any("ATTACH" in statement for statement in fake_conn.sql_statements), "Expected DuckLake catalog attach"
     assert fake_conn.closed is True
 
@@ -274,7 +267,6 @@ async def test_verify_ducklake_copy_activity_runs_queries(monkeypatch, activity_
         saved_query_id=str(uuid.uuid4()),
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
-        source_glob_uri="s3://source/table/**/*.parquet",
         source_table_uri="s3://source/table",
         schema_name="data_modeling_team_1",
         table_name="model_a",
@@ -332,7 +324,6 @@ async def test_verify_ducklake_copy_activity_reports_failures(monkeypatch, activ
         saved_query_id=str(uuid.uuid4()),
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
-        source_glob_uri="s3://source/table/**/*.parquet",
         source_table_uri="s3://source/table",
         schema_name="data_modeling_team_1",
         table_name="model_b",
@@ -397,7 +388,6 @@ async def test_verify_ducklake_copy_activity_respects_tolerance(
         saved_query_id=str(uuid.uuid4()),
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
-        source_glob_uri="s3://source/table/**/*.parquet",
         source_table_uri="s3://source/table",
         schema_name="data_modeling_team_1",
         table_name="model_tolerance",
@@ -469,7 +459,6 @@ async def test_verify_ducklake_copy_activity_null_ratio_matches_source(monkeypat
         saved_query_id=str(uuid.uuid4()),
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
-        source_glob_uri="s3://source/table/**/*.parquet",
         source_table_uri="s3://source/table",
         schema_name="data_modeling_team_1",
         table_name="model_d",
@@ -536,7 +525,6 @@ async def test_verify_ducklake_copy_activity_null_ratio_mismatch(monkeypatch, ac
         saved_query_id=str(uuid.uuid4()),
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
-        source_glob_uri="s3://source/table/**/*.parquet",
         source_table_uri="s3://source/table",
         schema_name="data_modeling_team_1",
         table_name="model_e",
@@ -599,7 +587,6 @@ async def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypa
         saved_query_id=str(uuid.uuid4()),
         saved_query_name="ducklake_model",
         normalized_name="ducklake_model",
-        source_glob_uri="s3://source/table/**/*.parquet",
         source_table_uri="s3://source/table",
         schema_name="data_modeling_team_1",
         table_name="model_c",

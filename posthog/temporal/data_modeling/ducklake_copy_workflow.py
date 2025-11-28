@@ -3,7 +3,6 @@ import json
 import datetime as dt
 import dataclasses
 from typing import Any
-from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -47,7 +46,6 @@ class DuckLakeCopyModelMetadata:
     saved_query_id: str
     saved_query_name: str
     normalized_name: str
-    source_glob_uri: str
     source_table_uri: str
     schema_name: str
     table_name: str
@@ -106,7 +104,6 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 saved_query_id=str(saved_query.id),
                 saved_query_name=saved_query.name,
                 normalized_name=normalized_name,
-                source_glob_uri=_build_ducklake_source_glob(model.file_uris),
                 source_table_uri=model.table_uri,
                 schema_name=_sanitize_ducklake_identifier(
                     f"{DATA_MODELING_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
@@ -125,7 +122,7 @@ async def prepare_data_modeling_ducklake_metadata_activity(
 
 @activity.defn
 def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityInputs) -> None:
-    """Ingest a single model's Parquet snapshot into DuckLake using native SQL."""
+    """Ingest a single model's Delta snapshot into DuckLake using native SQL."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
 
@@ -140,15 +137,17 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
 
         qualified_schema = f"{alias}.{inputs.model.schema_name}"
         qualified_table = f"{qualified_schema}.{inputs.model.table_name}"
-        escaped_glob = ducklake_escape(inputs.model.source_glob_uri)
 
         logger.info(
-            "Creating DuckLake table from Parquet snapshot",
+            "Creating DuckLake table from Delta snapshot",
             ducklake_table=qualified_table,
-            source_glob=inputs.model.source_glob_uri,
+            source_table=inputs.model.source_table_uri,
         )
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
-        conn.execute(f"CREATE OR REPLACE TABLE {qualified_table} AS " f"SELECT * FROM read_parquet('{escaped_glob}')")
+        conn.execute(
+            f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
+            [inputs.model.source_table_uri],
+        )
         logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
     finally:
         conn.close()
@@ -447,55 +446,6 @@ def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     return cleaned[:63]
 
 
-def _build_ducklake_source_glob(file_uris: list[str]) -> str:
-    """Derive a glob covering all Parquet files that make up the saved query snapshot."""
-    if not file_uris:
-        raise ValueError("DuckLake copy requires at least one Parquet file URI")
-
-    base: str | None = None
-    directory_segments: list[list[str]] = []
-    for uri in file_uris:
-        parsed = urlparse(uri)
-        scheme = (parsed.scheme or "s3").lower()
-        if scheme.startswith("s3"):
-            scheme = "s3"
-        if not parsed.netloc:
-            raise ValueError(f"Unable to determine host/bucket for DuckLake URI '{uri}'")
-        current_base = f"{scheme}://{parsed.netloc}"
-        if base is None:
-            base = current_base
-        elif current_base != base:
-            raise ValueError("DuckLake copy inputs must share the same base URI")
-
-        stripped_path = parsed.path.lstrip("/")
-        directory = stripped_path.rsplit("/", 1)[0] if "/" in stripped_path else ""
-        directory_segments.append([segment for segment in directory.split("/") if segment])
-
-    if base is None:
-        raise ValueError("Invalid DuckLake file URIs - missing base path")
-
-    common_segments = directory_segments[0][:]
-    for segments in directory_segments[1:]:
-        new_common: list[str] = []
-        for left, right in zip(common_segments, segments):
-            if left != right:
-                break
-            new_common.append(left)
-        common_segments = new_common
-        if not common_segments:
-            break
-
-    if not common_segments and any(directory_segments):
-        raise ValueError("DuckLake copy inputs must share a common directory prefix")
-
-    relative_prefix = "/".join(common_segments)
-    normalized_base = base.rstrip("/")
-    if relative_prefix:
-        normalized_base = f"{normalized_base}/{relative_prefix}"
-
-    return f"{normalized_base.rstrip('/')}/**/*.parquet"
-
-
 def _detect_partition_column(columns: dict[str, Any]) -> str | None:
     for name, metadata in columns.items():
         column_type = _extract_column_type(metadata)
@@ -787,7 +737,6 @@ def _resolve_verification_parameter(
         DuckLakeCopyVerificationParameter.SAVED_QUERY_ID: model.saved_query_id,
         DuckLakeCopyVerificationParameter.SAVED_QUERY_NAME: model.saved_query_name,
         DuckLakeCopyVerificationParameter.NORMALIZED_NAME: model.normalized_name,
-        DuckLakeCopyVerificationParameter.SOURCE_GLOB_URI: model.source_glob_uri,
         DuckLakeCopyVerificationParameter.SOURCE_TABLE_URI: model.source_table_uri,
         DuckLakeCopyVerificationParameter.SCHEMA_NAME: model.schema_name,
         DuckLakeCopyVerificationParameter.TABLE_NAME: model.table_name,

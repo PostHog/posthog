@@ -19,7 +19,6 @@ class DuckLakeCopyVerificationParameter(enum.StrEnum):
     SAVED_QUERY_ID = "saved_query_id"
     SAVED_QUERY_NAME = "saved_query_name"
     NORMALIZED_NAME = "normalized_name"
-    SOURCE_GLOB_URI = "source_glob_uri"
     SOURCE_TABLE_URI = "source_table_uri"
     SCHEMA_NAME = "schema_name"
     TABLE_NAME = "table_name"
