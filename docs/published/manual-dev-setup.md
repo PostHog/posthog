@@ -85,6 +85,7 @@ Saved preprocessed configuration to '/var/lib/clickhouse/preprocessed_configs/us
 > # docker logs posthog-clickhouse-1
 > # docker exec -it posthog-clickhouse-1 bash
 > # clickhouse-client --query "SELECT 1"
+> ```
 
 Finally, install Postgres locally. Even if you are planning to run Postgres inside Docker, we need a local copy of Postgres (version 11+) for its CLI tools and development libraries/headers. These are required by `pip` to install `psycopg2`.
 
