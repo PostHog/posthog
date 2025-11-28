@@ -50,6 +50,7 @@ import {
     RefreshType,
     SourceConfig,
     TileFilters,
+    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -153,6 +154,7 @@ import {
     PropertyDefinitionType,
     QueryBasedInsightModel,
     QueryTabState,
+    QuickFilter,
     RawAnnotationType,
     RawBatchExportBackfill,
     RawBatchExportRun,
@@ -615,6 +617,11 @@ export class ApiRequest {
 
     public comment(id: CommentType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.comments(teamId).addPathComponent(id)
+    }
+
+    // # Feed
+    public feed(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('feed')
     }
 
     // # Exports
@@ -1122,6 +1129,14 @@ export class ApiRequest {
 
     public errorTrackingIssueCohort(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
         return this.errorTrackingIssue(issueId, teamId).addPathComponent(`cohort`)
+    }
+
+    public quickFilters(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('quick_filters')
+    }
+
+    public quickFilter(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.quickFilters(teamId).addPathComponent(id)
     }
 
     // # Warehouse
@@ -1953,21 +1968,10 @@ const api = {
     },
 
     userProductList: {
-        async list(): Promise<
-            CountedPaginatedResponse<{
-                id: string
-                product_path: string
-                enabled: boolean
-                created_at: string
-                updated_at: string
-            }>
-        > {
+        async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
-        async updateByPath(data: {
-            product_path: string
-            enabled: boolean
-        }): Promise<{ id: string; product_path: string; enabled: boolean; created_at: string; updated_at: string }> {
+        async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
             return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
     },
@@ -2187,6 +2191,12 @@ const api = {
         },
     },
 
+    feed: {
+        async recentUpdates(days: number = 7): Promise<{ results: any[]; count: number }> {
+            return new ApiRequest().feed().withAction('recent_updates').withQueryString({ days }).get()
+        },
+    },
+
     logs: {
         async query({
             query,
@@ -2194,7 +2204,7 @@ const api = {
         }: {
             query: Omit<LogsQuery, 'kind'>
             signal?: AbortSignal
-        }): Promise<{ results: LogMessage[] }> {
+        }): Promise<{ results: LogMessage[]; hasMore: boolean }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
@@ -3232,6 +3242,29 @@ const api = {
 
         async assignCohort(issueId: ErrorTrackingIssue['id'], cohortId: CohortType['id']): Promise<{ id: string }> {
             return await new ApiRequest().errorTrackingIssueCohort(issueId).put({ data: { cohortId } })
+        },
+    },
+
+    quickFilters: {
+        async list(context: string): Promise<CountedPaginatedResponse<QuickFilter>> {
+            return await new ApiRequest().quickFilters().withQueryString(toParams({ context })).get()
+        },
+        async get(id: string): Promise<QuickFilter> {
+            return await new ApiRequest().quickFilter(id).get()
+        },
+        async create(
+            data: Pick<QuickFilter, 'contexts' | 'name' | 'property_name' | 'type' | 'options'>
+        ): Promise<QuickFilter> {
+            return await new ApiRequest().quickFilters().create({ data })
+        },
+        async update(
+            id: string,
+            data: Partial<Pick<QuickFilter, 'name' | 'property_name' | 'type' | 'options' | 'contexts'>>
+        ): Promise<QuickFilter> {
+            return await new ApiRequest().quickFilter(id).update({ data })
+        },
+        async delete(id: string): Promise<void> {
+            return await new ApiRequest().quickFilter(id).delete()
         },
     },
 
@@ -4310,6 +4343,17 @@ const api = {
     productIntents: {
         async update(data: ProductIntentProperties): Promise<TeamType> {
             return await new ApiRequest().addProductIntent().update({ data })
+        },
+    },
+    teamSettings: {
+        async asOf(at: string, scope?: string | string[]): Promise<Record<string, any>> {
+            const params: Record<string, any> = { at, ...(scope !== undefined ? { scope } : {}) }
+            return await new ApiRequest()
+                .environments()
+                .current()
+                .withAction('settings_as_of')
+                .withQueryString(toParams(params, true))
+                .get()
         },
     },
 

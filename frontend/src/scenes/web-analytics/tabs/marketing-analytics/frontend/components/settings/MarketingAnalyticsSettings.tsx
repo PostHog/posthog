@@ -10,6 +10,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AttributionSettings } from './AttributionSettings'
+import { CampaignFieldPreferencesConfiguration } from './CampaignFieldPreferencesConfiguration'
 import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { CustomSourceMappingsConfiguration } from './CustomSourceMappingsConfiguration'
@@ -58,6 +59,8 @@ export function MarketingAnalyticsSettings({
                                         <CampaignNameMappingsConfiguration />
                                         <SceneDivider />
                                         <CustomSourceMappingsConfiguration />
+                                        <SceneDivider />
+                                        <CampaignFieldPreferencesConfiguration />
                                     </div>
                                 ),
                             },

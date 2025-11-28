@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 
 import { isEmptyObject } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -10,10 +11,10 @@ import { FilterType, InsightType } from '~/types'
 
 import { customerAnalyticsConfigLogic } from 'products/customer_analytics/frontend/customerAnalyticsConfigLogic'
 
-import { EventSelectorProps } from './EventConfigModal'
-import type { eventConfigModalLogicType } from './eventConfigModalLogicType'
+import { EventSelectorProps } from './CustomerAnalyticsDashboardEvents'
+import type { customerAnalyticsDashboardEventsLogicType } from './customerAnalyticsDashboardEventsLogicType'
 
-export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
+export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashboardEventsLogicType>([
     path(['products', 'customerAnalytics', 'components', 'insights', 'eventConfigModal']),
     connect(() => ({
         values: [
@@ -42,7 +43,6 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
             filters,
         }),
         saveEvents: true,
-        toggleModalOpen: (isOpen?: boolean) => ({ isOpen }),
     }),
     reducers({
         activityEventSelection: [
@@ -78,12 +78,6 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
             {
                 setSubscriptionEventSelection: (_, { filters }) => filters,
                 clearFilterSelections: () => null,
-            },
-        ],
-        isOpen: [
-            false,
-            {
-                toggleModalOpen: (state, { isOpen }) => (isOpen !== undefined ? isOpen : !state),
             },
         ],
         eventsToHighlight: [
@@ -213,28 +207,28 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
                     setFilters: actions.setActivityEventSelection,
                 },
                 {
+                    title: 'Signup pageview event',
+                    caption: 'Tracks when users view the signup page. Used to calculate signup conversion',
+                    filters: signupPageviewEventFilters,
+                    setFilters: actions.setSignupPageviewEventSelection,
+                },
+                {
                     title: 'Signup event',
                     caption: 'Tracks when users complete registration or account creation',
                     filters: signupEventFilters,
                     setFilters: actions.setSignupEventSelection,
                 },
                 {
-                    title: 'Signup pageview event',
-                    caption: 'Tracks when users view the signup page',
-                    filters: signupPageviewEventFilters,
-                    setFilters: actions.setSignupPageviewEventSelection,
+                    title: 'Subscription event',
+                    caption: 'Tracks when users subscribe to a plan. May or may not be associated with a payment',
+                    filters: subscriptionEventFilters,
+                    setFilters: actions.setSubscriptionEventSelection,
                 },
                 {
                     title: 'Payment event',
-                    caption: 'Tracks when users complete payment transactions',
+                    caption: 'Tracks when users complete a payment. Used to calculate free-to-paid conversion',
                     filters: paymentEventFilters,
                     setFilters: actions.setPaymentEventSelection,
-                },
-                {
-                    title: 'Subscription event',
-                    caption: 'Tracks when users subscribe to a plan',
-                    filters: subscriptionEventFilters,
-                    setFilters: actions.setSubscriptionEventSelection,
                 },
             ],
         ],
@@ -284,14 +278,13 @@ export const eventConfigModalLogic = kea<eventConfigModalLogicType>([
             }
             actions.updateEvents(events)
         },
-        toggleModalOpen: ({ isOpen }) => {
-            const isClosing = isOpen === false || (isOpen === undefined && values.isOpen)
-            if (isClosing) {
-                actions.setActivityEventSelection(null)
-                actions.setSignupEventSelection(null)
-                actions.setSignupPageviewEventSelection(null)
-                actions.setPaymentEventSelection(null)
-                actions.setSubscriptionEventSelection(null)
+    })),
+
+    urlToAction(({ actions }) => ({
+        '*': () => {
+            // Clear highlights when navigating away from configuration page
+            if (!window.location.pathname.includes('/customer_analytics/configuration')) {
+                actions.clearEventsToHighlight()
             }
         },
     })),

@@ -40,15 +40,16 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
-import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
 import { EvalsTabContent } from './components/EvalsTabContent'
+import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
+import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
@@ -65,7 +66,6 @@ import {
     getSessionID,
     getTraceTimestamp,
     isLLMEvent,
-    normalizeMessages,
     removeMilliseconds,
 } from './utils'
 
@@ -687,23 +687,18 @@ const EventContent = React.memo(
 
         const showSummaryTab = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION]
 
+        // Load AI data for the current event
+        const { input: loadedInput, output: loadedOutput } = useAIData(event)
+
         const handleTryInPlayground = (): void => {
-            if (!event) {
+            if (!event || !isLLMEvent(event)) {
                 return
             }
 
-            let model: string | undefined = undefined
-            let input: any = undefined
-            let tools: any = undefined
+            const model = event.properties.$ai_model
+            const tools = event.properties.$ai_tools
 
-            if (isLLMEvent(event)) {
-                model = event.properties.$ai_model
-                // Prefer $ai_input if available, otherwise fallback to $ai_input_state
-                input = event.properties.$ai_input ?? event.properties.$ai_input_state
-                tools = event.properties.$ai_tools
-            }
-
-            setupPlaygroundFromEvent({ model, input, tools })
+            setupPlaygroundFromEvent({ model, input: loadedInput, tools })
         }
 
         return (
@@ -788,19 +783,8 @@ const EventContent = React.memo(
                                             traceId={trace.id}
                                             timestamp={trace.createdAt}
                                             sourceId={event.id}
-                                            input={
-                                                isLLMEvent(event)
-                                                    ? (event.properties.$ai_input ?? event.properties.$ai_input_state)
-                                                    : event.inputState
-                                            }
-                                            output={
-                                                isLLMEvent(event)
-                                                    ? (event.properties.$ai_output_choices ??
-                                                      event.properties.$ai_output ??
-                                                      event.properties.$ai_output_state ??
-                                                      event.properties.$ai_error)
-                                                    : event.outputState
-                                            }
+                                            input={isLLMEvent(event) ? loadedInput : event.inputState}
+                                            output={isLLMEvent(event) ? loadedOutput : event.outputState}
                                             metadata={eventMetadata}
                                         />
                                     )}
@@ -851,31 +835,30 @@ const EventContent = React.memo(
                                                 <>
                                                     {isLLMEvent(event) ? (
                                                         event.event === '$ai_generation' ? (
-                                                            <ConversationMessagesDisplay
-                                                                inputNormalized={normalizeMessages(
-                                                                    event.properties.$ai_input,
-                                                                    'user',
-                                                                    event.properties.$ai_tools
-                                                                )}
-                                                                outputNormalized={normalizeMessages(
+                                                            <EventContentGeneration
+                                                                eventId={event.id}
+                                                                rawInput={event.properties.$ai_input}
+                                                                rawOutput={
                                                                     event.properties.$ai_output_choices ??
-                                                                        event.properties.$ai_output,
-                                                                    'assistant'
-                                                                )}
+                                                                    event.properties.$ai_output
+                                                                }
+                                                                tools={event.properties.$ai_tools}
                                                                 errorData={event.properties.$ai_error}
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 searchQuery={searchQuery}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
-                                                            <EventContentDisplay
-                                                                input={event.properties.$ai_input}
-                                                                output="Embedding vector generated"
+                                                            <EventContentDisplayAsync
+                                                                eventId={event.id}
+                                                                rawInput={event.properties.$ai_input}
+                                                                rawOutput="Embedding vector generated"
                                                             />
                                                         ) : (
-                                                            <EventContentDisplay
-                                                                input={event.properties.$ai_input_state}
-                                                                output={
+                                                            <EventContentDisplayAsync
+                                                                eventId={event.id}
+                                                                rawInput={event.properties.$ai_input_state}
+                                                                rawOutput={
                                                                     event.properties.$ai_output_state ??
                                                                     event.properties.$ai_error
                                                                 }

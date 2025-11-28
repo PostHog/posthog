@@ -73,7 +73,7 @@ class SessionRecording(UUIDTModel):
         if self._metadata:
             return True
 
-        if self.object_storage_path:
+        if self.object_storage_path or self.full_recording_v2_path:
             # Nothing todo as we have all the metadata in the model
             pass
         else:
