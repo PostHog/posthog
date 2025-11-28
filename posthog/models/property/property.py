@@ -25,6 +25,7 @@ PropertyType = Literal[
     "event_metadata",
     "feature",
     "person",
+    "person_on_event",
     "cohort",
     "element",
     "static-cohort",
