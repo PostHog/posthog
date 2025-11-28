@@ -444,8 +444,9 @@ async fn it_adds_correct_headers_for_snapshot_events() -> Result<()> {
     Ok(())
 }
 
+// Session ID headers are only added for session replay events, not analytics events
 #[tokio::test]
-async fn it_adds_session_id_header_for_analytics_events() -> Result<()> {
+async fn it_does_not_add_session_id_header_for_analytics_events() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
@@ -455,6 +456,7 @@ async fn it_adds_session_id_header_for_analytics_events() -> Result<()> {
     let histo_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
+    // Even when session_id is in properties, analytics events should not have session_id header
     let event = json!({
         "token": token,
         "event": "test_event",
@@ -468,61 +470,11 @@ async fn it_adds_session_id_header_for_analytics_events() -> Result<()> {
     let res = server.capture_events(event.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    let (event_data, headers) = main_topic.next_message_with_headers()?;
-
-    assert!(event_data.is_object(), "Event should be a JSON object");
-    let event_obj = event_data.as_object().unwrap();
-    assert_eq!(event_obj.get("token").unwrap().as_str().unwrap(), token);
-    assert_eq!(
-        event_obj.get("distinct_id").unwrap().as_str().unwrap(),
-        distinct_id
-    );
-
-    assert!(
-        headers.contains_key("session_id"),
-        "Missing 'session_id' header. Available headers: {:?}",
-        headers.keys().collect::<Vec<_>>()
-    );
-    assert_eq!(
-        headers.get("session_id").unwrap(),
-        session_id,
-        "Session ID header should match the provided session ID"
-    );
-
-    assert_eq!(headers.get("token").unwrap(), &token);
-    assert_eq!(headers.get("distinct_id").unwrap(), &distinct_id);
-    assert!(headers.contains_key("timestamp"));
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn it_does_not_add_session_id_header_when_not_present() -> Result<()> {
-    setup_tracing();
-    let token = random_string("token", 16);
-    let distinct_id = random_string("id", 16);
-
-    let main_topic = EphemeralTopic::new().await;
-    let histo_topic = EphemeralTopic::new().await;
-    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
-
-    let event = json!({
-        "token": token,
-        "event": "test_event",
-        "distinct_id": distinct_id,
-        "properties": {
-            "foo": "bar"
-        }
-    });
-
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
     let (_, headers) = main_topic.next_message_with_headers()?;
 
     assert!(
         !headers.contains_key("session_id"),
-        "Should not have session_id header when not provided in properties"
+        "Analytics events should not have session_id header even when $session_id is in properties"
     );
 
     Ok(())
