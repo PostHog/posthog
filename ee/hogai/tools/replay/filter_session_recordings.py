@@ -10,6 +10,7 @@ from posthog.sync import database_sync_to_async
 
 from products.replay.backend.prompts import (
     DATE_FIELDS_PROMPT,
+    FILTER_EXAMPLES_PROMPT,
     FILTER_FIELDS_TAXONOMY_PROMPT,
     PRODUCT_DESCRIPTION_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
@@ -74,6 +75,48 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         - If you've found very few properties, use read_taxonomy again or ask for clarification
         - Don't get stuck on perfect matches - use reasonable approximations when appropriate
         - **Remember**: Property discovery with read_taxonomy is MANDATORY before filter creation
+
+        # Filter Structure
+
+        ## filter_group (REQUIRED)
+        Two-level nested structure with AND/OR logic.
+        **Empty filter** (all recordings):
+        ```json
+        {{"type":"AND","values":[{{"type":"AND","values":[]}}]}}
+        ```
+
+        ## duration (REQUIRED)
+        Array of duration constraints. Default to `[]` unless user asks about recording length.
+        Duration types: "duration", "active_seconds", "inactive_seconds"
+        Example (longer than 5 minutes):
+        ```json
+        {{"duration":[{{"key":"duration","type":"recording","operator":"gt","value":300}}]}}
+        ```
+
+        ## Date Range
+        - **date_from**: "-7d" (relative), "2025-01-15" (absolute). Default: "-3d"
+        - **date_to**: null (current time, default) or "2025-01-20" (absolute)
+
+        ## Ordering
+        - **order**: "start_time" (default), "duration", "console_error_count", "activity_score", etc.
+        - **order_direction**: "DESC" (default), "ASC"
+
+        ## Test Accounts
+        - **filter_test_accounts**: true (recommended, exclude test accounts), false/null (include all)
+
+        # Operators by Data Type
+        **String**: "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "is_set", "is_not_set"
+        **Numeric**: "exact", "is_not", "gt", "gte", "lt", "lte", "is_set", "is_not_set"
+        **DateTime**: "is_date_exact", "is_not", "is_date_before", "is_date_after", "is_set", "is_not_set"
+        **Boolean**: "exact", "is_not", "is_set", "is_not_set"
+        Note: "exact" and "is_not" accept arrays of multiple values.
+        **Operator Selection Tips:**
+        - Use "icontains" for URLs (handles parameters/query strings)
+        - Use "exact" for enumerated values (device type, browser, country codes)
+        - Use "gt"/"lt" for counts and metrics
+
+
+        {FILTER_EXAMPLES_PROMPT}
 
         # Critical Reminders
 
