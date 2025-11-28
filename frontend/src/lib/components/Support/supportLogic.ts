@@ -372,6 +372,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     workflows: 'workflows',
     billing: 'billing',
     logs: 'logs',
+    endpoints: 'endpoints',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
