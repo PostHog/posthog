@@ -175,6 +175,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
             },
+            {
+                value: 'setup-wizard',
+                'data-attr': `support-form-target-area-setup-wizard`,
+                label: 'Setup wizard',
+            },
         ],
     },
     {
@@ -231,6 +236,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'PostHog AI',
             },
             {
+                value: 'mcp-server',
+                'data-attr': `support-form-target-area-mcp-server`,
+                label: 'MCP Server',
+            },
+            {
                 value: 'workflows',
                 'data-attr': `support-form-target-area-workflows`,
                 label: 'Workflows / Messaging',
@@ -264,6 +274,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'web_analytics',
                 'data-attr': `support-form-target-area-web_analytics`,
                 label: 'Web analytics',
+            },
+            {
+                value: 'logs',
+                'data-attr': `support-form-target-area-logs`,
+                label: 'Logs',
             },
         ],
     },
@@ -306,6 +321,7 @@ export type SupportTicketTargetArea =
     | 'platform_addons'
     | 'max-ai'
     | 'customer-analytics'
+    | 'logs'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -349,6 +365,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     sources: 'data_warehouse',
     workflows: 'workflows',
     billing: 'billing',
+    logs: 'logs',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {

@@ -10,10 +10,12 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { UnexpectedNeverError, percentage, tryDecodeURIComponent } from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
@@ -21,7 +23,6 @@ import {
     countryCodeToFlag,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -30,19 +31,21 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
-import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 import {
     DataTableNode,
     DataVisualizationNode,
     InsightVizNode,
+    MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     QuerySchema,
     WebAnalyticsOrderByFields,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, PropertyFilterType } from '~/types'
 
 import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
 
@@ -207,6 +210,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
 const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { value, query } = props
     const { source } = query
+    const { featureFlags } = useValues(featureFlagLogic)
+
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
@@ -298,6 +303,24 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.OS:
             if (typeof value === 'string') {
                 return <PropertyIcon.WithLabel property="$os" value={value} />
+            }
+            break
+        case WebStatsBreakdown.InitialReferringDomain:
+            if (featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]) {
+                if (typeof value === 'string') {
+                    return (
+                        <div className="flex items-center gap-2">
+                            <img
+                                src={`/static/favicons/${value}.png`}
+                                width={24}
+                                height={24}
+                                alt={`Favicon for ${value}`}
+                                onError={(e) => (e.currentTarget.style.display = 'none')}
+                            />
+                            {value}
+                        </div>
+                    )
+                }
             }
             break
     }

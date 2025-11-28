@@ -43,7 +43,7 @@ export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps):
 
 function GitFooter({ git }: { git: ReleaseGitMetadata }): JSX.Element {
     let { commit_id, branch, remote_url } = git
-    const viewCommitLink = useMemo(() => GitMetadataParser.getViewCommitLink(git), [git])
+    const viewCommitLink = useMemo(() => GitMetadataParser.getCommitLink(git.remote_url, git.commit_id), [git])
     const parsedRemoteUrl = useMemo(
         () => (remote_url ? GitMetadataParser.parseRemoteUrl(remote_url) : null),
         [remote_url]

@@ -28,8 +28,10 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { userLogic } from 'scenes/userLogic'
 
+import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import {
     AssistantFunnelsQuery,
@@ -65,6 +67,7 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
+    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -396,6 +399,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
     ]
 
+    const QueryTypeIcon = QUERY_TYPES_METADATA[query.kind].icon
+
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div className="EditorFiltersWrapper">
@@ -409,9 +414,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
                 <div>
                     <MaxTool
-                        identifier="create_and_query_insight"
+                        identifier={hasAgentModesFeatureFlag ? 'create_insight' : 'create_and_query_insight'}
                         context={{
                             current_query: querySource,
+                        }}
+                        contextDescription={{
+                            text: 'Current query',
+                            icon: <QueryTypeIcon />,
                         }}
                         callback={(
                             toolOutput:

@@ -8,7 +8,8 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Conversation, ConversationStatus, ConversationType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 import { maxLogic } from './maxLogic'
 import { formatConversationDate } from './utils'
@@ -82,7 +83,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
-            to={combineUrl(urls.max(conversation.id), { from: 'history' }).url}
+            to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
             onClick={(e) => {
                 if (sidePanel) {
                     e.preventDefault()

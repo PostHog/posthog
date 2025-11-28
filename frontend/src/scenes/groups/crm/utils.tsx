@@ -8,9 +8,8 @@ import { urls } from 'scenes/urls'
 
 import { GroupsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { GroupTypeIndex } from '~/types'
 
-export function getCRMColumns(groupTypeName: string, groupTypeIndex: GroupTypeIndex): QueryContext['columns'] {
+export function getCRMColumns(groupTypeName: string, groupTypeIndex: number): QueryContext['columns'] {
     return {
         group_name: {
             title: groupTypeName,

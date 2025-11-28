@@ -18,7 +18,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -35,13 +34,12 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     ActionStepType,
     FilterLogicalOperator,
-    ProductKey,
     ReplayTabs,
 } from '~/types'
 

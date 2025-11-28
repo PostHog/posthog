@@ -162,7 +162,7 @@ const deprecatedColors = {
     // Z-indexes
     'z-top': 'var(--z-top)',
     'z-bottom-notice': 'var(--z-bottom-notice)',
-    'z-command-palette': 'var(--z-command-palette)',
+    'z-shortcut-menu': 'var(--z-shortcut-menu)',
     'z-force-modal-above-popovers': 'var(--z-force-modal-above-popovers)',
     'z-tooltip': 'var(--z-tooltip)',
 

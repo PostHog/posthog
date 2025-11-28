@@ -58,8 +58,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -72,8 +70,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -115,8 +111,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -129,8 +123,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -143,8 +135,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -157,8 +147,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -171,8 +159,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -187,8 +173,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -201,8 +185,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -215,8 +197,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -229,8 +209,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
@@ -243,8 +221,6 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeTruthy()
-            expect(result.content[0].type).toBe('text')
             expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })

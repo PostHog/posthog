@@ -331,6 +331,8 @@ def get_js_url(request: HttpRequest) -> str:
     it is necessary to set the JS_URL host based on the calling origin.
     """
     if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
+        # given the strict usage of 'get_host()', this string is not susceptible to xss
+        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"http://{request.get_host().split(':')[0]}:8234"
     return settings.JS_URL
 
@@ -637,9 +639,9 @@ def friendly_time(seconds: float):
 
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    x_forwarded_for = request.headers.get("x-forwarded-for")
     if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0]
+        ip: str | None = x_forwarded_for.split(",")[0]
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
 
@@ -647,12 +649,12 @@ def get_ip_address(request: HttpRequest) -> str:
     if ip and len(ip.split(":")) == 2:
         ip = ip.split(":")[0]
 
-    return ip
+    return ip or ""
 
 
 def get_short_user_agent(request: HttpRequest) -> str:
     """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
-    user_agent_str = request.META.get("HTTP_USER_AGENT")
+    user_agent_str = request.headers.get("user-agent")
     if not user_agent_str:
         return ""
 
@@ -662,6 +664,8 @@ def get_short_user_agent(request: HttpRequest) -> str:
     browser_version = ".".join(str(x) for x in user_agent.browser.version[:3])
     os_version = ".".join(str(x) for x in user_agent.os.version[:2])
 
+    # this value is not directly returned by an http route
+    # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
     return f"{user_agent.browser.family} {browser_version} on {user_agent.os.family} {os_version}"
 
 
@@ -727,8 +731,8 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
-def generate_cache_key(stringified: str) -> str:
-    return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
+def generate_cache_key(team_pk: int, stringified: str) -> str:
+    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:
@@ -872,6 +876,7 @@ def get_machine_id() -> str:
     """A MAC address-dependent ID. Useful for PostHog instance analytics."""
     # MAC addresses are 6 bits long, so overflow shouldn't happen
     # hashing here as we don't care about the actual address, just it being rather consistent
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
 
 

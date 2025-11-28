@@ -413,7 +413,7 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
         job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
-        internal_error=Any_Source_Errors[0],
+        internal_error=next(iter(Any_Source_Errors.keys())),
         schema_id=str(schema.pk),
         source_id=str(new_source.pk),
         team_id=team.id,
