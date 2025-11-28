@@ -91,11 +91,11 @@ class PostHogUserFilterQuery(UserFilterQuery):
             # UserFilterQuery only queries User model, so use scim2-filter-parser directly
             scim_attr_map = {("userName", None, None): "username"}
             q_obj = get_query(filter_query, scim_attr_map)
-            user_ids = SCIMProvisionedUser.objects.filter(
+            scim_user_ids = SCIMProvisionedUser.objects.filter(
                 q_obj,
                 organization_domain=org_domain,
             ).values_list("user_id", flat=True)
-            return User.objects.filter(id__in=user_ids)
+            return User.objects.filter(id__in=scim_user_ids)
 
         raw_queryset = super().search(filter_query, request)
         user_ids = [user.id for user in raw_queryset]

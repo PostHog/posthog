@@ -53,7 +53,7 @@ def get_scim_base_url(domain: OrganizationDomain, request=None) -> str:
     return f"{base_url}/scim/v2/{domain.id}"
 
 
-def detect_identity_provider(request: Request) -> str:
+def detect_identity_provider(request: Request) -> SCIMProvisionedUser.IdentityProvider:
     """
     Detect identity provider from request User-Agent header.
     """
