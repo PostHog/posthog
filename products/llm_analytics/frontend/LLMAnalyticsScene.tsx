@@ -351,6 +351,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                         // Convert LLMTraceEvent to EventType format for EventDetails
                         const eventForDetails: EventType = {
                             id: event.id,
+                            uuid: event.id,
                             distinct_id: '',
                             properties: event.properties,
                             event: event.event,

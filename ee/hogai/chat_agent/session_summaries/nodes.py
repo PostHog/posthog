@@ -488,7 +488,7 @@ class _SessionSummarizer:
             nonlocal completed
             result = await execute_summarize_session(
                 session_id=session_id,
-                user_id=self._node._user.id,
+                user=self._node._user,
                 team=self._node._team,
                 model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                 video_validation_enabled=video_validation_enabled,
@@ -521,7 +521,7 @@ class _SessionSummarizer:
 
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
-            user_id=self._node._user.id,
+            user=self._node._user,
             team=self._node._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
