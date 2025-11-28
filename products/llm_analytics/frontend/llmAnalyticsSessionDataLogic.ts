@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -16,6 +17,13 @@ import { InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsSessionDataLogicType } from './llmAnalyticsSessionDataLogicType'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
+
+export interface TraceSummary {
+    title: string
+    traceId: string
+    loading: boolean
+    error: string | null
+}
 
 export interface SessionDataLogicProps {
     sessionId: string
@@ -47,6 +55,8 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
             ['sessionId'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError'],
+            maxGlobalLogic,
+            ['dataProcessingAccepted'],
         ],
     })),
 
@@ -56,6 +66,11 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
         loadFullTrace: (traceId: string) => ({ traceId }),
         loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         loadFullTraceFailure: (traceId: string) => ({ traceId }),
+        summarizeAllTraces: true,
+        summarizeTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
+        summarizeTraceSuccess: (traceId: string, title: string) => ({ traceId, title }),
+        summarizeTraceFailure: (traceId: string, error: string) => ({ traceId, error }),
+        clearTraceSummaries: true,
     }),
 
     reducers({
@@ -112,6 +127,31 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 },
             },
         ],
+        traceSummaries: [
+            {} as Record<string, TraceSummary>,
+            {
+                summarizeTrace: (state, { traceId }) => ({
+                    ...state,
+                    [traceId]: { traceId, title: '', loading: true, error: null },
+                }),
+                summarizeTraceSuccess: (state, { traceId, title }) => ({
+                    ...state,
+                    [traceId]: { traceId, title, loading: false, error: null },
+                }),
+                summarizeTraceFailure: (state, { traceId, error }) => ({
+                    ...state,
+                    [traceId]: { ...state[traceId], loading: false, error },
+                }),
+                clearTraceSummaries: () => ({}),
+            },
+        ],
+        isSummarizingSession: [
+            false,
+            {
+                summarizeAllTraces: () => true,
+                clearTraceSummaries: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -121,6 +161,15 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 const tracesResponse = response as TracesQueryResponse | null
                 return tracesResponse?.results || []
             },
+        ],
+        hasSummaries: [
+            (s) => [s.traceSummaries],
+            (traceSummaries: Record<string, TraceSummary>): boolean => Object.keys(traceSummaries).length > 0,
+        ],
+        summariesLoading: [
+            (s) => [s.traceSummaries],
+            (traceSummaries: Record<string, TraceSummary>): boolean =>
+                Object.values(traceSummaries).some((s) => s.loading),
         ],
     }),
 
@@ -149,6 +198,56 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                     console.error('Error loading full trace:', error)
                     actions.loadFullTraceFailure(traceId)
                 }
+            }
+        },
+        summarizeAllTraces: async () => {
+            if (!values.dataProcessingAccepted) {
+                return
+            }
+
+            const traces = values.traces
+            for (const trace of traces) {
+                actions.summarizeTrace(trace.id, trace)
+            }
+        },
+        summarizeTrace: async ({ traceId, trace }) => {
+            const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
+            if (!teamId) {
+                actions.summarizeTraceFailure(traceId, 'Team ID not available')
+                return
+            }
+
+            const payload = {
+                summarize_type: 'trace',
+                mode: 'minimal',
+                force_refresh: false,
+                data: {
+                    trace,
+                    hierarchy: [],
+                },
+            }
+
+            try {
+                const url = `/api/environments/${teamId}/llm_analytics/summarization/`
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                    },
+                    body: JSON.stringify(payload),
+                    credentials: 'include',
+                })
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}))
+                    throw new Error(errorData.detail || errorData.error || 'Failed to generate summary')
+                }
+
+                const data = await response.json()
+                actions.summarizeTraceSuccess(traceId, data.summary?.title || 'Untitled trace')
+            } catch (error) {
+                actions.summarizeTraceFailure(traceId, error instanceof Error ? error.message : 'Unknown error')
             }
         },
     })),

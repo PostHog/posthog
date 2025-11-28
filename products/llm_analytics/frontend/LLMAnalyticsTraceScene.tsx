@@ -670,10 +670,23 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const { displayOption, lineNumber } = useValues(llmAnalyticsTraceLogic)
+        const { displayOption, lineNumber, initialTab } = useValues(llmAnalyticsTraceLogic)
         const { handleTextViewFallback, copyLinePermalink } = useActions(llmAnalyticsTraceLogic)
 
-        const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
+        const getInitialViewMode = (): TraceViewMode => {
+            if (initialTab === 'summary') {
+                return TraceViewMode.Summary
+            }
+            if (initialTab === 'raw') {
+                return TraceViewMode.Raw
+            }
+            if (initialTab === 'evals') {
+                return TraceViewMode.Evals
+            }
+            return TraceViewMode.Conversation
+        }
+
+        const [viewMode, setViewMode] = useState(getInitialViewMode)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null

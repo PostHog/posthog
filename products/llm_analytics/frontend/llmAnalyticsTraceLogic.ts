@@ -65,6 +65,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
         setLineNumber: (lineNumber: number | null) => ({ lineNumber }),
+        setInitialTab: (tab: string | null) => ({ tab }),
         setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
         toggleMarkdownRendering: true,
@@ -87,6 +88,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
+        initialTab: [null as string | null, { setInitialTab: (_, { tab }) => tab }],
         dateRange: [
             null as { dateFrom: string | null; dateTo: string | null } | null,
             {
@@ -344,10 +346,11 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line }) => {
+        [urls.llmAnalyticsTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
             actions.setLineNumber(line ? parseInt(line, 10) : null)
+            actions.setInitialTab(tab || null)
             if (timestamp) {
                 actions.setDateRange(timestamp || null)
             } else if (exception_ts) {
