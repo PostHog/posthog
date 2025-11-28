@@ -57,12 +57,26 @@ class TestSCIMUsersAPI(APILicensedTest):
         OrganizationMembership.objects.create(
             user=user_a, organization=self.organization, level=OrganizationMembership.Level.MEMBER
         )
+        SCIMProvisionedUser.objects.create(
+            user=user_a,
+            organization_domain=self.domain,
+            username="engineering@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
 
         user_b = User.objects.create_user(
             email="alex@example.com", password=None, first_name="Alex", last_name="Other", is_email_verified=True
         )
         OrganizationMembership.objects.create(
             user=user_b, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user_b,
+            organization_domain=self.domain,
+            username="alex@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
         )
 
         # Exact match should return only engineering@example.com
