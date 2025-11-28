@@ -505,22 +505,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return self._execute_query_and_respond(
                 query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
             )
-        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
-        except ResolutionError as e:
-            raise ValidationError(str(e))
-        except ConcurrencyLimitExceeded as c:
-            capture_exception(
-                c,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team_id,
-                    "endpoint_name": endpoint.name,
-                    "materialized": True,
-                    "saved_query_id": saved_query.id if saved_query else None,
-                },
-            )
-            raise Throttled(detail="Too many concurrent requests. Please try again later.")
         except Exception as e:
             capture_exception(
                 e,
@@ -581,12 +565,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query_request_data, data.client_query_id, request, cache_age_seconds=endpoint.cache_age_seconds
             )
 
-        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
-        except ResolutionError as e:
-            raise ValidationError(str(e))
-        except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
         except Exception as e:
             self.handle_column_ch_error(e)
             capture_exception(
@@ -594,6 +572,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 {
                     "product": Product.ENDPOINTS,
                     "team_id": self.team_id,
+                    "materialized": False,
                     "endpoint_name": endpoint.name,
                 },
             )
@@ -641,13 +620,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         # Only the latest version is materialized
         use_materialized = version_number is None and self._should_use_materialized_table(endpoint, data)
 
-        if use_materialized:
-            result = self._execute_materialized_endpoint(endpoint, data, request)
-        else:
-            # Use version's query if available, otherwise use endpoint.query
-            query_to_use = version_obj.query if version_obj else endpoint.query.copy()
-            result = self._execute_inline_endpoint(endpoint, data, request, query_to_use)
-
+        try:
+            if use_materialized:
+                result = self._execute_materialized_endpoint(endpoint, data, request)
+            else:
+                # Use version's query if available, otherwise use endpoint.query
+                query_to_use = version_obj.query if version_obj else endpoint.query.copy()
+                result = self._execute_inline_endpoint(endpoint, data, request, query_to_use)
+        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
+            raise ValidationError(str(e), getattr(e, "code_name", None))
+        except ResolutionError as e:
+            raise ValidationError(str(e))
+        except ConcurrencyLimitExceeded:
+            raise Throttled(detail="Too many concurrent requests. Please try again later.")
         if version_obj and isinstance(result.data, dict):
             result.data["endpoint_version"] = version_obj.version
             result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
