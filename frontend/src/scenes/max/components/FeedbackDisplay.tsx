@@ -2,33 +2,17 @@ import './QuestionInput.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FeedbackRating, FeedbackTriggerType } from '../FeedbackPrompt'
 import { feedbackPromptLogic } from '../feedbackPromptLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
+import { FeedbackRating, captureFeedback } from '../utils'
 
 export interface FeedbackDisplayProps {
     isFloating?: boolean
     conversationId: string
-}
-
-function captureMaxFeedback(
-    traceId: string | null,
-    rating: FeedbackRating,
-    triggerType: FeedbackTriggerType,
-    conversationId: string
-): void {
-    posthog.capture('posthog_ai_feedback_submitted', {
-        $ai_conversation_id: conversationId,
-        $ai_session_id: conversationId,
-        $ai_trace_id: traceId,
-        $ai_feedback_rating: rating,
-        $ai_feedback_trigger_type: triggerType,
-    })
 }
 
 export function FeedbackDisplay({ isFloating, conversationId }: FeedbackDisplayProps): JSX.Element | null {
@@ -47,7 +31,7 @@ export function FeedbackDisplay({ isFloating, conversationId }: FeedbackDisplayP
                 return
             }
 
-            captureMaxFeedback(traceId, rating, currentTriggerType, conversationId)
+            captureFeedback(conversationId, traceId, rating, currentTriggerType)
             recordFeedbackShown()
             resetRetryCount()
             resetCancelCount()
@@ -78,28 +62,19 @@ export function FeedbackDisplay({ isFloating, conversationId }: FeedbackDisplayP
             return
         }
 
+        const keyToRating: Record<string, FeedbackRating> = {
+            '1': 'okay',
+            '2': 'good',
+            '3': 'bad',
+            x: 'dismissed',
+        }
+
         const handleGlobalKeyDown = (e: KeyboardEvent): void => {
-            switch (e.key) {
-                case '1':
-                    e.preventDefault()
-                    e.stopPropagation()
-                    submitRating('okay')
-                    break
-                case '2':
-                    e.preventDefault()
-                    e.stopPropagation()
-                    submitRating('good')
-                    break
-                case '3':
-                    e.preventDefault()
-                    e.stopPropagation()
-                    submitRating('bad')
-                    break
-                case 'x':
-                    e.preventDefault()
-                    e.stopPropagation()
-                    submitRating('dismissed')
-                    break
+            const rating = keyToRating[e.key]
+            if (rating) {
+                e.preventDefault()
+                e.stopPropagation()
+                submitRating(rating)
             }
         }
 

@@ -9,25 +9,7 @@ import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
 import { MessageTemplate } from './messages/MessageTemplate'
-
-export type FeedbackRating = 'bad' | 'okay' | 'good' | 'dismissed' | 'implicit_dismiss'
-export type FeedbackTriggerType = 'message_interval' | 'random_sample' | 'manual' | 'retry' | 'cancel'
-
-function captureNegativeFeedback(
-    traceId: string | null,
-    triggerType: FeedbackTriggerType,
-    conversationId: string,
-    feedbackText?: string
-): void {
-    posthog.capture('posthog_ai_feedback_submitted', {
-        $ai_conversation_id: conversationId,
-        $ai_session_id: conversationId,
-        $ai_trace_id: traceId,
-        $ai_feedback_rating: 'bad',
-        $ai_feedback_trigger_type: triggerType,
-        $ai_feedback_text: feedbackText || null,
-    })
-}
+import { FeedbackTriggerType, captureFeedback } from './utils'
 
 interface FeedbackPromptProps {
     conversationId: string
@@ -67,7 +49,7 @@ export function FeedbackPrompt({
     useEffect(() => {
         // When ticket submission completes (lastSubmittedTicketId changes to a new value), capture the events
         if (pendingTicketSubmission && lastSubmittedTicketId && lastSubmittedTicketId !== ticketIdBeforeSubmission) {
-            captureNegativeFeedback(traceId, triggerType, conversationId, ticketMessageText || undefined)
+            captureFeedback(conversationId, traceId, 'bad', triggerType, ticketMessageText || undefined)
 
             posthog.capture('posthog_ai_support_ticket_created', {
                 $ai_conversation_id: conversationId,
@@ -98,7 +80,7 @@ export function FeedbackPrompt({
         setIsSubmitting(true)
         onRecordCooldown()
 
-        captureNegativeFeedback(traceId, triggerType, conversationId, feedbackText)
+        captureFeedback(conversationId, traceId, 'bad', triggerType, feedbackText)
 
         setStatus('done')
         setTimeout(onComplete, 2000)

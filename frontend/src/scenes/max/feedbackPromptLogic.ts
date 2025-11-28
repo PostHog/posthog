@@ -4,8 +4,8 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 
-import { FeedbackTriggerType } from './FeedbackPrompt'
 import type { feedbackPromptLogicType } from './feedbackPromptLogicType'
+import { FeedbackTriggerType } from './utils'
 
 interface FeedbackConfig {
     cooldownMs: number
