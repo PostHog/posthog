@@ -234,29 +234,27 @@ class PostHogSCIMUser(SCIMUser):
         """
         Deactivate user by removing their membership and marking SCIM record as inactive.
         """
-        with transaction.atomic():
-            OrganizationMembership.objects.filter(
-                user=self.obj, organization=self._organization_domain.organization
-            ).delete()
+        OrganizationMembership.objects.filter(
+            user=self.obj, organization=self._organization_domain.organization
+        ).delete()
 
-            SCIMProvisionedUser.objects.filter(
-                user=self.obj,
-                organization_domain=self._organization_domain,
-            ).update(active=False)
+        SCIMProvisionedUser.objects.filter(
+            user=self.obj,
+            organization_domain=self._organization_domain,
+        ).update(active=False)
 
     def delete(self) -> None:
         """
         Delete user by removing their membership and SCIM provisioned user record.
         """
-        with transaction.atomic():
-            OrganizationMembership.objects.filter(
-                user=self.obj, organization=self._organization_domain.organization
-            ).delete()
+        OrganizationMembership.objects.filter(
+            user=self.obj, organization=self._organization_domain.organization
+        ).delete()
 
-            SCIMProvisionedUser.objects.filter(
-                user=self.obj,
-                organization_domain=self._organization_domain,
-            ).delete()
+        SCIMProvisionedUser.objects.filter(
+            user=self.obj,
+            organization_domain=self._organization_domain,
+        ).delete()
 
     def handle_replace(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
