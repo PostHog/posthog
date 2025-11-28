@@ -48,7 +48,7 @@ class TeamsWithTracesResult:
     team_ids: list[int]
 
 
-def query_teams_with_traces(lookback_hours: int, reference_time: datetime | None = None) -> list[int]:
+def query_teams_with_traces(lookback_hours: int, reference_time: datetime) -> list[int]:
     """
     Query ClickHouse for teams that have LLM trace events in the lookback window.
 
@@ -56,13 +56,9 @@ def query_teams_with_traces(lookback_hours: int, reference_time: datetime | None
 
     Args:
         lookback_hours: How many hours back to look from reference_time
-        reference_time: Reference timestamp to query from (defaults to now() for idempotency in tests)
+        reference_time: Reference timestamp to query from
     """
     from posthog.clickhouse.client import sync_execute
-
-    # Use provided timestamp or default to current time
-    if reference_time is None:
-        reference_time = datetime.now()
 
     result = sync_execute(
         """

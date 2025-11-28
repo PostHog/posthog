@@ -45,8 +45,9 @@ class TestQueryTeamsWithTraces:
         """Test that function returns empty list when no teams found."""
         with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
             mock_execute.return_value = []
+            reference_time = datetime(2025, 1, 15, 12, 0, 0)
 
-            result = query_teams_with_traces(lookback_hours=24)
+            result = query_teams_with_traces(lookback_hours=24, reference_time=reference_time)
 
             assert result == []
 
