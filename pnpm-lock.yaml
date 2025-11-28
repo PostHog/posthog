@@ -2407,6 +2407,9 @@ importers:
       clsx:
         specifier: '*'
         version: 1.2.1
+      fast-deep-equal:
+        specifier: ^3.1.3
+        version: 3.1.3
       kea:
         specifier: '*'
         version: 3.1.7(react@18.2.0)
@@ -2419,6 +2422,9 @@ importers:
       kea-router:
         specifier: '*'
         version: 3.4.1(kea@3.1.7(react@18.2.0))
+      kea-subscriptions:
+        specifier: ^3.0.1
+        version: 3.0.1(kea@3.1.7(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
