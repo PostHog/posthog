@@ -2117,6 +2117,10 @@ importers:
       use-debounce:
         specifier: '*'
         version: 9.0.3(react@18.2.0)
+    devDependencies:
+      kea-test-utils:
+        specifier: '*'
+        version: 0.2.4(kea@3.1.7(react@18.2.0))
 
   products/managed_migrations:
     dependencies:
