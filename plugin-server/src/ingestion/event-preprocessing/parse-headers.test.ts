@@ -349,4 +349,44 @@ describe('createParseHeadersStep', () => {
             )
         })
     })
+
+    describe('sanitization', () => {
+        it('should sanitize null bytes in distinct_id', async () => {
+            const input = {
+                message: {
+                    headers: [{ distinct_id: Buffer.from('user\u0000123') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        distinct_id: 'user\uFFFD123',
+                        force_disable_person_processing: false,
+                    },
+                })
+            )
+        })
+
+        it('should sanitize null bytes in token', async () => {
+            const input = {
+                message: {
+                    headers: [{ token: Buffer.from('test\u0000token') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test\uFFFDtoken',
+                        force_disable_person_processing: false,
+                    },
+                })
+            )
+        })
+    })
 })
