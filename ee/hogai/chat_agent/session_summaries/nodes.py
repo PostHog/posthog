@@ -311,6 +311,7 @@ class _SessionSearch:
             date_to=replay_filters.date_to,
             properties=properties,
             filter_test_accounts=replay_filters.filter_test_accounts,
+            limit=replay_filters.limit,
             order=replay_filters.order,
             # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
             having_predicates=(
@@ -333,15 +334,14 @@ class _SessionSearch:
         recordings_query = convert_filters_to_recordings_query(temp_playlist)
         return recordings_query
 
-    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
-        replay_filters.limit = limit
         try:
             query_runner = SessionRecordingListFromQuery(
-                team=self._node._team, query=replay_filters, hogql_query_modifiers=None, limit=limit
+                team=self._node._team, query=replay_filters, hogql_query_modifiers=None
             )
             results = query_runner.run()
         except Exception as e:
@@ -455,12 +455,15 @@ class _SessionSearch:
                 replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
                 self._node._stream_filters(filter_generation_result)
             # Query the filters to get session ids
-            query_limit = state.session_summarization_limit
-            if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+            if (
+                not replay_filters.limit
+                or replay_filters.limit <= 0
+                or replay_filters.limit > MAX_SESSIONS_TO_SUMMARIZE
+            ):
                 # If no limit provided (none or negative) or too large - use the default limit
-                query_limit = MAX_SESSIONS_TO_SUMMARIZE
+                replay_filters.limit = MAX_SESSIONS_TO_SUMMARIZE
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                replay_filters, query_limit
+                replay_filters
             )
             return session_ids
         except Exception as e:

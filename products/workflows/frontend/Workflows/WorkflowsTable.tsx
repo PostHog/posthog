@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { LemonDialog, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -210,6 +210,7 @@ export function WorkflowsTable(): JSX.Element {
                                 >
                                     Duplicate
                                 </LemonButton>
+                                <LemonDivider />
                                 <LemonButton
                                     data-attr="workflow-delete"
                                     fullWidth

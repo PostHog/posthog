@@ -19,6 +19,8 @@ export interface MaxRecordingUniversalFilters {
     filter_group: MaxOuterUniversalFiltersGroup
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
+    /** How many recordings the user requested to use. Skip if user did not indicate preference. */
+    limit?: RecordingsQuery['limit']
 }
 
 export type MaxOuterUniversalFiltersGroup = {

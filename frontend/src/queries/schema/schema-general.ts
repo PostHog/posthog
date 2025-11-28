@@ -2574,6 +2574,9 @@ export interface LogMessage {
     resource_attributes: any
     instrumentation_scope: string
     event_name: string
+    /**  @format date-time */
+    live_logs_checkpoint?: string
+    new?: boolean
 }
 
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
@@ -2586,6 +2589,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
     serviceNames: string[]
+    liveLogsCheckpoint?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
