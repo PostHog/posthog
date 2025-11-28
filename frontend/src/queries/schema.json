@@ -28544,6 +28544,9 @@
                 "id": {
                     "type": "string"
                 },
+                "isNpsQuestion": {
+                    "type": "boolean"
+                },
                 "link": {
                     "type": "string"
                 },

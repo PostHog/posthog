@@ -38,7 +38,6 @@ class TestExecuteTaskInSandboxActivity:
                 repository="PostHog/posthog-js",
                 github_integration_id=github_integration.id,
                 task_id="test-task-123",
-                run_id="test-run-456",
                 distinct_id="test-user-id",
             )
 
@@ -56,16 +55,13 @@ class TestExecuteTaskInSandboxActivity:
                 input_data = ExecuteTaskInput(
                     sandbox_id=sandbox.id,
                     task_id="test-task-123",
-                    run_id="test-run-456",
                     repository="PostHog/posthog-js",
                     distinct_id="test-user-id",
                 )
 
                 async_to_sync(activity_environment.run)(execute_task_in_sandbox, input_data)
 
-                mock_task_cmd.assert_called_once_with(
-                    "test-task-123", "test-run-456", "/tmp/workspace/repos/posthog/posthog-js"
-                )
+                mock_task_cmd.assert_called_once_with("test-task-123", "/tmp/workspace/repos/posthog/posthog-js")
 
         finally:
             if sandbox:
@@ -87,7 +83,6 @@ class TestExecuteTaskInSandboxActivity:
                 repository="PostHog/posthog-js",
                 github_integration_id=github_integration.id,
                 task_id="test-task-fail",
-                run_id="test-run-fail",
                 distinct_id="test-user-id",
             )
 
@@ -105,7 +100,6 @@ class TestExecuteTaskInSandboxActivity:
                 input_data = ExecuteTaskInput(
                     sandbox_id=sandbox.id,
                     task_id="test-task-fail",
-                    run_id="test-run-fail",
                     repository="PostHog/posthog-js",
                     distinct_id="test-user-id",
                 )
@@ -136,7 +130,6 @@ class TestExecuteTaskInSandboxActivity:
                 input_data = ExecuteTaskInput(
                     sandbox_id=sandbox.id,
                     task_id="test-task-no-repo",
-                    run_id="test-run-no-repo",
                     repository="PostHog/posthog-js",
                     distinct_id="test-user-id",
                 )
@@ -153,7 +146,6 @@ class TestExecuteTaskInSandboxActivity:
         input_data = ExecuteTaskInput(
             sandbox_id="non-existent-sandbox-id",
             task_id="test-task",
-            run_id="test-run",
             repository="PostHog/posthog-js",
             distinct_id="test-user-id",
         )
@@ -185,7 +177,6 @@ class TestExecuteTaskInSandboxActivity:
                         repository=repo,
                         github_integration_id=github_integration.id,
                         task_id=f"test-task-{repo.split('/')[1]}",
-                        run_id=f"test-run-{repo.split('/')[1]}",
                         distinct_id="test-user-id",
                     )
                     async_to_sync(activity_environment.run)(clone_repository, clone_input)
@@ -198,7 +189,6 @@ class TestExecuteTaskInSandboxActivity:
                         input_data = ExecuteTaskInput(
                             sandbox_id=sandbox.id,
                             task_id=f"test-task-{repo.split('/')[1]}",
-                            run_id=f"test-run-{repo.split('/')[1]}",
                             repository=repo,
                             distinct_id="test-user-id",
                         )
@@ -207,7 +197,6 @@ class TestExecuteTaskInSandboxActivity:
 
                         mock_task_cmd.assert_called_once_with(
                             f"test-task-{repo.split('/')[1]}",
-                            f"test-run-{repo.split('/')[1]}",
                             f"/tmp/workspace/repos/{repo.lower()}",
                         )
 

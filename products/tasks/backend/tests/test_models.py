@@ -4,7 +4,6 @@ import uuid
 from unittest.mock import patch
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -41,6 +40,111 @@ class TestTask(TestCase):
         self.assertEqual(task.title, "Test Task")
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, origin_product)
+        self.assertEqual(task.position, 0)
+
+    def test_repository_list_with_config(self):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            github_integration=integration,
+            repository_config={
+                "organization": "PostHog",
+                "repository": "posthog",
+            },
+        )
+
+        repo_list = task.repository_list
+        self.assertEqual(len(repo_list), 1)
+        self.assertEqual(repo_list[0]["org"], "PostHog")
+        self.assertEqual(repo_list[0]["repo"], "posthog")
+        self.assertEqual(repo_list[0]["integration_id"], integration.id)
+        self.assertEqual(repo_list[0]["full_name"], "posthog/posthog")
+
+    def test_repository_list_empty(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self.assertEqual(task.repository_list, [])
+
+    @parameterized.expand(
+        [
+            ("PostHog", "posthog", True),
+            ("PostHog", "other-repo", False),
+            ("OtherOrg", "posthog", False),
+        ]
+    )
+    def test_can_access_repository(self, org, repo, expected):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            github_integration=integration,
+            repository_config={
+                "organization": "PostHog",
+                "repository": "posthog",
+            },
+        )
+
+        self.assertEqual(task.can_access_repository(org, repo), expected)
+
+    def test_primary_repository(self):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            github_integration=integration,
+            repository_config={
+                "organization": "PostHog",
+                "repository": "posthog",
+            },
+        )
+
+        primary_repo = task.primary_repository
+        assert primary_repo is not None
+        self.assertEqual(primary_repo["org"], "PostHog")
+        self.assertEqual(primary_repo["repo"], "posthog")
+
+    def test_primary_repository_none(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self.assertIsNone(task.primary_repository)
+
+    def test_legacy_github_integration_from_task(self):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            github_integration=integration,
+        )
+
+        self.assertEqual(task.legacy_github_integration, integration)
+
+    def test_legacy_github_integration_from_team(self):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+        self.assertEqual(task.legacy_github_integration, integration)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
@@ -62,17 +166,13 @@ class TestTask(TestCase):
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
         self.assertEqual(task.team, self.team)
         self.assertEqual(task.created_by, user)
-        self.assertEqual(task.repository, "posthog/posthog")
+        self.assertEqual(task.repository_config, {"organization": "posthog", "repository": "posthog"})
 
-        mock_execute_workflow.assert_called_once()
-        call_args = mock_execute_workflow.call_args
-        self.assertEqual(call_args.kwargs["task_id"], str(task.id))
-        self.assertEqual(call_args.kwargs["team_id"], self.team.id)
-        self.assertEqual(call_args.kwargs["user_id"], user.id)
-        self.assertIsNotNone(call_args.kwargs["run_id"])
-        task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
-        self.assertEqual(task_run.task, task)
-        self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+        mock_execute_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            team_id=self.team.id,
+            user_id=user.id,
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_with_repository(self, mock_execute_workflow):
@@ -88,7 +188,8 @@ class TestTask(TestCase):
             repository="posthog/posthog-js",
         )
 
-        self.assertEqual(task.repository, "posthog/posthog-js")
+        self.assertEqual(task.repository_config["organization"], "posthog")
+        self.assertEqual(task.repository_config["repository"], "posthog-js")
 
         mock_execute_workflow.assert_called_once()
 
@@ -97,7 +198,7 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        with self.assertRaises(ValidationError) as cm:
+        with self.assertRaises(ValueError) as cm:
             Task.create_and_run(
                 team=self.team,
                 title="Test Task",
@@ -107,7 +208,7 @@ class TestTask(TestCase):
                 repository="invalid-format",
             )
 
-        self.assertIn("Format for repository is organization/repo", str(cm.exception))
+        self.assertIn("Repository must be in format 'organization/repository'", str(cm.exception))
         mock_execute_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -126,78 +227,6 @@ class TestTask(TestCase):
 
         self.assertEqual(task.github_integration, integration)
         mock_execute_workflow.assert_called_once()
-
-    @parameterized.expand(
-        [
-            ("posthog-repo",),
-            ("noslashhere",),
-        ]
-    )
-    def test_repository_validation_fails_without_slash(self, repository):
-        with self.assertRaises(ValidationError) as cm:
-            Task.objects.create(
-                team=self.team,
-                title="Test Task",
-                description="Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
-                repository=repository,
-            )
-
-        self.assertIn("Format for repository is organization/repo", str(cm.exception))
-
-    @parameterized.expand(
-        [
-            ("PostHog/posthog", "posthog/posthog"),
-            ("posthog/PostHog-JS", "posthog/posthog-js"),
-            ("PostHog/PostHog", "posthog/posthog"),
-            ("POSTHOG/POSTHOG-JS", "posthog/posthog-js"),
-            ("posthog/posthog-js", "posthog/posthog-js"),
-        ]
-    )
-    def test_repository_converts_to_lowercase(self, input_repo, expected_repo):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            repository=input_repo,
-        )
-
-        self.assertEqual(task.repository, expected_repo)
-
-    def test_soft_delete(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-
-        self.assertFalse(task.deleted)
-        self.assertIsNone(task.deleted_at)
-
-        task.soft_delete()
-
-        task.refresh_from_db()
-        self.assertTrue(task.deleted)
-        self.assertIsNotNone(task.deleted_at)
-
-    def test_hard_delete_blocked(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-
-        with self.assertRaises(Exception) as cm:
-            task.delete()
-
-        self.assertIn("Cannot hard delete Task", str(cm.exception))
-        self.assertIn("Use soft_delete() instead", str(cm.exception))
-
-        task.refresh_from_db()
-        self.assertIsNotNone(task.id)
 
 
 class TestTaskSlug(TestCase):
@@ -298,7 +327,7 @@ class TestTaskRun(TestCase):
 
     @parameterized.expand(
         [
-            (TaskRun.Status.QUEUED,),
+            (TaskRun.Status.STARTED,),
             (TaskRun.Status.IN_PROGRESS,),
             (TaskRun.Status.COMPLETED,),
             (TaskRun.Status.FAILED,),
@@ -332,8 +361,9 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        assert run.log_url is not None
-        log_content = object_storage.read(run.log_url)
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+        log_content = object_storage.read(run.log_storage_path)
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -355,8 +385,10 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        assert run.log_url is not None
-        log_content = object_storage.read(run.log_url)
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+
+        log_content = object_storage.read(run.log_storage_path)
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -381,8 +413,10 @@ class TestTaskRun(TestCase):
         run.append_log(new_entries)
         run.refresh_from_db()
 
-        assert run.log_url is not None
-        log_content = object_storage.read(run.log_url)
+        assert run.log_storage_path is not None
+        self.assertTrue(run.has_s3_logs)
+
+        log_content = object_storage.read(run.log_storage_path)
         assert log_content is not None
 
         log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
@@ -401,7 +435,7 @@ class TestTaskRun(TestCase):
         run.append_log(entries)
         run.refresh_from_db()
 
-        self.assertIsNotNone(run.log_url)
+        self.assertIsNotNone(run.log_storage_path)
 
         # Verify S3 object has TTL tags
         from botocore.exceptions import ClientError
@@ -411,7 +445,9 @@ class TestTaskRun(TestCase):
         try:
             client = object_storage_client()
             if isinstance(client, ObjectStorage):
-                response = client.aws_client.get_object_tagging(Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_url)
+                response = client.aws_client.get_object_tagging(
+                    Bucket=settings.OBJECT_STORAGE_BUCKET, Key=run.log_storage_path
+                )
                 tags = {tag["Key"]: tag["Value"] for tag in response.get("TagSet", [])}
                 self.assertEqual(tags.get("ttl_days"), "30")
                 self.assertEqual(tags.get("team_id"), str(self.team.id))
@@ -481,21 +517,6 @@ class TestTaskRun(TestCase):
         run.save()
         run.refresh_from_db()
         self.assertEqual(len(run.state["completed_checkpoints"]), 3)
-
-    def test_delete_blocked(self):
-        run = TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
-        )
-
-        with self.assertRaises(Exception) as cm:
-            run.delete()
-
-        self.assertIn("Cannot delete TaskRun", str(cm.exception))
-        self.assertIn("immutable", str(cm.exception))
-
-        run.refresh_from_db()
-        self.assertIsNotNone(run.id)
 
 
 class TestSandboxSnapshot(TestCase):

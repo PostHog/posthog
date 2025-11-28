@@ -10,7 +10,15 @@ This guide helps developers set up and test PostHog's OAuth apps locally.
 
 ## Quick Start
 
-### 1. Configure RSA Keys
+### 1. Set Up Your Environment
+
+First, generate demo data which includes a test OAuth application:
+
+```bash
+python manage.py generate_demo_data
+```
+
+### 2. Configure RSA Keys
 
 OAuth uses RS256 for signing JWT tokens. Copy the RSA private key from the example file:
 
@@ -27,14 +35,6 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
   awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}'
 
 # Add to .env as OIDC_RSA_PRIVATE_KEY="<generated_key>"
-```
-
-### 2. Set Up Your Environment
-
-First, generate demo data which includes a test OAuth application:
-
-```bash
-python manage.py generate_demo_data
 ```
 
 ### 3. Access the Demo Application

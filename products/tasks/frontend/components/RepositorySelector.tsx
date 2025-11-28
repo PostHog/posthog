@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowRight, IconCode } from '@posthog/icons'
+import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { urls } from 'scenes/urls'
 
 import { repositorySelectorLogic } from './repositorySelectorLogic'
 
@@ -22,7 +22,7 @@ export interface RepositorySelectorProps {
 
 export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
     const { githubRepositoriesLoading } = useValues(integrationsLogic)
-    const { availableRepos, githubIntegrations, integrationsLoading } = useValues(repositorySelectorLogic)
+    const { availableRepos, githubIntegrations } = useValues(repositorySelectorLogic)
     const { setOnChangeCallback, setCurrentConfig } = useActions(repositorySelectorLogic)
 
     // Set up the callback and current config when component mounts or value changes
@@ -33,36 +33,24 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
 
     const selectedRepoData = availableRepos.find((r) => r.integration_id === value.integrationId)
 
-    if (integrationsLoading) {
-        return (
-            <div className="flex items-center gap-2 p-4 border rounded bg-bg-light">
-                <Spinner /> Loading GitHub integrations...
-            </div>
-        )
-    }
-
     if (githubIntegrations.length === 0) {
         return (
             <LemonCard className="p-6 text-center">
-                <div className="space-y-4 flex flex-col items-center">
-                    <IconCode className="mx-auto text-4xl text-muted" />
+                <div className="space-y-4">
+                    <IconGear className="mx-auto text-4xl text-muted" />
                     <div>
-                        <h3 className="font-medium">Connect GitHub</h3>
+                        <h3 className="font-medium">No GitHub Integration</h3>
                         <p className="text-muted text-sm">
-                            Connect your GitHub account to create tasks from repositories.
+                            Connect a GitHub integration to enable repository selection.
                         </p>
                     </div>
                     <LemonButton
-                        icon={<IconArrowRight />}
                         type="primary"
-                        className="w-max"
-                        disableClientSideRouting
-                        to={api.integrations.authorizeUrl({
-                            kind: 'github',
-                            next: window.location.pathname,
-                        })}
+                        onClick={() =>
+                            window.open(urls.currentProject(urls.settings('environment-integrations')), '_blank')
+                        }
                     >
-                        Connect GitHub
+                        Configure GitHub Integration
                     </LemonButton>
                 </div>
             </LemonCard>
