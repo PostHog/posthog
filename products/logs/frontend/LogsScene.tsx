@@ -28,6 +28,7 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -67,6 +68,7 @@ export function LogsScene(): JSX.Element {
         isPinned,
         hasMoreLogsToLoad,
         logsPageSize,
+        logsRemainingToLoad,
     } = useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline, loadMoreLogs } = useActions(logsLogic)
 
@@ -172,10 +174,10 @@ export function LogsScene(): JSX.Element {
                                 disabled={!hasMoreLogsToLoad || logsLoading}
                             >
                                 {logsLoading
-                                    ? `Loading up to ${logsPageSize} more logs...`
+                                    ? 'Loading more logs...'
                                     : hasMoreLogsToLoad
-                                      ? `Showing first ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'} – load up to ${logsPageSize} more`
-                                      : `Showing all ${parsedLogs.length} ${parsedLogs.length === 1 ? 'entry' : 'entries'}`}
+                                      ? `Click to load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
+                                      : `Showing all ${humanFriendlyNumber(parsedLogs.length)} logs`}
                             </LemonButton>
                         </div>
                     )}
@@ -451,7 +453,16 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, prettifyJson, timestampFormat, logsPageSize } = useValues(logsLogic)
+    const {
+        orderBy,
+        wrapBody,
+        prettifyJson,
+        timestampFormat,
+        logsPageSize,
+        totalLogsMatchingFilters,
+        parsedLogs,
+        sparklineLoading,
+    } = useValues(logsLogic)
     const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat, setLogsPageSize } = useActions(logsLogic)
 
     return (
@@ -492,20 +503,28 @@ const DisplayOptions = (): JSX.Element => {
                     ]}
                 />
             </div>
-            <LemonField.Pure label="Page Size" inline className="items-center gap-2">
-                <LemonSelect
-                    value={logsPageSize}
-                    onChange={(value: number) => setLogsPageSize(value)}
-                    size="small"
-                    type="secondary"
-                    options={[
-                        { value: 100, label: '100' },
-                        { value: 200, label: '200' },
-                        { value: 500, label: '500' },
-                        { value: 1000, label: '1000' },
-                    ]}
-                />
-            </LemonField.Pure>
+            <div className="flex items-center gap-4">
+                {!sparklineLoading && totalLogsMatchingFilters > 0 && (
+                    <span className="text-muted text-xs">
+                        Showing {humanFriendlyNumber(parsedLogs.length)} of{' '}
+                        {humanFriendlyNumber(totalLogsMatchingFilters)} logs
+                    </span>
+                )}
+                <LemonField.Pure label="Page size" inline className="items-center gap-2">
+                    <LemonSelect
+                        value={logsPageSize}
+                        onChange={(value: number) => setLogsPageSize(value)}
+                        size="small"
+                        type="secondary"
+                        options={[
+                            { value: 100, label: '100' },
+                            { value: 200, label: '200' },
+                            { value: 500, label: '500' },
+                            { value: 1000, label: '1000' },
+                        ]}
+                    />
+                </LemonField.Pure>
+            </div>
         </div>
     )
 }

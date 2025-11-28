@@ -445,10 +445,6 @@ class HogFunctionViewSet(
 
             queryset = queryset.filter(combined_q)
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-
         return queryset
 
     @action(detail=False, methods=["GET"])

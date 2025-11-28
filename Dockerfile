@@ -157,14 +157,19 @@ RUN apt-get update && \
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Add in Django deps and generate Django's static files.
+# Add in Django deps
 COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
+
+# Copy the built frontend assets and also the products.json file
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
+
+# Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 
@@ -323,6 +328,9 @@ RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwrig
 # Copy the frontend assets from the frontend-build stage.
 # TODO: this copy should not be necessary, we should remove it once we verify everything still works.
 COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
+
+# Copy products.json from the frontend-build stage
+COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
