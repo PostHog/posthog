@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
@@ -13,11 +13,9 @@ import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { buildDashboardItemId } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
-import { eventConfigModalLogic } from './eventConfigModalLogic'
 
 export function ActiveUsersInsights(): JSX.Element {
     const { activityEvent, activeUsersInsights, customerLabel, tabId } = useValues(customerAnalyticsSceneLogic)
-    const { toggleModalOpen } = useActions(eventConfigModalLogic)
 
     // Check if using pageview as default, with no properties filter
     const isOnlyPageview =
@@ -32,7 +30,11 @@ export function ActiveUsersInsights(): JSX.Element {
                     You are currently using the pageview event to define user activity. Consider using a more specific
                     event or action to track activity accurately.
                     <div className="flex flex-row items-center gap-4 mt-2 max-w-160">
-                        <LemonButton type="primary" onClick={() => toggleModalOpen()}>
+                        <LemonButton
+                            data-attr="customer-analytics-configure-activity-event"
+                            to={urls.customerAnalyticsConfiguration()}
+                            type="primary"
+                        >
                             Configure activity event
                         </LemonButton>
                     </div>
