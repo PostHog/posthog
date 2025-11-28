@@ -279,6 +279,13 @@ export class PluginServer {
                     await worker.start()
                     return worker.service
                 })
+
+                // Person property events consumer (uses same capability flag)
+                serviceLoaders.push(async () => {
+                    const worker = new CdpPersonPropertyEventsConsumer(hub)
+                    await worker.start()
+                    return worker.service
+                })
             }
 
             if (capabilities.cdpPersonPropertyEvents) {
