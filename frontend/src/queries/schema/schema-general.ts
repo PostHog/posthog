@@ -737,7 +737,7 @@ export interface ActionsNode extends EntityNode {
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */

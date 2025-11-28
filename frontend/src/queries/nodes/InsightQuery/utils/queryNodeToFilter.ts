@@ -6,6 +6,7 @@ import {
     BreakdownFilter,
     CompareFilter,
     DataWarehouseNode,
+    EntityGroupNode,
     EventsNode,
     FunnelsFilterLegacy,
     InsightNodeKind,
@@ -20,6 +21,7 @@ import {
 import {
     isActionsNode,
     isDataWarehouseNode,
+    isEntityGroupNode,
     isEventsNode,
     isFunnelsQuery,
     isLifecycleQuery,
@@ -35,19 +37,26 @@ type FilterTypeActionsAndEvents = {
     actions?: ActionFilter[]
     data_warehouse?: ActionFilter[]
     new_entity?: ActionFilter[]
+    groups?: ActionFilter[]
 }
 
 export const seriesNodeToFilter = (
-    node: EventsNode | ActionsNode | DataWarehouseNode,
+    node: EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode,
     index?: number
 ): ActionFilter => {
     const entity: ActionFilter = objectClean({
         type: isDataWarehouseNode(node)
             ? EntityTypes.DATA_WAREHOUSE
-            : isActionsNode(node)
-              ? EntityTypes.ACTIONS
-              : EntityTypes.EVENTS,
-        id: isDataWarehouseNode(node) ? node.table_name : (!isActionsNode(node) ? node.event : node.id) || null,
+            : isEntityGroupNode(node)
+              ? EntityTypes.GROUPS
+              : isActionsNode(node)
+                ? EntityTypes.ACTIONS
+                : EntityTypes.EVENTS,
+        id: isDataWarehouseNode(node)
+            ? node.table_name
+            : isEntityGroupNode(node)
+              ? ''
+              : (!isActionsNode(node) ? node.event : node.id) || null,
         order: index,
         name: node.name,
         custom_name: node.custom_name,
@@ -67,17 +76,24 @@ export const seriesNodeToFilter = (
                   distinct_id_field: node.distinct_id_field,
               }
             : {}),
+        ...(isEntityGroupNode(node)
+            ? {
+                  operator: node.operator,
+                  values: (node.values || []).map((v: any, idx: number) => seriesNodeToFilter(v, idx)),
+              }
+            : {}),
     })
     return entity
 }
 
 export const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
     const data_warehouse: ActionFilter[] = []
     const new_entity: ActionFilter[] = []
+    const groups: ActionFilter[] = []
     series.forEach((node, index) => {
         const entity = seriesNodeToFilter(node, index)
         if (isEventsNode(node)) {
@@ -86,12 +102,14 @@ export const seriesToActionsAndEvents = (
             actions.push(entity)
         } else if (isDataWarehouseNode(node)) {
             data_warehouse.push(entity)
+        } else if (isEntityGroupNode(node)) {
+            groups.push(entity)
         } else {
             new_entity.push(entity)
         }
     })
 
-    return { actions, events, data_warehouse, new_entity }
+    return { actions, events, data_warehouse, new_entity, groups }
 }
 
 /**
@@ -143,7 +161,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
-        const { actions, events, data_warehouse, new_entity } = seriesToActionsAndEvents(query.series)
+        const { actions, events, data_warehouse, new_entity, groups } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions
         }
@@ -155,6 +173,9 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         }
         if (new_entity.length > 0) {
             filters.new_entity = new_entity
+        }
+        if (groups.length > 0) {
+            filters.groups = groups
         }
     }
 

@@ -346,9 +346,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.FunnelsOnly
         }
 
-        const { events, actions, data_warehouse } = filters
+        const { events, actions, data_warehouse, groups } = filters
         query.series = actionsAndEventsToSeries(
-            { actions, events, data_warehouse } as any,
+            { actions, events, data_warehouse, groups } as any,
             includeProperties,
             includeMath
         )
