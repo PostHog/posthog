@@ -42,8 +42,8 @@ export const navPanelAdvertisementRecommendedLogic = kea<navPanelAdvertisementRe
                     return null
                 }
 
-                // Find the most recent recommended product
-                // Not using sort to make this more performant
+                // Find the oldest recommended product
+                // Not using sort to make this more performant, where's TS' stdlib when you need it?
                 let oldestRecommendedProduct: UserProductListItem | null = null
                 let oldestRecommendedProductDate: Date | null = null
                 for (const product of recommendedProducts) {
