@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
+from posthog.schema import AIEventType
+
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_LOOKBACK_HOURS,
@@ -39,6 +41,9 @@ class TestQueryTeamsWithTraces:
             assert params["lookback_hours"] == 24
             assert params["reference_time"] == reference_time
             assert params["allowed_team_ids"] == []
+            # Verify AI events are passed from AIEventType enum
+            expected_ai_events = [event.value for event in AIEventType]
+            assert params["ai_events"] == expected_ai_events
 
     @pytest.mark.django_db(transaction=True)
     def test_returns_empty_list_when_no_teams(self):

@@ -63,7 +63,12 @@ def query_teams_with_traces(
         reference_time: Reference timestamp to query from
         allowed_team_ids: Optional list of team IDs to filter by (uses sorting key for efficiency)
     """
+    from posthog.schema import AIEventType
+
     from posthog.clickhouse.client import sync_execute
+
+    # Use AIEventType enum to ensure we don't miss any new AI event types
+    ai_events = [event.value for event in AIEventType]
 
     # Build team filter clause - filtering by team_id uses the sorting key efficiently
     team_filter = ""
@@ -74,10 +79,7 @@ def query_teams_with_traces(
         f"""
         SELECT DISTINCT team_id
         FROM events
-        WHERE event IN (
-            '$ai_trace', '$ai_span', '$ai_generation',
-            '$ai_embedding', '$ai_metric', '$ai_feedback'
-        )
+        WHERE event IN %(ai_events)s
           AND timestamp >= %(reference_time)s - INTERVAL %(lookback_hours)s HOUR
           {team_filter}
         ORDER BY team_id
@@ -86,6 +88,7 @@ def query_teams_with_traces(
             "lookback_hours": lookback_hours,
             "reference_time": reference_time,
             "allowed_team_ids": allowed_team_ids or [],
+            "ai_events": ai_events,
         },
     )
     return [row[0] for row in result]
