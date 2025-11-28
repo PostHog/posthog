@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.rate_limit import LLMAnalyticsTranslationBurstThrottle, LLMAnalyticsTranslationSustainedThrottle
 
 from products.llm_analytics.backend.translation.constants import DEFAULT_TARGET_LANGUAGE, LLM_ANALYTICS_TRANSLATION
 from products.llm_analytics.backend.translation.llm import translate_text
@@ -43,6 +44,9 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     """ViewSet for translating LLM trace message content."""
 
     scope_object = "llm_analytics"  # type: ignore[assignment]
+
+    def get_throttles(self):
+        return [LLMAnalyticsTranslationBurstThrottle(), LLMAnalyticsTranslationSustainedThrottle()]
 
     def _validate_feature_access(self, request: Request) -> None:
         """Validate that the user has access to the translation feature."""
