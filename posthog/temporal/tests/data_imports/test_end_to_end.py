@@ -1830,15 +1830,15 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
 
     s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_partition_folders/")
 
-    # Using datetime partition mode with created_at
-    assert any(f"{PARTITION_KEY}=2025-01" in obj["Key"] for obj in s3_objects["Contents"])
-    assert any(f"{PARTITION_KEY}=2025-02" in obj["Key"] for obj in s3_objects["Contents"])
+    # Using datetime partition mode with created_at and week format (the default)
+    assert any(f"{PARTITION_KEY}=2025-w01" in obj["Key"] for obj in s3_objects["Contents"])
+    assert any(f"{PARTITION_KEY}=2025-w05" in obj["Key"] for obj in s3_objects["Contents"])
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["created_at"]
     assert schema.partition_mode == "datetime"
-    assert schema.partition_format == "month"
+    assert schema.partition_format == "week"
     assert schema.partition_count is not None
 
 
