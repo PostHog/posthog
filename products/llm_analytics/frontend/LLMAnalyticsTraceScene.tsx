@@ -123,7 +123,8 @@ function TraceSceneWrapper(): JSX.Element {
                         />
                         <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
-                            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] && (
+                            {(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
+                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) && (
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
@@ -212,7 +213,10 @@ function TraceMetadata({
     const { featureFlags } = useValues(featureFlagLogic)
 
     const getSessionUrl = (sessionId: string): string => {
-        if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
+        if (
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        ) {
             return urls.llmAnalyticsSession(sessionId)
         }
         // Fallback to filtering traces by session when feature flag is off
@@ -239,7 +243,8 @@ function TraceMetadata({
             {trace.aiSessionId && (
                 <Chip
                     title={
-                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]
+                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
+                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
                             ? 'AI Session ID - Click to view session details'
                             : 'AI Session ID - Click to filter traces by this session'
                     }
@@ -685,7 +690,9 @@ const EventContent = React.memo(
 
         const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
-        const showSummaryTab = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION]
+        const showSummaryTab =
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         // Load AI data for the current event
         const { input: loadedInput, output: loadedOutput } = useAIData(event)
@@ -811,7 +818,8 @@ const EventContent = React.memo(
                                     content: (
                                         <>
                                             {displayOption === DisplayOption.TextView &&
-                                            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ? (
+                                            (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
+                                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (
                                                 isLLMEvent(event) &&
                                                 (event.event === '$ai_generation' ||
                                                     event.event === '$ai_span' ||
@@ -1024,7 +1032,8 @@ function DisplayOptionsSelect(): JSX.Element {
             label: 'Collapse except output and last input',
             tooltip: 'Focus on the most recent input and final output',
         },
-        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW]
+        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
             ? [
                   {
                       value: DisplayOption.TextView,
