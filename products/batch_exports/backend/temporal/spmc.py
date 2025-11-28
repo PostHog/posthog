@@ -12,7 +12,13 @@ from django.conf import settings
 import pyarrow as pa
 import temporalio.common
 
-from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.schema import (
+    EventPropertyFilter,
+    HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    MaterializationMode,
+    PersonOnEventPropertyFilter,
+)
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -981,13 +987,29 @@ def compose_filters_clause(
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
     context.database = Database.create_for(team=team, modifiers=context.modifiers)
+    exprs = []
+    for filter in filters:
+        match filter["type"]:
+            case "event":
+                exprs.append(property_to_expr(EventPropertyFilter(**filter), team=team))
+            case "person":
+                exprs.append(
+                    property_to_expr(
+                        PersonOnEventPropertyFilter(**{**filter, **{"type": "person_on_event"}}), team=team, strict=True
+                    )
+                )
+            case "hogql":
+                exprs.append(property_to_expr(HogQLPropertyFilter(**filter), team=team))
+            case s:
+                raise TypeError(f"Unknown filter type: '{s}'")
 
-    exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
     and_expr = ast.And(exprs=exprs)
     # This query only supports events at the moment.
     # TODO: Extend for other models that also wish to implement property filtering.
     select_query = ast.SelectQuery(
-        select=[parse_expr("properties as properties")],
+        select=[
+            parse_expr("properties as properties"),
+        ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=and_expr,
     )

@@ -23,6 +23,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    PersonOnEventPropertyFilter,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -316,6 +317,7 @@ def property_to_expr(
         | ast.Expr
         | EventPropertyFilter
         | PersonPropertyFilter
+        | PersonOnEventPropertyFilter
         | ElementPropertyFilter
         | SessionPropertyFilter
         | EventMetadataPropertyFilter
@@ -442,6 +444,7 @@ def property_to_expr(
         or property.type == "event_metadata"
         or property.type == "feature"
         or property.type == "person"
+        or property.type == "person_on_event"
         or property.type == "group"
         or property.type == "behavioral"
         or property.type == "data_warehouse"
@@ -467,6 +470,8 @@ def property_to_expr(
 
         if property.type == "person" and scope != "person":
             chain = ["person", "properties"]
+        elif property.type == "person_on_event":
+            chain = ["events", "poe", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
         elif property.type == "session" and scope == "replay_entity":
