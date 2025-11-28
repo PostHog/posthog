@@ -17517,6 +17517,13 @@
                 "level": {
                     "$ref": "#/definitions/LogSeverityLevel"
                 },
+                "live_logs_checkpoint": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "new": {
+                    "type": "boolean"
+                },
                 "observed_timestamp": {
                     "format": "date-time",
                     "type": "string"
@@ -17601,6 +17608,9 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "liveLogsCheckpoint": {
+                    "type": "string"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",

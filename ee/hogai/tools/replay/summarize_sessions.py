@@ -445,7 +445,7 @@ class SummarizeSessionsTool(MaxTool):
             nonlocal completed
             result = await execute_summarize_session(
                 session_id=session_id,
-                user_id=self._user.id,
+                user=self._user,
                 team=self._team,
                 model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                 video_validation_enabled=video_validation_enabled,
@@ -482,7 +482,7 @@ class SummarizeSessionsTool(MaxTool):
 
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
-            user_id=self._user.id,
+            user=self._user,
             team=self._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
