@@ -19,7 +19,7 @@ import { CompatMessage, VercelSDKImageMessage } from '../types'
 import { looksLikeXml } from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
-import { TranslateMessageButton } from './TranslateMessageButton'
+import { MessageActionsMenu } from './MessageActionsMenu'
 import { XMLViewer } from './XMLViewer'
 
 export function ConversationMessagesDisplay({
@@ -525,14 +525,14 @@ export const LLMMessageDisplay = React.memo(
                                         active={isRenderingXml}
                                     />
                                 )}
-                                {typeof content === 'string' && content.trim().length > 0 && (
-                                    <TranslateMessageButton content={content} />
-                                )}
                                 <CopyToClipboardInline
                                     iconSize="small"
                                     description="message content"
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                                 />
+                                {typeof content === 'string' && content.trim().length > 0 && (
+                                    <MessageActionsMenu content={content} />
+                                )}
                             </>
                         )}
                     </div>

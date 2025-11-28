@@ -1729,7 +1729,12 @@ const api = {
             text: string
             targetLanguage?: string
         }): Promise<{ translation: string; detected_language?: string; provider: string }> {
-            return new ApiRequest().llmAnalyticsTranslate().create({ data: params })
+            // Convert to snake_case for backend
+            const data = {
+                text: params.text,
+                target_language: params.targetLanguage,
+            }
+            return new ApiRequest().llmAnalyticsTranslate().create({ data })
         },
     },
     insights: {
