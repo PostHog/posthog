@@ -532,7 +532,7 @@ from posthog_typed import PosthogTyped
                     failures.append(f"{name}: expected to pass but failed:\n{result.stdout}")
                 elif not should_pass and result.returncode == 0:
                     failures.append(f"{name}: expected to fail but passed")
-                elif not should_pass and expected_error not in result.stdout:
+                elif not should_pass and (expected_error and expected_error not in result.stdout):
                     failures.append(f"{name}: expected '{expected_error}' in error output, got:\n{result.stdout}")
 
             if failures:
