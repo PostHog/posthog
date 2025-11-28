@@ -25,7 +25,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AVAILABLE_DOMAINS, AvailableDomain, LinkLogicProps, linkLogic } from './linkLogic'
@@ -187,8 +186,6 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                         </>
                     }
                 />
-
-                <SceneDivider />
 
                 <div className="space-y-4">
                     <div className="flex gap-8">

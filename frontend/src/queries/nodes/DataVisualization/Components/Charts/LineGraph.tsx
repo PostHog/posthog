@@ -216,7 +216,7 @@ export const LineGraph = ({
                     label: {
                         display: cur.displayLabel ?? true,
                         content: cur.label,
-                        position: 'end',
+                        position: cur.position ?? 'end',
                     },
                     scaleID: hasLeftYAxis ? 'yLeft' : 'yRight',
                     value: cur.value,

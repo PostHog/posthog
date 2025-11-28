@@ -81,6 +81,7 @@ pub async fn handle_single(
         document_id: request.document_id.to_string(),
         timestamp: format_ch_datetime(request.timestamp),
         embedding,
+        content: Some(request.content.clone()),
     })
 }
 

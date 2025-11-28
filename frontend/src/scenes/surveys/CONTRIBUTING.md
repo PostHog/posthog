@@ -14,13 +14,13 @@ Most survey logic lives in the [PostHog JS SDK](https://github.com/PostHog/posth
 1. Use the [NextJS playground](https://github.com/PostHog/posthog-js/tree/main/playground/nextjs) (recommended)
 
 2. To test SDK changes in the main PostHog app:
-    - Update `package.json` to use your local SDK:
+   - Update `package.json` to use your local SDK:
 
-    ```json
-    "posthog-js": "file:../posthog-js"
-    ```
+   ```json
+   "posthog-js": "file:../posthog-js"
+   ```
 
-    - Restart the frontend process after running `bin/start`
+   - Restart the frontend process after running `bin/start`
 
 Because of RemoteConfig, you'll likely need to run the main PostHog app with your local posthog-js files to see the changes.
 
@@ -33,17 +33,17 @@ To test on mobile devices, use [ngrok](https://ngrok.com/) to expose localhost:
 ```yaml
 version: '3'
 agent:
-    authtoken: YOUR_AUTH_TOKEN
+  authtoken: YOUR_AUTH_TOKEN
 tunnels:
-    web:
-        proto: http
-        addr: 8010
-        host_header: rewrite
-        subdomain: posthog-web-test
-    app:
-        proto: http
-        addr: 3000
-        subdomain: posthog-app-test
+  web:
+    proto: http
+    addr: 8010
+    host_header: rewrite
+    subdomain: posthog-web-test
+  app:
+    proto: http
+    addr: 3000
+    subdomain: posthog-app-test
 ```
 
 2. Add this `.env` configuration:
@@ -88,10 +88,10 @@ Here's how to run it in the Django shell:
 ```python
 # In python manage.py shell
 from posthog.tasks.usage_report import get_teams_with_survey_responses_count_in_period
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 # Define the period for the last 60 days
-now = datetime.now(tz=timezone.utc)
+now = datetime.now(tz=UTC)
 start_time = now - timedelta(days=60)
 end_time = now
 

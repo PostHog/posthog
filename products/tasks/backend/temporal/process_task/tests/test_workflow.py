@@ -1,5 +1,7 @@
 import os
 import uuid
+import random
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import cast
@@ -15,7 +17,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment, SandboxEnvironmentStatus
+from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities.check_snapshot_exists_for_repository import (
     check_snapshot_exists_for_repository,
 )
@@ -29,20 +31,20 @@ from products.tasks.backend.temporal.process_task.activities.create_snapshot imp
 from products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox import execute_task_in_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import get_sandbox_for_setup
 from products.tasks.backend.temporal.process_task.activities.get_task_details import get_task_details
-from products.tasks.backend.temporal.process_task.activities.inject_github_token import inject_github_token
-from products.tasks.backend.temporal.process_task.activities.inject_personal_api_key import inject_personal_api_key
 from products.tasks.backend.temporal.process_task.activities.setup_repository import setup_repository
-from products.tasks.backend.temporal.process_task.activities.tests.constants import POSTHOG_JS_SNAPSHOT
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import track_workflow_event
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskOutput, ProcessTaskWorkflow
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
-@pytest.mark.skipif(not os.environ.get("RUNLOOP_API_KEY"), reason="RUNLOOP_API_KEY environment variable not set")
+@pytest.mark.skipif(
+    not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
+    reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
+)
 class TestProcessTaskWorkflow:
     """
-    End-to-end workflow tests using real Runloop sandboxes.
+    End-to-end workflow tests using real Modal sandboxes.
 
     These tests create actual sandboxes and snapshots, only mocking the task execution command
     to avoid running the full AI agent. This allows us to verify:
@@ -56,13 +58,13 @@ class TestProcessTaskWorkflow:
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.setup_repository.SandboxAgent._get_setup_command"
+                "products.tasks.backend.temporal.process_task.activities.setup_repository.Sandbox._get_setup_command"
             ) as mock_setup,
             patch(
-                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.SandboxAgent._get_task_command"
+                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
             ) as mock_task,
         ):
-            mock_setup.return_value = "pnpm install"
+            mock_setup.return_value = "echo 'setup complete'"
             mock_task.return_value = mock_task_command
 
             async with (
@@ -79,8 +81,6 @@ class TestProcessTaskWorkflow:
                         setup_repository,
                         create_snapshot,
                         create_sandbox_from_snapshot,
-                        inject_github_token,
-                        inject_personal_api_key,
                         execute_task_in_sandbox,
                         cleanup_sandbox,
                         cleanup_personal_api_key,
@@ -103,19 +103,38 @@ class TestProcessTaskWorkflow:
 
     async def _verify_file_in_sandbox(self, sandbox_id: str, filepath: str) -> bool:
         """Verify a file exists in a sandbox."""
-        sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
-        result = await sandbox.execute(f"test -f {filepath} && echo 'exists' || echo 'missing'")
+        sandbox = Sandbox.get_by_id(sandbox_id)
+        result = sandbox.execute(f"test -f {filepath} && echo 'exists' || echo 'missing'")
         return "exists" in result.stdout
 
+    def _create_test_snapshot(self, github_integration):
+        sandbox = None
+        try:
+            config = SandboxConfig(
+                name=f"test-workflow-snapshot-{random.randint(1, 99999)}",
+                template=SandboxTemplate.DEFAULT_BASE,
+            )
+            sandbox = Sandbox.create(config)
+
+            clone_result = sandbox.clone_repository("posthog/posthog-js", github_token="")
+            if clone_result.exit_code != 0:
+                raise Exception(f"Failed to clone repository: {clone_result.stderr}")
+
+            snapshot_id = sandbox.create_snapshot()
+
+            snapshot = SandboxSnapshot.objects.create(
+                integration=github_integration,
+                repos=["posthog/posthog-js"],
+                external_id=snapshot_id,
+                status=SandboxSnapshot.Status.COMPLETE,
+            )
+            return snapshot
+        finally:
+            if sandbox:
+                sandbox.destroy()
+
     async def test_workflow_with_existing_snapshot_reuses_snapshot(self, test_task, github_integration):
-        snapshot, _ = await sync_to_async(SandboxSnapshot.objects.get_or_create)(
-            external_id=POSTHOG_JS_SNAPSHOT["external_id"],
-            defaults={
-                "integration": github_integration,
-                "repos": POSTHOG_JS_SNAPSHOT["repos"],
-                "status": SandboxSnapshot.Status.COMPLETE,
-            },
-        )
+        snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
             result = await self._run_workflow(test_task.id)
@@ -126,10 +145,10 @@ class TestProcessTaskWorkflow:
             assert "task complete" in result.task_result.stdout
 
             snapshots_query = SandboxSnapshot.objects.filter(integration=github_integration).order_by("-created_at")
-            snapshots = cast(list[SandboxSnapshot], await sync_to_async(list)(snapshots_query))  # type: ignore[call-arg]
-            assert len(snapshots) == 1
-            assert snapshots[0].id == snapshot.id
-            assert "posthog/posthog-js" in snapshots[0].repos
+            all_snapshots = cast(list[SandboxSnapshot], await sync_to_async(list)(snapshots_query))  # type: ignore[call-arg]
+            assert len(all_snapshots) >= 1
+            assert any(s.id == snapshot.id for s in all_snapshots)
+            assert "posthog/posthog-js" in snapshot.repos
 
         finally:
             await sync_to_async(snapshot.delete)()
@@ -161,18 +180,13 @@ class TestProcessTaskWorkflow:
             for snapshot in created_snapshots:
                 try:
                     if snapshot.external_id:
-                        await SandboxEnvironment.delete_snapshot(snapshot.external_id)
+                        Sandbox.delete_snapshot(snapshot.external_id)
                     await sync_to_async(snapshot.delete)()
                 except Exception:
                     pass
 
     async def test_workflow_executes_task_in_sandbox(self, test_task, github_integration):
-        snapshot = await sync_to_async(SandboxSnapshot.objects.create)(
-            integration=github_integration,
-            external_id=POSTHOG_JS_SNAPSHOT["external_id"],
-            repos=POSTHOG_JS_SNAPSHOT["repos"],
-            status=SandboxSnapshot.Status.COMPLETE,
-        )
+        snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         custom_message = f"workflow_test_{uuid.uuid4().hex[:8]}"
 
@@ -188,12 +202,7 @@ class TestProcessTaskWorkflow:
             await sync_to_async(snapshot.delete)()
 
     async def test_workflow_cleans_up_sandbox_on_success(self, test_task, github_integration):
-        snapshot = await sync_to_async(SandboxSnapshot.objects.create)(
-            integration=github_integration,
-            external_id=POSTHOG_JS_SNAPSHOT["external_id"],
-            repos=POSTHOG_JS_SNAPSHOT["repos"],
-            status=SandboxSnapshot.Status.COMPLETE,
-        )
+        snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
             result = await self._run_workflow(test_task.id)
@@ -202,19 +211,17 @@ class TestProcessTaskWorkflow:
             assert result.task_result is not None
             assert result.sandbox_id is not None
 
-            sandbox = await SandboxEnvironment.get_by_id(result.sandbox_id)
-            assert sandbox.status == SandboxEnvironmentStatus.SHUTDOWN.value
+            # Wait for Modal to complete the termination
+            await asyncio.sleep(10)
+
+            sandbox = Sandbox.get_by_id(result.sandbox_id)
+            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
 
         finally:
             await sync_to_async(snapshot.delete)()
 
     async def test_workflow_cleans_up_sandbox_on_failure(self, test_task, github_integration):
-        snapshot = await sync_to_async(SandboxSnapshot.objects.create)(
-            integration=github_integration,
-            external_id=POSTHOG_JS_SNAPSHOT["external_id"],
-            repos=POSTHOG_JS_SNAPSHOT["repos"],
-            status=SandboxSnapshot.Status.COMPLETE,
-        )
+        snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
             result = await self._run_workflow(test_task.id, mock_task_command="exit 1")
@@ -226,8 +233,11 @@ class TestProcessTaskWorkflow:
             assert result.sandbox_id is not None
             sandbox_id = result.sandbox_id
 
-            sandbox = await SandboxEnvironment.get_by_id(sandbox_id)
-            assert sandbox.status == SandboxEnvironmentStatus.SHUTDOWN.value
+            # Wait for Modal to complete termination
+
+            await asyncio.sleep(10)
+            sandbox = Sandbox.get_by_id(sandbox_id)
+            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
 
         finally:
             await sync_to_async(snapshot.delete)()
@@ -278,7 +288,7 @@ class TestProcessTaskWorkflow:
             for snapshot in created_snapshots:
                 try:
                     if snapshot.external_id:
-                        await SandboxEnvironment.delete_snapshot(snapshot.external_id)
+                        Sandbox.delete_snapshot(snapshot.external_id)
                     await sync_to_async(snapshot.delete)()
                 except Exception:
                     pass

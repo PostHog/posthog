@@ -1,12 +1,8 @@
-import { ApiListResponseSchema } from '@/schema/api'
-
 import type { z } from 'zod'
 
-export const withPagination = async <T>(
-    url: string,
-    apiToken: string,
-    dataSchema: z.ZodType<T>
-): Promise<T[]> => {
+import { ApiListResponseSchema } from '@/schema/api'
+
+export const withPagination = async <T>(url: string, apiToken: string, dataSchema: z.ZodType<T>): Promise<T[]> => {
     const response = await fetch(url, {
         headers: {
             Authorization: `Bearer ${apiToken}`,
@@ -33,22 +29,19 @@ export const withPagination = async <T>(
     return results
 }
 
-export const hasScope = (scopes: string[], requiredScope: string) => {
+export const hasScope = (scopes: string[], requiredScope: string): boolean => {
     if (scopes.includes('*')) {
         return true
     }
 
     // if read scoped required, and write present, return true
-    if (
-        requiredScope.endsWith(':read') &&
-        scopes.includes(requiredScope.replace(':read', ':write'))
-    ) {
+    if (requiredScope.endsWith(':read') && scopes.includes(requiredScope.replace(':read', ':write'))) {
         return true
     }
 
     return scopes.includes(requiredScope)
 }
 
-export const hasScopes = (scopes: string[], requiredScopes: string[]) => {
+export const hasScopes = (scopes: string[], requiredScopes: string[]): boolean => {
     return requiredScopes.every((scope) => hasScope(scopes, scope))
 }

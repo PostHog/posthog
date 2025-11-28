@@ -20,6 +20,7 @@ pub struct RawPythonFrame {
     pub pre_context: Vec<String>, // The lines of code before the context line
     #[serde(default)]
     pub post_context: Vec<String>, // The lines of code after the context line
+    pub code_variables: Option<serde_json::Value>,
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
 }
@@ -96,6 +97,7 @@ impl From<&RawPythonFrame> for Frame {
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: raw.module.clone(),
+            code_variables: raw.code_variables.clone(),
         }
     }
 }

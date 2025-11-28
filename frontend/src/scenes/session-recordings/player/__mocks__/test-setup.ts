@@ -8,7 +8,7 @@ import recordingEventsJson from '../../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../../__mocks__/recording_snapshots'
 
-jest.mock('../TestWorkerManager')
+jest.mock('../snapshot-processing/DecompressionWorkerManager')
 
 export const BLOB_SOURCE_V2: SessionRecordingSnapshotSource = {
     source: 'blob_v2',

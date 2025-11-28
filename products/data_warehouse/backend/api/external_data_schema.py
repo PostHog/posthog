@@ -2,8 +2,6 @@ import datetime as dt
 import dataclasses
 from typing import Any, Optional
 
-from django.dispatch import receiver
-
 import structlog
 import temporalio
 from rest_framework import filters, serializers, status, viewsets
@@ -17,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
@@ -164,6 +162,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
+        sync_time_of_day_in_payload = "sync_time_of_day" in data
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
         was_sync_time_of_day_updated = False
@@ -186,6 +185,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = sync_time_of_day
                 instance.sync_time_of_day = sync_time_of_day
+        else:
+            if sync_time_of_day_in_payload and sync_time_of_day != instance.sync_time_of_day:
+                was_sync_time_of_day_updated = True
+                validated_data["sync_time_of_day"] = None
+                instance.sync_time_of_day = None
 
         if should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
@@ -320,7 +324,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
 
-        logger.debug(f"Validating credentials for {source_type_enum}")
         credentials_valid, credentials_error = new_source.validate_credentials(config, self.team_id)
         if not credentials_valid:
             return Response(
@@ -329,7 +332,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            logger.debug(f"Retrieving schemas for {source_type_enum}")
             schemas = new_source.get_schemas(config, self.team_id)
         except Exception as e:
             capture_exception(e)
@@ -369,7 +371,7 @@ class ExternalDataSchemaContext(ActivityContextBase):
     source_type: str
 
 
-@receiver(model_activity_signal, sender=ExternalDataSchema)
+@mutable_receiver(model_activity_signal, sender=ExternalDataSchema)
 def handle_external_data_schema_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

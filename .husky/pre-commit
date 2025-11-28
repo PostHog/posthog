@@ -1,4 +1,11 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
-NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged
+# Activate Flox environment if available and not already active
+# This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
+if command -v flox &> /dev/null && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then
+    exec "$(command -v flox)" activate -- bash -c "NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged"
+else
+    # Fallback: run without Flox (for non-Flox users or if already activated)
+    NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged
+fi

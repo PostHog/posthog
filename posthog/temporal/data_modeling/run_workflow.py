@@ -742,13 +742,17 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     table_describe_query = f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw"
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
+        # Guarantee timezone is stable
+        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
+        # If Clickhouse detects this is a constant `NULL` column let's turn into `Nullable(String)` since ArrayFormat doesn't support `Nullable(Nothing)`
+        "Nullable(Nothing)": ("toNullableString", ()),
+        # A bunch of non-supported fields, just treat them as strings
         "FIXED_SIZE_BINARY": ("toString", ()),
         "JSON": ("toString", ()),
         "UUID": ("toString", ()),
         "ENUM": ("toString", ()),
         "IPv4": ("toString", ()),
         "IPv6": ("toString", ()),
-        "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
     }
 
     # Query for types first, check for any types ArrowStream doesn't support
@@ -1382,14 +1386,14 @@ class RunWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             cleanup_running_jobs_activity,
             CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=20),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
 
         job_id = await temporalio.workflow.execute_activity(
             create_job_model_activity,
             CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=20),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -1399,7 +1403,7 @@ class RunWorkflow(PostHogWorkflow):
         dag = await temporalio.workflow.execute_activity(
             build_dag_activity,
             build_dag_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=20),
             heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -1414,7 +1418,7 @@ class RunWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             start_run_activity,
             start_run_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=20),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -1462,7 +1466,7 @@ class RunWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=dt.timedelta(minutes=20),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,
                 ),
@@ -1472,7 +1476,7 @@ class RunWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=dt.timedelta(minutes=20),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,
                 ),
@@ -1496,7 +1500,7 @@ class RunWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             finish_run_activity,
             finish_run_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=20),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),

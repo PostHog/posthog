@@ -71,6 +71,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
+        forceUpdate?: boolean,
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
@@ -128,7 +129,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Returns the size of the person properties
      */
-    personPropertiesSize(personId: string): Promise<number>
+    personPropertiesSize(personId: string, teamId: number): Promise<number>
 
     /**
      * Fetch distinct ids for a person inside a transaction-aware wrapper

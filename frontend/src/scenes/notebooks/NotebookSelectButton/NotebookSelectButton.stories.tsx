@@ -9,6 +9,9 @@ import { NotebookNodeType } from '../types'
 export default {
     title: 'Scenes-App/Notebooks/Components/Notebook Select Button',
     component: NotebookSelectButton,
+    parameters: {
+        mockDate: '2025-11-25 23:59:59',
+    },
 } as Meta<typeof NotebookSelectButton>
 
 const allNotebooks = [
@@ -115,15 +118,15 @@ const SessionTemplate: StoryFn<typeof NotebookSelectButton> = (props) => {
                             {
                                 title: 'Session summaries report - 🎉 PostHog App + Website - Error tracking interactions (last 7 days) (2025-10-28)',
                                 short_id: 'sss1',
-                                created_at: '2025-10-28T10:00:00Z',
-                                last_modified_at: '2025-10-28T14:30:00Z',
+                                created_at: '2025-11-25T10:00:00Z',
+                                last_modified_at: '2025-11-25T10:00:00Z',
                                 created_by: { first_name: 'Alex', email: 'alex@posthog.com' },
                             },
                             {
                                 title: 'Session summaries report – Homepage visitors (last 7 days) (2025-10-27)',
                                 short_id: 'sss2',
-                                created_at: '2025-10-27T09:15:00Z',
-                                last_modified_at: '2025-10-27T16:45:00Z',
+                                created_at: '2025-11-22T09:15:00Z',
+                                last_modified_at: '2025-11-22T09:15:00Z',
                                 created_by: { first_name: 'Alex', email: 'alex@posthog.com' },
                             },
                             {

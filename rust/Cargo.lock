@@ -87,6 +87,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94fb8275041c72129eb51b7d0322c29b8387a0386127718b096429201a5d6ece"
+dependencies = [
+ "alloc-no-stdlib",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -264,6 +279,19 @@ dependencies = [
  "event-listener-strategy",
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "async-compression"
+version = "0.4.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a89bce6054c720275ac2432fbba080a66a2106a44a1b804553930ca6909f4e0"
+dependencies = [
+ "compression-codecs",
+ "compression-core",
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
@@ -1400,6 +1428,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "brotli"
+version = "8.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bd8b9603c7aa97359dbd97ecf258968c95f3adddd6db2f7e7a5bef101c84560"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "874bb8112abecc98cbd6d81ea4fa7e94fb9449648c93cc89aa40c81c24d7de03"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+]
+
+[[package]]
 name = "brownstone"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1545,6 +1594,40 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "capture-logs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "apache-avro",
+ "axum 0.7.5",
+ "base64 0.22.1",
+ "bytes",
+ "capture",
+ "chrono",
+ "clickhouse",
+ "common-alloc",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "jsonwebtoken",
+ "limiters",
+ "metrics",
+ "opentelemetry-proto 0.29.0",
+ "prost 0.13.5",
+ "rdkafka",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.12.3",
+ "tower-http",
+ "tracing",
  "tracing-subscriber",
  "uuid",
 ]
@@ -1791,6 +1874,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-cache"
+version = "0.1.0"
+dependencies = [
+ "common-metrics",
+ "common-redis",
+ "moka",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "common-compression"
 version = "0.1.0"
 dependencies = [
@@ -1950,12 +2046,33 @@ dependencies = [
  "jiff",
  "rdkafka",
  "regex",
+ "rust_decimal",
  "serde",
  "serde_json",
  "sqlx",
  "time",
  "uuid",
 ]
+
+[[package]]
+name = "compression-codecs"
+version = "0.4.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef8a506ec4b81c460798f572caead636d57d3d7e940f998160f52bd254bf2d23"
+dependencies = [
+ "brotli",
+ "compression-core",
+ "flate2",
+ "memchr",
+ "zstd",
+ "zstd-safe",
+]
+
+[[package]]
+name = "compression-core"
+version = "0.4.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e47641d3deaf41fb1538ac1f54735925e275eaf3bf4d55c81b137fba797e5cbb"
 
 [[package]]
 name = "concurrent-queue"
@@ -2826,6 +2943,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-cache",
  "common-compression",
  "common-cookieless",
  "common-database",
@@ -4492,6 +4610,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "common-redis",
+ "dashmap 6.1.0",
  "governor",
  "metrics",
  "rand 0.8.5",
@@ -4547,39 +4666,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 dependencies = [
  "value-bag",
-]
-
-[[package]]
-name = "log-capture"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "apache-avro",
- "axum 0.7.5",
- "base64 0.22.1",
- "bytes",
- "capture",
- "chrono",
- "clickhouse",
- "common-alloc",
- "common-metrics",
- "envconfig",
- "health",
- "jsonwebtoken",
- "metrics",
- "opentelemetry-proto 0.29.0",
- "prost 0.13.5",
- "rdkafka",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.12.3",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -8492,12 +8578,16 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e9cd434a998747dd2c4276bc96ee2e0c7a2eadf3cae88e52be55a05fa9053f5"
 dependencies = [
+ "async-compression",
  "bitflags 2.9.1",
  "bytes",
+ "futures-core",
  "http 1.1.0",
  "http-body 1.0.0",
  "http-body-util",
  "pin-project-lite",
+ "tokio",
+ "tokio-util",
  "tower-layer",
  "tower-service",
  "tracing",

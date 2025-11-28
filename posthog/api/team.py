@@ -6,6 +6,8 @@ from typing import Any, Literal, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -22,7 +24,13 @@ from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
-from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Detail,
+    dict_changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
@@ -57,6 +65,8 @@ from posthog.session_recordings.data_retention import (
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
+
+from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -172,10 +182,12 @@ TEAM_CONFIG_FIELDS = (
     "default_data_theme",
     "revenue_analytics_config",
     "marketing_analytics_config",
+    "customer_analytics_config",
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
+    "receive_org_level_activity_logs",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -215,6 +227,8 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
         choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
     )
     campaign_name_mappings = serializers.JSONField(required=False)
+    custom_source_mappings = serializers.JSONField(required=False)
+    campaign_field_preferences = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
@@ -224,6 +238,8 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
             "attribution_window_days",
             "attribution_mode",
             "campaign_name_mappings",
+            "custom_source_mappings",
+            "campaign_field_preferences",
         ]
 
     def update(self, instance, validated_data):
@@ -253,8 +269,32 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
         if "campaign_name_mappings" in validated_data:
             instance.campaign_name_mappings = validated_data["campaign_name_mappings"]
 
+        if "custom_source_mappings" in validated_data:
+            instance.custom_source_mappings = validated_data["custom_source_mappings"]
+
+        if "campaign_field_preferences" in validated_data:
+            instance.campaign_field_preferences = validated_data["campaign_field_preferences"]
+
         instance.save()
         return instance
+
+
+class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer):
+    activity_event = serializers.JSONField(required=False)
+    signup_pageview_event = serializers.JSONField(required=False)
+    signup_event = serializers.JSONField(required=False)
+    subscription_event = serializers.JSONField(required=False)
+    payment_event = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamCustomerAnalyticsConfig
+        fields = [
+            "activity_event",
+            "signup_pageview_event",
+            "signup_event",
+            "subscription_event",
+            "payment_event",
+        ]
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -268,6 +308,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     managed_viewsets = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
+    customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
@@ -360,11 +401,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_managed_viewsets(self, obj):
         from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
         enabled_set = set(enabled_viewsets)
 
-        return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSet.Kind.choices}
+        return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -386,6 +428,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return None
 
         serializer = TeamMarketingAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_customer_analytics_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamCustomerAnalyticsConfigSerializer(data=value)
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
@@ -545,6 +597,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
         return [domain for domain in value if domain]
 
+    def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
+        if value is None:
+            return value
+
+        request = self.context.get("request")
+        if not request:
+            return value
+
+        user = request.user
+
+        if self.instance:
+            try:
+                membership = OrganizationMembership.objects.get(user=user, organization=self.instance.organization)
+                if membership.level < OrganizationMembership.Level.ADMIN:
+                    raise exceptions.PermissionDenied(
+                        "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
+                    )
+            except OrganizationMembership.DoesNotExist:
+                raise exceptions.PermissionDenied("You must be a member of this organization.")
+
+        return value
+
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)
@@ -596,6 +670,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if config_data := validated_data.pop("marketing_analytics_config", None):
             self._update_marketing_analytics_config(instance, config_data)
+
+        if config_data := validated_data.pop("customer_analytics_config", None):
+            self._update_customer_analytics_config(instance, config_data)
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -707,10 +784,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if "events" in validated_data:
             from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+            from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=instance,
-                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
 
@@ -748,6 +826,30 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         self._capture_diff(instance, "marketing_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_customer_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            "activity_event": instance.customer_analytics_config.activity_event,
+            "signup_pageview_event": instance.customer_analytics_config.signup_pageview_event,
+            "signup_event": instance.customer_analytics_config.signup_event,
+            "subscription_event": instance.customer_analytics_config.subscription_event,
+            "payment_event": instance.customer_analytics_config.payment_event,
+        }
+
+        serializer = TeamCustomerAnalyticsConfigSerializer(
+            instance.customer_analytics_config, data=validated_data, partial=True
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: getattr(instance.customer_analytics_config, field)
+            for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):
@@ -1056,6 +1158,77 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
         return activity_page_response(activity_page, limit, page, request)
 
+    @action(methods=["GET"], detail=True)
+    def settings_as_of(self, request: request.Request, **kwargs) -> response.Response:
+        """
+        Return the team settings as of the provided timestamp.
+        Query params:
+        - at: ISO8601 datetime (required)
+        - scope: optional, one or multiple keys to filter the returned settings
+        """
+        team = self.get_object()
+
+        at_param = request.query_params.get("at")
+        if not at_param:
+            raise exceptions.ValidationError({"at": "Query parameter 'at' is required (ISO8601)."})
+
+        as_of = parse_datetime(at_param)
+        if as_of is None:
+            raise exceptions.ValidationError(
+                {"at": "Invalid datetime format. Use ISO8601 (e.g., 2025-11-24T12:34:56Z)."}
+            )
+        if timezone.is_naive(as_of):
+            as_of = timezone.make_aware(as_of)
+
+        # Build starting snapshot from current model values for config fields
+        settings_fields = set(TEAM_CONFIG_FIELDS)
+        snapshot: dict[str, Any] = {}
+        for field_name in settings_fields:
+            if hasattr(team, field_name):
+                snapshot[field_name] = getattr(team, field_name)
+            elif hasattr(team, f"{field_name}_id"):
+                snapshot[field_name] = getattr(team, f"{field_name}_id")
+            else:
+                snapshot[field_name] = None
+
+        # Fetch Team-scoped activity logs after the target timestamp
+        logs = (
+            ActivityLog.objects.filter(team_id=team.id, scope="Team", item_id=str(team.id), created_at__gt=as_of)
+            .order_by("-created_at")
+            .only("detail", "created_at", "activity")
+        )
+
+        # Roll back newest → oldest
+        for log in logs.iterator():
+            detail = log.detail or {}
+            changes = detail.get("changes") or []
+            for change in changes:
+                field = change.get("field")
+                action = change.get("action")
+                before = change.get("before")
+
+                # Normalize FK fields (e.g., primary_dashboard_id → primary_dashboard)
+                target = field[:-3] if isinstance(field, str) and field.endswith("_id") else field
+                if target not in settings_fields:
+                    continue
+
+                if action == "changed":
+                    snapshot[target] = before
+                elif action == "created":
+                    snapshot[target] = None
+                elif action == "deleted":
+                    snapshot[target] = before
+                # Other actions (created/deleted without relevant field) are ignored
+
+        # Optional scope filtering
+        scope_values = request.query_params.getlist("scope")
+
+        if scope_values:
+            filtered = {k: snapshot.get(k, None) for k in scope_values}
+            return response.Response(filtered)
+
+        return response.Response(snapshot)
+
     @action(
         methods=["PATCH"],
         detail=True,
@@ -1073,9 +1246,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         ProductIntent.register(
             team=team,
             product_type=serializer.validated_data["product_type"],
-            context=serializer.validated_data["intent_context"],
+            context=serializer.validated_data.get("intent_context"),
             user=cast(User, user),
             metadata={**serializer.validated_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+            is_onboarding=False,
         )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
@@ -1098,10 +1272,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         product_intent_serializer = ProductIntentSerializer(data=request.data)
         product_intent_serializer.is_valid(raise_exception=True)
         intent_data = product_intent_serializer.validated_data
+        intent_context = intent_data.get("intent_context")
+
         product_intent = ProductIntent.register(
             team=team,
             product_type=product_type,
-            context=intent_data["intent_context"],
+            context=intent_context,
             user=cast(User, user),
             metadata={**intent_data["metadata"], "$current_url": current_url, "$session_id": session_id},
             is_onboarding=True,
@@ -1115,7 +1291,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
-                    "intent_context": intent_data["intent_context"],
+                    "intent_context": intent_context,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),

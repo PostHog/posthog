@@ -19,6 +19,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import ResumableSource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.util import NonRetryableException
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
@@ -82,8 +85,10 @@ def _report_heartbeat_timeout(inputs: ImportDataActivityInputs, logger: Filterin
             return
 
         heartbeat_details = info.heartbeat_details
-        if not isinstance(heartbeat_details, tuple) or len(heartbeat_details) < 1:
-            logger.debug(f"No heartbeat details found to analyze for timeout: {heartbeat_details}")
+        if not isinstance(heartbeat_details, tuple | list) or len(heartbeat_details) < 1:
+            logger.debug(
+                f"No heartbeat details found to analyze for timeout: {heartbeat_details}. Class: {heartbeat_details.__class__.__name__}"
+            )
             return
 
         last_heartbeat = heartbeat_details[-1]
@@ -230,7 +235,13 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
             new_source = SourceRegistry.get_source(source_type)
             config = new_source.parse_config(model.pipeline.job_inputs)
-            source = new_source.source_for_pipeline(config, source_inputs)
+
+            resumable_source_manager: ResumableSourceManager | None = None
+            if isinstance(new_source, ResumableSource):
+                resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                source = new_source.source_for_pipeline(config, resumable_source_manager, source_inputs)
+            else:
+                source = new_source.source_for_pipeline(config, source_inputs)
 
             return _run(
                 job_inputs=job_inputs,
@@ -238,6 +249,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 logger=logger,
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
+                resumable_source_manager=resumable_source_manager,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -249,8 +261,27 @@ def _run(
     logger: FilteringBoundLogger,
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
+    resumable_source_manager: ResumableSourceManager | None,
 ):
-    pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor)
-    pipeline.run()
-    logger.debug("Finished running pipeline")
-    del pipeline
+    try:
+        pipeline = PipelineNonDLT(
+            source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
+        )
+        pipeline.run()
+        logger.debug("Finished running pipeline")
+        del pipeline
+    except Exception as e:
+        source_cls = SourceRegistry.get_source(job_inputs.job_type)
+        non_retryable_errors = source_cls.get_non_retryable_errors()
+        error_msg = str(e)
+        is_non_retryable_error = any(
+            non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
+        )
+        if is_non_retryable_error:
+            logger.debug(f"Encountered non-retryable error during import_data_activity_sync. error={error_msg}")
+            raise NonRetryableException() from e
+        else:
+            logger.debug(
+                "Error encountered during import_data_activity_sync - re-raising",
+            )
+            raise

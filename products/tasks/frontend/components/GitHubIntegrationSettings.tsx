@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { IconGithub, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { IconBranch, IconGithub, IconOpenInNew, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 export function GitHubIntegrationSettings(): JSX.Element {

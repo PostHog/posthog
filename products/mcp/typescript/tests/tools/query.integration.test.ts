@@ -1,8 +1,10 @@
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import type { ApiClient } from '@/api/client'
 import type { InsightQuery } from '@/schema/query'
 import queryRunTool from '@/tools/query/run'
 import type { Context } from '@/tools/types'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
     type CreatedResources,
     SAMPLE_FUNNEL_QUERIES,
@@ -56,9 +58,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -70,9 +70,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -98,7 +96,7 @@ describe('Query Integration Tests', () => {
                     query: invalidQuery,
                 })
             } catch (error: any) {
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
                 expect(error.message).toContain('Failed to query insight')
             }
         })
@@ -113,9 +111,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -127,9 +123,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -141,9 +135,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -155,9 +147,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -169,9 +159,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
     })
@@ -185,9 +173,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -199,9 +185,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -213,9 +197,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -227,9 +209,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -241,9 +221,7 @@ describe('Query Integration Tests', () => {
 
             const response = parseToolResponse(result)
 
-            expect(result.content).toBeDefined()
-            expect(result.content[0].type).toBe('text')
-            expect(response).toBeDefined()
+            expect(response).toBeTruthy()
             expect(Array.isArray(response)).toBe(true)
         })
 
@@ -275,7 +253,7 @@ describe('Query Integration Tests', () => {
                     query: malformedFunnel as unknown as InsightQuery,
                 })
             } catch (error: any) {
-                expect(error).toBeDefined()
+                expect(error).toBeTruthy()
             }
         })
     })

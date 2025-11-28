@@ -3,7 +3,13 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
+import {
+    InternalPerson,
+    PersonUpdateFields,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+} from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 
 export interface PersonRepositoryTransaction {
@@ -21,7 +27,7 @@ export interface PersonRepositoryTransaction {
 
     updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 

@@ -2,11 +2,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowRight, IconChevronRight } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 
 import { OnboardingStepKey } from '~/types'
 

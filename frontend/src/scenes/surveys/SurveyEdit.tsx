@@ -46,7 +46,6 @@ import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surve
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { actionsModel } from '~/models/actionsModel'
 import { getPropertyKey } from '~/taxonomy/helpers'
@@ -329,7 +328,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
-                <SceneDivider />
             </div>
             <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
                 <div className="flex flex-col gap-2 flex-1 SurveyForm">

@@ -46,7 +46,6 @@ export function BatchExportConfiguration(): JSX.Element {
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
-    const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
 
     const requiredFields = ['interval']
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
@@ -117,7 +116,6 @@ export function BatchExportConfiguration(): JSX.Element {
                                             options={tables.map((table) => ({
                                                 value: table.name,
                                                 label: table.id,
-                                                hidden: !sessionsBatchExports && table.name === 'sessions',
                                             }))}
                                             value={selectedModel}
                                             onSelect={(newValue) => {

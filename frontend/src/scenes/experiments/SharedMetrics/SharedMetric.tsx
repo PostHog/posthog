@@ -16,7 +16,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
@@ -189,11 +188,11 @@ export function SharedMetric(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <SceneDivider />
 
             {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
                 <ExperimentMetricForm
                     metric={sharedMetric.query as ExperimentMetric}
+                    isSharedMetric={true}
                     handleSetMetric={(newMetric) => {
                         setSharedMetric({
                             ...sharedMetric,

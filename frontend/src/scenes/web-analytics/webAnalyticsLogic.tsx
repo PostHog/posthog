@@ -1158,7 +1158,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         dateRange: dateRange,
                         filterTestAccounts: filterTestAccounts,
                         filterGroup: replayFilters.filter_group,
-                        columns: ['error', 'users', 'occurrences'],
+                        columns: ['error', 'users', 'occurrences', 'last_seen'],
                         limit: 4,
                     })
                 } catch (e) {
@@ -1190,13 +1190,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     kind: NodeKind.TrendsQuery,
                                     dateRange,
                                     interval,
-                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).flatMap((metric) =>
-                                        [PropertyMathType.P75, PropertyMathType.P90, PropertyMathType.P99].map((math) =>
-                                            createSeries(metric, math)
-                                        )
+                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
+                                        createSeries(metric, webVitalsPercentile)
                                     ),
                                     trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-                                    compareFilter,
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
                                 },

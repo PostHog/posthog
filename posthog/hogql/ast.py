@@ -670,6 +670,15 @@ class Not(Expr):
 
 
 @dataclass(kw_only=True)
+class BetweenExpr(Expr):
+    expr: Expr
+    low: Expr
+    high: Expr
+    negated: bool = False
+    type: Optional[ConstantType] = None
+
+
+@dataclass(kw_only=True)
 class OrderExpr(Expr):
     expr: Expr
     order: Literal["ASC", "DESC"] = "ASC"

@@ -1,4 +1,4 @@
-use common_types::{ProjectId, TeamId, TeamIdentifier};
+use common_types::{TeamId, TeamIdentifier};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, Uuid};
@@ -10,11 +10,6 @@ pub struct Team {
     pub id: TeamId,
     pub name: String,
     pub api_token: String,
-    /// Project ID. This field is not present in Redis cache before Dec 2025, but this is not a problem at all,
-    /// because we know all Teams created before Dec 2025 have `project_id` = `id`. To handle this case gracefully,
-    /// we use 0 as a fallback value in deserialization here, and handle this in `Team::from_redis`.
-    /// Thanks to this default-base approach, we avoid invalidating the whole cache needlessly.
-    pub project_id: ProjectId,
     pub uuid: Uuid,
     pub organization_id: Option<Uuid>,
     pub autocapture_opt_out: Option<bool>,

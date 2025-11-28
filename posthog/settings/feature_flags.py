@@ -43,3 +43,15 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: int = get_from_env(
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: int = get_from_env(
     "FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS", 1, type_cast=int
 )
+
+# Feature flag cache refresh settings
+FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
+    "FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS", 24, type_cast=int
+)
+
+# Maximum number of teams to refresh per cache refresh run to prevent memory spikes.
+# With ~200k teams, 5000 is a starting point that processes all teams across ~40 runs.
+# Run `python manage.py analyze_flags_cache_sizes` to measure actual memory usage.
+# Based on typical flag data, 5000 teams ≈ 10-100 MB depending on flag complexity.
+# See cache_expiry_manager.py for implementation details.
+FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000, type_cast=int)

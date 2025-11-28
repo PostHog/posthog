@@ -5,8 +5,12 @@ from urllib.parse import urlparse
 from django.template import Context, Engine
 
 import tiktoken
+import structlog
+from tiktoken.model import MODEL_TO_ENCODING
 
 from ee.hogai.session_summaries.constants import MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH
+
+logger = structlog.get_logger(__name__)
 
 
 def get_column_index(columns: list[str], column_name: str) -> int:
@@ -14,7 +18,9 @@ def get_column_index(columns: list[str], column_name: str) -> int:
         if c.replace("$", "") == column_name.replace("$", ""):
             return i
     else:
-        raise ValueError(f"Column {column_name} not found in the columns: {columns}")
+        msg = f"Column {column_name} not found in the columns: {columns}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
 
 
 def prepare_datetime(raw_time: datetime | str) -> datetime:
@@ -113,7 +119,9 @@ def serialize_to_sse_event(event_label: str, event_data: str) -> str:
 def generate_full_event_id(session_id: str, event_uuid: str) -> str:
     """Generate a full event ID from a session ID and an event UUID to be able to track events across sessions"""
     if not event_uuid:
-        raise ValueError(f"UUID is not present when generating event_id for session_id {session_id}")
+        msg = f"UUID is not present when generating event_id for session_id {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     full_event_id = f"{session_id}_{event_uuid}"
     return full_event_id
 
@@ -121,21 +129,23 @@ def generate_full_event_id(session_id: str, event_uuid: str) -> str:
 def unpack_full_event_id(full_event_id: str | None, session_id: str | None = None) -> tuple[str, str]:
     """Unpack a full event ID into a session ID and an event UUID"""
     if not full_event_id:
-        message = f"Full event ID is not present when unpacking"
+        msg = "Full event ID is not present when unpacking"
         if session_id:
-            message = f"{message} for session_id {session_id}"
-        raise ValueError(message)
+            msg = f"{msg} for session_id {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     try:
         unpacked_session_id, event_uuid = full_event_id.split("_")
     except ValueError as err:
-        message = f"Invalid full event ID: {full_event_id}"
+        msg = f"Invalid full event ID: {full_event_id}"
         if session_id:
-            message = f"{message} for session_id {session_id}"
-        raise ValueError(message) from err
+            msg = f"{msg} for session_id {session_id}"
+        logger.exception(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg) from err
     if session_id and unpacked_session_id != session_id:
-        raise ValueError(
-            f"Session ID mismatch when unpacking full event ID for session_id {session_id}: {full_event_id}"
-        )
+        msg = f"Session ID mismatch when unpacking full event ID for session_id {session_id}: {full_event_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return unpacked_session_id, event_uuid
 
 
@@ -143,6 +153,9 @@ def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
     """Estimate the token count for a list of strings."""
     if not strings:
         return 0
+    if model not in MODEL_TO_ENCODING:
+        # If the model aren't supported yet - default to o3 as it should be similar to other thinking models
+        model = "o3"
     encoding = tiktoken.encoding_for_model(model)
     total_tokens = 0
     for string in strings:

@@ -136,7 +136,7 @@ pub fn is_likely_base64(payload: &[u8], opt: Base64Option) -> bool {
             || (opt == Base64Option::Loose && *b == b' ')
     });
 
-    let is_b64_aligned = payload.len() % 4 == 0;
+    let is_b64_aligned = payload.len().is_multiple_of(4);
 
     prefix_chars_b64_compatible && is_b64_aligned
 }

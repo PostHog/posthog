@@ -48,10 +48,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import (
-    cast_record_batch_schema_json_columns,
-    handle_non_retryable_errors,
-)
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
     # S3 parameter validation failed.
@@ -252,30 +249,6 @@ class InvalidS3EndpointError(Exception):
         super().__init__(message)
 
 
-async def upload_manifest_file(
-    bucket: str,
-    region_name: str,
-    aws_access_key_id: str | None,
-    aws_secret_access_key: str | None,
-    endpoint_url: str | None,
-    files_uploaded: list[str],
-    manifest_key: str,
-):
-    session = aioboto3.Session()
-    async with session.client(
-        "s3",
-        region_name=region_name,
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
-        endpoint_url=endpoint_url,
-    ) as client:
-        await client.put_object(
-            Bucket=bucket,
-            Key=manifest_key,
-            Body=json.dumps({"files": files_uploaded}),
-        )
-
-
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
@@ -450,12 +423,16 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
 
         json_columns = ("properties", "person_properties", "set", "set_once")
         if inputs.file_format.lower() == "jsonlines":
-            transformer = get_json_stream_transformer(compression=inputs.compression, include_inserted_at=True)
-        else:
-            transformer = ParquetStreamTransformer(
-                schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=json_columns),
+            transformer = get_json_stream_transformer(
                 compression=inputs.compression,
                 include_inserted_at=True,
+                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+            )
+        else:
+            transformer = ParquetStreamTransformer(
+                compression=inputs.compression,
+                include_inserted_at=True,
+                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
         return await run_consumer_from_stage(
@@ -463,8 +440,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
             consumer=consumer,
             producer_task=producer_task,
             transformer=transformer,
-            schema=record_batch_schema,
-            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             json_columns=json_columns,
         )
 
@@ -884,16 +859,29 @@ class ConcurrentS3Consumer(Consumer):
                 self.prefix, self.data_interval_start, self.data_interval_end, self.batch_export_model
             )
             self.external_logger.info("Uploading manifest file '%s'", manifest_key)
-            await upload_manifest_file(
-                self.bucket,
-                self.region_name,
-                self.aws_access_key_id,
-                self.aws_secret_access_key,
-                self.endpoint_url,
+            await self.upload_manifest_file(
                 self.files_uploaded,
                 manifest_key,
             )
             self.external_logger.info("All uploads completed. Uploaded %d files", len(self.files_uploaded))
+
+    async def upload_manifest_file(
+        self,
+        files_uploaded: list[str],
+        manifest_key: str,
+    ):
+        client = await self._get_s3_client()
+
+        await client.put_object(
+            Bucket=self.bucket,
+            Key=manifest_key,
+            Body=json.dumps({"files": files_uploaded}),
+        )
+
+        if self._s3_client is not None and self._s3_client_ctx is not None:
+            await self._s3_client_ctx.__aexit__(None, None, None)
+            self._s3_client = None
+            self._s3_client_ctx = None
 
     # TODO - maybe we can support upload small files without the need for multipart uploads
     # we just want to ensure we test both versions of the code path

@@ -42,10 +42,10 @@ Deploy table drops in separate phases with safety delays:
 In one PR, remove the model and all code that references it:
 
 1. Remove all application code that uses the model:
-    - Delete imports of the model
-    - Remove API endpoints, views, serializers
-    - Remove business logic that queries or writes to it
-    - Remove references in background jobs, async workers (Celery, plugins), cron tasks
+   - Delete imports of the model
+   - Remove API endpoints, views, serializers
+   - Remove business logic that queries or writes to it
+   - Remove references in background jobs, async workers (Celery, plugins), cron tasks
 
 2. Delete the model class from `models.py`
 

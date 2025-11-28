@@ -15,6 +15,7 @@ import {
     IconLive,
     IconLlmAnalytics,
     IconMessage,
+    IconNewspaper,
     IconNotebook,
     IconPeople,
     IconPieChart,
@@ -371,8 +372,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.ProjectHomepage,
                             label: 'Home',
                             icon: <IconHome />,
-                            to: urls.projectHomepage(),
+                            to: urls.projectRoot(),
                         },
+                        ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
+                            ? [
+                                  {
+                                      identifier: Scene.Feed,
+                                      label: 'Feed',
+                                      icon: <IconNewspaper />,
+                                      to: urls.feed(),
+                                  },
+                              ]
+                            : []),
                         {
                             identifier: Scene.Dashboards,
                             label: 'Dashboards',
@@ -567,6 +578,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconLive />,
                                   to: urls.logs(),
                                   tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/logs',
                               }
                             : null,
                         {

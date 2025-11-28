@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconRefresh } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { ProgressResponse, ProgressStatus, Task } from '../types'

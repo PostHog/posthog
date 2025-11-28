@@ -419,6 +419,7 @@ function OutputSection(): JSX.Element {
                             size="small"
                             onClick={addCurrentRunToComparison}
                             tooltip="Add this run to comparison table"
+                            data-attr="playground-add-to-compare"
                         >
                             Add to compare
                         </LemonButton>
@@ -485,6 +486,7 @@ function ConfigurationPanel(): JSX.Element {
                         }))}
                         loading={modelOptionsLoading}
                         disabled={modelOptionsLoading || options.length === 0}
+                        data-attr="playground-model-selector"
                     />
                 )}
                 {options.length === 0 && !modelOptionsLoading && (
@@ -708,6 +710,7 @@ function StickyActionBar(): JSX.Element {
                             onClick={submitPrompt}
                             loading={submitting}
                             disabledReason={submitting ? 'Generating...' : runDisabledReason}
+                            data-attr="playground-run"
                         >
                             Run
                         </LemonButton>

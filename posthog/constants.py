@@ -332,6 +332,7 @@ DEFAULT_SURVEY_APPEARANCE = {
     "displayThankYouMessage": True,
     "thankYouMessageHeader": "Thank you for your feedback!",
     "position": "bottom-right",
+    "tabPosition": "right",
     "widgetType": "tab",
     "widgetLabel": "Feedback",
     "widgetColor": "black",
@@ -347,10 +348,35 @@ DEFAULT_SURVEY_APPEARANCE = {
     "surveyPopupDelaySeconds": None,
 }
 
-# Mapping of social_django backend names
-SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
-    "google-oauth2": "Google OAuth",
-    "github": "GitHub",
-    "gitlab": "GitLab",
-    "saml": "SAML",
-}
+LOGIN_METHODS = [
+    {
+        "key": "password",
+        "display": "Email/password",
+        "backends": ["django.contrib.auth.backends.ModelBackend"],
+    },
+    {
+        "key": "google-oauth2",
+        "display": "Google OAuth",
+        "backends": ["google-oauth2", "ee.api.authentication.CustomGoogleOAuth2"],
+    },
+    {
+        "key": "github",
+        "display": "GitHub",
+        "backends": ["github"],
+    },
+    {
+        "key": "gitlab",
+        "display": "GitLab",
+        "backends": ["gitlab"],
+    },
+    {
+        "key": "saml",
+        "display": "SAML",
+        "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+    },
+]
+
+# Mapping of auth backend names to login method display names
+AUTH_BACKEND_DISPLAY_NAMES = {backend: m["display"] for m in LOGIN_METHODS for backend in m["backends"]}
+
+AUTH_BACKEND_KEYS = {backend: m["key"] for m in LOGIN_METHODS for backend in m["backends"]}

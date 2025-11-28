@@ -73,29 +73,50 @@ Standardized events/properties such as pageview or screen start with `$`. Custom
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 
 <person_id_join_limitation>
-There is a known issue with queries that join multiple events tables where join constraints
-reference person_id fields. The person_id fields are ExpressionFields that expand to
-expressions referencing override tables (e.g., e_all__override). However, these expressions
-are resolved during type resolution (in printer.py) BEFORE lazy table processing begins.
-This creates forward references to override tables that don't exist yet.
+CRITICAL: There is a known issue with queries where JOIN constraints reference events.person_id fields.
 
-Example problematic HogQL:
-    SELECT MAX(e_all.timestamp) AS last_seen
-    FROM events e_dl
-    JOIN persons p ON e_dl.person_id = p.id
-    JOIN events e_all ON e_dl.person_id = e_all.person_id
+TECHNICAL CAUSE:
+The person_id fields are ExpressionFields that expand to expressions referencing override tables
+(e.g., e_all__override). However, these expressions are resolved during type resolution (in printer.py)
+BEFORE lazy table processing begins. This creates forward references to override tables that don't
+exist yet, causing ClickHouse errors like:
+"Missing columns: '_--e__override.person_id' '_--e__override.distinct_id'"
 
-The join constraint "e_dl.person_id = e_all.person_id" expands to:
-    if(NOT empty(e_dl__override.distinct_id), e_dl__override.person_id, e_dl.person_id) =
-    if(NOT empty(e_all__override.distinct_id), e_all__override.person_id, e_all.person_id)
+PROBLEMATIC PATTERNS:
+1. Joining persons to events using events.person_id:
+   ❌ FROM persons p ALL INNER JOIN events e ON p.id = e.person_id
 
-But e_all__override is defined later in the SQL, causing a ClickHouse error.
+2. Joining multiple events tables using person_id:
+   ❌ FROM events e_dl
+      JOIN persons p ON e_dl.person_id = p.id
+      JOIN events e_all ON e_dl.person_id = e_all.person_id
 
-WORKAROUND: Use subqueries or rewrite queries to avoid direct joins between multiple events tables:
-    SELECT MAX(e.timestamp) AS last_seen
-    FROM events e
-    JOIN persons p ON e.person_id = p.id
-    WHERE e.event IN (SELECT event FROM events WHERE ...)
+   The join constraint "e_dl.person_id = e_all.person_id" expands to:
+   if(NOT empty(e_dl__override.distinct_id), e_dl__override.person_id, e_dl.person_id) =
+   if(NOT empty(e_all__override.distinct_id), e_all__override.person_id, e_all.person_id)
+
+   But e_all__override is defined later in the SQL, causing the error.
+
+REQUIRED WORKAROUNDS:
+1. For accessing person data, use the person virtual table from events:
+   ✅ SELECT e.person.id, e.person.properties.email, e.event
+      FROM events e
+      WHERE e.timestamp > now() - INTERVAL 7 DAY
+
+2. For filtering persons by event data, use subqueries with WHERE IN:
+   ✅ SELECT p.id, p.properties.email
+      FROM persons p
+      WHERE p.id IN (
+          SELECT DISTINCT person_id FROM events
+          WHERE event = 'purchase' AND timestamp > now() - INTERVAL 7 DAY
+      )
+
+3. For multiple events tables, use subqueries to avoid direct joins:
+   ✅ SELECT MAX(e.timestamp) AS last_seen
+      FROM events e
+      WHERE e.person_id IN (SELECT DISTINCT person_id FROM events WHERE ...)
+
+NEVER use events.person_id directly in JOIN ON constraints - always use one of the workarounds above.
 </person_id_join_limitation>
 """.strip()
 
@@ -1509,10 +1530,6 @@ Here is the taxonomy for event properties:
             "label": "Exception is synthetic",
             "description": "Whether this was detected as a synthetic exception.",
         },
-        "$exception_stack_trace_raw": {
-            "label": "Exception raw stack trace",
-            "description": "The exceptions stack trace, as a string.",
-        },
         "$exception_handled": {
             "label": "Exception was handled",
             "description": "Whether this was a handled or unhandled exception.",
@@ -2094,6 +2111,11 @@ Here is the taxonomy for event properties:
             "label": "Feature flag request ID",
             "description": "The unique identifier for the request that retrieved this feature flag result.\n\nNote: Primarily used by PostHog support for debugging issues with feature flags.",
             "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+        },
+        "$feature_flag_evaluated_at": {
+            "label": "Feature flag evaluated at",
+            "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
+            "examples": ["1732051200000"],
         },
         "$feature_flag_version": {
             "label": "Feature flag version",

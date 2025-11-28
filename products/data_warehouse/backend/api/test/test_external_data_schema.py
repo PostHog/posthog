@@ -201,9 +201,15 @@ class TestExternalDataSchema(APIBaseTest):
             sync_time_of_day="12:00:00",
         )
 
-        with mock.patch(
-            "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
-        ) as mock_trigger_external_data_workflow:
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger_external_data_workflow,
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "full_refresh"},

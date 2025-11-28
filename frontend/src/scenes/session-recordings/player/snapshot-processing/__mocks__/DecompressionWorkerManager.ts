@@ -1,12 +1,24 @@
+export type DecompressionMode = 'worker' | 'yielding' | 'blocking'
+
+export function normalizeMode(mode?: string | boolean): DecompressionMode {
+    if (mode === 'worker' || mode === 'yielding') {
+        return mode
+    }
+    return 'blocking'
+}
+
 export class DecompressionWorkerManager {
+    private mockStats = { totalTime: 0, count: 0, totalSize: 0 }
+
     async decompress(compressedData: Uint8Array): Promise<Uint8Array> {
-        // Mock implementation for tests - just return the data as-is
-        // In real tests that need actual decompression, they can mock this method
+        this.mockStats.count++
+        this.mockStats.totalSize += compressedData.length
+        this.mockStats.totalTime += 1
         return compressedData
     }
 
-    async decompressBatch(compressedBlocks: Uint8Array[]): Promise<Uint8Array[]> {
-        return Promise.all(compressedBlocks.map((block) => this.decompress(block)))
+    getStats(): typeof this.mockStats {
+        return { ...this.mockStats }
     }
 
     terminate(): void {
@@ -15,10 +27,21 @@ export class DecompressionWorkerManager {
 }
 
 let workerManager: DecompressionWorkerManager | null = null
+let currentConfig: { mode?: string; posthog?: any } | null = null
 
-export function getDecompressionWorkerManager(): DecompressionWorkerManager {
+export function getDecompressionWorkerManager(
+    mode?: string | DecompressionMode,
+    posthog?: any
+): DecompressionWorkerManager {
+    const configChanged = currentConfig && (currentConfig.mode !== mode || currentConfig.posthog !== posthog)
+
+    if (configChanged) {
+        terminateDecompressionWorker()
+    }
+
     if (!workerManager) {
         workerManager = new DecompressionWorkerManager()
+        currentConfig = { mode, posthog }
     }
     return workerManager
 }
@@ -28,4 +51,5 @@ export function terminateDecompressionWorker(): void {
         workerManager.terminate()
         workerManager = null
     }
+    currentConfig = null
 }

@@ -3,6 +3,7 @@ from typing import Optional
 
 from posthog.schema import (
     CachedRevenueAnalyticsMetricsQueryResponse,
+    DatabaseSchemaManagedViewTableKind,
     HogQLQueryResponse,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMetricsQueryResponse,
@@ -20,6 +21,7 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsRevenueItemView,
     RevenueAnalyticsSubscriptionView,
 )
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -40,8 +42,18 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
     cached_response: CachedRevenueAnalyticsMetricsQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subscription_subqueries = list(self.revenue_subqueries(RevenueAnalyticsSubscriptionView))
-        revenue_item_subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
+        subscription_subqueries = list(
+            RevenueAnalyticsQueryRunner.revenue_subqueries(
+                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION],
+                self.database,
+            )
+        )
+        revenue_item_subqueries = list(
+            RevenueAnalyticsQueryRunner.revenue_subqueries(
+                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
+                self.database,
+            )
+        )
         if not subscription_subqueries:
             columns = [
                 "breakdown_by",

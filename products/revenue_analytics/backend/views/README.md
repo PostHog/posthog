@@ -288,9 +288,7 @@ from unittest.mock import Mock
 from uuid import uuid4
 from typing import List, Dict, Optional
 
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.table import DataWarehouseTable
+from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource, DataWarehouseTable
 from products.revenue_analytics.backend.views.core import SourceHandle
 from products.revenue_analytics.backend.views.sources.test.base import RevenueAnalyticsViewSourceBaseTest
 

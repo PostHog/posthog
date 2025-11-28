@@ -45,7 +45,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                     <Link
                         key={conversation.id}
                         className="text-sm flex items-center gap-2 text-primary hover:text-accent-hover active:text-accent-active justify-between"
-                        to={urls.max(conversation.id)}
+                        to={urls.ai(conversation.id)}
                         onClick={(e) => {
                             if (sidePanel) {
                                 e.preventDefault()

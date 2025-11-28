@@ -5,6 +5,7 @@ from rest_framework import status
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
 from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
 
 class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
@@ -41,7 +42,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
 
         self.assertTrue(
             DataWarehouseManagedViewSet.objects.filter(
-                team=self.team, kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS
+                team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
             ).exists()
         )
 
@@ -63,7 +64,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
     def test_disable_managed_viewset(self):
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -108,7 +109,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
         # Create a managed viewset
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Create some saved queries associated with the managed viewset
@@ -153,7 +154,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
         # Create a managed viewset but no associated views
         DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
@@ -183,7 +184,7 @@ class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
         # Create a managed viewset
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Create a non-deleted view

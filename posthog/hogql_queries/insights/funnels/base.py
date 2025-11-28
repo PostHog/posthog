@@ -409,75 +409,6 @@ class FunnelBase(ABC):
         else:
             return target_step - 1
 
-    def _get_inner_event_query(
-        self,
-        entities: list[EntityNode] | None = None,
-        entity_name="events",
-        skip_entity_filter=False,
-        skip_step_filter=False,
-    ) -> ast.SelectQuery:
-        query, funnelsFilter, breakdown, breakdownType, breakdownAttributionType = (
-            self.context.query,
-            self.context.funnelsFilter,
-            self.context.breakdown,
-            self.context.breakdownType,
-            self.context.breakdownAttributionType,
-        )
-        entities_to_use = entities or query.series
-
-        extra_fields: list[str] = []
-
-        for prop in self.context.includeProperties:
-            extra_fields.append(prop)
-
-        funnel_events_query = FunnelEventQuery(
-            context=self.context,
-            extra_fields=[*self._extra_event_fields, *extra_fields],
-            extra_event_properties=self._extra_event_properties,
-        ).to_query(
-            skip_entity_filter=skip_entity_filter,
-        )
-        # funnel_events_query, params = FunnelEventQuery(
-        #     extra_fields=[*self._extra_event_fields, *extra_fields],
-        #     extra_event_properties=self._extra_event_properties,
-        # ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
-
-        all_step_cols: list[ast.Expr] = []
-        for index, entity in enumerate(entities_to_use):
-            step_cols = self._get_step_col(entity, index, entity_name)
-            all_step_cols.extend(step_cols)
-
-        for exclusion_id, excluded_entity in enumerate(funnelsFilter.exclusions or []):
-            step_cols = self._get_step_col(
-                excluded_entity, excluded_entity.funnelFromStep, entity_name, f"exclusion_{exclusion_id}_"
-            )
-            # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
-            # where i is the starting step for exclusion on that entity
-            all_step_cols.extend(step_cols)
-
-        breakdown_select_prop = self._get_breakdown_select_prop()
-
-        if breakdown_select_prop:
-            all_step_cols.extend(breakdown_select_prop)
-
-        funnel_events_query.select = [*funnel_events_query.select, *all_step_cols]
-
-        if breakdown and breakdownType == BreakdownType.COHORT:
-            if funnel_events_query.select_from is None:
-                raise ValidationError("Apologies, there was an error adding cohort breakdowns to the query.")
-            funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
-
-        if not skip_step_filter:
-            assert isinstance(funnel_events_query.where, ast.Expr)
-            steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
-            funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
-
-        if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
-            # ALL_EVENTS attribution is the old default, which doesn't need the subquery
-            return self._add_breakdown_attribution_subquery(funnel_events_query)
-
-        return funnel_events_query
-
     # This version of the inner event query modifies how exclusions are returned to
     # make them behave more like steps. It returns a boolean "exclusion_{0..n}" for each event
     def _get_inner_event_query_for_udf(
@@ -636,6 +567,10 @@ class FunnelBase(ABC):
             self.context.limit_context
         )
 
+    def _order_by(self) -> list[ast.OrderExpr]:
+        max_steps = self.context.max_steps
+        return [ast.OrderExpr(expr=ast.Field(chain=[f"step_{i}"]), order="DESC") for i in range(max_steps, 0, -1)]
+
     # Wrap funnel query in another query to determine the top X breakdowns, and bucket all others into "Other" bucket
     def _breakdown_other_subquery(self) -> ast.SelectQuery:
         max_steps = self.context.max_steps
@@ -677,6 +612,7 @@ class FunnelBase(ABC):
             ],
             select_from=ast.JoinExpr(table=select_query),
             group_by=[ast.Field(chain=["final_prop"])],
+            order_by=self._order_by(),
             limit=ast.Constant(value=self.get_breakdown_limit() + 1),
         )
 
@@ -869,11 +805,11 @@ class FunnelBase(ABC):
         statement = None
         for i in range(max_steps - 1, -1, -1):
             if i == max_steps - 1:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,step_{i}_matching_event)"
             elif i == 0:
                 statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
             else:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,{statement})"
         return [parse_expr(f"{statement} as final_matching_event")] if statement else []
 
     def _get_matching_events(self, max_steps: int) -> list[ast.Expr]:
@@ -1009,7 +945,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i - 1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
                 ),
             )
 

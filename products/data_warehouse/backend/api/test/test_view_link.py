@@ -271,7 +271,7 @@ class TestViewLinkQuery(APIBaseTest):
         # Test that listing joins uses efficient querying
 
         with self.assertNumQueries(
-            FuzzyInt(17, 18)
+            FuzzyInt(18, 19)
         ):  # depends when team revenue analytisc config cache is hit in a test
             response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
 

@@ -1,3 +1,6 @@
+import { v4 as uuidv4 } from 'uuid'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -14,8 +17,6 @@ import getProjectsTool from '@/tools/projects/getProjects'
 import propertyDefinitionsTool from '@/tools/projects/propertyDefinitions'
 import setActiveProjectTool from '@/tools/projects/setActive'
 import type { Context } from '@/tools/types'
-import { v4 as uuidv4 } from 'uuid'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 describe('Projects', { concurrent: false }, () => {
     let context: Context
@@ -57,7 +58,7 @@ describe('Projects', { concurrent: false }, () => {
             const projects = parseToolResponse(result)
 
             const testProject = projects.find((proj: any) => proj.id === Number(TEST_PROJECT_ID))
-            expect(testProject).toBeDefined()
+            expect(testProject).toBeTruthy()
             expect(testProject.id).toBe(Number(TEST_PROJECT_ID))
         })
     })
@@ -99,9 +100,7 @@ describe('Projects', { concurrent: false }, () => {
                 expect(prop).toHaveProperty('property_type')
                 expect(typeof prop.name).toBe('string')
                 // property_type can be a string or null
-                expect(['string', 'object', 'undefined'].includes(typeof prop.property_type)).toBe(
-                    true
-                )
+                expect(['string', 'object', 'undefined'].includes(typeof prop.property_type)).toBe(true)
             }
         })
 
@@ -156,7 +155,7 @@ describe('Projects', { concurrent: false }, () => {
 
             const pageviewEvent = eventDefs.find((event: any) => event.name === '$pageview')
             if (eventDefs.length > 0) {
-                expect(pageviewEvent).toBeDefined()
+                expect(pageviewEvent).toBeTruthy()
             }
         })
 
@@ -206,8 +205,7 @@ describe('Projects', { concurrent: false }, () => {
             const projects = parseToolResponse(projectsResult)
             expect(projects.length).toBeGreaterThan(0)
 
-            const targetProject =
-                projects.find((p: any) => p.id === Number(TEST_PROJECT_ID)) || projects[0]
+            const targetProject = projects.find((p: any) => p.id === Number(TEST_PROJECT_ID)) || projects[0]
 
             const setResult = await setTool.handler(context, { projectId: targetProject.id })
             expect(setResult.content[0].text).toBe(`Switched to project ${targetProject.id}`)

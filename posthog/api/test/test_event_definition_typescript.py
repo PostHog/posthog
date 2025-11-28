@@ -78,6 +78,24 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
             team=self.team, project=self.project, name="untyped_event"
         )
 
+        # Create event with special characters to test escaping
+        self.special_chars_event = EventDefinition.objects.create(
+            team=self.team, project=self.project, name="a'a\\'b\"c>?>%}}%%>c<[[?${{%}}cake'"
+        )
+
+        special_property_group = SchemaPropertyGroup.objects.create(
+            team=self.team, project=self.project, name="Special Properties"
+        )
+
+        SchemaPropertyGroupProperty.objects.create(
+            property_group=special_property_group,
+            name="prop'with\\'quotes\"\\slash",
+            property_type="String",
+            is_required=True,
+        )
+
+        EventSchema.objects.create(event_definition=self.special_chars_event, property_group=special_property_group)
+
     def _generate_typescript(self) -> str:
         """Generate TypeScript definitions by calling the actual API endpoint"""
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript/")
@@ -234,6 +252,15 @@ posthog.captureRaw('test_event', {
 
 // ✅ Should compile: string variables work
 posthog.captureRaw(stringVar, { any: 'data' })
+
+// ========================================
+// TEST 8: Special characters are escaped
+// ========================================
+
+// ✅ Should compile: event and property names with special chars
+posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
+    "prop'with\\\\'quotes\\"\\\\slash": 'value'
+})
 """
             )
 

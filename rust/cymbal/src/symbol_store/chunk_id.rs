@@ -104,14 +104,17 @@ where
             panic!("No storage pointer found for chunk id {id}");
         };
 
-        let Ok(data) = self.client.get(&self.bucket, storage_ptr).await else {
-            let mut record = record;
-            record.delete(&self.pool).await?;
-            // This is kind-of false - the actual problem is missing data in s3, with a record that exists, rather than no record being found for
-            // a given chunk id - but it's close enough that it's fine for a temporary fix.
-            return Err(FrameError::MissingChunkIdData(record.set_ref).into());
-        };
-        Ok(data)
+        match self.client.get(&self.bucket, storage_ptr).await {
+            Ok(Some(data)) => Ok(data),
+            Ok(None) => {
+                // If the chunk ID points to a record that doesn't exist, delete the record and treat it as a frame error
+                let mut record = record;
+                record.delete(&self.pool).await?;
+                return Err(FrameError::MissingChunkIdData(record.set_ref).into());
+            }
+            // Otherwise, if we just failed to talk to s3 for some reason, treat it as an unhandled error and die
+            Err(err) => Err(err.into()),
+        }
     }
 }
 
@@ -228,6 +231,7 @@ mod test {
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
 
     // Used to construct a Catalog with only the chunk id based provider implemented
+    #[allow(dead_code)]
     struct UnimplementedProvider;
     #[async_trait]
     impl Provider for UnimplementedProvider {
@@ -292,7 +296,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(get_symbol_data_bytes()));
+            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
 
         let client = Arc::new(client);
 
@@ -333,7 +337,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(get_symbol_data_bytes()));
+            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
 
         let client = Arc::new(client);
 

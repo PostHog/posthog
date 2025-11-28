@@ -126,9 +126,7 @@ def call_surveys_max_tool(demo_org_team_user, create_feature_flags):
                 "change": f"Create a survey based on these instructions: {instructions}",
                 "output": None,
             }
-            graph = FeatureFlagLookupGraph(team=team, user=user, tool_call_id="test-tool-call-id").compile_full_graph(
-                checkpointer=DjangoCheckpointer()
-            )
+            graph = FeatureFlagLookupGraph(team=team, user=user).compile_full_graph(checkpointer=DjangoCheckpointer())
             result = await graph.ainvoke(
                 graph_context,
                 config={

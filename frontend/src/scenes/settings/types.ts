@@ -57,6 +57,7 @@ export type SettingSectionId =
     | 'user-danger-zone'
     | 'user-feature-previews'
     | 'mcp-server'
+    | 'product-logs'
 
 export type SettingId =
     | 'replay-triggers'
@@ -72,7 +73,8 @@ export type SettingId =
     | 'internal-user-filtering'
     | 'data-theme'
     | 'correlation-analysis'
-    | 'crm-usage-metrics'
+    | 'customer-analytics-usage-metrics'
+    | 'customer-analytics-dashboard-events'
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'
@@ -91,6 +93,7 @@ export type SettingId =
     | 'error-tracking-custom-grouping'
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
+    | 'error-tracking-releases'
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
@@ -152,6 +155,10 @@ export type SettingId =
     | 'base-currency'
     | 'marketing-settings'
     | 'mcp-server-configure'
+    | 'activity-log-settings'
+    | 'activity-log-org-level-settings'
+    | 'activity-log-notifications'
+    | 'organization-ip-anonymization-default'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

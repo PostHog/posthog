@@ -17,6 +17,7 @@ export interface LemonSwitchProps {
     fullWidth?: boolean
     size?: 'xxsmall' | 'xsmall' | 'small' | 'medium'
     bordered?: boolean
+    /** @deprecated Checkboxes should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false

@@ -1,14 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
-import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { NEW_TAB_COMMANDS, NEW_TAB_COMMANDS_ITEMS, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Results } from './components/Results'
@@ -19,18 +16,17 @@ export const scene: SceneExport = {
     logic: newTabSceneLogic,
 }
 
-export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
+export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const { search, newTabSceneDataInclude } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle } = useActions(newTabSceneLogic({ tabId }))
-    const { showSceneDashboardChoiceModal } = useActions(
-        sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
+    const { setSearch, toggleNewTabSceneDataInclude, refreshDataAfterToggle, setNewTabSearchInputRef } = useActions(
+        newTabSceneLogic({ tabId })
     )
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()
-        router.actions.push(urls.max(undefined, nextQuestion))
+        router.actions.push(urls.ai(undefined, nextQuestion))
     }
 
     // The active commands are just the items in newTabSceneDataInclude
@@ -44,6 +40,11 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             const commandInfo = NEW_TAB_COMMANDS_ITEMS.find((cmd) => cmd.value === commandValue)
             return commandInfo || { value: commandValue, displayName: commandValue }
         })
+
+    // Set the ref in the logic so it can be accessed from other components
+    useEffect(() => {
+        setNewTabSearchInputRef(commandInputRef)
+    }, [setNewTabSearchInputRef])
 
     return (
         <>
@@ -59,8 +60,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         interactive elements with the keyboard
                     </p>
                 </div>
-                <div className="flex flex-col gap-2">
-                    <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
+                <div className="flex flex-col gap-2 border-b">
+                    <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:py-4 mx-auto w-full max-w-[1200px]">
                         <SearchInput
                             ref={commandInputRef}
                             commands={NEW_TAB_COMMANDS_ITEMS}
@@ -101,25 +102,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 refreshDataAfterToggle()
                             }}
                         />
-                    </div>
-                    <div className="border-b">
-                        <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
-                            <div className="flex items-center gap-x-2 gap-y-2 flex-wrap">
-                                {source === 'homepage' ? (
-                                    <>
-                                        <ButtonPrimitive
-                                            size="xxs"
-                                            data-attr="project-home-customize-homepage"
-                                            className="ml-auto text-xs"
-                                            onClick={showSceneDashboardChoiceModal}
-                                        >
-                                            Customize homepage
-                                        </ButtonPrimitive>
-                                        <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
-                                    </>
-                                ) : null}
-                            </div>
-                        </div>
                     </div>
                 </div>
 

@@ -2,9 +2,10 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
-from products.tasks.backend.services.sandbox_agent import SandboxAgent
-from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
-from products.tasks.backend.temporal.exceptions import RepositorySetupError
+from posthog.temporal.common.utils import asyncify
+
+from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.temporal.exceptions import RetryableRepositorySetupError
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 
@@ -17,42 +18,55 @@ class SetupRepositoryInput:
 
 
 @activity.defn
-async def setup_repository(input: SetupRepositoryInput) -> str:
+@asyncify
+def setup_repository(input: SetupRepositoryInput) -> str:
     """Run code agent setup on repository. Returns setup logs."""
-    async with log_activity_execution(
+    with log_activity_execution(
         "setup_repository",
         distinct_id=input.distinct_id,
         task_id=input.task_id,
         sandbox_id=input.sandbox_id,
         repository=input.repository,
     ):
-        sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
-
-        agent = SandboxAgent(sandbox)
+        sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         try:
-            result = await agent.setup_repository(input.repository)
+            result = sandbox.setup_repository(input.repository)
         except Exception as e:
-            raise RepositorySetupError(
+            raise RetryableRepositorySetupError(
                 f"Failed to setup repository {input.repository}",
-                {"repository": input.repository, "sandbox_id": input.sandbox_id, "error": str(e)},
+                {
+                    "repository": input.repository,
+                    "sandbox_id": input.sandbox_id,
+                    "task_id": input.task_id,
+                    "error": str(e),
+                },
+                cause=e,
             )
 
         if result.exit_code != 0:
-            raise RepositorySetupError(
+            raise RetryableRepositorySetupError(
                 f"Repository setup failed with exit code {result.exit_code}",
-                {"repository": input.repository, "exit_code": result.exit_code, "stderr": result.stderr[:500]},
+                {
+                    "repository": input.repository,
+                    "exit_code": result.exit_code,
+                    "stderr": result.stderr[:500],
+                    "task_id": input.task_id,
+                },
+                cause=RuntimeError(f"Setup exited with code {result.exit_code}: {result.stderr[:200]}"),
             )
 
-        is_clean, status_output = await agent.is_git_clean(input.repository)
+        is_clean, status_output = sandbox.is_git_clean(input.repository)
 
         if not is_clean:
-            raise RepositorySetupError(
+            raise RetryableRepositorySetupError(
                 "Repository setup left uncommitted changes. Cannot snapshot with modified git state.",
                 {
                     "repository": input.repository,
+                    "task_id": input.task_id,
                     "uncommitted_changes": status_output[:500],
                 },
+                cause=RuntimeError(f"Uncommitted changes: {status_output[:200]}"),
             )
 
         return result.stdout

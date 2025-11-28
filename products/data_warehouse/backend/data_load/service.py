@@ -1,3 +1,4 @@
+import random
 from dataclasses import asdict
 from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING
@@ -41,6 +42,13 @@ if TYPE_CHECKING:
     from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
 
+def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, int]:
+    total_seconds = max_jitter.total_seconds()
+    jitter_seconds = rng.uniform(0, total_seconds)
+
+    return (int(jitter_seconds // 3600), int((jitter_seconds % 3600) // 60))
+
+
 def get_sync_schedule(external_data_schema: "ExternalDataSchema", should_sync: bool = True):
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
@@ -48,24 +56,40 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema", should_sync: b
         external_data_source_id=external_data_schema.source_id,
     )
 
-    sync_frequency, jitter = get_sync_frequency(external_data_schema)
-
     hour = 0
     minute = 0
+    sync_time_of_day: time | str | None = external_data_schema.sync_time_of_day
     # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
-    if external_data_schema.sync_time_of_day:
-        time_str = external_data_schema.sync_time_of_day
-        time = datetime.strptime(str(time_str), "%H:%M:%S").time()
-        hour = time.hour
-        minute = time.minute
+    if sync_time_of_day is not None:
+        time_str = sync_time_of_day
+        t = datetime.strptime(str(time_str), "%H:%M:%S").time()
+        hour = t.hour
+        minute = t.minute
+    else:
+        # Apply a one-time jitter based on the sync frequency to avoid all jobs syncing at the same time
+        interval: timedelta | None = external_data_schema.sync_frequency_interval
+        if interval is not None:
+            rng = random.Random(str(external_data_schema.id))
+
+            if interval <= timedelta(minutes=5):
+                hour, minute = _jitter_timedelta(timedelta(minutes=5), rng)
+            elif interval <= timedelta(minutes=30):
+                hour, minute = _jitter_timedelta(timedelta(minutes=30), rng)
+            elif interval <= timedelta(hours=1):
+                hour, minute = _jitter_timedelta(timedelta(hours=1), rng)
+            elif interval <= timedelta(hours=6):
+                hour, minute = _jitter_timedelta(timedelta(hours=6), rng)
+            elif interval <= timedelta(hours=12):
+                hour, minute = _jitter_timedelta(timedelta(hours=12), rng)
+            elif interval <= timedelta(days=1):
+                hour, minute = _jitter_timedelta(timedelta(days=1), rng)
 
     return to_temporal_schedule(
         external_data_schema,
         inputs,
         hour_of_day=hour,
         minute_of_hour=minute,
-        sync_frequency=sync_frequency,
-        jitter=jitter,
+        sync_frequency=external_data_schema.sync_frequency_interval,
         should_sync=should_sync,
     )
 
@@ -76,7 +100,6 @@ def to_temporal_schedule(
     hour_of_day=0,
     minute_of_hour=0,
     sync_frequency=timedelta(hours=6),
-    jitter=None,
     should_sync=True,
 ):
     action = ScheduleActionStartWorkflow(
@@ -105,8 +128,6 @@ def to_temporal_schedule(
             )
         ],
         start_at=schedule_start,
-        # if custom sync time, don't apply jitter
-        jitter=jitter if minute_of_hour == 0 and hour_of_day == 0 else None,
     )
 
     return Schedule(
@@ -118,15 +139,6 @@ def to_temporal_schedule(
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
-
-
-def get_sync_frequency(external_data_schema: "ExternalDataSchema") -> tuple[timedelta, timedelta]:
-    if external_data_schema.sync_frequency_interval <= timedelta(hours=1):
-        return (external_data_schema.sync_frequency_interval, timedelta(minutes=1))
-    if external_data_schema.sync_frequency_interval <= timedelta(hours=12):
-        return (external_data_schema.sync_frequency_interval, timedelta(minutes=30))
-
-    return (external_data_schema.sync_frequency_interval, timedelta(hours=1))
 
 
 def sync_external_data_job_workflow(

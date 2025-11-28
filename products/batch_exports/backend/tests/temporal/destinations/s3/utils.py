@@ -1,3 +1,4 @@
+import os
 import json
 import uuid
 import typing as t
@@ -6,11 +7,13 @@ import datetime as dt
 import operator
 
 from django.conf import settings
+from django.test import override_settings
 
 import aioboto3
 import botocore.exceptions
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
+from temporalio.testing._activity import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
@@ -22,10 +25,14 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     COMPRESSION_EXTENSIONS,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
+    S3InsertInputs,
     insert_into_s3_activity_from_stage,
     s3_default_fields,
 )
-from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
+from products.batch_exports.backend.temporal.pipeline.internal_stage import (
+    BatchExportInsertIntoInternalStageInputs,
+    insert_into_internal_stage_activity,
+)
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
@@ -414,3 +421,36 @@ async def run_s3_batch_export_workflow(
         backfill_details=backfill_details,
     )
     return run
+
+
+async def _run_activity(activity_environment: ActivityEnvironment, insert_inputs: S3InsertInputs):
+    with override_settings(
+        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
+    ):
+        assert insert_inputs.batch_export_id is not None
+        await activity_environment.run(
+            insert_into_internal_stage_activity,
+            BatchExportInsertIntoInternalStageInputs(
+                team_id=insert_inputs.team_id,
+                batch_export_id=insert_inputs.batch_export_id,
+                data_interval_start=insert_inputs.data_interval_start,
+                data_interval_end=insert_inputs.data_interval_end,
+                exclude_events=insert_inputs.exclude_events,
+                include_events=None,
+                run_id=None,
+                backfill_details=None,
+                batch_export_model=insert_inputs.batch_export_model,
+                batch_export_schema=insert_inputs.batch_export_schema,
+                destination_default_fields=s3_default_fields(),
+            ),
+        )
+
+        result = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
+
+    return result
+
+
+def has_valid_gcs_credentials() -> bool:
+    return (
+        "GCS_TEST_BUCKET" in os.environ and "AWS_ACCESS_KEY_ID" in os.environ and "AWS_SECRET_ACCESS_KEY" in os.environ
+    )

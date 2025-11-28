@@ -29,7 +29,7 @@ export const VariantsPanelHeader = ({
     const { featureFlagKeyValidation, mode } = useValues(variantsPanelLogic({ experiment, disabled }))
 
     const flagKey = experiment.feature_flag_key
-    const variants = experiment.parameters?.feature_flag_variants || []
+    const variants = experiment.parameters?.feature_flag_variants ?? []
 
     const result = validateVariants({ flagKey, variants, featureFlagKeyValidation, mode })
 

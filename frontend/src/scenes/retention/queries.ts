@@ -14,7 +14,11 @@ export function retentionToActorsQuery(
     const selectActor = group ? 'group' : 'person'
     const totalIntervals = query.retentionFilter.totalIntervals || 7
     const periodName = query.retentionFilter.period?.toLowerCase() ?? 'day'
-    const selects = Array.from({ length: totalIntervals }, (_, intervalNumber) => `${periodName}_${intervalNumber}`)
+    // For custom brackets, we need to use the number of brackets + 1 for column count
+    // Otherwise use totalIntervals
+    const customBrackets = query.retentionFilter.retentionCustomBrackets
+    const columnCount = customBrackets && customBrackets.length > 0 ? customBrackets.length + 1 : totalIntervals
+    const selects = Array.from({ length: columnCount }, (_, intervalNumber) => `${periodName}_${intervalNumber}`)
     return setLatestVersionsOnQuery(
         {
             kind: NodeKind.ActorsQuery,

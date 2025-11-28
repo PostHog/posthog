@@ -15,6 +15,7 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { InsightDiveDeeperSection } from 'scenes/insights/InsightDiveDeeperSection'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -84,6 +85,7 @@ export function InsightVizDisplay({
         timedOutQueryId,
         vizSpecificOptions,
         query,
+        querySource,
         display,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
@@ -175,6 +177,7 @@ export function InsightVizDisplay({
                         context={context}
                         vizSpecificOptions={vizSpecificOptions?.[InsightType.RETENTION]}
                         inCardView={embedded}
+                        embedded={embedded}
                         inSharedMode={inSharedMode}
                     />
                 )
@@ -242,6 +245,25 @@ export function InsightVizDisplay({
         return null
     }
 
+    function renderDiveDeeperSection(): JSX.Element | null {
+        // Only show in view mode
+        if (editMode) {
+            return null
+        }
+
+        // Don't show in embedded or shared mode
+        if (embedded || inSharedMode) {
+            return null
+        }
+
+        // Only show for insight query nodes (use querySource which is the actual InsightQueryNode)
+        if (!querySource) {
+            return null
+        }
+
+        return <InsightDiveDeeperSection query={querySource} />
+    }
+
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
     if (!theme) {
@@ -303,6 +325,7 @@ export function InsightVizDisplay({
             </div>
             <ResultCustomizationsModal />
             {renderTable()}
+            {renderDiveDeeperSection()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )

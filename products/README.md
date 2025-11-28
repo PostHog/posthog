@@ -37,31 +37,31 @@ products/
 
 - Register it in `INSTALLED_APPS` via `AppConfig`:
 
-    ```python
-    # products/feature_flags/backend/apps.py
-    from django.apps import AppConfig
+  ```python
+  # products/feature_flags/backend/apps.py
+  from django.apps import AppConfig
 
-    class FeatureFlagsConfig(AppConfig):
-        name = "products.feature_flags.backend"
-        label = "feature_flags"
-        verbose_name = "Feature Flags"
-    ```
+  class FeatureFlagsConfig(AppConfig):
+      name = "products.feature_flags.backend"
+      label = "feature_flags"
+      verbose_name = "Feature Flags"
+  ```
 
 - ✅ Always use the **real Python path** for imports:
 
-    ```python
-    from products.feature_flags.backend.models import FeatureFlag
-    ```
+  ```python
+  from products.feature_flags.backend.models import FeatureFlag
+  ```
 
 - ✅ For relations, use **string app labels**:
 
-    ```python
-    class Experiment(models.Model):
-        feature_flag = models.ForeignKey(
-            "feature_flags.FeatureFlag",
-            on_delete=models.CASCADE,
-        )
-    ```
+  ```python
+  class Experiment(models.Model):
+      feature_flag = models.ForeignKey(
+          "feature_flags.FeatureFlag",
+          on_delete=models.CASCADE,
+      )
+  ```
 
 - ❌ Do **not** import models from `posthog.models` or create re-exports like `products.feature_flags.models`.
 
@@ -84,7 +84,7 @@ Keep shared code minimal to avoid tight coupling.
 - Each high level product should have its own folder.
   - Please keep the top level folders `under_score` cased, as dashes make it hard to import files in some languages (e.g. Python).
 - Each product has a few required files / folders:
-  - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx` on build.
+  - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx` and `frontend/src/products.json` on build.
   - `package.json` - describes the frontend dependencies. Ideally they should all be `peerDependencies` of whatever is in `frontend/package.json`
   - `__init__.py` - allows imports like `products.<product>.backend.*` (only if backend exists)
     - `backend/__init__.py` - marks the backend directory as a Python package/Django app (only if backend exists).

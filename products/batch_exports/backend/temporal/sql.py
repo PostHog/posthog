@@ -477,7 +477,6 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
         parse_expr("$entry_irclid as entry_irclid"),
     ],
     select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
-    order_by=[ast.OrderExpr(expr=ast.Field(chain=["_inserted_at"]), order="ASC")],
     settings=HogQLQueryBatchExportSettings(),
 )
 
@@ -929,6 +928,7 @@ FROM (
                 )
             GROUP BY
                 distinct_id
+            $filter_distinct_ids
         ) AS pd ON p.id = pd.person_id2
     where
         team_id = {team_id}::Int64

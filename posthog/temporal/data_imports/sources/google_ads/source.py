@@ -10,7 +10,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -26,10 +26,18 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig], OAuthMixin):
+class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "PERMISSION_DENIED": None,
+            "UNAUTHENTICATED": None,
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
+            "Account has been deleted": None,
+        }
 
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:

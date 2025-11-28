@@ -15,7 +15,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
@@ -143,7 +142,6 @@ export function WorkflowsScene(): JSX.Element {
             key: 'workflows',
             content: (
                 <>
-                    <p>Create automated workflows workflows triggered by events</p>
                     <WorkflowsTable />
                 </>
             ),
@@ -154,7 +152,6 @@ export function WorkflowsScene(): JSX.Element {
             key: 'library',
             content: (
                 <>
-                    <p>Create and manage messages</p>
                     <MessageTemplatesTable />
                 </>
             ),
@@ -223,7 +220,6 @@ export function WorkflowsScene(): JSX.Element {
                     </>
                 }
             />
-            <SceneDivider />
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset />
         </SceneContent>
     )

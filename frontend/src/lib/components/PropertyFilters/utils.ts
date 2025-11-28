@@ -289,10 +289,12 @@ export function isPropertyFilterWithOperator(
     | SessionPropertyFilter
     | RecordingPropertyFilter
     | LogEntryPropertyFilter
+    | LogPropertyFilter
     | FeaturePropertyFilter
     | GroupPropertyFilter
     | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter {
+    | DataWarehousePersonPropertyFilter
+    | LogPropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
@@ -309,7 +311,8 @@ export function isPropertyFilterWithOperator(
             isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter) ||
             isDataWarehousePersonPropertyFilter(filter) ||
-            isErrorTrackingIssuePropertyFilter(filter))
+            isErrorTrackingIssuePropertyFilter(filter) ||
+            isLogPropertyFilter(filter))
     )
 }
 

@@ -197,6 +197,15 @@ export const CountModeWithSelectClear: Story = {
     },
 }
 
+export const SnacksModeWithSortable: Story = {
+    args: {
+        mode: 'multiple',
+        displayMode: 'snacks',
+        value: names.slice(0, 5).map((_, i) => `user-${i}`),
+        sortable: true,
+    },
+}
+
 // New stories showcasing typed values support
 export const TypedValuesBooleanExample: StoryObj = {
     render: () => {

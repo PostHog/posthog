@@ -5,7 +5,7 @@ export interface ErrorTrackingException {
     module?: string
     id: string
     type: string
-    value: string
+    value: string // can be an empty string
     mechanism?: {
         synthetic?: boolean
         handled?: boolean
@@ -71,6 +71,7 @@ export interface ErrorTrackingStackFrame {
     resolved: boolean
     resolve_failure: string | null
     module: string | null
+    code_variables?: Record<string, unknown>
 }
 
 export interface ErrorTrackingFingerprint {
@@ -83,6 +84,7 @@ export interface ErrorTrackingSymbolSet {
     id: string
     ref: string
     team_id: number
+    last_used: string
     created_at: string
     storage_ptr: string | null
     failure_reason: string | null
@@ -126,18 +128,21 @@ export interface ExceptionAttributes {
     appVersion?: string
 }
 
+export interface ReleaseGitMetadata {
+    commit_id?: string
+    remote_url?: string
+    repo_name?: string
+    branch?: string
+}
+
 export interface ErrorTrackingRelease {
     id: string
     metadata?: {
-        git?: {
-            commit_id?: string
-            remote_url?: string
-            repo_name?: string
-            branch?: string
-        }
+        git?: ReleaseGitMetadata
     }
+    project?: string // Only present in recent releases (10-11-2025)
     version: string
-    timestamp: string
+    created_at: string
 }
 
 export type SymbolSetStatus = 'valid' | 'invalid'
@@ -146,8 +151,11 @@ export type ErrorEventProperties = EventType['properties']
 export type ErrorEventId = NonNullable<EventType['uuid']>
 
 export type ErrorEventType = {
+    event: '$exception'
     uuid: ErrorEventId
     timestamp: string
+    distinct_id: string
     properties: ErrorEventProperties
     person: PersonType
+    elements?: never
 }

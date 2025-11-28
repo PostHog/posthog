@@ -14,9 +14,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey, UserInterviewType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { UserInterviewType } from '~/types'
 
 import { userInterviewsLogic } from './userInterviewsLogic'
 
@@ -38,7 +38,6 @@ export function UserInterviews(): JSX.Element {
                     type: sceneConfigurations[Scene.UserInterviews].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <ProductIntroduction
                 productName="User interviews"
                 productKey={ProductKey.USER_INTERVIEWS}

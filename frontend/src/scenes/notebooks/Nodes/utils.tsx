@@ -156,3 +156,16 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
 
     return [parsedAttrs.current, updateAttributes]
 }
+
+export const getLogicKey = ({
+    tabId,
+    personId,
+    groupKey,
+}: {
+    tabId: string
+    personId?: string
+    groupKey?: string
+}): string => {
+    const entityKey = personId || groupKey
+    return `${tabId}-${entityKey}`
+}
