@@ -319,6 +319,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             if (values.productKey) {
                 const productKey = values.productKey
+                eventUsageLogic.actions.reportOnboardingCompleted(productKey)
                 props.onCompleteOnboarding?.(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
                 teamLogic.actions.updateCurrentTeam({
