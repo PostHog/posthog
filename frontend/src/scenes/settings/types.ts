@@ -57,6 +57,7 @@ export type SettingSectionId =
     | 'user-danger-zone'
     | 'user-feature-previews'
     | 'mcp-server'
+    | 'product-logs'
 
 export type SettingId =
     | 'replay-triggers'
@@ -72,7 +73,8 @@ export type SettingId =
     | 'internal-user-filtering'
     | 'data-theme'
     | 'correlation-analysis'
-    | 'crm-usage-metrics'
+    | 'customer-analytics-usage-metrics'
+    | 'customer-analytics-dashboard-events'
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'

@@ -26,6 +26,8 @@ services:
             service: db
         ports:
             - '5432:5432'
+        volumes:
+            - postgres-15-data:/var/lib/postgresql/data
 
     redis:
         extends:
@@ -268,4 +270,5 @@ networks:
         driver: bridge
 
 volumes:
+    postgres-15-data:
     redpanda-data:

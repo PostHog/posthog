@@ -296,6 +296,41 @@ export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
     return <Template />
 }
 
+export const ThreadWithBillingLimitExceeded: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                // Testing billing limit exceeded error (402 Payment Required)
+                res(
+                    ctx.status(402),
+                    ctx.json({
+                        detail: 'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.',
+                    })
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
 export const ThreadWithForm: StoryFn = () => {
     useStorybookMocks({
         post: {

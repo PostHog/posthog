@@ -1338,10 +1338,10 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         partialResponsesFilter: [
-            (s) => [s.survey],
-            (survey: Survey): string => {
+            (s) => [s.survey, s.dateRange],
+            (survey: Survey, dateRange: SurveyDateRange): string => {
                 if (survey.enable_partial_responses) {
-                    return buildPartialResponsesFilter(survey)
+                    return buildPartialResponsesFilter(survey, dateRange)
                 }
                 /**
                  * Return only complete responses. For pre-partial responses, we didn't have the survey_completed property.

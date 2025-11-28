@@ -528,11 +528,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             cursor = persons_connection.cursor()
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
+                # Get persons already in this cohort to exclude them
+                # Can't use .exclude(cohort__id=self.id) because Cohort is in default DB
+                # and Person/CohortPeople are in persons DB - cross-DB joins don't work
+                existing_person_ids = set(
+                    CohortPeople.objects.using(db_write).filter(cohort_id=self.id).values_list("person_id", flat=True)
+                )
+
                 persons_query = (
                     Person.objects.db_manager(db_read)
                     .filter(team_id=team_id)
                     .filter(uuid__in=batch)
-                    .exclude(cohort__id=self.id)
+                    .exclude(id__in=existing_person_ids)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
@@ -710,8 +717,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
-    cohort = models.ForeignKey("Cohort", on_delete=models.CASCADE)
-    person = models.ForeignKey("Person", on_delete=models.CASCADE)
+    cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)
+    person = models.ForeignKey("Person", on_delete=models.DO_NOTHING, db_constraint=False)
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:

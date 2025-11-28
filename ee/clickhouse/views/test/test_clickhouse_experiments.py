@@ -2654,8 +2654,14 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Verify the duplicate has the same settings
         assert duplicate_data["description"] == original_experiment["description"]
-        assert duplicate_data["parameters"] == original_experiment["parameters"]
         assert duplicate_data["filters"] == original_experiment["filters"]
+
+        # feature_flag_variants should come from the new flag; other parameters should match the original
+        assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag.filters["multivariate"]["variants"]
+        assert {**duplicate_data["parameters"], "feature_flag_variants": None} == {
+            **original_experiment["parameters"],
+            "feature_flag_variants": None,
+        }
 
         # Compare metrics ignoring fingerprints (they differ due to different start_dates)
         def remove_fingerprints(metrics):
@@ -2670,6 +2676,54 @@ class TestExperimentCRUD(APILicensedTest):
         assert duplicate_data["start_date"] is None
         assert duplicate_data["end_date"] is None
         assert duplicate_data["archived"] is False
+
+    def test_duplicate_experiment_with_existing_flag_uses_new_flag_variants(self) -> None:
+        """Test that duplicating with an existing feature flag uses that flag's variants, not the original's"""
+        # Create original experiment with specific variants
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "feature_flag_key": "original-flag",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "original-variant", "name": "Original Variant", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        # Create a new feature flag with DIFFERENT variants
+        new_flag_variants = [
+            {"key": "control", "name": "Control", "rollout_percentage": 34},
+            {"key": "new-variant-1", "name": "New Variant 1", "rollout_percentage": 33},
+            {"key": "new-variant-2", "name": "New Variant 2", "rollout_percentage": 33},
+        ]
+        new_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="new-flag-with-different-variants",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": new_flag_variants},
+            },
+        )
+
+        # Duplicate the experiment using the new feature flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate",
+            {"feature_flag_key": new_flag.key},
+        )
+
+        assert response.status_code == 201
+        duplicate_data = response.json()
+
+        # The duplicate should use the NEW flag's variants, not the original's
+        assert duplicate_data["feature_flag_key"] == "new-flag-with-different-variants"
+        assert duplicate_data["parameters"]["feature_flag_variants"] == new_flag_variants
 
     def test_metric_fingerprinting(self):
         """Test that metric fingerprints are computed correctly on create and update"""

@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests
@@ -86,6 +87,7 @@ from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
+from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -1240,12 +1242,23 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
-
+        session_id = str(recording.session_id)
+        # Track streaming summary start (no completion tracking for streaming)
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=user,
+            team=self.team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            is_streaming=True,
+            session_ids=[session_id],
+            video_validation_enabled=None,  # Not checked for streaming endpoint
+        )
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
-        session_id = recording.session_id
         return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
+            stream_recording_summary(session_id=session_id, user=user, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
 
@@ -1578,7 +1591,7 @@ def list_recordings_from_query(
             with timer("load_prepend_recording"), tracer.start_as_current_span("load_prepend_recording"):
                 s3_persisted_recording = (
                     SessionRecording.objects.filter(team=team, session_id=session_recording_id_to_prepend)
-                    .exclude(object_storage_path=None)
+                    .exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
                     .first()
                 )
 
@@ -1613,7 +1626,7 @@ def list_recordings_from_query(
 
             persisted_recordings_queryset = SessionRecording.objects.filter(
                 team=team, session_id__in=sorted_session_ids
-            ).exclude(object_storage_path=None)
+            ).exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
 
             persisted_recordings = persisted_recordings_queryset.all()
 
