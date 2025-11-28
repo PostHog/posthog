@@ -2818,6 +2818,10 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
             },
+            "gmicloud-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
+            },
             "google-vertex": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012
@@ -5635,6 +5639,10 @@
             "fireworks": {
                 "prompt_token": 4.5000000000000003e-7,
                 "completion_token": 0.0000018000000000000001
+            },
+            "gmicloud-fp8": {
+                "prompt_token": 2.9e-7,
+                "completion_token": 0.0000012
             },
             "google-vertex": {
                 "prompt_token": 0.000001,
