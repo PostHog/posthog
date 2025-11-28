@@ -636,7 +636,7 @@ export function ProjectTree({
                         <div className="relative">
                             <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                             {showIndicator && (
-                                <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse" />
+                                <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
                             )}
                         </div>
                     </>
