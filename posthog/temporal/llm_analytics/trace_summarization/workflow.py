@@ -109,7 +109,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         batch_run_id = f"{inputs.team_id}_{start_time.isoformat()}"
         metrics = BatchSummarizationMetrics()
 
-        # Compute window dates for trace queries
+        # Compute window dates for trace queries using workflow time for determinism
+        # This ensures consistent windows even if activities are delayed
         if inputs.window_start and inputs.window_end:
             window_start = inputs.window_start
             window_end = inputs.window_end
@@ -118,10 +119,20 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             window_end = now.isoformat()
             window_start = (now - timedelta(minutes=inputs.window_minutes)).isoformat()
 
-        # Get trace IDs in window
+        # Get trace IDs in window - pass computed window to ensure deterministic queries
+        inputs_with_window = BatchSummarizationInputs(
+            team_id=inputs.team_id,
+            max_traces=inputs.max_traces,
+            batch_size=inputs.batch_size,
+            mode=inputs.mode,
+            window_minutes=inputs.window_minutes,
+            model=inputs.model,
+            window_start=window_start,
+            window_end=window_end,
+        )
         trace_ids = await temporalio.workflow.execute_activity(
             query_traces_in_window_activity,
-            inputs,
+            inputs_with_window,
             schedule_to_close_timeout=timedelta(seconds=SAMPLE_TIMEOUT_SECONDS),
             retry_policy=constants.SAMPLE_RETRY_POLICY,
         )

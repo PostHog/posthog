@@ -1,7 +1,5 @@
 """Activity for querying trace IDs from a time window."""
 
-from datetime import UTC, datetime, timedelta
-
 import structlog
 import temporalio
 
@@ -20,16 +18,21 @@ async def query_traces_in_window_activity(inputs: BatchSummarizationInputs) -> l
     """
     Query trace IDs from a time window using TracesQueryRunner.
 
-    Queries up to max_traces from the specified time window (or last N minutes if not specified).
+    Queries up to max_traces from the specified time window.
     Returns a list of trace IDs in random order for sampling.
-    """
 
-    def _execute_traces_query(date_from: str, date_to: str) -> list[str]:
-        team = Team.objects.get(id=inputs.team_id)
+    Requires window_start and window_end to be set on inputs (computed by workflow
+    using deterministic workflow time to avoid race conditions between runs).
+    """
+    if not inputs.window_start or not inputs.window_end:
+        raise ValueError("window_start and window_end must be provided by the workflow")
+
+    def _execute_traces_query(team_id: int, window_start: str, window_end: str, max_traces: int) -> list[str]:
+        team = Team.objects.get(id=team_id)
 
         query = TracesQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
-            limit=inputs.max_traces,
+            dateRange=DateRange(date_from=window_start, date_to=window_end),
+            limit=max_traces,
             randomOrder=True,
         )
 
@@ -38,14 +41,11 @@ async def query_traces_in_window_activity(inputs: BatchSummarizationInputs) -> l
 
         return [trace.id for trace in response.results]
 
-    if inputs.window_start and inputs.window_end:
-        date_from = inputs.window_start
-        date_to = inputs.window_end
-    else:
-        now = datetime.now(UTC)
-        date_to = now.isoformat()
-        date_from = (now - timedelta(minutes=inputs.window_minutes)).isoformat()
-
-    trace_ids = await database_sync_to_async(_execute_traces_query, thread_sensitive=False)(date_from, date_to)
+    trace_ids = await database_sync_to_async(_execute_traces_query, thread_sensitive=False)(
+        inputs.team_id,
+        inputs.window_start,
+        inputs.window_end,
+        inputs.max_traces,
+    )
 
     return trace_ids
