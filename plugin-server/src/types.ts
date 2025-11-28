@@ -1180,10 +1180,6 @@ export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
 
-export interface PersonOnEventPropertyFilter extends PropertyFilterWithOperator {
-    type: 'person_on_event'
-}
-
 export interface DataWarehousePropertyFilter extends PropertyFilterWithOperator {
     type: 'data_warehouse'
 }
@@ -1210,7 +1206,6 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
 export type PropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
-    | PersonOnEventPropertyFilter
     | ElementPropertyFilter
     | CohortPropertyFilter
     | DataWarehousePropertyFilter

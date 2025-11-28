@@ -12,13 +12,7 @@ from django.conf import settings
 import pyarrow as pa
 import temporalio.common
 
-from posthog.schema import (
-    EventPropertyFilter,
-    HogQLPropertyFilter,
-    HogQLQueryModifiers,
-    MaterializationMode,
-    PersonOnEventPropertyFilter,
-)
+from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -993,11 +987,26 @@ def compose_filters_clause(
             case "event":
                 exprs.append(property_to_expr(EventPropertyFilter(**filter), team=team))
             case "person":
-                exprs.append(
-                    property_to_expr(
-                        PersonOnEventPropertyFilter(**{**filter, **{"type": "person_on_event"}}), team=team, strict=True
-                    )
-                )
+                # HACK: We are trying to apply the filter to 'events.person_properties' as that would
+                # mimic workflows behavior of applying it to the person in the event but:
+                # 1. PersonPropertyFilter expects a join with the person table, so we can't use it.
+                # 2. 'persons_properties' doesn't exist in the HogQL 'EventsTable', so we can't use it.
+                # So, we treat this filter like an events property filter (for 1) and manually update
+                # the chain to point to 'events.poe.properties' which does exist in 'EventsTable' (for 2).
+                # This will get resolved to 'events.person_properties' in ClickHouse dialect, but it does
+                # mean this is as hacky as it gets, and we'll likely have to deal with edge cases not covered
+                # in unit tests.
+                # I attempted to add a new property filter just for us to use here, but it was a mess
+                # requiring multiple unnecessary (for us) file changes, and consistently failed type checks
+                # everywhere in hogql modules.
+                expr = property_to_expr(EventPropertyFilter(**{**filter, **{"type": "event"}}), team=team)
+                if isinstance(expr, ast.CompareOperation):
+                    for field in (expr.left, expr.right):
+                        if isinstance(field, ast.Field) and field.chain[0] == "properties":
+                            field.chain = ["events", "poe", "properties", *field.chain[1:]]
+                            break
+                exprs.append(expr)
+
             case "hogql":
                 exprs.append(property_to_expr(HogQLPropertyFilter(**filter), team=team))
             case s:

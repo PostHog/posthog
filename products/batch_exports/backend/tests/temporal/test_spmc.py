@@ -308,6 +308,13 @@ def test_use_distributed_events_recent_table(test_data: dict[str, typing.Any]):
             """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)""",
             {"hogql_val_0": "$initial_current_url", "hogql_val_1": "http://localhost"},
         ),
+        (
+            [
+                {"key": "$initial_current_url", "type": "person", "operator": "is_set", "value": None},
+            ],
+            """isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'))""",
+            {"hogql_val_0": "$initial_current_url"},
+        ),
         # HogQL
         (
             [
@@ -323,6 +330,7 @@ def test_use_distributed_events_recent_table(test_data: dict[str, typing.Any]):
         "events2",
         "feature0",
         "person0",
+        "person1",
         "hogql0",
     ],
 )
