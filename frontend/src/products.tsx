@@ -51,7 +51,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
     EndpointsUsage: () => import('../../products/endpoints/frontend/EndpointsUsage'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
-    EndpointNew: () => import('../../products/endpoints/frontend/EndpointScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -108,7 +107,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
-    '/endpoints/new': ['EndpointNew', 'endpointNew'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
@@ -255,7 +253,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
-    EndpointNew: { projectBased: true, name: 'EndpointNew', activityScope: 'Endpoint' },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -976,7 +973,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene', 'EndpointNew'],
+        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {
         path: 'Error tracking',
@@ -1257,7 +1254,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
         tags: ['alpha'],
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene', 'EndpointNew'],
+        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {
         path: 'Event definitions',
