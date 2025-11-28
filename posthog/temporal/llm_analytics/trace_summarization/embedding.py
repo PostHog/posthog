@@ -28,7 +28,7 @@ async def embed_summaries_activity(
     trace_ids: list[str],
     team_id: int,
     mode: str,
-    workflow_start_time: str | None = None,
+    workflow_start_time: str,
 ) -> EmbeddingActivityResult:
     """
     Fetch summaries from ClickHouse and queue embeddings via Kafka.
@@ -37,12 +37,10 @@ async def embed_summaries_activity(
     """
 
     def _fetch_summaries_and_setup(
-        trace_ids: list[str], team_id: int, mode: str, workflow_start_time: str | None = None
+        trace_ids: list[str], team_id: int, mode: str, workflow_start_time: str
     ) -> tuple[list[SummaryRow], LLMTracesSummarizerEmbedder, str]:
         """Fetch summaries from ClickHouse and setup embedder (sync operations)."""
-        timestamp_filter = ""
-        if workflow_start_time:
-            timestamp_filter = "AND timestamp >= %(time_from)s AND timestamp <= %(time_to)s"
+        timestamp_filter = "AND timestamp >= %(time_from)s AND timestamp <= %(time_to)s"
 
         # Fetch summaries from ClickHouse events
         # Always filter for 'detailed' mode to get richest embeddings
@@ -69,17 +67,16 @@ async def embed_summaries_activity(
             "summary_mode": constants.DEFAULT_MODE,  # Always use 'detailed' for richest embeddings
         }
 
-        # Add timestamp params if filter is active
+        # Add timestamp params for efficient filtering
         # Use strftime to produce ClickHouse-compatible format (no timezone offset)
         # Window covers workflow start minus buffer, to workflow start plus max execution time plus buffer
-        if workflow_start_time:
-            start_dt = datetime.fromisoformat(workflow_start_time.replace("Z", "+00:00"))
-            time_from = start_dt - timedelta(minutes=constants.EMBEDDING_QUERY_BUFFER_BEFORE_MINUTES)
-            time_to = start_dt + timedelta(
-                minutes=constants.WORKFLOW_EXECUTION_TIMEOUT_MINUTES + constants.EMBEDDING_QUERY_BUFFER_AFTER_MINUTES
-            )
-            params["time_from"] = time_from.strftime("%Y-%m-%d %H:%M:%S.%f")
-            params["time_to"] = time_to.strftime("%Y-%m-%d %H:%M:%S.%f")
+        start_dt = datetime.fromisoformat(workflow_start_time.replace("Z", "+00:00"))
+        time_from = start_dt - timedelta(minutes=constants.EMBEDDING_QUERY_BUFFER_BEFORE_MINUTES)
+        time_to = start_dt + timedelta(
+            minutes=constants.WORKFLOW_EXECUTION_TIMEOUT_MINUTES + constants.EMBEDDING_QUERY_BUFFER_AFTER_MINUTES
+        )
+        params["time_from"] = time_from.strftime("%Y-%m-%d %H:%M:%S.%f")
+        params["time_to"] = time_to.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         results = sync_execute(query, params, workload=Workload.OFFLINE)
 

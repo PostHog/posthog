@@ -248,7 +248,7 @@ class TestEmbedSummariesActivity:
         ):
             mock_execute.return_value = []
 
-            result = await embed_summaries_activity(trace_ids, mock_team.id, "minimal", None)
+            result = await embed_summaries_activity(trace_ids, mock_team.id, "minimal", "2025-01-01T00:00:00Z")
 
             assert result.embeddings_requested == 0
             assert result.embeddings_failed == 0
@@ -272,7 +272,7 @@ class TestEmbedSummariesActivity:
             mock_embedder = mock_embedder_class.return_value
             mock_embedder._embed_document.side_effect = [None, Exception("Embedding failed")]
 
-            result = await embed_summaries_activity(trace_ids, mock_team.id, "detailed", None)
+            result = await embed_summaries_activity(trace_ids, mock_team.id, "detailed", "2025-01-01T00:00:00Z")
 
             assert result.embeddings_requested == 2
             assert result.embeddings_failed == 1
