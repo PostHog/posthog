@@ -701,20 +701,30 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
-    formatTime = 'h:mm:ss A'
+    formatTime = 'h:mm:ss A',
+    options: { showNow?: boolean; showToday?: boolean } = {}
 ): string {
+    const defaultOptions = {
+        showNow: true,
+        showToday: true,
+    }
+    const { showNow, showToday } = { ...defaultOptions, ...options }
     if (!date) {
         return 'Never'
     }
     const parsedDate = dayjs(date)
     const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
-    if (parsedDate.isSame(dayjs(), 'm')) {
+    if (showNow && parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = `[Today] ${formatTime}`
+        if (showToday) {
+            formatString = `[Today] ${formatTime}`
+        } else {
+            formatString = formatTime
+        }
     } else if (parsedDate.isSame(yesterday, 'd')) {
         formatString = `[Yesterday] ${formatTime}`
     } else {
