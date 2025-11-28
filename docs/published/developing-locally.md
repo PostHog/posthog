@@ -3,6 +3,7 @@ title: Developing locally
 sidebar: Docs
 showTitle: true
 ---
+
 > ❗️ This guide is intended only for development of PostHog itself. If you're looking to deploy PostHog
 > for your product analytics needs, go to [Self-host PostHog](/docs/self-host).
 
@@ -65,10 +66,10 @@ This is the recommended option for most developers.
 
 2. Install the package manager Homebrew by following the [Homebrew installation instructions](https://brew.sh/).
 
-    <blockquote class="warning-note">
-        After installation, make sure to follow the instructions printed in your terminal to add Homebrew to your{' '}
-        <code>$PATH</code>. Otherwise the command line will not know about packages installed with <code>brew</code>.
-    </blockquote>
+<blockquote class="warning-note">
+    After installation, make sure to follow the instructions printed in your terminal to add Homebrew to your{' '}
+    <code>$PATH</code>. Otherwise the command line will not know about packages installed with <code>brew</code>.
+</blockquote>
 
 3. Install [OrbStack](https://orbstack.dev/) – a more performant Docker Desktop alternative – with `brew install orbstack`. Go to OrbStack settings and set the memory usage limit to **at least 4 GB** (or 8 GB if you can afford it) + the CPU usage limit to at least 4 cores (i.e. 400%). You'll want to use Brex for the license if you work at PostHog.
 
@@ -82,9 +83,9 @@ This is the recommended option for most developers.
 
 2. Install the `build-essential` package:
 
-    ```bash
-    sudo apt install -y build-essential
-    ```
+   ```bash
+   sudo apt install -y build-essential
+   ```
 
 3. Continue with [cloning the repository](#cloning-the-repository).
 
@@ -115,19 +116,19 @@ To get PostHog running in a dev environment:
 
 1. Once you have cloned the repo and installed OrbStack, install Flox:
 
-    ```bash
-    brew install flox
-    ```
+   ```bash
+   brew install flox
+   ```
 
 2. From the root of the repository, activate the environment. (On first activation, you'll be prompted if you'd like the environment to be activated automatically using `direnv`.)
 
-    ```bash
-    flox activate
-    ```
+   ```bash
+   flox activate
+   ```
 
-    This gets you a fully fledged environment, with linked packages stored under `.flox/`. Might take a moment to run the first time, as dependencies get downloaded.
+   This gets you a fully fledged environment, with linked packages stored under `.flox/`. Might take a moment to run the first time, as dependencies get downloaded.
 
-    > Note on app dependencies: Python requirements get updated every time the environment is activated (`uv sync` is lightning fast). JS dependencies only get installed if `node_modules/` is not present (`pnpm install` still takes a couple lengthy seconds). Dependencies for other languages currently don't get auto-installed.
+   > Note on app dependencies: Python requirements get updated every time the environment is activated (`uv sync` is lightning fast). JS dependencies only get installed if `node_modules/` is not present (`pnpm install` still takes a couple lengthy seconds). Dependencies for other languages currently don't get auto-installed.
 
 3. After successful environment activation, just look at its welcome message in the terminal. It contains all the commands for running the stack. Run those commands in the suggested order.
 
@@ -190,14 +191,14 @@ When running `uv sync`, you may see a `Failed to parse` warning related to `pypr
 This is a faster option to get up and running if you can't or don't want to set up locally.
 
 1. Create your codespace.
-![](https://user-images.githubusercontent.com/890921/231489405-cb2010b4-d9e3-4837-bfdf-b2d4ef5c5d0b.png)
+   ![](https://user-images.githubusercontent.com/890921/231489405-cb2010b4-d9e3-4837-bfdf-b2d4ef5c5d0b.png)
 2. Update it to 8-core machine type (the smallest is probably too small to get PostHog running properly).
-![](https://user-images.githubusercontent.com/890921/231490278-140f814e-e77b-46d5-9a4f-31c1b1d6956a.png)
+   ![](https://user-images.githubusercontent.com/890921/231490278-140f814e-e77b-46d5-9a4f-31c1b1d6956a.png)
 3. Open the codespace, using one of the "Open in" options from the list.
 4. In the codespace, open a terminal window and run `docker compose -f docker-compose.dev.yml up`.
 5. Ensure that you are using the right Node version (`nvm install 22 && nvm use 22`) then, in another terminal, run `pnpm i` (and use the same terminal for the following commands).
 6. Then run `uv sync`
-    - If this doesn't activate your python virtual environment, run `uv venv` (install `uv` following the [uv standalone installer guide](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer) if needed)
+   - If this doesn't activate your python virtual environment, run `uv venv` (install `uv` following the [uv standalone installer guide](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer) if needed)
 7. Install `sqlx-cli` with `cargo install sqlx-cli` (install Cargo following the [Cargo getting started guide](https://doc.rust-lang.org/cargo/getting-started/installation.html) if needed)
 8. Now run `DEBUG=1 ./bin/migrate`
 9. Install [mprocs](https://github.com/pvolok/mprocs#installation) (`cargo install mprocs`)
@@ -391,19 +392,19 @@ When creating a new email, there are a few steps to take. It's important to add 
 3. Create a template in PostHog as an SMTP backup. Make sure the file name matches the key used in the template map.
 4. Trigger the email with something like this:
 
-    ```python
-    message = EmailMessage(
-        use_http=True,  # This will attempt to send via Customer.io before falling back to SMTP
-        campaign_key=campaign_key,
-        subject="This is a subject",
-        template_name="test_template",
-        template_context={
-            ...
-        },
-    )
-    message.add_recipient(email=target_email)
-    message.send()
-    ```
+   ```python
+   message = EmailMessage(
+       use_http=True,  # This will attempt to send via Customer.io before falling back to SMTP
+       campaign_key=campaign_key,
+       subject="This is a subject",
+       template_name="test_template",
+       template_context={
+           ...
+       },
+   )
+   message.add_recipient(email=target_email)
+   message.send()
+   ```
 
 ## Extra: Developing paid features (PostHog employees only)
 
@@ -415,17 +416,17 @@ If you need to start fresh with a clean database (for example, if your local dat
 
 1. Stop all PostHog services and remove all Docker volumes:
 
-    ```bash
-    hogli dev:reset
-    ```
+   ```bash
+   hogli dev:reset
+   ```
 
-    This will remove all data stored in Docker volumes, including your PostgreSQL, ClickHouse, and Redis data.
+   This will remove all data stored in Docker volumes, including your PostgreSQL, ClickHouse, and Redis data.
 
 2. Start PostHog again:
 
-    ```bash
-    hogli start
-    ```
+   ```bash
+   hogli start
+   ```
 
 3. Wait for all migrations to complete. You can monitor the logs to ensure migrations have finished running.
 

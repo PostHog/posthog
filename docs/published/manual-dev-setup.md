@@ -34,7 +34,7 @@ docker compose -f docker-compose.dev.yml up
 
 > **Friendly tip 3:** On Linux, you might need `sudo` – see [Docker docs on managing Docker as a non-root user](https://docs.docker.com/engine/install/linux-postinstall). Or look into [Podman](https://podman.io/getting-started/installation) as an alternative that supports rootless containers.
 
->**Friendly tip 4:** If you see `Error: (HTTP code 500) server error - Ports are not available: exposing port TCP 0.0.0.0:5432 -> 0.0.0.0:0: listen tcp 0.0.0.0:5432: bind: address already in use`, you have Postgres already running somewhere. Try `docker compose -f docker-compose.dev.yml` first, alternatively run `lsof -i :5432` to see what process is using this port.
+> **Friendly tip 4:** If you see `Error: (HTTP code 500) server error - Ports are not available: exposing port TCP 0.0.0.0:5432 -> 0.0.0.0:0: listen tcp 0.0.0.0:5432: bind: address already in use`, you have Postgres already running somewhere. Try `docker compose -f docker-compose.dev.yml` first, alternatively run `lsof -i :5432` to see what process is using this port.
 
 ```bash
 sudo service postgresql stop
@@ -91,17 +91,17 @@ Finally, install Postgres locally. Even if you are planning to run Postgres insi
 
 - On macOS:
 
-    ```bash
-    brew install postgresql
-    ```
+  ```bash
+  brew install postgresql
+  ```
 
 This installs both the Postgres server and its tools. DO NOT start the server after running this.
 
 - On Debian-based Linux:
 
-    ```bash
-    sudo apt install -y postgresql-client postgresql-contrib libpq-dev
-    ```
+  ```bash
+  sudo apt install -y postgresql-client postgresql-contrib libpq-dev
+  ```
 
 This intentionally only installs the Postgres client and drivers, and not the server. If you wish to install the server, or have it installed already, you will want to stop it, because the TCP port it uses conflicts with the one used by the Postgres Docker container.
 
@@ -140,20 +140,20 @@ On Linux you often have separate packages: `postgres` for the tools, `postgres-s
 
 - On macOS:
 
-    ```bash
-    brew install brotli rustup
-    rustup default stable
-    rustup-init
-    # Select 1 to proceed with default installation
-    ```
+  ```bash
+  brew install brotli rustup
+  rustup default stable
+  rustup-init
+  # Select 1 to proceed with default installation
+  ```
 
 - On Debian-based Linux:
 
-    ```bash
-    sudo apt install -y brotli
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    # Select 1 to proceed with default installation
-    ```
+  ```bash
+  sudo apt install -y brotli
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  # Select 1 to proceed with default installation
+  ```
 
 2. Run `pnpm --filter=@posthog/plugin-server install` to install all required packages. We'll actually run the plugin server in a later step.
 
@@ -182,32 +182,30 @@ pnpm i
 ## 4. Prepare the Django server
 
 1. Install a few dependencies for SAML to work. If you're on macOS, run the command below, otherwise check the official [xmlsec repo](https://github.com/mehcode/python-xmlsec) for more details.
+   - On macOS:
 
-    - On macOS:
+     ```bash
+     brew install libxml2 libxmlsec1 pkg-config
+     ```
 
-        ```bash
-        brew install libxml2 libxmlsec1 pkg-config
-        ```
+     > If installing `xmlsec` doesn't work, try updating macOS to the latest version (Sonoma).
 
-        > If installing `xmlsec` doesn't work, try updating macOS to the latest version (Sonoma).
+   - On Debian-based Linux:
 
-    - On Debian-based Linux:
-
-        ```bash
-        sudo apt install -y libxml2 libxmlsec1-dev libffi-dev pkg-config
-        ```
+     ```bash
+     sudo apt install -y libxml2 libxmlsec1-dev libffi-dev pkg-config
+     ```
 
 1. Install Python 3.12.
+   - On macOS, you can do so with Homebrew: `brew install python@3.12`.
 
-    - On macOS, you can do so with Homebrew: `brew install python@3.12`.
+   - On Debian-based Linux:
 
-    - On Debian-based Linux:
-
-        ```bash
-        sudo add-apt-repository ppa:deadsnakes/ppa -y
-        sudo apt update
-        sudo apt install python3.12 python3.12-venv python3.12-dev -y
-        ```
+     ```bash
+     sudo add-apt-repository ppa:deadsnakes/ppa -y
+     sudo apt update
+     sudo apt install python3.12 python3.12-venv python3.12-dev -y
+     ```
 
 Make sure when outside the venv to always use `python3` instead of `python`, as the latter may point to Python 2.x on some systems. If installing multiple versions of Python 3, such as by using the `deadsnakes` PPA, use `python3.12` instead of `python3`.
 
@@ -219,38 +217,38 @@ You can also use [pyenv](https://github.com/pyenv/pyenv) if you wish to manage m
 
 1. Create the virtual environment with the right Python version, and install dependencies - all in one with this command:
 
-    ```bash
-    uv sync
-    ```
+   ```bash
+   uv sync
+   ```
 
    > **Friendly tip:** Creating an env could raise a `Failed to parse` warning related to `pyproject.toml`. However, you should still see the `Activate with:` line at the very end, which means that your env was created successfully.
 
 1. Activate the virtual environment:
 
-    ```bash
-    # For bash/zsh/etc.
-    source .venv/bin/activate
+   ```bash
+   # For bash/zsh/etc.
+   source .venv/bin/activate
 
-    # For fish
-    source .venv/bin/activate.fish
-    ```
+   # For fish
+   source .venv/bin/activate.fish
+   ```
 
 1. Install requirements with uv
 
-    If your workstation is an Apple Silicon Mac, the first time you install Python packages, you must set custom OpenSSL headers:
+   If your workstation is an Apple Silicon Mac, the first time you install Python packages, you must set custom OpenSSL headers:
 
-    ```bash
-    brew install openssl
-    CFLAGS="-I /opt/homebrew/opt/openssl/include $(python3.12-config --includes)" LDFLAGS="-L /opt/homebrew/opt/openssl/lib" GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 GRPC_PYTHON_BUILD_SYSTEM_ZLIB=1 uv sync
-    ```
+   ```bash
+   brew install openssl
+   CFLAGS="-I /opt/homebrew/opt/openssl/include $(python3.12-config --includes)" LDFLAGS="-L /opt/homebrew/opt/openssl/lib" GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 GRPC_PYTHON_BUILD_SYSTEM_ZLIB=1 uv sync
+   ```
 
-    > **Friendly tip:** If you see `ERROR: Could not build wheels for xmlsec`, refer to this [issue](https://github.com/xmlsec/python-xmlsec/issues/254).
+   > **Friendly tip:** If you see `ERROR: Could not build wheels for xmlsec`, refer to this [issue](https://github.com/xmlsec/python-xmlsec/issues/254).
 
-    These will be used when installing `grpcio` and `psycopg2`. After doing this once, and assuming nothing changed with these two packages, next time simply run:
+   These will be used when installing `grpcio` and `psycopg2`. After doing this once, and assuming nothing changed with these two packages, next time simply run:
 
-    ```bash
-    uv sync
-    ```
+   ```bash
+   uv sync
+   ```
 
 ## 5. Prepare databases
 
