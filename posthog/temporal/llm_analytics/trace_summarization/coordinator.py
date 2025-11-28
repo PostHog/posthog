@@ -15,7 +15,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_summarization import constants
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
+    COORDINATOR_ACTIVITY_TIMEOUT_MINUTES,
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_LOOKBACK_HOURS,
+    DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
+    DEFAULT_WINDOW_MINUTES,
     WORKFLOW_EXECUTION_TIMEOUT_MINUTES,
 )
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs, CoordinatorResult
@@ -28,12 +33,12 @@ logger = structlog.get_logger(__name__)
 class BatchTraceSummarizationCoordinatorInputs:
     """Inputs for the coordinator workflow."""
 
-    max_traces: int = 500
-    batch_size: int = 10
-    mode: str = "detailed"
-    window_minutes: int = 60
+    max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW
+    batch_size: int = DEFAULT_BATCH_SIZE
+    mode: str = DEFAULT_MODE
+    window_minutes: int = DEFAULT_WINDOW_MINUTES
     model: str | None = None
-    lookback_hours: int = 24  # How far back to look for team activity
+    lookback_hours: int = DEFAULT_LOOKBACK_HOURS
 
 
 @dataclasses.dataclass
@@ -123,12 +128,12 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
     def parse_inputs(inputs: list[str]) -> BatchTraceSummarizationCoordinatorInputs:
         """Parse workflow inputs from string list."""
         return BatchTraceSummarizationCoordinatorInputs(
-            max_traces=int(inputs[0]) if len(inputs) > 0 else 500,
-            batch_size=int(inputs[1]) if len(inputs) > 1 else 10,
+            max_traces=int(inputs[0]) if len(inputs) > 0 else DEFAULT_MAX_TRACES_PER_WINDOW,
+            batch_size=int(inputs[1]) if len(inputs) > 1 else DEFAULT_BATCH_SIZE,
             mode=inputs[2] if len(inputs) > 2 else DEFAULT_MODE,
-            window_minutes=int(inputs[3]) if len(inputs) > 3 else 60,
+            window_minutes=int(inputs[3]) if len(inputs) > 3 else DEFAULT_WINDOW_MINUTES,
             model=inputs[4] if len(inputs) > 4 else None,
-            lookback_hours=int(inputs[5]) if len(inputs) > 5 else 24,
+            lookback_hours=int(inputs[5]) if len(inputs) > 5 else DEFAULT_LOOKBACK_HOURS,
         )
 
     @temporalio.workflow.run
@@ -147,7 +152,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
         result = await temporalio.workflow.execute_activity(
             get_teams_with_recent_traces_activity,
             args=[inputs, workflow_time],
-            schedule_to_close_timeout=timedelta(minutes=5),
+            schedule_to_close_timeout=timedelta(minutes=COORDINATOR_ACTIVITY_TIMEOUT_MINUTES),
             retry_policy=constants.COORDINATOR_ACTIVITY_RETRY_POLICY,
         )
 

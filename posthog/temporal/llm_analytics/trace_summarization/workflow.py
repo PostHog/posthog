@@ -24,6 +24,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MODE,
     DEFAULT_WINDOW_MINUTES,
     EMBED_TIMEOUT_SECONDS,
+    EVENT_PROCESSING_DELAY_SECONDS,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
     SAMPLE_TIMEOUT_SECONDS,
     WORKFLOW_NAME,
@@ -166,7 +167,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         metrics.summaries_failed = metrics.traces_queried - metrics.summaries_generated - metrics.summaries_skipped
 
         # Add a delay to allow events to be processed
-        await asyncio.sleep(5)
+        await asyncio.sleep(EVENT_PROCESSING_DELAY_SECONDS)
 
         # Embed summaries
         embedding_result = await temporalio.workflow.execute_activity(

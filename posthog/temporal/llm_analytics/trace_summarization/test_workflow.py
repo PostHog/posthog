@@ -78,7 +78,13 @@ class TestQueryTracesInWindowActivity:
     @pytest.mark.asyncio
     async def test_query_traces_success(self, mock_team):
         """Test successful trace querying from window."""
-        inputs = BatchSummarizationInputs(team_id=mock_team.id, max_traces=100, window_minutes=60)
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_traces=100,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
 
         with patch(
             "posthog.temporal.llm_analytics.trace_summarization.sampling.TracesQueryRunner"
@@ -109,7 +115,13 @@ class TestQueryTracesInWindowActivity:
     @pytest.mark.asyncio
     async def test_query_traces_empty(self, mock_team):
         """Test querying when no traces found in window."""
-        inputs = BatchSummarizationInputs(team_id=mock_team.id, max_traces=100, window_minutes=60)
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_traces=100,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+        )
 
         with patch(
             "posthog.temporal.llm_analytics.trace_summarization.sampling.TracesQueryRunner"

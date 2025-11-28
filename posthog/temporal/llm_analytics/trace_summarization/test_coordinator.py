@@ -5,6 +5,13 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
+from posthog.temporal.llm_analytics.trace_summarization.constants import (
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_LOOKBACK_HOURS,
+    DEFAULT_MAX_TRACES_PER_WINDOW,
+    DEFAULT_MODE,
+    DEFAULT_WINDOW_MINUTES,
+)
 from posthog.temporal.llm_analytics.trace_summarization.coordinator import (
     BatchTraceSummarizationCoordinatorInputs,
     BatchTraceSummarizationCoordinatorWorkflow,
@@ -124,12 +131,12 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
             pytest.param(
                 [],
                 BatchTraceSummarizationCoordinatorInputs(
-                    max_traces=500,
-                    batch_size=10,
-                    mode="detailed",
-                    window_minutes=60,
+                    max_traces=DEFAULT_MAX_TRACES_PER_WINDOW,
+                    batch_size=DEFAULT_BATCH_SIZE,
+                    mode=DEFAULT_MODE,
+                    window_minutes=DEFAULT_WINDOW_MINUTES,
                     model=None,
-                    lookback_hours=24,
+                    lookback_hours=DEFAULT_LOOKBACK_HOURS,
                 ),
                 id="empty_inputs_uses_defaults",
             ),
@@ -137,11 +144,11 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
                 ["200"],
                 BatchTraceSummarizationCoordinatorInputs(
                     max_traces=200,
-                    batch_size=10,
-                    mode="detailed",
-                    window_minutes=60,
+                    batch_size=DEFAULT_BATCH_SIZE,
+                    mode=DEFAULT_MODE,
+                    window_minutes=DEFAULT_WINDOW_MINUTES,
                     model=None,
-                    lookback_hours=24,
+                    lookback_hours=DEFAULT_LOOKBACK_HOURS,
                 ),
                 id="single_input_sets_max_traces",
             ),
