@@ -49,7 +49,7 @@ class ActivityLoggingStorage:
 activity_storage = ActivityLoggingStorage()
 
 
-class ActivityVisibilityRestrictions:
+class ActivityLogVisibilityManager:
     """
     Manages visibility restrictions for activity logs.
 
@@ -116,7 +116,7 @@ class ActivityVisibilityRestrictions:
         return queryset
 
 
-activity_visibility_restrictions = ActivityVisibilityRestrictions()
+activity_visibility_manager = ActivityLogVisibilityManager()
 
 
 def get_changed_fields_local(before_update: models.Model, after_update: models.Model) -> list[str]:

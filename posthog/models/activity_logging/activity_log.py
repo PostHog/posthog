@@ -867,10 +867,10 @@ def apply_activity_visibility_restrictions(queryset: QuerySet, user: Union["User
     """
     Apply visibility restrictions to activity log queryset based on user permissions.
     """
-    from posthog.models.activity_logging.utils import activity_visibility_restrictions
+    from posthog.models.activity_logging.utils import activity_visibility_manager
 
     is_staff = bool(user and not isinstance(user, AnonymousUser) and hasattr(user, "is_staff") and user.is_staff)
-    return activity_visibility_restrictions.apply_to_queryset(queryset, is_staff)
+    return activity_visibility_manager.apply_to_queryset(queryset, is_staff)
 
 
 def load_activity(
@@ -905,13 +905,13 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
     from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
-    from posthog.models.activity_logging.utils import activity_visibility_restrictions
+    from posthog.models.activity_logging.utils import activity_visibility_manager
 
     if not created:
         return
 
     try:
-        if activity_visibility_restrictions.is_restricted(instance, restrict_for_staff=True):
+        if activity_visibility_manager.is_restricted(instance, restrict_for_staff=True):
             logger.info(
                 "Skipping restricted activity log event",
                 scope=instance.scope,
