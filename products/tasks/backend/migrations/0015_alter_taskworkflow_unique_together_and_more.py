@@ -77,7 +77,20 @@ class Migration(migrations.Migration):
                     name="WorkflowStage",
                 ),
             ],
-            database_operations=[],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_task_progress DROP CONSTRAINT IF EXISTS posthog_task_progress_team_id_fkey;",
+                    reverse_sql="ALTER TABLE posthog_task_progress ADD CONSTRAINT posthog_task_progress_team_id_fkey FOREIGN KEY (team_id) REFERENCES posthog_team(id) ON DELETE CASCADE;",
+                ),
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_task_progress DROP CONSTRAINT IF EXISTS posthog_task_progress_task_id_fkey;",
+                    reverse_sql="ALTER TABLE posthog_task_progress ADD CONSTRAINT posthog_task_progress_task_id_fkey FOREIGN KEY (task_id) REFERENCES posthog_task(id) ON DELETE CASCADE;",
+                ),
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_task_workflow DROP CONSTRAINT IF EXISTS posthog_task_workflow_team_id_fkey;",
+                    reverse_sql="ALTER TABLE posthog_task_workflow ADD CONSTRAINT posthog_task_workflow_team_id_fkey FOREIGN KEY (team_id) REFERENCES posthog_team(id) ON DELETE CASCADE;",
+                ),
+            ],
         ),
         migrations.AddField(
             model_name="task",

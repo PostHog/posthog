@@ -133,7 +133,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                 if (repository && repository !== 'all') {
                     filtered = filtered.filter((task) =>
-                        task.repository.toLowerCase().includes(repository.toLowerCase())
+                        (task.repository ?? '').toLowerCase().includes(repository.toLowerCase())
                     )
                 }
 

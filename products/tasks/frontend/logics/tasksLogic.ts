@@ -42,7 +42,7 @@ export const tasksLogic = kea<tasksLogicType>([
         repositories: [
             (s) => [s.tasks],
             (tasks): string[] => {
-                const repos = new Set(tasks.map((task) => task.repository))
+                const repos = new Set(tasks.map((task) => task.repository ?? '').filter((repo) => repo !== ''))
                 return Array.from(repos).sort()
             },
         ],

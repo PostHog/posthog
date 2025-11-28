@@ -39,7 +39,7 @@ export interface Task {
     title: string
     description: string
     origin_product: OriginProduct
-    repository: string
+    repository: string | null
     github_integration: number | null
     latest_run: TaskRun | null
     created_at: string

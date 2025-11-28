@@ -17,7 +17,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 import { TaskRunItem } from './TaskRunItem'
-import { TaskRunLogs } from './TaskRunLogs'
 
 export interface TaskDetailPageProps {
     taskId: string
@@ -25,7 +24,7 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskLoading, runs, selectedRunId, logs, logsLoading, runsLoading } = useValues(sceneLogic)
+    const { task, taskLoading, runs, selectedRunId, runsLoading } = useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask, updateTask } = useActions(sceneLogic)
 
     if (!task) {
@@ -119,11 +118,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 <div className="text-center py-16">
                     <p className="text-muted">This task hasn't been run yet</p>
                 </div>
-            ) : (
-                <div className="px-4">
-                    <TaskRunLogs logs={logs} loading={logsLoading} />
-                </div>
-            )}
+            ) : null}
         </SceneContent>
     )
 }
