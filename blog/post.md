@@ -48,7 +48,7 @@ Fast-growing products (startups specifically) have a bad habit of generating lot
 
 ## Step 2: See what the user sees
 
-Even if we found great way to reduce noise, the core problem remained - we can't be sure if the issues that LLM highlighted actually impacted users. We can see TypeError in logs, but the retry happened in 200ms, so it didn't affect the user journey one beat. But what if we generate a video of the session? Then we can see what the user saw clearly, without a need to guess.
+Even with noise reduction, the core problem remained - we couldn't be sure if the issues LLM highlighted actually impacted users. A TypeError in logs looks scary, but if a retry succeeded in 200ms, the user never noticed. But what if we generate a video of the session? What if we could see what the user saw?
 
 {{ scheme/graph of the video validation logic }}
 > (under the image text) *For each blocking issue, we generate a short video clip and ask the multi-modal LLM to verify what actually happened*
@@ -74,24 +74,22 @@ Option #2 is in progress (and not in production yet) mostly because...
 
 ### Videos are heavy
 
-At the first glance, transcribing all the user session videos seems like a no-brainer. For example, Gemini Flash multi-modal models cost 10-20 times cheaper than frontier thinking LLMs from Anthropic or OpenAI (or even Gemini's own thinking models). It can go even lower with open-source models. And it provides a proper transcription what the user sees (most of the time, at least).
+At the first glance, transcribing all the user session videos seems like a no-brainer. For example, Gemini Flash multi-modal models cost 10-20 times cheaper than thinking LLMs from Anthropic or OpenAI (or even Gemini's own). It can go even lower with open-source models.
 
-However, let's try basic math, using numbers from now (end of 2025). One frame of video in a good-enough resolution costs 258 tokens of Gemini Flash. If `1 frame per second * 60 seconds in a minute * 60 minutes in a hour * 258 tokens = 929k tokens`. Meaning, we analyzed just 1 large-ish session, but already used a million tokens. We can use even ligher models and even worse resolution, but at some moment the quality drop is too much.
+However, let's try basic math, using numbers from now (end of 2025). One frame of video in a good-enough resolution costs 258 tokens of Gemini Flash. If `1 frame per second * 60 seconds in a minute * 60 minutes in a hour * 258 tokens = 929k tokens`. Meaning, analyzing just one large-ish session already costs a million tokens. We can use even ligher models and even worse resolution, but at some moment the quality drop is too much.
 
-Another downside, if that these models are this cheap not because of magic, but because they aren't exactly clever. We can ask it to transcribe what's on the screen well enough, but it won't be able to make meaningful conclusions, like a proper thinking model will do. So, either we need to use way more expensive model from the start, or we need another model to analyze transcription after that.
+Also these models are this cheap because they aren't exactly clever. We can ask it to transcribe what's on the screen well enough, but it won't be able to make meaningful conclusions. So, either we need to use way more expensive model from the start, or we need another model to analyze transcription after that.
 
 **Our approach:**
 
 - Don't analyze the whole video - there are at least 40-50-60% of inactivity that we can skip, and pay to transcribe only parts where the user did something. Though, we need either events or snapshots to find these parts.
 - Don't analyze all the videos - there's a clear set of parameters (like event count, active duration) that can be used to decide if it's worthwhile to check the session
 
-### Videos are still heavy
+### Videos are heavy (one more time)
 
-Even with all the optimizations above, the videos are still media files. For example, if we decide to highlight important moments of sessions in UI, as GIFs, then even a 10s GIF could weigh up to 7-10MB (if 1080p session). And there are hundreds of thousands of sessions that need to be stored somewhere after a generation. If we would decide to go through with this GIF idea it would mean multiple terabytes of media files to store/manage/pay for on S3 every day.
-
-The example is obviously laughable, but even with regular `.mp4` format (tens of times smaller) it easy to get to terabytes pretty fast.
+Even with all the optimizations above, video files add up. A 10-second clip at 1080p can be 7-10MB. Multiply by hundreds of thousands of sessions and we're looking at terabytes of storage costs daily. The example is obviously laughable, but even with regular `.mp4` format (tens of times smaller) it easy to get to terabytes pretty fast.
 
 **Our approach:**
 
 - We use `.webm`. It's roughly half size of the `.mp4`, supported by most multi-modal models, and can be played by most browsers by default (in UI or not).
-- We render videos at 8-10x - as I mentioned above, 1 frame per second is usually enough for LLM to understand the context well. However, keep in mind that libraries for recording videos (like `puppeteer` or `playwright`) have different keyframe settings, so after some point speed up will mean the data loss.
+- We render videos at 8-10x - 1 frame per second is usually enough for LLM to understand the context well. However, `puppeteer` or `playwright` have different keyframe settings, so after some point speed up will mean the data loss.
