@@ -167,7 +167,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         metrics.summaries_failed = metrics.traces_queried - metrics.summaries_generated - metrics.summaries_skipped
 
         # Add a delay to allow events to be processed
-        await asyncio.sleep(EVENT_PROCESSING_DELAY_SECONDS)
+        await temporalio.workflow.sleep(EVENT_PROCESSING_DELAY_SECONDS)
 
         # Embed summaries
         embedding_result = await temporalio.workflow.execute_activity(
