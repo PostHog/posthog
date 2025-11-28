@@ -5,7 +5,6 @@ from uuid import uuid4
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
-from unittest.mock import MagicMock, patch
 
 from django.db import transaction
 from django.test import override_settings

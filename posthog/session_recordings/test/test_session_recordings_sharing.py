@@ -1,6 +1,5 @@
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from unittest.mock import MagicMock, patch
 
 from django.utils.timezone import now
 
