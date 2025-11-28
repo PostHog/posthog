@@ -1980,9 +1980,18 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     conversionGoal?: WebAnalyticsConversionGoal | null
     compareFilter?: CompareFilter
     doPathCleaning?: boolean
+    /** @deprecated Use samplingFactor instead */
     sampling?: WebAnalyticsSampling
+    /** Sampling rate */
+    samplingFactor?: number | null
     filterTestAccounts?: boolean
     includeRevenue?: boolean
+    /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
+    interval?: IntervalType
+    /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+    aggregation_group_type_index?: integer | null
+    /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+    dataColorTheme?: number | null
     orderBy?: WebAnalyticsOrderBy
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
@@ -2778,6 +2787,10 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | WebStatsTableQuery
+    | WebOverviewQuery
+
+export type ProductAnalyticsInsightQueryNode = Exclude<InsightQueryNode, WebStatsTableQuery | WebOverviewQuery>
 
 export interface ExperimentVariantTrendsBaseStats {
     key: string
@@ -3185,6 +3198,7 @@ export type InsightFilterProperty =
     | 'stickinessFilter'
     | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
+    | 'properties'
 
 export type InsightFilter =
     | TrendsFilter
@@ -3194,6 +3208,7 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
     | CalendarHeatmapFilter
+    | WebAnalyticsPropertyFilters
 
 export type Day = integer
 

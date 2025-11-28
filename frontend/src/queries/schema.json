@@ -16530,6 +16530,9 @@
                 },
                 {
                     "$ref": "#/definitions/CalendarHeatmapFilter"
+                },
+                {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             ]
         },
@@ -16541,7 +16544,8 @@
                 "pathsFilter",
                 "stickinessFilter",
                 "calendarHeatmapFilter",
-                "lifecycleFilter"
+                "lifecycleFilter",
+                "properties"
             ],
             "type": "string"
         },
@@ -16552,7 +16556,9 @@
                 "RetentionQuery",
                 "PathsQuery",
                 "StickinessQuery",
-                "LifecycleQuery"
+                "LifecycleQuery",
+                "WebStatsTableQuery",
+                "WebOverviewQuery"
             ],
             "type": "string"
         },
@@ -16578,6 +16584,12 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebStatsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebOverviewQuery"
                 }
             ],
             "required": ["kind"],
@@ -17719,6 +17731,17 @@
         "MarketingAnalyticsAggregatedQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -17731,6 +17754,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -17752,6 +17779,10 @@
                     "$ref": "#/definitions/IntegrationFilter",
                     "description": "Filter by integration IDs"
                 },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                },
                 "kind": {
                     "const": "MarketingAnalyticsAggregatedQuery",
                     "type": "string"
@@ -17767,7 +17798,12 @@
                     "$ref": "#/definitions/MarketingAnalyticsAggregatedQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "select": {
                     "description": "Return a limited set of data. Will use default columns if empty.",
@@ -17975,6 +18011,17 @@
         "MarketingAnalyticsTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
@@ -17988,6 +18035,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -18021,6 +18072,10 @@
                     "$ref": "#/definitions/IntegrationFilter",
                     "description": "Filter by integration type"
                 },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                },
                 "kind": {
                     "const": "MarketingAnalyticsTableQuery",
                     "type": "string"
@@ -18051,7 +18106,12 @@
                     "$ref": "#/definitions/MarketingAnalyticsTableQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "select": {
                     "description": "Return a limited set of data. Will use default columns if empty.",
@@ -19649,6 +19709,28 @@
                 "personal_api_key"
             ],
             "type": "object"
+        },
+        "ProductAnalyticsInsightQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/StickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                }
+            ]
         },
         "ProductIntentContext": {
             "enum": [
@@ -29521,6 +29603,17 @@
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -29534,6 +29627,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -29545,6 +29642,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebExternalClicksTableQuery",
@@ -29567,7 +29668,12 @@
                     "$ref": "#/definitions/WebExternalClicksTableQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "stripQueryParams": {
                     "type": "boolean"
@@ -29648,6 +29754,17 @@
         "WebGoalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -29661,6 +29778,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -29672,6 +29793,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebGoalsQuery",
@@ -29694,7 +29819,12 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -29800,6 +29930,17 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -29813,6 +29954,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -29824,6 +29969,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebOverviewQuery",
@@ -29843,7 +29992,12 @@
                     "$ref": "#/definitions/WebOverviewQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -29915,6 +30069,17 @@
         "WebPageURLSearchQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -29928,6 +30093,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -29939,6 +30108,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebPageURLSearchQuery",
@@ -29961,7 +30134,12 @@
                     "$ref": "#/definitions/WebPageURLSearchQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "searchTerm": {
                     "type": "string"
@@ -30062,6 +30240,17 @@
         "WebStatsTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "breakdownBy": {
                     "$ref": "#/definitions/WebStatsBreakdown"
                 },
@@ -30077,6 +30266,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -30095,6 +30288,10 @@
                 },
                 "includeScrollDepth": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebStatsTableQuery",
@@ -30120,7 +30317,12 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -30239,6 +30441,17 @@
         "WebTrendsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -30251,6 +30464,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -30265,7 +30482,8 @@
                     "type": "boolean"
                 },
                 "interval": {
-                    "$ref": "#/definitions/IntervalType"
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebTrendsQuery",
@@ -30297,7 +30515,12 @@
                     "$ref": "#/definitions/WebTrendsQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -30444,6 +30667,17 @@
         "WebVitalsPathBreakdownQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -30457,6 +30691,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -30468,6 +30706,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebVitalsPathBreakdownQuery",
@@ -30493,7 +30735,12 @@
                     "$ref": "#/definitions/WebVitalsPathBreakdownQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -30605,6 +30852,17 @@
         "WebVitalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -30618,6 +30876,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -30629,6 +30891,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebVitalsQuery",
@@ -30648,7 +30914,12 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
