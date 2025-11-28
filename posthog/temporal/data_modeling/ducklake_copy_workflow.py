@@ -1,6 +1,5 @@
 import re
 import json
-import hashlib
 import datetime as dt
 import dataclasses
 from typing import Any
@@ -549,9 +548,15 @@ def _run_schema_verification(
             error=str(exc),
         )
 
-    source_hash = _hash_schema(source_schema)
-    ducklake_hash = _hash_schema(ducklake_schema)
-    passed = source_hash == ducklake_hash
+    mismatches = _diff_schema(source_schema, ducklake_schema)
+    passed = not mismatches
+    error = None
+    if not passed:
+        preview = "; ".join(mismatches[:5])
+        if len(mismatches) > 5:
+            preview = f"{preview}; +{len(mismatches) - 5} more differences"
+        error = f"Schema mismatch: {preview}"
+
     return DuckLakeCopyVerificationResult(
         name="model.schema_hash",
         passed=passed,
@@ -559,7 +564,7 @@ def _run_schema_verification(
         expected_value=0.0,
         observed_value=0.0 if passed else 1.0,
         tolerance=0.0,
-        error=None if passed else f"Schema mismatch (delta={source_hash}, ducklake={ducklake_hash})",
+        error=error,
     )
 
 
@@ -720,14 +725,37 @@ def _run_non_nullable_verifications(
     return results
 
 
-def _hash_schema(schema: list[tuple[str, str]]) -> str:
-    digest = hashlib.sha256()
+def _diff_schema(source_schema: list[tuple[str, str]], ducklake_schema: list[tuple[str, str]]) -> list[str]:
+    mismatches: list[str] = []
+    source_map = _schema_map(source_schema)
+    ducklake_map = _schema_map(ducklake_schema)
+
+    source_keys = set(source_map.keys())
+    ducklake_keys = set(ducklake_map.keys())
+
+    for key in sorted(source_keys - ducklake_keys):
+        column_name, _ = source_map[key]
+        mismatches.append(f"{column_name} missing from DuckLake")
+
+    for key in sorted(ducklake_keys - source_keys):
+        column_name, _ = ducklake_map[key]
+        mismatches.append(f"{column_name} missing from Delta source")
+
+    for key in sorted(source_keys & ducklake_keys):
+        source_name, source_type = source_map[key]
+        _, ducklake_type = ducklake_map[key]
+        if source_type != ducklake_type:
+            mismatches.append(f"{source_name} type mismatch (delta={source_type}, ducklake={ducklake_type})")
+
+    return mismatches
+
+
+def _schema_map(schema: list[tuple[str, str]]) -> dict[str, tuple[str, str]]:
+    mapping: dict[str, tuple[str, str]] = {}
     for name, column_type in schema:
-        digest.update(name.encode("utf-8"))
-        digest.update(b":")
-        digest.update(column_type.encode("utf-8"))
-        digest.update(b"|")
-    return digest.hexdigest()
+        normalized_name = (name or "").strip().lower()
+        mapping[normalized_name] = (name, (column_type or "").strip())
+    return mapping
 
 
 def _fetch_delta_schema(conn: duckdb.DuckDBPyConnection, source_uri: str) -> list[tuple[str, str]]:
