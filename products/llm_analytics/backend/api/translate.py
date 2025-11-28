@@ -8,13 +8,14 @@ Endpoint:
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.llm_analytics.backend.translation.constants import DEFAULT_TARGET_LANGUAGE
+from products.llm_analytics.backend.translation.constants import DEFAULT_TARGET_LANGUAGE, LLM_ANALYTICS_TRANSLATION
 from products.llm_analytics.backend.translation.llm import translate_text
 
 logger = structlog.get_logger(__name__)
@@ -43,8 +44,24 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
     scope_object = "llm_analytics"  # type: ignore[assignment]
 
+    def _validate_feature_access(self, request: Request) -> None:
+        """Validate that the user has access to the translation feature."""
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        if settings.DEBUG:
+            return
+
+        if not posthoganalytics.feature_enabled(
+            LLM_ANALYTICS_TRANSLATION,
+            str(request.user.distinct_id),
+        ):
+            raise exceptions.PermissionDenied("LLM trace translation is not enabled for this user")
+
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Translate text to target language."""
+        self._validate_feature_access(request)
+
         serializer = TranslateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -58,7 +75,17 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             )
 
         try:
+            logger.info(
+                "translation_requested",
+                target_language=target_language,
+                text_length=len(text),
+            )
             translation = translate_text(text, target_language)
+            logger.info(
+                "translation_completed",
+                target_language=target_language,
+                translation_length=len(translation),
+            )
             return Response(
                 {
                     "translation": translation,
@@ -68,7 +95,7 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 status=status.HTTP_200_OK,
             )
         except Exception as e:
-            logger.exception("Translation failed", error=str(e))
+            logger.exception("translation_failed", error=str(e), target_language=target_language)
             raise exceptions.APIException(
                 detail=f"Translation failed: {e!s}",
                 code="translation_error",

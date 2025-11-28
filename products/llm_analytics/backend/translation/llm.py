@@ -36,8 +36,6 @@ def translate_text(text: str, target_language: str) -> str:
             },
             {"role": "user", "content": text},
         ],
-        temperature=0.3,
-        max_tokens=min(len(text) * 3, 4000),
     )
 
     content = response.choices[0].message.content

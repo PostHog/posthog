@@ -1,5 +1,8 @@
 """Constants for translation module."""
 
+# Feature flag
+LLM_ANALYTICS_TRANSLATION = "llm-analytics-translation"
+
 SUPPORTED_LANGUAGES = {
     "en": "English",
     "es": "Spanish",
