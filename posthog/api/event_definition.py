@@ -417,7 +417,6 @@ class EventDefinitionViewSet(
         event_definitions, schema_map = generator.fetch_event_definitions_and_schemas(self.project_id)
 
         schema_hash = generator.calculate_schema_hash(event_definitions, schema_map)
-
         content = generator.generate(event_definitions, schema_map)
 
         generator.record_report_generation(
