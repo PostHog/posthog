@@ -707,6 +707,12 @@ class ConversionGoalProcessor:
                 expr=self._build_attribution_expr("conversion_campaign", "fallback_campaign"),
             ),
             ast.Alias(
+                alias="campaign_id",
+                # Campaign IDs don't exist in event data, only in marketing platform data
+                # Use "-" as placeholder to indicate not applicable
+                expr=ast.Constant(value="-"),
+            ),
+            ast.Alias(
                 alias="source_name",
                 expr=self._build_attribution_expr("conversion_source", "fallback_source"),
             ),
@@ -754,6 +760,7 @@ class ConversionGoalProcessor:
         """
         Normalize source field to map alternative UTM sources to primary sources.
         Case-insensitive matching - 'YouTube', 'youtube', 'YOUTUBE' all map to 'google'.
+        Includes both adapter-defined sources and team-configured custom sources.
         """
         # Convert source to lowercase for case-insensitive matching
         lowercase_source = ast.Call(name="lower", args=[source_expr])
@@ -761,7 +768,10 @@ class ConversionGoalProcessor:
         # Build nested if expressions for each mapping
         normalized_expr = source_expr
 
-        source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings()
+        # Get combined source mappings (adapter defaults + team custom sources)
+        source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings(
+            team_config=self.team.marketing_analytics_config
+        )
         for primary_source, alternative_sources in source_mappings.items():
             # Skip the primary source itself in the alternatives list
             alternatives_only = [s.lower() for s in alternative_sources if s != primary_source]
@@ -791,6 +801,10 @@ class ConversionGoalProcessor:
             ast.Alias(
                 alias=self.config.campaign_field,
                 expr=self._build_organic_default_expr("campaign_name", self.config.organic_campaign),
+            ),
+            ast.Alias(
+                alias=self.config.id_field,
+                expr=self._build_organic_default_expr("campaign_id", "-"),
             ),
             ast.Alias(
                 alias=self.config.source_field,

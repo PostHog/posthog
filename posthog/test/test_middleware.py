@@ -70,9 +70,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
                 )
                 self.assertNotIn(b"PostHog is not available", response.content)
 
@@ -83,9 +81,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.2"}
                 )
                 self.assertEqual(response.status_code, 403)
                 self.assertIn(b"PostHog is not available", response.content)
@@ -97,9 +93,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
                 )
                 self.assertNotIn(b"PostHog is not available", response.content)
 
@@ -125,11 +119,7 @@ class TestAccessMiddleware(APIBaseTest):
             USE_X_FORWARDED_HOST=True,
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
-                response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="28.160.62.192",
-                    HTTP_X_FORWARDED_FOR="",
-                )
+                response = self.client.get("/", REMOTE_ADDR="28.160.62.192", headers={"x-forwarded-for": ""})
                 self.assertNotIn(b"PostHog is not available", response.content)
 
 

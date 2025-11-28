@@ -105,7 +105,7 @@ export function InsightMeta({
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps, insightFeedback } = useValues(insightLogic)
     const { setInsightFeedback } = useActions(insightLogic)
-    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { exportContext, insightData } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -162,7 +162,7 @@ export function InsightMeta({
     const surveyOpportunityButton =
         surveyOpportunity && featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] ? (
             <div className="flex">
-                <SurveyOpportunityButton insight={insight} />
+                <SurveyOpportunityButton insight={insight} disableAutoPromptSubmit={true} />
             </div>
         ) : null
 
@@ -214,6 +214,7 @@ export function InsightMeta({
                     query={insight.query}
                     lastRefresh={insight.last_refresh}
                     hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
+                    resolvedDateRange={insightData?.resolved_date_range}
                 />
             }
             content={

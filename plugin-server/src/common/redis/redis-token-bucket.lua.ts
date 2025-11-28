@@ -2,10 +2,10 @@ import { Redis } from 'ioredis'
 
 const LUA_TOKEN_BUCKET = `
 local key = KEYS[1]
-local now = ARGV[1]
-local cost = ARGV[2]
-local poolMax = ARGV[3]
-local fillRate = ARGV[4]
+local now = tonumber(ARGV[1])
+local cost = tonumber(ARGV[2])
+local poolMax = tonumber(ARGV[3])
+local fillRate = tonumber(ARGV[4])
 local expiry = ARGV[5]
 local before = redis.call('hget', key, 'ts')
 

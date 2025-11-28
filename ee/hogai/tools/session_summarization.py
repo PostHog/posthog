@@ -32,7 +32,6 @@ If the conversation history contains context about the current filters or sessio
 - Check if the user provides specific session IDs or refers to the current session and populate `specific_session_ids_to_summarize` accordingly
 - Decide if the query is relevant to the current filters and set `should_use_current_filters` accordingly
 - Generate the `summary_title` based on the user's query and the current filters
-- Extract the `session_summarization_limit` from the user's query if present
 
 Otherwise:
 - Convert the user query into a `session_summarization_query`
@@ -41,7 +40,6 @@ Otherwise:
 - Assume the `should_use_current_filters` should be always `false`
 - Assume the `specific_session_ids_to_summarize` should be always empty list
 - Generate the `summary_title` based on the user's query
-- Extract the `session_summarization_limit` from the user's query if present
 
 # Additional guidelines
 - CRITICAL: Always pass the user's complete, unmodified query to the `session_summarization_query` parameter
@@ -121,23 +119,6 @@ class SessionSummarizationToolArgs(BaseModel):
           * If there's not enough context to generated the summary name - keep it an empty string ("")
         """
     )
-    session_summarization_limit: int = Field(
-        description="""
-        - The maximum number of sessions to summarize
-        - This will be used to apply to DB query to limit the results.
-        - Extract the limit from the user's query if present. Set to -1 if not present.
-        - IMPORTANT: Extract the limit only if the user's query explicitly mentions a number of sessions to summarize.
-        - Examples:
-          * 'summarize all sessions from yesterday' -> limit: -1
-          * 'summarize last 100 sessions' -> limit: 100
-          * 'summarize these sessions' -> limit: -1
-          * 'summarize first 10 of these sessions' -> limit: 10
-          * 'summarize the sessions of the users with at least 10 events' -> limit: -1
-          * 'summarize the sessions of the last 30 days' -> limit: -1
-          * 'summarize last 500 sessions of the MacOS users from US' -> limit: 500
-          * and similar
-        """
-    )
 
 
 class SessionSummarizationTool(MaxTool):
@@ -153,7 +134,6 @@ class SessionSummarizationTool(MaxTool):
         should_use_current_filters: bool,
         specific_session_ids_to_summarize: list[str],
         summary_title: str,
-        session_summarization_limit: int,
     ) -> tuple[str, ToolMessagesArtifact | None]:
         node = SessionSummarizationNode(self._team, self._user)
         chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
@@ -165,7 +145,6 @@ class SessionSummarizationTool(MaxTool):
                 "should_use_current_filters": should_use_current_filters,
                 "specific_session_ids_to_summarize": specific_session_ids_to_summarize,
                 "summary_title": summary_title,
-                "session_summarization_limit": session_summarization_limit,
             },
         )
         result = await chain.ainvoke(copied_state)

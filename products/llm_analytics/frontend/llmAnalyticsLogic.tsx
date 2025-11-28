@@ -1174,12 +1174,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => {
                 // Use the shared query template
-                // The SQL template uses Python's .format() escaping ({{ for literal {), so normalize those for HogQL
+                // Simple placeholder replacement - no escaping needed
                 const query = errorsQueryTemplate
-                    .replace(/\{\{/g, '{')
-                    .replace(/\}\}/g, '}')
-                    .replace('{orderBy}', errorsSort.column)
-                    .replace('{orderDirection}', errorsSort.direction)
+                    .replace('__ORDER_BY__', errorsSort.column)
+                    .replace('__ORDER_DIRECTION__', errorsSort.direction)
 
                 return {
                     kind: NodeKind.DataTableNode,
@@ -1384,7 +1382,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()
 
-        if (values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]) {
+        if (
+            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
+            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        ) {
             actions.loadLLMDashboards()
         }
     }),

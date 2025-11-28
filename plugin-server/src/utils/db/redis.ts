@@ -81,6 +81,9 @@ export function getRedisConnectionOptions(
                       url: serverConfig.LOGS_REDIS_HOST,
                       options: {
                           port: serverConfig.LOGS_REDIS_PORT,
+                          // TLS is an object that lets you define certificate, ca, etc
+                          // we just want the default config so weirdly we pass empty object to enable it
+                          tls: serverConfig.LOGS_REDIS_TLS ? {} : undefined,
                       },
                   }
                 : fallback

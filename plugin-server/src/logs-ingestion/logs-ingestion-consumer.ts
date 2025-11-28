@@ -134,8 +134,8 @@ export class LogsIngestionConsumer {
         // Track dropped metrics
         let bytesDropped = 0
         let recordsDropped = 0
+        logMessageDroppedCounter.inc({ reason: 'rate_limited' }, dropped.length)
         for (const message of dropped) {
-            logMessageDroppedCounter.inc({ reason: 'rate_limited' })
             bytesDropped += message.bytesUncompressed
             recordsDropped += message.recordCount
         }

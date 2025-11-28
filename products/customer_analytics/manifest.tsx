@@ -11,16 +11,24 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/CustomerAnalyticsScene'),
             projectBased: true,
             name: 'Customer analytics',
-            description: 'Analyze your customers',
+            description: 'Understand how your customers interact with your product ',
             iconType: 'cohort',
+        },
+        CustomerAnalyticsConfiguration: {
+            import: () =>
+                import('./frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
+            projectBased: true,
+            name: 'Customer analytics configuration',
         },
     },
     routes: {
         // Single route for now, may want to split in the future
         '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
+        '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     },
     urls: {
         customerAnalytics: (): string => '/customer_analytics',
+        customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     },
     treeItemsProducts: [
         {

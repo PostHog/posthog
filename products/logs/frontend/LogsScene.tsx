@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
-import {
-    IconClock,
-    IconFilter,
-    IconMinusSquare,
-    IconPin,
-    IconPinFilled,
-    IconPlusSquare,
-    IconRefresh,
-} from '@posthog/icons'
+import { IconFilter, IconMinusSquare, IconPin, IconPinFilled, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -20,6 +12,7 @@ import {
     LemonTag,
     LemonTagType,
     SpinnerOverlay,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -27,10 +20,15 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -49,6 +47,8 @@ import { ParsedLogMessage } from './types'
 
 export const scene: SceneExport = {
     component: LogsScene,
+    logic: logsLogic,
+    settingSectionId: 'product-logs',
 }
 
 export function LogsScene(): JSX.Element {
@@ -60,26 +60,50 @@ export function LogsScene(): JSX.Element {
         sparklineData,
         logsLoading,
         sparklineLoading,
-        timestampFormat,
         isPinned,
+        hasMoreLogsToLoad,
+        logsPageSize,
+        logsRemainingToLoad,
     } = useValues(logsLogic)
-    const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
+    const {
+        runQuery,
+        setDateRangeFromSparkline,
+        loadMoreLogs,
+        highlightNextLog,
+        highlightPreviousLog,
+        toggleExpandLog,
+    } = useActions(logsLogic)
+    const { highlightedLogId: sceneHighlightedLogId } = useValues(logsLogic)
 
     useEffect(() => {
         runQuery()
     }, [runQuery])
 
+    useKeyboardHotkeys(
+        {
+            arrowdown: { action: highlightNextLog },
+            j: { action: highlightNextLog },
+            arrowup: { action: highlightPreviousLog },
+            k: { action: highlightPreviousLog },
+            enter: {
+                action: () => {
+                    if (sceneHighlightedLogId) {
+                        toggleExpandLog(sceneHighlightedLogId)
+                    }
+                },
+            },
+        },
+        [sceneHighlightedLogId]
+    )
+
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
         setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
     }
 
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> =
-        timestampFormat === 'absolute'
-            ? {
-                  formatDate: 'YYYY-MM-DD',
-                  formatTime: 'HH:mm:ss',
-              }
-            : {}
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
+        formatDate: 'YYYY-MM-DD',
+        formatTime: 'HH:mm:ss.SSS',
+    }
 
     return (
         <SceneContent>
@@ -110,7 +134,6 @@ export function LogsScene(): JSX.Element {
                 customHog={ListHog}
                 isEmpty={false}
             />
-            <SceneDivider />
             <Filters />
             <div className="relative h-40 flex flex-col">
                 {sparklineData.data.length > 0 ? (
@@ -129,7 +152,7 @@ export function LogsScene(): JSX.Element {
             </div>
             <SceneDivider />
             <div>
-                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height))] z-20 bg-primary pt-2">
+                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height)-3px)] z-20 bg-primary pt-2">
                     <div className="pb-2">
                         <DisplayOptions />
                     </div>
@@ -157,6 +180,23 @@ export function LogsScene(): JSX.Element {
                         tzLabelFormat={tzLabelFormat}
                         showPinnedWithOpacity
                     />
+                    {parsedLogs.length > 0 && (
+                        <div className="m-2 flex items-center">
+                            <LemonButton
+                                onClick={loadMoreLogs}
+                                loading={logsLoading}
+                                fullWidth
+                                center
+                                disabled={!hasMoreLogsToLoad || logsLoading}
+                            >
+                                {logsLoading
+                                    ? 'Loading more logs...'
+                                    : hasMoreLogsToLoad
+                                      ? `Click to load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
+                                      : `Showing all ${humanFriendlyNumber(parsedLogs.length)} logs`}
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
             </div>
         </SceneContent>
@@ -184,87 +224,138 @@ function LogsTable({
     showPinnedWithOpacity = false,
     showHeader = true,
 }: LogsTableProps): JSX.Element {
-    const { togglePinLog } = useActions(logsLogic)
+    const { togglePinLog, setHighlightedLogId, toggleExpandLog } = useActions(logsLogic)
+    const { highlightedLogId, expandedLogIds } = useValues(logsLogic)
+    const tableRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (!loading && highlightedLogId && tableRef.current) {
+            requestAnimationFrame(() => {
+                const highlightedRow = tableRef.current?.querySelector(`[data-row-key="${highlightedLogId}"]`)
+                if (highlightedRow) {
+                    highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }
+            })
+        }
+    }, [loading, highlightedLogId])
 
     return (
-        <LemonTable
-            hideScrollbar
-            showHeader={showHeader}
-            dataSource={dataSource}
-            loading={loading}
-            size="small"
-            embedded
-            rowClassName={(record) =>
-                isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
-            }
-            columns={[
-                {
-                    title: '',
-                    key: 'actions',
-                    width: 0,
-                    render: (_, record) => {
-                        const pinned = isPinned(record.uuid)
-                        return (
-                            <div className="flex items-center gap-1">
-                                <LemonButton
-                                    size="xsmall"
-                                    noPadding
-                                    icon={pinned ? <IconPinFilled /> : <IconPin />}
-                                    onClick={() => togglePinLog(record.uuid)}
-                                    tooltip={pinned ? 'Unpin log' : 'Pin log'}
-                                    className={cn(
-                                        'transition-opacity',
-                                        pinned
-                                            ? 'text-primary opacity-100'
-                                            : 'text-muted opacity-0 group-hover:opacity-100'
-                                    )}
-                                />
-                                <LogsTableRowActions log={record} />
-                            </div>
-                        )
-                    },
-                },
-                {
-                    title: 'Timestamp',
-                    key: 'timestamp',
-                    dataIndex: 'timestamp',
-                    width: 180,
-                    render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
-                },
-                {
-                    title: 'Level',
-                    key: 'severity_text',
-                    dataIndex: 'severity_text',
-                    width: 100,
-                    render: (_, record) => <LogTag level={record.severity_text} />,
-                },
-                {
-                    title: 'Message',
-                    key: 'body',
-                    dataIndex: 'body',
-                    render: (_, { cleanBody, parsedBody }) => {
-                        if (parsedBody && prettifyJson) {
+        <div ref={tableRef}>
+            <LemonTable
+                hideScrollbar
+                showHeader={showHeader}
+                dataSource={dataSource}
+                loading={loading}
+                size="small"
+                embedded
+                rowKey="uuid"
+                rowStatus={(record) =>
+                    record.uuid === highlightedLogId ? 'highlighted' : record.new ? 'highlight-new' : null
+                }
+                rowClassName={(record) =>
+                    isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
+                }
+                columns={[
+                    {
+                        title: '#',
+                        key: 'row_number',
+                        width: 0,
+                        className: 'relative',
+                        render: (_, record, index) => {
+                            const isHighlighted = record.uuid === highlightedLogId
                             return (
-                                <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
-                                    {JSON.stringify(parsedBody, null, 2)}
-                                </pre>
+                                <Tooltip title="Click to highlight (↑↓ or j/k to navigate, Enter to expand)">
+                                    <button
+                                        type="button"
+                                        onClick={() => setHighlightedLogId(isHighlighted ? null : record.uuid)}
+                                        className="absolute inset-0 cursor-pointer"
+                                    />
+                                    <span
+                                        className={cn(
+                                            'font-mono text-xs pointer-events-none transition-colors',
+                                            isPinned(record.uuid) ? 'opacity-0' : '',
+                                            isHighlighted ? 'text-primary font-semibold' : 'text-muted'
+                                        )}
+                                    >
+                                        {index + 1}
+                                    </span>
+                                </Tooltip>
                             )
-                        }
-
-                        return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
+                        },
                     },
-                },
-            ]}
-            expandable={{
-                noIndent: true,
-                expandedRowRender: (log) => <ExpandedLog log={log} />,
-            }}
-        />
+                    {
+                        title: '',
+                        key: 'actions',
+                        width: 0,
+                        render: (_, record) => {
+                            const pinned = isPinned(record.uuid)
+                            return (
+                                <div className="flex items-center gap-1">
+                                    <LemonButton
+                                        size="xsmall"
+                                        noPadding
+                                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                                        onClick={() => togglePinLog(record.uuid)}
+                                        tooltip={pinned ? 'Unpin log' : 'Pin log'}
+                                        className={cn(
+                                            'transition-opacity',
+                                            pinned
+                                                ? 'text-primary opacity-100'
+                                                : 'text-muted opacity-0 group-hover:opacity-100'
+                                        )}
+                                    />
+                                    <LogsTableRowActions log={record} />
+                                </div>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Timestamp',
+                        key: 'timestamp',
+                        dataIndex: 'timestamp',
+                        width: 180,
+                        render: (_, { timestamp }) => (
+                            <TZLabel time={timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
+                        ),
+                    },
+                    {
+                        title: 'Level',
+                        key: 'severity_text',
+                        dataIndex: 'severity_text',
+                        width: 100,
+                        render: (_, record) => <LogTag level={record.severity_text} />,
+                    },
+                    {
+                        title: 'Message',
+                        key: 'body',
+                        dataIndex: 'body',
+                        render: (_, { cleanBody, parsedBody }) => {
+                            if (parsedBody && prettifyJson) {
+                                return (
+                                    <pre className={cn('text-xs m-0', wrapBody ? '' : 'whitespace-nowrap')}>
+                                        {JSON.stringify(parsedBody, null, 2)}
+                                    </pre>
+                                )
+                            }
+
+                            return <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{cleanBody}</div>
+                        },
+                    },
+                ]}
+                expandable={{
+                    noIndent: true,
+                    expandedRowRender: (log) => <ExpandedLog log={log} />,
+                    isRowExpanded: (record) => expandedLogIds.has(record.uuid),
+                    onRowExpand: (record) => toggleExpandLog(record.uuid),
+                    onRowCollapse: (record) => toggleExpandLog(record.uuid),
+                }}
+            />
+        </div>
     )
 }
 
 const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
-    const { expandedAttributeBreaksdowns } = useValues(logsLogic)
+    const { expandedAttributeBreaksdowns, tabId } = useValues(logsLogic)
     const { addFilter, toggleAttributeBreakdown } = useActions(logsLogic)
 
     const attributes = log.attributes
@@ -333,7 +424,9 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                 noIndent: true,
                 showRowExpansionToggle: false,
                 isRowExpanded: (record) => expandedAttributeBreaksdowns.includes(record.key),
-                expandedRowRender: (record) => <AttributeBreakdowns attribute={record.key} addFilter={addFilter} />,
+                expandedRowRender: (record) => (
+                    <AttributeBreakdowns attribute={record.key} addFilter={addFilter} tabId={tabId} />
+                ),
             }}
         />
     )
@@ -355,8 +448,8 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 }
 
 const Filters = (): JSX.Element => {
-    const { logsLoading } = useValues(logsLogic)
-    const { runQuery, zoomDateRange } = useActions(logsLogic)
+    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsLogic)
+    const { runQuery, zoomDateRange, setLiveTailRunning } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
@@ -384,9 +477,19 @@ const Filters = (): JSX.Element => {
                         icon={<IconRefresh />}
                         type="secondary"
                         onClick={() => runQuery()}
-                        loading={logsLoading}
+                        loading={logsLoading || liveTailRunning}
+                        disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
                     >
-                        {logsLoading ? 'Loading...' : 'Search'}
+                        {liveTailRunning ? 'Tailing...' : logsLoading ? 'Loading...' : 'Search'}
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type={liveTailRunning ? 'primary' : 'secondary'}
+                        icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
+                        onClick={() => setLiveTailRunning(!liveTailRunning)}
+                        disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
+                    >
+                        Live tail
                     </LemonButton>
                 </div>
             </div>
@@ -396,45 +499,70 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody, prettifyJson, timestampFormat } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat } = useActions(logsLogic)
+    const { orderBy, wrapBody, prettifyJson, logsPageSize, totalLogsMatchingFilters, parsedLogs, sparklineLoading } =
+        useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson, setLogsPageSize } = useActions(logsLogic)
 
     return (
-        <div className="flex gap-2">
-            <LemonSegmentedButton
-                value={orderBy}
-                onChange={setOrderBy}
-                options={[
-                    {
-                        value: 'earliest',
-                        label: 'Earliest',
-                    },
-                    {
-                        value: 'latest',
-                        label: 'Latest',
-                    },
-                ]}
-                size="small"
-            />
-            <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
-            <LemonCheckbox
-                checked={prettifyJson}
-                bordered
-                onChange={setPrettifyJson}
-                label="Prettify JSON"
-                size="small"
-            />
-            <LemonSelect
-                value={timestampFormat}
-                icon={<IconClock />}
-                onChange={(value) => setTimestampFormat(value)}
-                size="small"
-                type="secondary"
-                options={[
-                    { value: 'absolute', label: 'Absolute' },
-                    { value: 'relative', label: 'Relative' },
-                ]}
-            />
+        <div className="flex justify-between">
+            <div className="flex gap-2">
+                <LemonSegmentedButton
+                    value={orderBy}
+                    onChange={setOrderBy}
+                    options={[
+                        {
+                            value: 'earliest',
+                            label: 'Earliest',
+                        },
+                        {
+                            value: 'latest',
+                            label: 'Latest',
+                        },
+                    ]}
+                    size="small"
+                />
+                <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+                <LemonCheckbox
+                    checked={prettifyJson}
+                    bordered
+                    onChange={setPrettifyJson}
+                    label="Prettify JSON"
+                    size="small"
+                />
+            </div>
+            <div className="flex items-center gap-4">
+                {!sparklineLoading && totalLogsMatchingFilters > 0 && (
+                    <span className="text-muted text-xs">
+                        Showing {humanFriendlyNumber(parsedLogs.length)} of{' '}
+                        {humanFriendlyNumber(totalLogsMatchingFilters)} logs
+                    </span>
+                )}
+                <LemonField.Pure label="Page size" inline className="items-center gap-2">
+                    <LemonSelect
+                        value={logsPageSize}
+                        onChange={(value: number) => setLogsPageSize(value)}
+                        size="small"
+                        type="secondary"
+                        options={[
+                            { value: 100, label: '100' },
+                            { value: 200, label: '200' },
+                            { value: 500, label: '500' },
+                            { value: 1000, label: '1000' },
+                        ]}
+                    />
+                </LemonField.Pure>
+                <span className="text-muted text-xs flex items-center gap-1">
+                    <KeyboardShortcut arrowup />
+                    <KeyboardShortcut arrowdown />
+                    or
+                    <KeyboardShortcut j />
+                    <KeyboardShortcut k />
+                    navigate
+                    <span className="mx-1">·</span>
+                    <KeyboardShortcut enter />
+                    expand
+                </span>
+            </div>
         </div>
     )
 }
