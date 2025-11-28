@@ -1,16 +1,18 @@
-.WorldMap {
-    width: 100%;
-    padding: 1rem 0;
-    color: var(--color-border-primary);
+@layer base {
+    .WorldMap {
+        width: 100%;
+        padding: 1rem 0;
+        color: var(--color-border-primary);
 
-    .landxx {
-        fill: currentColor;
-        fill-rule: evenodd;
-        stroke: var(--color-bg-surface-primary);
-        stroke-width: 0.125rem;
+        .landxx {
+            fill: currentColor;
+            fill-rule: evenodd;
+            stroke: var(--color-bg-surface-primary);
+            stroke-width: 0.125rem;
 
-        &:hover {
-            color: var(--world-map-hover) !important;
+            &:hover {
+                color: var(--world-map-hover) !important;
+            }
         }
     }
 }

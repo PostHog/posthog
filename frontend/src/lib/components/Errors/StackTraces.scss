@@ -1,10 +1,12 @@
-.StackTrace {
-    .LemonCollapse .LemonCollapsePanel__header {
-        min-height: 1.875rem !important;
-        background-color: var(--color-bg-surface-primary);
+@layer base {
+    .StackTrace {
+        .LemonCollapse .LemonCollapsePanel__header {
+            min-height: 1.875rem !important;
+            background-color: var(--color-bg-surface-primary);
 
-        &--disabled:hover {
-            background-color: var(--color-bg-surface-primary) !important;
+            &--disabled:hover {
+                background-color: var(--color-bg-surface-primary) !important;
+            }
         }
     }
 }

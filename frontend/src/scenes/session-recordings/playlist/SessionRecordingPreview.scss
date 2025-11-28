@@ -1,9 +1,11 @@
-.UnwatchedIndicator {
-    &.UnwatchedIndicator--primary {
-        background: var(--danger);
-    }
+@layer base {
+    .UnwatchedIndicator {
+        &.UnwatchedIndicator--primary {
+            background: var(--danger);
+        }
 
-    &.UnwatchedIndicator--secondary {
-        background: var(--color-accent);
+        &.UnwatchedIndicator--secondary {
+            background: var(--color-accent);
+        }
     }
 }

@@ -1,18 +1,20 @@
-.TextCard__body {
-    flex: 1;
-    overflow-y: auto;
+@layer base {
+    .TextCard__body {
+        flex: 1;
+        overflow-y: auto;
 
-    ul {
-        list-style-position: inside;
-        list-style-type: disc;
-    }
+        ul {
+            list-style-position: inside;
+            list-style-type: disc;
+        }
 
-    ol {
-        list-style-position: inside;
-        list-style-type: numeric;
-    }
+        ol {
+            list-style-position: inside;
+            list-style-type: numeric;
+        }
 
-    img {
-        max-width: 100%;
+        img {
+            max-width: 100%;
+        }
     }
 }

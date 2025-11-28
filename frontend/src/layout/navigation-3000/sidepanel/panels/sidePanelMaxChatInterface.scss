@@ -1,63 +1,65 @@
-.SidePanelMaxChatInterface {
-    &__label {
-        margin-top: 0.5rem;
-        margin-right: 0.5rem;
-        font-size: 0.875rem;
-        color: var(--color-text-secondary);
-        white-space: nowrap;
-    }
-
-    &__message-container {
-        display: flex;
-        width: 100%;
-
-        &--user {
-            justify-content: flex-end;
+@layer base {
+    .SidePanelMaxChatInterface {
+        &__label {
+            margin-top: 0.5rem;
+            margin-right: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--color-text-secondary);
+            white-space: nowrap;
         }
 
-        &--assistant {
-            justify-content: flex-start;
-        }
-    }
+        &__message-container {
+            display: flex;
+            width: 100%;
 
-    &__message-content {
-        width: 90%;
-        min-width: 90%;
-        max-width: 90%;
-        padding: 0.5rem;
-        word-break: break-word;
-        border-radius: 0.5rem;
+            &--user {
+                justify-content: flex-end;
+            }
 
-        &--assistant {
-            color: var(--color-text-primary);
-            background: var(--color-bg-light);
-
-            .dark & {
-                color: var(--color-text-primary);
-                background: var(--color-bg-depth);
+            &--assistant {
+                justify-content: flex-start;
             }
         }
 
-        &--user {
-            color: var(--color-text-primary);
-            background: var(--color-bg-surface-primary);
+        &__message-content {
+            width: 90%;
+            min-width: 90%;
+            max-width: 90%;
+            padding: 0.5rem;
+            word-break: break-word;
+            border-radius: 0.5rem;
 
-            .dark & {
+            &--assistant {
                 color: var(--color-text-primary);
-                background: var(--color-bg-side);
+                background: var(--color-bg-light);
+
+                .dark & {
+                    color: var(--color-text-primary);
+                    background: var(--color-bg-depth);
+                }
+            }
+
+            &--user {
+                color: var(--color-text-primary);
+                background: var(--color-bg-surface-primary);
+
+                .dark & {
+                    color: var(--color-text-primary);
+                    background: var(--color-bg-side);
+                }
             }
         }
-    }
 
-    code {
-        padding: 0.125rem 0.25rem;
-        font-family: var(--font-mono);
-        font-size: 0.75rem;
-        background: color-mix(in sRGB, var(--color-bg-light) 85%, var(--primary) 15%);
-        border-radius: 0.25rem;
+        code {
+            padding: 0.125rem 0.25rem;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            background: color-mix(in sRGB, var(--color-bg-light) 85%, var(--primary) 15%);
+            border-radius: 0.25rem;
 
-        .dark & {
-            background: color-mix(in sRGB, var(--color-bg-depth) 85%, var(--primary) 15%);
+            .dark & {
+                background: color-mix(in sRGB, var(--color-bg-depth) 85%, var(--primary) 15%);
+            }
         }
     }
 }

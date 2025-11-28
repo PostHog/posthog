@@ -1,4 +1,6 @@
-.Site {
-    width: 100%;
-    border: none;
+@layer base {
+    .Site {
+        width: 100%;
+        border: none;
+    }
 }
