@@ -1,29 +1,59 @@
 import { GitMetadataParser } from './gitMetadataParser'
 
 describe('GitMetadataParser', () => {
-    describe('resolveRemoteUrlWithCommitToLink', () => {
-        it('should create commit link from SSH URL', () => {
-            const remoteUrl = 'git@github.com:user/repo.git'
-            const commitSha = 'commit-sha'
-            const result = GitMetadataParser.resolveRemoteUrlWithCommitToLink(remoteUrl, commitSha)
-
-            expect(result).toBe('https://github.com/user/repo/commit/commit-sha')
+    describe('getCommitLink', () => {
+        it.each([
+            {
+                description: 'should create commit link from SSH URL',
+                remote_url: 'git@github.com:user/repo.git',
+                expected: 'https://github.com/user/repo/commit/commit-sha',
+            },
+            {
+                description: 'should create commit link from HTTPS URL',
+                remote_url: 'https://github.com/user/repo.git',
+                expected: 'https://github.com/user/repo/commit/commit-sha',
+            },
+            {
+                description: 'should create commit link for gitlab URL',
+                remote_url: 'git@gitlab.com:posthog-bot-group/posthog-bot-project.git',
+                expected: 'https://gitlab.com/posthog-bot-group/posthog-bot-project/-/commit/commit-sha',
+            },
+            {
+                description: 'should create commit link for gitlab URL',
+                remote_url: 'invalid_url',
+                expected: undefined,
+            },
+            {
+                description: 'should create commit link for gitlab URL',
+                remote_url: 'git@otherprovider.com:user/repo.git',
+                expected: undefined,
+            },
+        ])('$description', ({ remote_url, expected }) => {
+            const result = GitMetadataParser.getCommitLink(remote_url, 'commit-sha')
+            expect(result).toBe(expected)
         })
+    })
 
-        it('should create commit link from HTTPS URL', () => {
-            const remoteUrl = 'https://github.com/user/repo.git'
-            const commitSha = 'commit-sha'
-            const result = GitMetadataParser.resolveRemoteUrlWithCommitToLink(remoteUrl, commitSha)
-
-            expect(result).toBe('https://github.com/user/repo/commit/commit-sha')
-        })
-
-        it('should return undefined for unknown git providers', () => {
-            const unknownUrl = 'https://bitbucket.org/user/repo.git'
-            const commitSha = 'commit-sha'
-            const result = GitMetadataParser.resolveRemoteUrlWithCommitToLink(unknownUrl, commitSha)
-
-            expect(result).toBeUndefined()
+    describe('getBranchLink', () => {
+        it.each([
+            {
+                description: 'should create commit link from SSH URL',
+                remote_url: 'git@github.com:user/repo.git',
+                expected: 'https://github.com/user/repo/tree/branch-name',
+            },
+            {
+                description: 'should create commit link from HTTPS URL',
+                remote_url: 'https://github.com/user/repo.git',
+                expected: 'https://github.com/user/repo/tree/branch-name',
+            },
+            {
+                description: 'should create commit link for gitlab URL',
+                remote_url: 'git@gitlab.com:posthog-bot-group/posthog-bot-project.git',
+                expected: 'https://gitlab.com/posthog-bot-group/posthog-bot-project/-/tree/branch-name',
+            },
+        ])('$description', ({ remote_url, expected }) => {
+            const result = GitMetadataParser.getBranchLink(remote_url, 'branch-name')
+            expect(result).toBe(expected)
         })
     })
 })

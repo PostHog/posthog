@@ -77,6 +77,7 @@ import {
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
     isRevenueExampleEventsQuery,
+    isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
@@ -664,7 +665,7 @@ export function DataTable({
             />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
-            <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
+            <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
@@ -677,7 +678,9 @@ export function DataTable({
                 groupTypeLabel={context?.groupTypeLabel}
             />
         ) : null,
-        showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
+        showPropertyFilter &&
+        sourceFeatures.has(QueryFeature.eventPropertyFilters) &&
+        !isSessionsQuery(query.source) ? (
             <EventPropertyFilters
                 key="event-property"
                 query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery}
@@ -786,12 +789,12 @@ export function DataTable({
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full flex flex-col gap-4 flex-1 h-full">
+                <div className="relative w-full flex flex-col gap-2 flex-1 h-full">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
                     {showFirstRow && (
-                        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
+                        <div className="flex gap-2 items-center flex-wrap">
                             {firstRowLeft}
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
@@ -802,9 +805,9 @@ export function DataTable({
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (
-                        <div className="flex gap-4 justify-between flex-wrap DataTable__second-row">
-                            <div className="flex gap-4 items-center">{secondRowLeft}</div>
-                            <div className="flex gap-4 items-center">{secondRowRight}</div>
+                        <div className="flex gap-2 justify-between flex-wrap DataTable__second-row">
+                            <div className="flex gap-2 items-center">{secondRowLeft}</div>
+                            <div className="flex gap-2 items-center">{secondRowRight}</div>
                         </div>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (

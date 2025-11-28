@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from pydantic import BaseModel
 
-from ee.hogai.graph.base.context import set_node_path
+from ee.hogai.core.context import set_node_path
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.types.base import NodePath
@@ -31,6 +31,11 @@ class TestMaxTool(BaseTest):
         tool = DummyTool(team=self.team, user=self.user, context_prompt_template="Test")
         result = tool.format_context_prompt_injection({})
         assert result == "Test"
+
+    def test_format_context_prompt_injection_missing_key_defaults_to_none(self):
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template="Value: {expected_key}")
+        result = tool.format_context_prompt_injection({})
+        assert result == "Value: None"
 
 
 class TestMaxToolNodePath(BaseTest):

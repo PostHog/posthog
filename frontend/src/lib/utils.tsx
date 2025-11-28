@@ -701,20 +701,30 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
-    formatTime = 'h:mm:ss A'
+    formatTime = 'h:mm:ss A',
+    options: { showNow?: boolean; showToday?: boolean } = {}
 ): string {
+    const defaultOptions = {
+        showNow: true,
+        showToday: true,
+    }
+    const { showNow, showToday } = { ...defaultOptions, ...options }
     if (!date) {
         return 'Never'
     }
     const parsedDate = dayjs(date)
     const today = dayjs().startOf('day')
     const yesterday = today.clone().subtract(1, 'days').startOf('day')
-    if (parsedDate.isSame(dayjs(), 'm')) {
+    if (showNow && parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = `[Today] ${formatTime}`
+        if (showToday) {
+            formatString = `[Today] ${formatTime}`
+        } else {
+            formatString = formatTime
+        }
     } else if (parsedDate.isSame(yesterday, 'd')) {
         formatString = `[Yesterday] ${formatTime}`
     } else {
@@ -1270,7 +1280,7 @@ export function componentsToDayJs(
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
 export function dateStringToDayJs(date: string | null, timezone: string = 'UTC'): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
-        return dayjs(date).tz(timezone)
+        return dayjs.tz(date, timezone)
     }
     const dateComponents = dateStringToComponents(date)
     if (!dateComponents) {
@@ -2289,4 +2299,23 @@ export const formatPercentage = (x: number, options?: { precise?: boolean }): st
         return humanFriendlyLargeNumber(x) + '%'
     }
     return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
+}
+
+/**
+ * Checks if a string matches the canonical UUID/UUID-like format.
+ *
+ * This function only checks the structure:
+ *  - 8-4-4-4-12 hexadecimal characters
+ *  - 4 dashes in the correct positions
+ * It does not enforce UUID version or variant.
+ *
+ * Examples:
+ *  - ✅ "0199ed4a-5c03-0000-3220-df21df612e95"
+ *  - ❌ "not-a-uuid"
+ *
+ * @param candidate - The string to test.
+ * @returns True if the string matches the UUID-like structure.
+ */
+export function isUUIDLike(candidate: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)
 }

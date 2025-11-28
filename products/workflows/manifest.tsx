@@ -1,6 +1,8 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import type { WorkflowsSceneTab } from './frontend/WorkflowsScene'
 
@@ -61,6 +63,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Workflows',
+            intents: [ProductKey.WORKFLOWS],
             href: urls.workflows(),
             type: 'workflows',
             category: 'Tools',

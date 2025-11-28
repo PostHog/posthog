@@ -43,10 +43,11 @@ export const SimilarIssuesList = (): JSX.Element => {
             {similarIssuesLoading ? (
                 <Spinner />
             ) : similarIssues.length > 0 ? (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 divide-y">
                     {similarIssues.map((similarIssue: SimilarIssue) => {
                         return (
                             <SimilarIssueCard
+                                key={similarIssue.id}
                                 issue={similarIssue}
                                 onClick={() => setSelectedIssue(similarIssue)}
                                 actions={

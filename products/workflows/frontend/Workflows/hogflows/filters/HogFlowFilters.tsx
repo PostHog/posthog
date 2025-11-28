@@ -81,6 +81,7 @@ export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlo
                 TaxonomicFilterGroupType.PersonProperties,
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.HogQLExpression,
+                TaxonomicFilterGroupType.EventMetadata,
             ]}
             metadataSource={{ kind: NodeKind.ActorsQuery }}
         />

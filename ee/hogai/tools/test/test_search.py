@@ -212,7 +212,7 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_node_instance = MagicMock()
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Found 3 insights matching your query")])
 
-        with patch("ee.hogai.graph.insights.nodes.InsightSearchNode", return_value=mock_node_instance):
+        with patch("ee.hogai.chat_agent.insights.nodes.InsightSearchNode", return_value=mock_node_instance):
             with patch("ee.hogai.tools.search.RunnableLambda") as mock_runnable:
                 mock_chain = MagicMock()
                 mock_chain.ainvoke = AsyncMock(return_value=mock_result)
@@ -238,14 +238,14 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.insights.nodes.InsightSearchNode"):
+        with patch("ee.hogai.chat_agent.insights.nodes.InsightSearchNode"):
             with patch("ee.hogai.tools.search.RunnableLambda", return_value=mock_chain):
                 await self.tool.execute("custom search query", self.tool_call_id)
 
     async def test_execute_handles_no_insights_exception(self):
-        from ee.hogai.graph.insights.nodes import NoInsightsException
+        from ee.hogai.chat_agent.insights.nodes import NoInsightsException
 
-        with patch("ee.hogai.graph.insights.nodes.InsightSearchNode", side_effect=NoInsightsException()):
+        with patch("ee.hogai.chat_agent.insights.nodes.InsightSearchNode", side_effect=NoInsightsException()):
             with self.assertRaises(MaxToolFatalError) as context:
                 await self.tool.execute("user signups", self.tool_call_id)
 
@@ -259,7 +259,7 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_chain = MagicMock()
         mock_chain.ainvoke = mock_ainvoke
 
-        with patch("ee.hogai.graph.insights.nodes.InsightSearchNode"):
+        with patch("ee.hogai.chat_agent.insights.nodes.InsightSearchNode"):
             with patch("ee.hogai.tools.search.RunnableLambda", return_value=mock_chain):
                 result, artifact = await self.tool.execute("test query", self.tool_call_id)
 

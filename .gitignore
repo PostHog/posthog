@@ -63,8 +63,6 @@ frontend/pnpm-error.log
 frontend/public/Matter*.woff* # Paid font
 frontend/tmp
 frontend/types/
-frontend/src/products.tsx
-frontend/src/products.json
 # Vite-specific assets (we copy public assets to src/assets) just for development
 frontend/src/assets
 .typegen
@@ -75,6 +73,7 @@ node_modules/
 object_storage/
 data/seaweedfs/
 .migration-checkpoint.json
+.postgres-backups/
 playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
 # pyright config (keep this until we have a standardized one)

@@ -41,6 +41,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -67,7 +68,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
-import { InsightShortId } from '~/types'
+import { InsightShortId, Region } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -177,7 +178,7 @@ interface MessageProps {
 function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
-    const { threadLoading } = useValues(maxThreadLogic)
+    const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -266,9 +267,17 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 />
                             ) : null
 
+                        // Allow action to be rendered in the middle if it has hrefs (like, links to open a report)
+                        const ifActionInTheMiddle =
+                            message.meta?.form?.options && message.meta.form.options.some((option) => option.href)
                         // Render main text content
                         const textElement = message.content ? (
-                            <TextAnswer key={`${key}-text`} message={message} withActions={false} />
+                            <TextAnswer
+                                key={`${key}-text`}
+                                message={message}
+                                withActions={ifActionInTheMiddle}
+                                interactable={ifActionInTheMiddle}
+                            />
                         ) : null
 
                         // Compute actions separately to render after tool calls
@@ -324,7 +333,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                interactable={isLastInGroup}
+                                interactable={!isSharedThread && isLastInGroup}
                                 isFinalGroup={isFinal}
                             />
                         )
@@ -407,8 +416,11 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
               if (isAssistantMessage(message) && interactable) {
                   // Message has been interrupted with a form
-                  if (message.meta?.form?.options && isFinalGroup) {
-                      return <AssistantMessageForm form={message.meta.form} />
+                  if (
+                      message.meta?.form?.options &&
+                      (isFinalGroup || message.meta.form.options.some((option) => option.href))
+                  ) {
+                      return <AssistantMessageForm form={message.meta.form} linksOnly={!isFinalGroup} />
                   }
 
                   // Show answer actions if the assistant's response is complete at this point
@@ -440,17 +452,25 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
 
 interface AssistantMessageFormProps {
     form: AssistantForm
+    linksOnly?: boolean
 }
 
-function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
+function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
+
+    const options = linksOnly ? form.options.filter((option) => option.href) : form.options
+
     return (
-        <div className="flex flex-wrap gap-1.5 mt-1">
-            {form.options.map((option) => (
+        // ml-1 is because buttons have radius of 0.375rem, while messages of 0.65rem, where diff = 0.25rem
+        // Also makes it clear the form is subservient to the message. *Harmony*
+        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
+            {options.map((option) => (
                 <LemonButton
                     key={option.value}
-                    onClick={() => askMax(option.value)}
+                    onClick={!option.href ? () => askMax(option.value) : undefined}
+                    to={option.href}
                     size="small"
+                    targetBlank={!!option.href}
                     type={
                         option.variant && ['primary', 'secondary', 'tertiary'].includes(option.variant)
                             ? (option.variant as LemonButtonPropsBase['type'])
@@ -554,7 +574,6 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
         </MessageTemplate>
     )
 }
-
 interface PlanningAnswerProps {
     toolCall: EnhancedToolCall
     isLastPlanningMessage?: boolean
@@ -1239,6 +1258,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
+    const { isDev, preflight } = useValues(preflightLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
@@ -1293,13 +1313,9 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => retryLastMessage()}
                     />
                 )}
-                {(user?.is_staff || location.hostname === 'localhost') && traceId && (
+                {(user?.is_staff || isDev) && traceId && (
                     <LemonButton
-                        to={`${
-                            location.hostname !== 'localhost'
-                                ? 'https://us.posthog.com/project/2'
-                                : `${window.location.origin}/project/2`
-                        }${urls.llmAnalyticsTrace(traceId)}`}
+                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.llmAnalyticsTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"

@@ -28,13 +28,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     Experiment,
     ExperimentsTabs,
-    ProductKey,
     ProgressStatus,
 } from '~/types'
 
@@ -504,12 +504,12 @@ export function Experiments(): JSX.Element {
                         label: 'Archived experiments',
                         content: <ExperimentsTable openDuplicateModal={setDuplicateModalExperiment} />,
                     },
-                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <Holdouts /> },
                     {
                         key: ExperimentsTabs.SharedMetrics,
                         label: 'Shared metrics',
                         content: <SharedMetrics />,
                     },
+                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <Holdouts /> },
                     {
                         key: ExperimentsTabs.History,
                         label: 'History',
