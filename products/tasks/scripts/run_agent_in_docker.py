@@ -39,10 +39,9 @@ def create_test_task(repository=None):
 
         # Parse repository argument or use default
         if repository:
-            parts = repository.split("/")
-            if len(parts) != 2 or not parts[0] or not parts[1]:
+            if "/" not in repository:
                 raise ValueError("Repository must be in format 'owner/repo'")
-            org, repo = parts
+            org, repo = repository.split("/", 1)
         else:
             org, repo = "posthog", "posthog-js"
 
@@ -70,15 +69,13 @@ def create_test_task(repository=None):
             github_integration.sensitive_config.get("access_token") if github_integration.sensitive_config else None
         )
 
-        repository = f"{org}/{repo}"
-
         task = Task.objects.create(
             team=team,
             title="Test Task for runAgent.mjs",
             description="This is a test task created to test the runAgent.mjs script outside of sandbox",
             origin_product=Task.OriginProduct.USER_CREATED,
             github_integration=github_integration,
-            repository=repository,
+            repository_config={"organization": org, "repository": repo},
         )
 
         api_key_value = generate_random_token_personal()
@@ -227,7 +224,7 @@ def main():
     api_key = api_key_value
     github_token = args.github_token or github_token_from_integration
     team_id = 1  # Hardcoded to hedgebox team
-    repository = task.repository
+    repository = f"{task.repository_config['organization']}/{task.repository_config['repository']}"
 
     try:
         exit_code = run_agent_in_docker(

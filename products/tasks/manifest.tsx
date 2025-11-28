@@ -12,11 +12,11 @@ export const manifest: ProductManifest = {
             projectBased: true,
             defaultDocsPath: '/docs/tasks',
             activityScope: 'TaskTracker',
-            description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
+            description: 'Tasks are a way to track your work and get things done.',
             iconType: 'task',
         },
         TaskDetail: {
-            name: 'Task',
+            name: 'Task Detail',
             import: () => import('./frontend/TaskDetailScene'),
             projectBased: true,
             activityScope: 'TaskDetail',

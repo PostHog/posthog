@@ -1,27 +1,23 @@
 {
     "name": "@posthog/products-tasks",
     "peerDependencies": {
-        "@dnd-kit/core": "*",
-        "@dnd-kit/modifiers": "*",
-        "@dnd-kit/sortable": "*",
-        "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
         "@storybook/react": "*",
         "@types/react": "*",
-        "@types/react-dom": "*",
         "clsx": "*",
         "kea": "*",
         "kea-forms": "*",
         "kea-loaders": "*",
         "kea-router": "*",
         "react": "*",
-        "react-dom": "*"
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
+        "react-dom": "*",
+        "@types/react-dom": "*"
     },
     "devDependencies": {
         "kea-test-utils": "*"
-    },
-    "dependencies": {
-        "fast-deep-equal": "^3.1.3",
-        "kea-subscriptions": "^3.0.1"
     }
 }
