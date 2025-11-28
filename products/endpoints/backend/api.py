@@ -628,9 +628,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query_to_use = version_obj.query if version_obj else endpoint.query.copy()
                 result = self._execute_inline_endpoint(endpoint, data, request, query_to_use)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            raise ValidationError("An internal error occurred.", getattr(e, "code_name", None))
         except ResolutionError as e:
-            raise ValidationError(str(e))
+            raise ValidationError("An internal error occurred while resolving the query.")
         except ConcurrencyLimitExceeded:
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
         if version_obj and isinstance(result.data, dict):
