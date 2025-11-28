@@ -1,7 +1,7 @@
 import gc
 import sys
 import time
-from typing import Any, Generic, Literal
+from typing import Any, Generic, Literal, TypedDict
 
 from django.db.models import F
 
@@ -14,6 +14,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceResponse
@@ -41,6 +42,10 @@ from products.data_warehouse.backend.models.external_data_schema import process_
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
+class PipelineResult(TypedDict):
+    should_trigger_cdp_producer: bool
+
+
 class PipelineNonDLT(Generic[ResumableData]):
     _resource: SourceResponse
     _resource_name: str
@@ -52,6 +57,7 @@ class PipelineNonDLT(Generic[ResumableData]):
     _delta_table_helper: DeltaTableHelper
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema = HogQLSchema()
+    _cdp_producer: CDPProducer
     _batcher: Batcher
     _load_id: int
 
@@ -81,13 +87,16 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._resumable_source_manager = resumable_source_manager
         self._batcher = Batcher(self._logger)
         self._internal_schema = HogQLSchema()
+        self._cdp_producer = CDPProducer(
+            team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
+        )
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
         self._earliest_incremental_field_value: Any = process_incremental_value(
             schema.incremental_field_earliest_value, schema.incremental_field_type
         )
 
-    def run(self):
+    def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
         should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
@@ -105,6 +114,9 @@ class PipelineNonDLT(Generic[ResumableData]):
             ):
                 self._job.rows_synced = 0
                 self._job.save()
+
+                if self._cdp_producer.should_produce_table:
+                    self._cdp_producer.clear_s3_chunks()
 
             # Check for duplicate primary keys
             if self._is_incremental and self._resource.has_duplicate_primary_keys:
@@ -191,6 +203,8 @@ class PipelineNonDLT(Generic[ResumableData]):
                 )
 
             self._post_run_operations(row_count=row_count)
+
+            return {"should_trigger_cdp_producer": self._cdp_producer.should_produce_table}
         finally:
             # Help reduce the memory footprint of each job
             self._logger.debug("Cleaning up delta table helper")
@@ -238,6 +252,9 @@ class PipelineNonDLT(Generic[ResumableData]):
         )
 
         self._internal_schema.add_pyarrow_table(pa_table)
+
+        if self._cdp_producer.should_produce_table:
+            self._cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
 
         # Update the incremental_field_last_value.
         # If the resource returns data sorted in ascending timestamp order, we can update the
