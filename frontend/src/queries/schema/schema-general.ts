@@ -4473,6 +4473,7 @@ export interface SourceConfig {
 }
 
 export const externalDataSources = [
+    'Supabase',
     'CustomerIO',
     'Github',
     'Stripe',
