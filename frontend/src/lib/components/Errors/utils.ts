@@ -240,3 +240,12 @@ export function formatExceptionDisplay(
 ): string {
     return `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
 }
+
+export function createFrameFilter(showAllFrames: boolean) {
+    return (frame: ErrorTrackingStackFrame) => {
+        if (showAllFrames) {
+            return true
+        }
+        return frame.in_app
+    }
+}

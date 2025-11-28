@@ -1,3 +1,5 @@
+import { cn } from 'lib/utils/css-classes'
+
 import { KeyedStackFrameRecords } from '../stackFrameLogic'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
 
@@ -14,9 +16,10 @@ export function ResolvedStackTraceDisplay({
     frames,
     stackFrameRecords,
     renderFrame,
+    className,
 }: ResolvedStackTraceDisplayProps): JSX.Element {
     return (
-        <div className="border-1 rounded overflow-hidden divide-y divide-solid">
+        <div className={cn('overflow-hidden', className)}>
             {frames.map((frame: ErrorTrackingStackFrame, idx) => (
                 <div key={idx}>{renderFrame(frame, stackFrameRecords[frame.raw_id])}</div>
             ))}

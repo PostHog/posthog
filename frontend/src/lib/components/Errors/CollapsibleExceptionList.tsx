@@ -10,6 +10,7 @@ import { EmptyStacktraceDisplay } from './StackTrace/EmptyStackTraceDisplay'
 import { ResolvedStackTraceDisplay } from './StackTrace/ResolvedStackTraceDisplay'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ErrorTrackingStackFrame } from './types'
+import { createFrameFilter } from './utils'
 
 export function CollapsibleExceptionList({
     showAllFrames,
@@ -24,6 +25,7 @@ export function CollapsibleExceptionList({
 }): JSX.Element {
     const { exceptionList, getExceptionFingerprint, exceptionAttributes, stackFrameRecords } =
         useValues(errorPropertiesLogic)
+    // const firstFrameExpansion
     // const { stackFrameRecords } = useValues(stackFrameLogic)
     // const [hasCalledOnFirstExpanded, setHasCalledOnFirstExpanded] = useState<boolean>(false)
 
@@ -43,7 +45,7 @@ export function CollapsibleExceptionList({
                     return (
                         <ExceptionDisplay
                             exception={exception}
-                            frameFilter={frameFilter(showAllFrames)}
+                            frameFilter={createFrameFilter(showAllFrames)}
                             renderExceptionHeader={(exception) => (
                                 <ExceptionHeader
                                     exception={exception}
@@ -59,6 +61,7 @@ export function CollapsibleExceptionList({
                             renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (
                                 <ResolvedStackTraceDisplay
                                     frames={frames}
+                                    className="border-1 rounded overflow-hidden divide-y divide-solid"
                                     stackFrameRecords={stackFrameRecords}
                                     renderFrame={(frame, record) => (
                                         <CollapsibleFrame
@@ -76,13 +79,4 @@ export function CollapsibleExceptionList({
             />
         </div>
     )
-}
-
-function frameFilter(showAllFrames: boolean) {
-    return (frame: ErrorTrackingStackFrame) => {
-        if (showAllFrames) {
-            return true
-        }
-        return frame.in_app
-    }
 }

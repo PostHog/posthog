@@ -3,12 +3,13 @@ import { useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
 
 import { ExceptionDisplay } from './Exception/ExceptionDisplay'
-import { ExceptionHeader } from './Exception/ExceptionHeader'
 import { ExceptionListDisplay } from './ExceptionList/ExceptionListDisplay'
+import { RawFrame } from './Frame/RawFrame'
 import { EmptyStacktraceDisplay } from './StackTrace/EmptyStackTraceDisplay'
 import { ResolvedStackTraceDisplay } from './StackTrace/ResolvedStackTraceDisplay'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ErrorTrackingStackFrame } from './types'
+import { createFrameFilter, formatExceptionDisplay } from './utils'
 
 export function RawExceptionList({
     showAllFrames,
@@ -19,35 +20,21 @@ export function RawExceptionList({
     setShowAllFrames: (value: boolean) => void
     className?: string
 }): JSX.Element {
-    const { exceptionList, getExceptionFingerprint, exceptionAttributes, stackFrameRecords } =
-        useValues(errorPropertiesLogic)
-    // const { stackFrameRecords } = useValues(stackFrameLogic)
-    // const [hasCalledOnFirstExpanded, setHasCalledOnFirstExpanded] = useState<boolean>(false)
-
-    // const handleFrameExpanded = (): void => {
-    //     if (onFirstFrameExpanded && !hasCalledOnFirstExpanded) {
-    //         setHasCalledOnFirstExpanded(true)
-    //         onFirstFrameExpanded()
-    //     }
-    // }
+    const { exceptionList, stackFrameRecords } = useValues(errorPropertiesLogic)
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>
             <ExceptionListDisplay
                 exceptionList={exceptionList}
                 renderException={(exception) => {
-                    const part = getExceptionFingerprint(exception.id)
                     return (
                         <ExceptionDisplay
                             exception={exception}
-                            frameFilter={frameFilter(showAllFrames)}
+                            frameFilter={createFrameFilter(showAllFrames)}
                             renderExceptionHeader={(exception) => (
-                                <ExceptionHeader
-                                    exception={exception}
-                                    loading={false}
-                                    fingerprint={part}
-                                    runtime={exceptionAttributes?.runtime}
-                                />
+                                <p className="font-mono mb-0 font-bold line-clamp-1">
+                                    {formatExceptionDisplay(exception)}
+                                </p>
                             )}
                             renderFilteredTrace={() => {
                                 setShowAllFrames(true)
@@ -57,7 +44,7 @@ export function RawExceptionList({
                                 <ResolvedStackTraceDisplay
                                     frames={frames}
                                     stackFrameRecords={stackFrameRecords}
-                                    renderFrame={(frame) => frame.source}
+                                    renderFrame={(frame, record) => <RawFrame frame={frame} record={record} />}
                                 />
                             )}
                             renderEmptyTrace={(exception) => <EmptyStacktraceDisplay exception={exception} />}
@@ -67,13 +54,4 @@ export function RawExceptionList({
             />
         </div>
     )
-}
-
-function frameFilter(showAllFrames: boolean) {
-    return (frame: ErrorTrackingStackFrame) => {
-        if (showAllFrames) {
-            return true
-        }
-        return frame.in_app
-    }
 }
