@@ -80,8 +80,12 @@ export function LogsScene(): JSX.Element {
 
     const handleKeyDown = useCallback(
         (e: KeyboardEvent) => {
-            // Ignore if user is typing in an input
-            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+            // Ignore if user is typing in an input or editing a contentEditable element
+            if (
+                e.target instanceof HTMLInputElement ||
+                e.target instanceof HTMLTextAreaElement ||
+                (e.target instanceof HTMLElement && e.target.isContentEditable)
+            ) {
                 return
             }
 
