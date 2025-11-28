@@ -1,21 +1,32 @@
 import { useEffect } from 'react'
 
+import { IconWarning, IconX } from '@posthog/icons'
 import { LemonBanner, LemonCollapse } from '@posthog/lemon-ui'
 
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import {
+    SelectorQuality,
     SelectorQualityResult,
     analyzeSelectorQualityCached,
     generateSuggestedAttribute,
 } from '~/toolbar/utils/selectorQuality'
 
-type MinSeverity = 'warning' | 'fragile'
-
 interface SelectorQualityWarningProps {
     selector?: string | null
     element?: HTMLElement
     compact?: boolean
-    minSeverity?: MinSeverity
+    /** Minimum severity to show warning. 'warning' shows both warnings and fragile, 'fragile' only shows fragile */
+    minSeverity?: 'warning' | 'fragile'
+}
+
+function shouldShowWarning(quality: SelectorQuality, minSeverity: 'warning' | 'fragile'): boolean {
+    if (quality === 'good') {
+        return false
+    }
+    if (quality === 'fragile') {
+        return true
+    }
+    return minSeverity === 'warning'
 }
 
 export function SelectorQualityWarning({
@@ -24,19 +35,8 @@ export function SelectorQualityWarning({
     compact = false,
     minSeverity = 'fragile',
 }: SelectorQualityWarningProps): JSX.Element | null {
-    // Analyze selector quality (must be before any conditional returns to satisfy React Hooks rules)
     const quality = selector ? analyzeSelectorQualityCached(selector) : null
-
-    // Check if quality meets minimum severity threshold
-    const severityOrder: Record<MinSeverity, number> = {
-        warning: 1,
-        fragile: 2,
-    }
-
-    const shouldShow =
-        quality &&
-        (quality.quality === 'fragile' ||
-            (quality.quality === 'warning' && severityOrder[minSeverity] <= severityOrder.warning))
+    const shouldShow = quality && shouldShowWarning(quality.quality, minSeverity)
 
     // Track when warning is shown (must be before any conditional returns)
     useEffect(() => {
@@ -56,23 +56,19 @@ export function SelectorQualityWarning({
         return null
     }
 
-    const bannerType = quality.quality === 'fragile' ? 'error' : 'warning'
+    const isFragile = quality.quality === 'fragile'
+    const bannerType = isFragile ? 'error' : 'warning'
+    const StatusIcon = isFragile ? IconX : IconWarning
 
     if (compact) {
-        const icon = quality.quality === 'fragile' ? '❌' : '⚠️'
-
-        // Get the main issue description
-        const firstIssue = quality.issues[0]
-        const issueText = firstIssue?.description || 'Fragile selector detected'
-
-        // Get the first recommendation and format it
-        const firstRecommendation = quality.recommendations[0] || 'Add a data-posthog attribute to your element'
+        const issueText = quality.issues[0]?.description || 'Fragile selector detected'
+        const recommendation = quality.recommendations[0] || 'Add a data-posthog attribute to your element'
 
         return (
             <div className="flex flex-row gap-2 items-center bg-border-light p-2 rounded">
-                <div className="text-warning text-xl shrink-0">{icon}</div>
+                <StatusIcon className={`text-xl shrink-0 ${isFragile ? 'text-danger' : 'text-warning'}`} />
                 <div className="text-primary text-xs grow">
-                    {issueText}. {firstRecommendation}.{' '}
+                    {issueText}. {recommendation}.{' '}
                     <button
                         onClick={() => window.open('https://posthog.com/docs/toolbar#2-element-filters', '_blank')}
                         className="text-link underline cursor-pointer bg-transparent border-0 p-0"
@@ -91,15 +87,13 @@ export function SelectorQualityWarning({
         <LemonBanner type={bannerType}>
             <div className="space-y-2">
                 <div>
-                    <strong>
-                        {quality.quality === 'fragile' ? 'Fragile selector detected' : 'Selector could be improved'}
-                    </strong>
+                    <strong>{isFragile ? 'Fragile selector detected' : 'Selector could be improved'}</strong>
                     <p className="text-sm mt-1">This selector may break when your page structure changes.</p>
                 </div>
 
                 {quality.issues.length > 0 && (
                     <LemonCollapse
-                        defaultActiveKey={quality.quality === 'fragile' ? 'issues' : undefined}
+                        defaultActiveKey={isFragile ? 'issues' : undefined}
                         panels={[
                             {
                                 key: 'issues',
@@ -167,12 +161,13 @@ export function SelectorQualityBadge({ quality }: SelectorQualityBadgeProps): JS
         return null
     }
 
-    const icon = quality.quality === 'fragile' ? '❌' : '⚠️'
+    const isFragile = quality.quality === 'fragile'
+    const StatusIcon = isFragile ? IconX : IconWarning
     const title = `Selector quality: ${quality.quality}\n${quality.issues.map((i) => `• ${i.description}`).join('\n')}`
 
     return (
-        <span className="ml-2 text-base cursor-help" title={title}>
-            {icon}
+        <span className="ml-2 cursor-help" title={title}>
+            <StatusIcon className={isFragile ? 'text-danger' : 'text-warning'} />
         </span>
     )
 }
