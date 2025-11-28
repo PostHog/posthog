@@ -723,10 +723,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 ON existing.person_id = p.person_id AND existing.team_id = p.team_id
             WHERE p.team_id = $1
                 AND p.distinct_id = ANY($2)
-                AND (
-                    EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
-                    OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
-                )
+                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
         "#;
 
     // Query 2: Get all active feature flags with experience continuity (non-person pool)
@@ -1022,10 +1019,7 @@ async fn try_should_write_hash_key_override(
             ON existing.person_id = p.person_id AND existing.team_id = p.team_id
         WHERE p.team_id = $1
             AND p.distinct_id = ANY($2)
-            AND (
-                EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
-                OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
-            )
+            AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
     "#;
 
     // Query 2: Get feature flags from non-person pool
