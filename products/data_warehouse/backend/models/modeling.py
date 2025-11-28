@@ -477,7 +477,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                                         .filter(team=team, name=table.name)
                                         .get()
                                     )
-                            except ObjectDoesNotExist:
+                            except (ObjectDoesNotExist, QueryError):
                                 raise UnknownParentError(parent, query)
                             else:
                                 parent_id = parent_table.id.hex
