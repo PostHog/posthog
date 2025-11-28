@@ -196,6 +196,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
+        showConversionGoalModal: true,
+        hideConversionGoalModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
     }),
@@ -292,6 +294,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             {
                 showColumnConfigModal: () => true,
                 hideColumnConfigModal: () => false,
+            },
+        ],
+        conversionGoalModalVisible: [
+            false,
+            {
+                showConversionGoalModal: () => true,
+                hideConversionGoalModal: () => false,
             },
         ],
         chartDisplayType: [
