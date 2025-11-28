@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { IconFilter, IconMinusSquare, IconPin, IconPinFilled, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
@@ -12,6 +12,7 @@ import {
     LemonTag,
     LemonTagType,
     SpinnerOverlay,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -26,6 +27,7 @@ import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -62,11 +64,53 @@ export function LogsScene(): JSX.Element {
         logsPageSize,
         logsRemainingToLoad,
     } = useValues(logsLogic)
-    const { runQuery, setDateRangeFromSparkline, loadMoreLogs } = useActions(logsLogic)
+    const {
+        runQuery,
+        setDateRangeFromSparkline,
+        loadMoreLogs,
+        highlightNextLog,
+        highlightPreviousLog,
+        toggleExpandLog,
+    } = useActions(logsLogic)
+    const { highlightedLogId: sceneHighlightedLogId } = useValues(logsLogic)
 
     useEffect(() => {
         runQuery()
     }, [runQuery])
+
+    const handleKeyDown = useCallback(
+        (e: KeyboardEvent) => {
+            // Ignore if user is typing in an input
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+                return
+            }
+
+            switch (e.key) {
+                case 'ArrowDown':
+                case 'j':
+                    e.preventDefault()
+                    highlightNextLog()
+                    break
+                case 'ArrowUp':
+                case 'k':
+                    e.preventDefault()
+                    highlightPreviousLog()
+                    break
+                case 'Enter':
+                    if (sceneHighlightedLogId) {
+                        e.preventDefault()
+                        toggleExpandLog(sceneHighlightedLogId)
+                    }
+                    break
+            }
+        },
+        [highlightNextLog, highlightPreviousLog, toggleExpandLog, sceneHighlightedLogId]
+    )
+
+    useEffect(() => {
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [handleKeyDown])
 
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
         setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
@@ -196,8 +240,8 @@ function LogsTable({
     showPinnedWithOpacity = false,
     showHeader = true,
 }: LogsTableProps): JSX.Element {
-    const { togglePinLog } = useActions(logsLogic)
-    const { highlightedLogId } = useValues(logsLogic)
+    const { togglePinLog, setHighlightedLogId, toggleExpandLog } = useActions(logsLogic)
+    const { highlightedLogId, expandedLogIds } = useValues(logsLogic)
     const tableRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -232,13 +276,28 @@ function LogsTable({
                         title: '#',
                         key: 'row_number',
                         width: 0,
-                        render: (_, record, index) => (
-                            <span
-                                className={cn('text-muted font-mono text-xs', isPinned(record.uuid) ? 'opacity-0' : '')}
-                            >
-                                {index + 1}
-                            </span>
-                        ),
+                        className: 'relative',
+                        render: (_, record, index) => {
+                            const isHighlighted = record.uuid === highlightedLogId
+                            return (
+                                <Tooltip title="Click to highlight (↑↓ or j/k to navigate, Enter to expand)">
+                                    <button
+                                        type="button"
+                                        onClick={() => setHighlightedLogId(isHighlighted ? null : record.uuid)}
+                                        className="absolute inset-0 cursor-pointer"
+                                    />
+                                    <span
+                                        className={cn(
+                                            'font-mono text-xs pointer-events-none transition-colors',
+                                            isPinned(record.uuid) ? 'opacity-0' : '',
+                                            isHighlighted ? 'text-primary font-semibold' : 'text-muted'
+                                        )}
+                                    >
+                                        {index + 1}
+                                    </span>
+                                </Tooltip>
+                            )
+                        },
                     },
                     {
                         title: '',
@@ -302,6 +361,9 @@ function LogsTable({
                 expandable={{
                     noIndent: true,
                     expandedRowRender: (log) => <ExpandedLog log={log} />,
+                    isRowExpanded: (record) => expandedLogIds.has(record.uuid),
+                    onRowExpand: (record) => toggleExpandLog(record.uuid),
+                    onRowCollapse: (record) => toggleExpandLog(record.uuid),
                 }}
             />
         </div>
@@ -505,6 +567,17 @@ const DisplayOptions = (): JSX.Element => {
                         ]}
                     />
                 </LemonField.Pure>
+                <span className="text-muted text-xs flex items-center gap-1">
+                    <KeyboardShortcut arrowup />
+                    <KeyboardShortcut arrowdown />
+                    or
+                    <KeyboardShortcut j />
+                    <KeyboardShortcut k />
+                    navigate
+                    <span className="mx-1">·</span>
+                    <KeyboardShortcut enter />
+                    expand
+                </span>
             </div>
         </div>
     )

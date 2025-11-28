@@ -217,6 +217,9 @@ export const logsLogic = kea<logsLogicType>([
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
         setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
+        highlightNextLog: true,
+        highlightPreviousLog: true,
+        toggleExpandLog: (logId: string) => ({ logId }),
         setLiveTailRunning: (enabled: boolean) => ({ enabled }),
         setLiveTailInterval: (interval: number) => ({ interval }),
         pollForNewLogs: true,
@@ -386,6 +389,20 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setHasMoreLogsToLoad: (_, { hasMoreLogsToLoad }) => hasMoreLogsToLoad,
                 clearLogs: () => true,
+            },
+        ],
+        expandedLogIds: [
+            new Set<string>(),
+            {
+                toggleExpandLog: (state, { logId }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(logId)) {
+                        newSet.delete(logId)
+                    } else {
+                        newSet.add(logId)
+                    }
+                    return newSet
+                },
             },
         ],
     }),
@@ -784,6 +801,40 @@ export const logsLogic = kea<logsLogicType>([
         },
         loadMoreLogs: () => {
             actions.fetchNextLogsPage()
+        },
+        highlightNextLog: () => {
+            const logs = values.parsedLogs
+            if (logs.length === 0) {
+                return
+            }
+
+            const currentIndex = values.highlightedLogId
+                ? logs.findIndex((log) => log.uuid === values.highlightedLogId)
+                : -1
+
+            if (currentIndex === -1) {
+                actions.setHighlightedLogId(logs[0].uuid)
+            } else if (currentIndex < logs.length - 1) {
+                actions.setHighlightedLogId(logs[currentIndex + 1].uuid)
+            } else if (values.hasMoreLogsToLoad && !values.logsLoading) {
+                actions.loadMoreLogs()
+            }
+        },
+        highlightPreviousLog: () => {
+            const logs = values.parsedLogs
+            if (logs.length === 0) {
+                return
+            }
+
+            const currentIndex = values.highlightedLogId
+                ? logs.findIndex((log) => log.uuid === values.highlightedLogId)
+                : -1
+
+            if (currentIndex === -1) {
+                actions.setHighlightedLogId(logs[logs.length - 1].uuid)
+            } else if (currentIndex > 0) {
+                actions.setHighlightedLogId(logs[currentIndex - 1].uuid)
+            }
         },
         setLiveTailRunning: async ({ enabled }) => {
             if (enabled) {
