@@ -1,4 +1,5 @@
 from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
     DateTimeDatabaseField,
     FieldOrTable,
     IntegerDatabaseField,
@@ -38,3 +39,23 @@ class LogsTable(Table):
 
     def to_printed_hogql(self):
         return "logs"
+
+
+class LogsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
+    """
+    Table stores meta information about kafka consumption _not_ scoped to teams
+
+    This is so we can find out the overall lag per partition and filter live logs accordingly
+    """
+
+    fields: dict[str, FieldOrTable] = {
+        "_partition": IntegerDatabaseField(name="_partition", nullable=False),
+        "_topic": StringDatabaseField(name="_topic", nullable=False),
+        "max_observed_timestamp": DateTimeDatabaseField(name="max_observed_timestamp", nullable=False),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "logs_kafka_metrics"
+
+    def to_printed_hogql(self):
+        return "logs_kafka_metrics"
