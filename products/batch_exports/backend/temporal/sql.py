@@ -54,7 +54,8 @@ FROM (
         SELECT
             distinct_id,
             argMax(person_id, person_distinct_id2.version) AS person_id2,
-            max(version) AS version
+            max(version) AS version,
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp
         FROM
             person_distinct_id2
         WHERE
@@ -844,7 +845,8 @@ FROM (
         SELECT
             distinct_id,
             argMax(person_id, person_distinct_id2.version) AS person_id2,
-            max(version) AS version
+            max(version) AS version,
+            argMax(_timestamp, person_distinct_id2.version) AS _timestamp
         FROM
             person_distinct_id2
         WHERE
@@ -865,6 +867,7 @@ FROM (
             )
         GROUP BY
             distinct_id
+        $filter_distinct_ids
     )
     SELECT
         pd.team_id AS team_id,
