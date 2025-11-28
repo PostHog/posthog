@@ -2,9 +2,9 @@
 
 ## Task
 
-- I need your help to propose variants for structure for the technichal article.
-- Analyze all the context above, and propose variants of the structure of the acticle that would allow to deliver this context to the target audience.
-- Don't write the article itself, just outlier of blocks/headers and what could be inside
+- I need your help to propose potential takeaways/title for a technical article
+- Analyze all the context below, and propose takeaways/title variants that would allow to deliver this context to the target audience.
+- Don't write the article itself
 
 ### Audience/goal of the article
 
@@ -21,6 +21,14 @@
 - Focus on the style of the articles from Antrhopic (https://www.anthropic.com/engineering/advanced-tool-use and https://www.anthropic.com/engineering/code-execution-with-mcp, read them in detail). Focus on technical depth, clear diagrams, honest about limitations.
 - But also keep in mind the PostHog style of articles (https://posthog.com/blog/8-learnings-from-1-year-of-agents-posthog-ai and https://posthog.com/newsletter/how-startups-lose-their-edge, also read them in detail). Focus on conversational tone, humor, practical focus, "here's what we learned" framing.
 
+### Potential takeaways
+
+- Processing large amounts of LLM data on-demand with multi-modal models (events + videos)
+- Selecting models (cheap/fast for video processing vs long/thinking for patterns extraction/single session summaries)
+- When analyzing user behavior you can't rely on events alone, you need to see the UI
+- Using Temporal workflows with hundreds of activities <> Using Temporal for LLM calls to ensure the report succeeds even with LLM hallucinations
+- ...suggest more
+
 ## Feature
 
 ### Main pain point/problem -> solution of the feature
@@ -35,6 +43,28 @@
 - We need to make it work in a meaningful time (~5-7 minutes), instead of long on-the-background processing
 - Without video validation for blocking issues the reports are a bit panicky on JavaScript errors and failed queries, so we need to actually see what the user sees to confirm the issue happened
 - Early-stage or fast-growing startups usually spam tens of exceptions and it's an expected user experience, so we need to understand which ones matter
+- Making it work at scale is a proper challenge, as we need to generate tens of thousands of videos, store videos/single session summaries/session group summaries, and use lots of different models (multi-modal and not) to achieve the result
+- It requires lots of questionable solutions - like skipping first 5 seconds of each session as they are mostly filled with rendered errors
+
+### Failed approaches
+
+- We wanted to have summaries to be generated in realtime (20-30s), but with the amount of data it's impossible - we need either to use more stupid models (so the summary sucks) or provide less context (so the summary sucks)
+- Highlighting the issues by just events data, without video validation, often leads to panicky result (report says the issue happened, while it's not), so the initial fast-no-video approach failed
+- We focus on a rigid "find what's wrong" approach instead of fluid "what happened in the session" one, as we want to solve the problem #1 first, but it leads to good chunk of free-form text questions we can't answer yet
+- Providing events in JSON-like input instead of CSV and spending additional money on bracket tokens
+
+### Curious findings
+
+- Returning YAML output instead of JSON - way less tokens, but way better structure than markdown
+- When transcribing videos - LLM usually focuses on 1 frame per second (adjustable), so you can store way lighter videos
+- Using Redis to store intermediate results between Temporal activities to not hit 2mb limit
+
+### Used models
+
+- Started with gpt4.1 for streaming (single session summary on-request) and o3 for thinking (single session summaries into session group summary)
+- Tried to use GPT5 at low thinking (as it was great with finding patterns and summarizing), but it fails to understand complex inputs way too often, while GPT5 High is crazy slow, so we reverted back to o3
+- Using latest Gemini Flash 2.5 for video transcription (preview, from September), as it showed crazy improvements. Flash Lite is all right, but it fails to notice details Flash notices
+- While I write this article, we migrate to Gemini 3 for all the main workflows (except Gemini 2.5 for video transcription)
 
 ### How does the feature work
 
