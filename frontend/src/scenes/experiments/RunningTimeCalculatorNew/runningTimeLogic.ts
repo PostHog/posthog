@@ -6,9 +6,11 @@ import { DEFAULT_MDE, experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
     MetricMathType,
+    calculateBaselineValue,
     calculateCurrentExposures,
     calculateDaysElapsed,
-    calculateExperimentTimeEstimate,
+    calculateExposureRate,
+    calculateRecommendedSampleSize,
     calculateSampleSize,
 } from './calculations'
 import type { runningTimeLogicType } from './runningTimeLogicType'
@@ -24,19 +26,6 @@ export interface RunningTimeConfig {
     metricType: MetricMathType
     baselineValue: number
     exposureRate: number
-}
-
-export interface ExperimentData {
-    estimatedRemainingDays: number | null
-    exposures: number | null
-    recommendedSampleSize: number | null
-    exposureRate: number | null
-}
-
-export interface DisplayValues {
-    estimatedDays: number | null
-    exposures: number | null
-    sampleSize: number | null
 }
 
 export const runningTimeLogic = kea<runningTimeLogicType>([
@@ -107,85 +96,82 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 configOverrides ? { ...initialConfig, ...configOverrides } : initialConfig,
         ],
 
-        experimentData: [
-            (s) => [s.orderedPrimaryMetricsWithResults, s.experiment, s.config],
-            (orderedPrimaryMetricsWithResults, experiment, config): ExperimentData | null => {
-                const firstMetric = orderedPrimaryMetricsWithResults?.[0]
+        currentExposures: [
+            (s) => [s.orderedPrimaryMetricsWithResults],
+            (results): number | null => calculateCurrentExposures(results?.[0]?.result ?? null),
+        ],
+        targetSampleSize: [
+            (s) => [s.isManualMode, s.experiment, s.orderedPrimaryMetricsWithResults, s.numberOfVariants, s.config],
+            (isManualMode, experiment, results, numberOfVariants, config): number | null => {
+                if (isManualMode) {
+                    const saved = experiment?.parameters?.exposure_estimate_config
+                    const baseline = saved?.manualBaselineValue ?? 0
+                    if (baseline <= 0) {
+                        return null
+                    }
+                    const metricType = (saved?.manualMetricType as MetricMathType) ?? 'funnel'
+                    const adjustedBaseline = metricType === 'funnel' ? baseline / 100 : baseline
+                    const mde = experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
+                    return calculateSampleSize(metricType, adjustedBaseline, mde, numberOfVariants)
+                }
 
-                if (!firstMetric?.metric || !firstMetric?.result?.baseline || !experiment?.start_date) {
+                // Automatic mode: calculate from live experiment data
+                const firstMetric = results?.[0]
+                if (!firstMetric?.metric || !firstMetric?.result?.baseline) {
                     return null
                 }
-
-                const daysElapsed = calculateDaysElapsed(experiment.start_date)
-                const currentExposures = calculateCurrentExposures(firstMetric.result)
-
-                if (!daysElapsed || daysElapsed < 1 || !currentExposures || currentExposures < 100) {
+                const baselineValue = calculateBaselineValue(firstMetric.result.baseline, firstMetric.metric)
+                if (baselineValue === null) {
                     return null
                 }
-
-                const estimates = calculateExperimentTimeEstimate(
-                    firstMetric.metric,
-                    firstMetric.result,
-                    experiment,
-                    config.mde
-                )
-
-                return {
-                    estimatedRemainingDays: estimates.estimatedRemainingDays,
-                    exposures: estimates.currentExposures,
-                    recommendedSampleSize: estimates.recommendedSampleSize,
-                    exposureRate: estimates.exposureRate,
-                }
+                return calculateRecommendedSampleSize(firstMetric.metric, config.mde, baselineValue, numberOfVariants)
             },
         ],
 
-        displayValues: [
-            (s) => [s.isManualMode, s.experimentData, s.experiment, s.numberOfVariants],
-            (isManualMode, experimentData, experiment, numberOfVariants): DisplayValues => {
-                const currentExposures = experimentData?.exposures ?? null
-
-                if (!isManualMode) {
-                    return {
-                        estimatedDays: experimentData?.estimatedRemainingDays ?? null,
-                        exposures: currentExposures,
-                        sampleSize: experimentData?.recommendedSampleSize ?? null,
-                    }
+        dailyExposureRate: [
+            (s) => [s.isManualMode, s.experiment, s.currentExposures],
+            (isManualMode, experiment, currentExposures): number | null => {
+                if (isManualMode) {
+                    return experiment?.parameters?.exposure_estimate_config?.manualExposureRate ?? null
                 }
 
-                const savedConfig = experiment?.parameters?.exposure_estimate_config
-                const baselineValue = savedConfig?.manualBaselineValue ?? 0
-                const metricType = (savedConfig?.manualMetricType as MetricMathType) ?? 'funnel'
-                const manualExposureRate = savedConfig?.manualExposureRate ?? 0
-
-                if (baselineValue <= 0) {
-                    return { estimatedDays: null, exposures: null, sampleSize: null }
-                }
-
-                const adjustedBaseline = metricType === 'funnel' ? baselineValue / 100 : baselineValue
-                const mde = experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
-                const sampleSize = calculateSampleSize(metricType, adjustedBaseline, mde, numberOfVariants)
-
-                if (!sampleSize) {
-                    return { estimatedDays: null, exposures: currentExposures, sampleSize: null }
-                }
-
-                if (currentExposures !== null) {
-                    if (currentExposures >= sampleSize) {
-                        return { estimatedDays: 0, exposures: currentExposures, sampleSize }
-                    }
-
-                    if (manualExposureRate > 0) {
-                        const remainingDays = Math.ceil((sampleSize - currentExposures) / manualExposureRate)
-                        return { estimatedDays: remainingDays, exposures: currentExposures, sampleSize }
-                    }
-                }
-
-                const totalTime = manualExposureRate > 0 ? Math.ceil(sampleSize / manualExposureRate) : null
-                return { estimatedDays: totalTime, exposures: null, sampleSize }
+                // Automatic mode: calculate from actual rate
+                const daysElapsed = calculateDaysElapsed(experiment?.start_date ?? null)
+                return calculateExposureRate(currentExposures, daysElapsed)
             },
         ],
 
-        manualResults: [
+        // Days until we reach target sample size
+        remainingDays: [
+            (s) => [s.targetSampleSize, s.currentExposures, s.dailyExposureRate, s.experiment],
+            (target, current, rate, experiment): number | null => {
+                if (!target || !rate || rate <= 0) {
+                    return null
+                }
+
+                // Need minimum data for automatic mode
+                const daysElapsed = calculateDaysElapsed(experiment?.start_date ?? null)
+                if (!daysElapsed || daysElapsed < 1 || !current || current < 100) {
+                    // Not enough data yet - show total estimated time if we have rate
+                    if (rate > 0) {
+                        return Math.ceil(target / rate)
+                    }
+                    return null
+                }
+
+                if (current >= target) {
+                    return 0
+                }
+
+                const remaining = target - current
+                return Math.ceil(remaining / rate)
+            },
+        ],
+        isComplete: [
+            (s) => [s.currentExposures, s.targetSampleSize],
+            (current, target): boolean => current !== null && target !== null && current >= target,
+        ],
+        manualFormPreview: [
             (s) => [s.config, s.numberOfVariants],
             (config, numberOfVariants): { sampleSize: number | null; runningTime: number | null } => {
                 if (config.mode !== 'manual' || config.baselineValue <= 0) {
@@ -202,14 +188,6 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 const runningTime = Math.ceil(sampleSize / config.exposureRate)
                 return { sampleSize, runningTime }
             },
-        ],
-
-        isComplete: [
-            (s) => [s.displayValues],
-            (displayValues): boolean =>
-                displayValues.exposures !== null &&
-                displayValues.sampleSize !== null &&
-                displayValues.exposures >= displayValues.sampleSize,
         ],
     }),
 

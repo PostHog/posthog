@@ -45,10 +45,18 @@ function getBaselineHelp(metricType: MetricMathType): string {
 }
 
 export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfigModalProps): JSX.Element {
-    const { config, experimentData, manualResults, isRunningTimeConfigModalOpen } = useValues(
-        runningTimeLogic({ experimentId, tabId })
-    )
+    const {
+        config,
+        manualFormPreview,
+        currentExposures,
+        targetSampleSize,
+        dailyExposureRate,
+        remainingDays,
+        isRunningTimeConfigModalOpen,
+    } = useValues(runningTimeLogic({ experimentId, tabId }))
     const { setConfig, save, cancel } = useActions(runningTimeLogic({ experimentId, tabId }))
+
+    const hasAutomaticData = remainingDays !== null
 
     return (
         <LemonModal
@@ -170,14 +178,16 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 <div>
                                     <div className="text-xs text-muted">Recommended sample size</div>
                                     <div className="font-semibold">
-                                        {manualResults.sampleSize ? manualResults.sampleSize.toLocaleString() : '—'}
+                                        {manualFormPreview.sampleSize
+                                            ? manualFormPreview.sampleSize.toLocaleString()
+                                            : '—'}
                                     </div>
                                 </div>
                                 <div>
                                     <div className="text-xs text-muted">Estimated running time</div>
                                     <div className="font-semibold">
-                                        {manualResults.runningTime
-                                            ? `~${manualResults.runningTime} day${manualResults.runningTime !== 1 ? 's' : ''}`
+                                        {manualFormPreview.runningTime
+                                            ? `~${manualFormPreview.runningTime} day${manualFormPreview.runningTime !== 1 ? 's' : ''}`
                                             : '—'}
                                     </div>
                                 </div>
@@ -186,7 +196,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                     </>
                 ) : (
                     <>
-                        {experimentData?.estimatedRemainingDays === null ? (
+                        {!hasAutomaticData ? (
                             <LemonBanner type="info">
                                 Waiting for sufficient data to calculate time estimates. Need at least 1 day and 100
                                 exposures.
@@ -196,29 +206,29 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 <div>
                                     <Label intent="menu">Remaining time</Label>
                                     <div className="metric-cell">
-                                        {experimentData?.estimatedRemainingDays === 0 ? (
+                                        {remainingDays === 0 ? (
                                             <span className="inline-flex items-center gap-1">
                                                 <IconCheck className="text-success" />
                                                 Complete
                                             </span>
                                         ) : (
-                                            `~${Math.ceil(experimentData?.estimatedRemainingDays ?? 0)} day${Math.ceil(experimentData?.estimatedRemainingDays ?? 0) !== 1 ? 's' : ''}`
+                                            `~${Math.ceil(remainingDays)} day${Math.ceil(remainingDays) !== 1 ? 's' : ''}`
                                         )}
                                     </div>
                                 </div>
                                 <div>
                                     <Label intent="menu">Progress</Label>
                                     <div className="metric-cell">
-                                        {experimentData?.exposures && experimentData?.recommendedSampleSize
-                                            ? `${experimentData.exposures.toLocaleString()} / ${experimentData.recommendedSampleSize.toLocaleString()} exposures`
+                                        {currentExposures !== null && targetSampleSize !== null
+                                            ? `${currentExposures.toLocaleString()} / ${targetSampleSize.toLocaleString()} exposures`
                                             : '—'}
                                     </div>
                                 </div>
                                 <div>
                                     <Label intent="menu">Rate</Label>
                                     <div className="metric-cell">
-                                        {experimentData?.exposureRate
-                                            ? `~${Math.round(experimentData.exposureRate).toLocaleString()} exposures/day`
+                                        {dailyExposureRate !== null
+                                            ? `~${Math.round(dailyExposureRate).toLocaleString()} exposures/day`
                                             : '—'}
                                     </div>
                                 </div>

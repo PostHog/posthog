@@ -20,9 +20,16 @@ export const RunningTimeNew = ({
     tabId: string
     onClick: () => void
 }): JSX.Element => {
-    const { displayValues, isComplete, primaryMetricsResultsLoading, isManualMode } = useValues(
-        runningTimeLogic({ experimentId: experiment.id, tabId })
-    )
+    const {
+        remainingDays,
+        currentExposures,
+        targetSampleSize,
+        isComplete,
+        isManualMode,
+        primaryMetricsResultsLoading,
+    } = useValues(runningTimeLogic({ experimentId: experiment.id, tabId }))
+
+    const showProgress = currentExposures !== null && targetSampleSize !== null
 
     return (
         <>
@@ -31,7 +38,7 @@ export const RunningTimeNew = ({
                 <div className="inline-flex items-center gap-2">
                     {primaryMetricsResultsLoading && !isManualMode ? (
                         <span>Loading...</span>
-                    ) : displayValues.estimatedDays === null ? (
+                    ) : remainingDays === null ? (
                         <span className="inline-flex items-center gap-1">
                             <IconClock />
                             Pending
@@ -44,12 +51,12 @@ export const RunningTimeNew = ({
                     ) : (
                         <>
                             <span>
-                                ~{Math.ceil(displayValues.estimatedDays)} day
-                                {Math.ceil(displayValues.estimatedDays) !== 1 ? 's' : ''}
+                                ~{Math.ceil(remainingDays)} day
+                                {Math.ceil(remainingDays) !== 1 ? 's' : ''}
                             </span>
-                            {displayValues.exposures && displayValues.sampleSize && (
+                            {showProgress && (
                                 <LemonProgressCircle
-                                    progress={Math.min(displayValues.exposures / displayValues.sampleSize, 1)}
+                                    progress={Math.min(currentExposures / targetSampleSize, 1)}
                                     size={22}
                                 />
                             )}
