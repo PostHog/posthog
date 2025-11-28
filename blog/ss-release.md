@@ -12,6 +12,9 @@
 - The goal is to talk about interesting challenge we solved, so the article is educational (priority #1), but also announce a new AI feature
 - The story of what failed, what worked, what approach we picked, what works, what will work soon
 - Should increase the perception of quality of our AI and the perception of PostHog as an AI-first product
+- The article should follow "relatable problem -> solution" logic, but should be interesting to engineers in general, even if they don't watch session
+- It should have a "takeaway" readers can apply to their own work
+- Balances depth with accessibility
 
 ### Main context
 
@@ -29,8 +32,15 @@
 
 ### Similar articles
 
-- Focus on the style of the articles from Antrhopic (https://www.anthropic.com/engineering/advanced-tool-use and https://www.anthropic.com/engineering/code-execution-with-mcp, read them in detail)
-- But also keep in mind the PostHog style of articles (https://posthog.com/blog/8-learnings-from-1-year-of-agents-posthog-ai and https://posthog.com/newsletter/how-startups-lose-their-edge, also read them in detail)
+- Focus on the style of the articles from Antrhopic (https://www.anthropic.com/engineering/advanced-tool-use and https://www.anthropic.com/engineering/code-execution-with-mcp, read them in detail). Focus on technical depth, clear diagrams, honest about limitations.
+- But also keep in mind the PostHog style of articles (https://posthog.com/blog/8-learnings-from-1-year-of-agents-posthog-ai and https://posthog.com/newsletter/how-startups-lose-their-edge, also read them in detail). Focus on conversational tone, humor, practical focus, "here's what we learned" framing.
+
+## Feature
+
+### Main pain point/problem -> solution of the feature
+
+- Projects have tons of users that have tons of sessions, so the developers/product managers/etc. can't watch all the sessions
+- We want to watch sessions for them and surface the issues, saving them time and highlighting what to improve, needle in the haystack
 
 ### How does the feature work
 
@@ -70,17 +80,25 @@ The feature is accessible as a tool from PostHog AI chat. You can ask PostHog AI
 - It's the first step, next we'll do the reporting not just using your Replay data, but using your LLM analytics traces, Error tracking issues, Zendesk tickets, and so, signaling you about any new issues proactively, or tracking the trends on known issues.
 - The next iteration will allow you to find sessions based on free-text questions ("find me sessions where user stared at UI for 40s not knowing what to do") and focus on that "what users sees" more as we have (in alpha) a solution to do double-side summary - both from the events side and what user sees on their screen side (by doing full-session transcriptions, instead of 10s validation video transcriptions we do now)
 
+### Technical challenges
+
+- Sessions could include thousands of events, leading to millions and millions of tokens to get proper context from
+- RRWeb files we use for Replay could weight up to 700MB with tens of thousands of mutations
+- We need to make it work in a meaningful time (~5-7 minutes), instead of long on-the-background processing
+- Without video validation for blocking issues the reports are a bit panicky on JavaScript errors and failed queries, so we need to actually see what the user sees to confirm the issue happened
+- Early-stage or fast-growing startups usually spam tens of exceptions and it's an expected user experience, so we need to understand which ones matter
+
+## Notes
+
 ### Illustrations
 
-- I plan to add lots of schematic illustrations of logic/approach, as Anthropic does in their articles, and also screenshots of the UI and short GIFs of how the feature looks, used from the PostHog AI chat
+- I plan to add lots of schematic illustrations of logic/approach, as Anthropic does in their articles, and also screenshots of the UI and short GIFs of how the feature looks, used from the PostHog AI chat. It could be Architecture diagrams, UI screenshots, and data flow diagrams.
 - Add placeholders where to put illustations and what should be on them
 
-### Notes
+### Suggestions
 
 - All the code is opensource, so it's possible to go and check all our prompts at any time
 - The product is in the early stage explicitly, as it has a lots of flaws at the moment
-
----
 
 ## How to implement
 
