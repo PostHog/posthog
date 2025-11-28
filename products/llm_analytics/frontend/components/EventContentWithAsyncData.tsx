@@ -41,7 +41,7 @@ export function EventContentGeneration({
             inputNormalized={normalizeMessages(input, 'user', tools)}
             outputNormalized={normalizeMessages(output, 'assistant')}
             errorData={errorData}
-            httpStatus={httpStatus}
+            httpStatus={typeof httpStatus === 'number' ? httpStatus : undefined}
             raisedError={raisedError}
             searchQuery={searchQuery}
         />

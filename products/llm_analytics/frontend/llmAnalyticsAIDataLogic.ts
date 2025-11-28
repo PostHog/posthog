@@ -61,9 +61,9 @@ export const llmAnalyticsAIDataLogic = kea<llmAnalyticsAIDataLogicType>([
         loadingEventIds: [
             new Set<string>(),
             {
-                loadAIDataForEvent: (state, { eventId }) => {
+                loadAIDataForEvent: (state, params) => {
                     const newSet = new Set(state)
-                    newSet.add(eventId)
+                    newSet.add(params.eventId)
                     return newSet
                 },
                 loadAIDataForEventSuccess: (state, { aiDataForEvent }) => {
@@ -71,9 +71,9 @@ export const llmAnalyticsAIDataLogic = kea<llmAnalyticsAIDataLogicType>([
                     newSet.delete(aiDataForEvent.eventId)
                     return newSet
                 },
-                loadAIDataForEventFailure: (state, { eventId }) => {
+                loadAIDataForEventFailure: (state, params) => {
                     const newSet = new Set(state)
-                    newSet.delete(eventId)
+                    newSet.delete(params.eventId)
                     return newSet
                 },
             },
@@ -94,15 +94,10 @@ export const llmAnalyticsAIDataLogic = kea<llmAnalyticsAIDataLogicType>([
             null as (AIData & { eventId: string }) | null,
             {
                 loadAIDataForEvent: async (params: LoadAIDataParams) => {
-                    try {
-                        const data = await loadAIDataAsync(params)
-                        return {
-                            ...data,
-                            eventId: params.eventId,
-                        }
-                    } catch (error) {
-                        // Attach eventId to error so reducer can remove from loading set
-                        throw { error, eventId: params.eventId }
+                    const data = await loadAIDataAsync(params)
+                    return {
+                        ...data,
+                        eventId: params.eventId,
                     }
                 },
             },

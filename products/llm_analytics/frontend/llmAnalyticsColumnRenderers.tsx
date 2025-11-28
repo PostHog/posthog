@@ -87,11 +87,18 @@ function AIOutputCell({ value, eventId }: AIOutputCellProps): JSX.Element {
     )
 }
 
+const getEventId = (record: unknown): string | undefined => {
+    if (record && typeof record === 'object' && 'uuid' in record && typeof record.uuid === 'string') {
+        return record.uuid
+    }
+    return undefined
+}
+
 export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
     'properties.$ai_input[-1]': {
         title: 'Input',
         render: ({ value, record }) => {
-            const eventId = record?.uuid
+            const eventId = getEventId(record)
             if (!eventId) {
                 return <>–</>
             }
@@ -101,7 +108,7 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
     'properties.$ai_input': {
         title: 'Input (full)',
         render: ({ value, record }) => {
-            const eventId = record?.uuid
+            const eventId = getEventId(record)
             if (!eventId) {
                 return <>–</>
             }
@@ -111,7 +118,7 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
     'properties.$ai_output_choices': {
         title: 'Output',
         render: ({ value, record }) => {
-            const eventId = record?.uuid
+            const eventId = getEventId(record)
             if (!eventId) {
                 return <>–</>
             }
