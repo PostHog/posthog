@@ -14,8 +14,8 @@ import type { framesCodeSourceLogicType } from './framesCodeSourceLogicType'
 import { stackFrameLogic } from './stackFrameLogic'
 
 export interface SourceData {
-    url: string | null
-    provider: string | null
+    url: string
+    provider: string
 }
 
 export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
@@ -84,6 +84,12 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                 }
 
                 const result = await resolveMethod(parsed.owner, parsed.repository, codeSample, fileName)
+
+                if (!result.url) {
+                    // Nothing to provide here
+                    return
+                }
+
                 let url = result.url ?? null
 
                 if (url && lineNumber) {

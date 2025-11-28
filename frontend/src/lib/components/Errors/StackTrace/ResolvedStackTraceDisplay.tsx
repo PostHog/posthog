@@ -1,5 +1,3 @@
-import { LemonCollapse } from '@posthog/lemon-ui'
-
 import { KeyedStackFrameRecords } from '../stackFrameLogic'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
 
@@ -8,26 +6,20 @@ export interface ResolvedStackTraceDisplayProps {
     embedded?: boolean
     frames: ErrorTrackingStackFrame[]
     stackFrameRecords: KeyedStackFrameRecords
-    renderFrameHeader: (frame: ErrorTrackingStackFrame, record: ErrorTrackingStackFrameRecord) => JSX.Element
-    renderFrameContent: (frame: ErrorTrackingStackFrame, record: ErrorTrackingStackFrameRecord) => JSX.Element | null
+    renderFrame: (frame: ErrorTrackingStackFrame, record: ErrorTrackingStackFrameRecord) => JSX.Element
     onFrameExpanded?: () => void
 }
 
 export function ResolvedStackTraceDisplay({
     frames,
     stackFrameRecords,
-    embedded = false,
-    renderFrameHeader,
-    renderFrameContent,
-    onFrameExpanded,
+    renderFrame,
 }: ResolvedStackTraceDisplayProps): JSX.Element {
-    const panels = frames.map((frame: ErrorTrackingStackFrame, idx) => {
-        return {
-            key: idx,
-            header: renderFrameHeader(frame, stackFrameRecords[frame.raw_id]),
-            content: renderFrameContent(frame, stackFrameRecords[frame.raw_id]),
-            className: 'p-0',
-        }
-    })
-    return <LemonCollapse embedded={embedded} multiple panels={panels} size="xsmall" onChange={onFrameExpanded} />
+    return (
+        <div className="border-1 rounded overflow-hidden divide-y divide-solid">
+            {frames.map((frame: ErrorTrackingStackFrame, idx) => (
+                <div key={idx}>{renderFrame(frame, stackFrameRecords[frame.raw_id])}</div>
+            ))}
+        </div>
+    )
 }

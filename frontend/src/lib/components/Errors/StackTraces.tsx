@@ -8,8 +8,7 @@ import { cn } from 'lib/utils/css-classes'
 import { ExceptionDisplay } from './Exception/ExceptionDisplay'
 import { ExceptionHeader } from './Exception/ExceptionHeader'
 import { ExceptionListDisplay } from './ExceptionList/ExceptionListDisplay'
-import { FrameContentDisplay } from './Frame/FrameContentDisplay'
-import { FrameHeaderDisplay } from './Frame/FrameHeaderDisplay'
+import { CollapsibleFrame } from './Frame/CollapsibleFrame'
 import { EmptyStacktraceDisplay } from './StackTrace/EmptyStackTraceDisplay'
 import { ResolvedStackTraceDisplay } from './StackTrace/ResolvedStackTraceDisplay'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
@@ -70,12 +69,7 @@ export function ChainedStackTraces({
                                     frames={frames}
                                     stackFrameRecords={stackFrameRecords}
                                     embedded={embedded}
-                                    renderFrameHeader={(frame) => <FrameHeaderDisplay frame={frame} />}
-                                    renderFrameContent={(frame, record) =>
-                                        record && record.context ? (
-                                            <FrameContentDisplay frame={frame} record={record} />
-                                        ) : null
-                                    }
+                                    renderFrame={(frame, record) => <CollapsibleFrame frame={frame} record={record} />}
                                 />
                             )}
                             renderEmptyTrace={(exception) => <EmptyStacktraceDisplay exception={exception} />}
