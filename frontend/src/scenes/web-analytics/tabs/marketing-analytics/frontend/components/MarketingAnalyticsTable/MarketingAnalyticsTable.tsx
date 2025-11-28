@@ -87,18 +87,16 @@ export const MarketingAnalyticsTable = ({
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
                 <div className="flex gap-4 justify-end">
-                    <div className="flex flex-col gap-2">
-                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
-                            Configure columns
-                        </LemonButton>
-                        <LemonSwitch
-                            checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
-                            onChange={handleIncludeAllConversionsChange}
-                            label="Non-integrated conversions"
-                            tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
-                            size="small"
-                        />
-                    </div>
+                    <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                        Configure columns
+                    </LemonButton>
+                    <LemonSwitch
+                        checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
+                        onChange={handleIncludeAllConversionsChange}
+                        label="Non-integrated conversions"
+                        tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
+                        size="small"
+                    />
                 </div>
             </div>
             {validationWarnings && validationWarnings.length > 0 && (
