@@ -9,7 +9,7 @@ Here I'll list step-by-step what we learned, where we messed up, and lots of pra
 Let's forget about scaling for a moment, and focus just on a single user session - user visited a website or app, navigated a bit, did something useful, and left. The logic seems straightforward - take all the session events, send to LLM, get the summary.
 
 {{ screenshot of the player with the summary }}
-> (under the image text) *Here's how you can get a summary of a single session for a Replay player*
+> (under the image text) *Here's how you can get a summary of a single session from chat, or Replay player*
 
 However...
 
@@ -31,16 +31,13 @@ If the user spent multiple hours on the website, their session could be huge. If
 
 - As stupid as it sounds, just do segmenting and analysis in one very large call, so LLM knows everything.
 - If you decide to go with segmenting - go sequential, so when analyzing segment #2, it has context on what happened in segment #1. You will still lose on "what happened next" part and it will be crazy slow though.
-
-Proper analysis takes time. Lots of user analytics tools generate summaries in a real time - you click, you wait 10s, you got a summary. However, the quality of such summary
-
-At the first glance it makes sense to
+- Hope that your users are ok with waiting for a couple of minutes. Using faster models can you results faster, but thinking models on "high" provide better results quality-wise, and quality is the goal.
 
 ### Crying wolf effect
 
 Fast-growing products (start-ups specifically) has a bad habbit of generating lots of exceptions, especially frontend ones. LLMs seems them, panicks, and generates a summary of the session where the user completely failed in all their goals. In reality the user successfully got what they came from, and didn't even notice these exceptions.
 
-**Out approach:**
+**Our approach:**
 
 - Programmatically pre-filter events that look like exceptions, especially if one causes multiple others as avalanche and they create a context that LLM can't ignore. For example, drop all JS exceptions that aren't API errors.
 - It won't save you anyway.
