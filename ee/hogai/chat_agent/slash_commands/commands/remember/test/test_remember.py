@@ -2,8 +2,9 @@ import pytest
 from posthog.test.base import BaseTest
 
 from asgiref.sync import sync_to_async
+from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import HumanMessage
+from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.chat_agent.slash_commands.commands.remember import RememberCommand
 from ee.hogai.utils.types import AssistantState
@@ -49,12 +50,15 @@ class TestRememberCommand(BaseTest):
     async def test_execute_appends_to_memory(self):
         """Test that execute appends content to core memory."""
         state = AssistantState(messages=[HumanMessage(content="/remember Test fact to remember")])
-        config = {"configurable": {"thread_id": "test-thread"}}
+        config = RunnableConfig(configurable={"thread_id": "test-thread"})
 
         result = await self.command.execute(config, state)
 
         self.assertEqual(len(result.messages), 1)
-        self.assertIn("remember", result.messages[0].content.lower())
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertIn("remember", message.content.lower())
 
         core_memory = await sync_to_async(CoreMemory.objects.get)(team=self.team)
         self.assertIn("Test fact to remember", core_memory.text)
@@ -63,17 +67,20 @@ class TestRememberCommand(BaseTest):
     async def test_execute_without_content_returns_help(self):
         """Test that /remember without content returns help message."""
         state = AssistantState(messages=[HumanMessage(content="/remember")])
-        config = {"configurable": {"thread_id": "test-thread"}}
+        config = RunnableConfig(configurable={"thread_id": "test-thread"})
 
         result = await self.command.execute(config, state)
 
         self.assertEqual(len(result.messages), 1)
-        self.assertIn("Usage:", result.messages[0].content)
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertIn("Usage:", message.content)
 
     @pytest.mark.asyncio
     async def test_execute_appends_multiple_memories(self):
         """Test that multiple remember commands append correctly."""
-        config = {"configurable": {"thread_id": "test-thread"}}
+        config = RunnableConfig(configurable={"thread_id": "test-thread"})
 
         state1 = AssistantState(messages=[HumanMessage(content="/remember First fact")])
         await self.command.execute(config, state1)
