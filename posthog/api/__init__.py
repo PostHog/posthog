@@ -736,7 +736,7 @@ projects_router.register(
 
 environments_router.register(
     r"error_tracking/symbol_sets",
-    ErrorTrackingReleaseViewSet,
+    ErrorTrackingSymbolSetViewSet,
     "environment_error_tracking_symbol_set",
     ["team_id"],
 )
