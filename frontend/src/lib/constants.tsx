@@ -197,6 +197,7 @@ export const FEATURE_FLAGS = {
     QUERY_CACHE_USE_S3: 'query-cache-use-s3', // owner: @aspicer #team-product-analytics
     DASHBOARD_THREADS: 'dashboard-threads', // owner: @aspicer #team-product-analytics
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
+    LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-llm-analytics
     LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD: 'llm-analytics-customizable-dashboard', // owner: #team-llm-analytics
     LLM_ANALYTICS_DISCUSSIONS: 'llm-analytics-discussions', // owner: #team-llm-analytics
     BATCH_EXPORTS_DATABRICKS: 'databricks-batch-exports', // owner: @rossgray #team-batch-exports
@@ -227,7 +228,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer
-    SDK_DOCTOR_BETA: 'sdk-doctor-beta', // owner: @slshults
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny
     ONBOARDING_USE_CASE_SELECTION: 'onboarding-use-case-selection', // owner: @mattbro
     ONBOARDING_AI_CONSENT_STEP: 'onboarding-ai-consent-step', // owner: @mattbro
@@ -344,6 +344,7 @@ export const FEATURE_FLAGS = {
     LEFT_ALIGN_DATE_FILTER: 'left-align-date-filter', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     BING_ADS_SOURCE: 'bing-ads-source', // owner: @jabahamondes #team-web-analytics
+    EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_RETENTION_METRICS: 'experiments-retention-metrics', // owner: @rodrigoi #team-experiments
     HOME_FEED_TAB: 'home-feed-tab', // owner: @ksvat #team-replay
 } as const

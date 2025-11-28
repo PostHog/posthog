@@ -2406,6 +2406,13 @@ export interface ErrorTrackingIssueCohort {
     name: string
 }
 
+export type QuickFilterType = 'manual-options' | 'auto-discovery'
+
+export enum QuickFilterContext {
+    ErrorTrackingIssueFilters = 'error-tracking-issue-filters',
+    LogsFilters = 'logs-filters',
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -2567,6 +2574,9 @@ export interface LogMessage {
     resource_attributes: any
     instrumentation_scope: string
     event_name: string
+    /**  @format date-time */
+    live_logs_checkpoint?: string
+    new?: boolean
 }
 
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
@@ -2579,6 +2589,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
     serviceNames: string[]
+    liveLogsCheckpoint?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3040,6 +3051,9 @@ export interface ExperimentQueryResponse {
     // Breakdown fields
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
     breakdown_results?: ExperimentBreakdownResult[]
+
+    clickhouse_sql?: string
+    hogql?: string
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -3119,6 +3133,8 @@ export interface ExperimentBreakdownResult {
 }
 
 export interface NewExperimentQueryResponse {
+    clickhouse_sql?: string
+    hogql?: string
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
     breakdown_results?: ExperimentBreakdownResult[]
@@ -3734,7 +3750,14 @@ export enum DefaultChannelTypes {
 // IMPORTANT: Changes to AIEventType values impact usage reporting and billing
 // These values are used in SQL queries to compute usage and exclude AI events from standard event counts
 // Any changes here will be reflected in the Python schema and affect billing calculations
-export type AIEventType = '$ai_generation' | '$ai_embedding' | '$ai_span' | '$ai_trace' | '$ai_metric' | '$ai_feedback'
+export type AIEventType =
+    | '$ai_generation'
+    | '$ai_embedding'
+    | '$ai_span'
+    | '$ai_trace'
+    | '$ai_metric'
+    | '$ai_feedback'
+    | '$ai_evaluation'
 
 export interface LLMTraceEvent {
     id: string
@@ -4724,6 +4747,9 @@ export enum ProductIntentContext {
 
     // Nav Panel Advertisement
     NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',
+
+    // Feature previews
+    FEATURE_PREVIEW_ENABLED = 'feature_preview_enabled',
 
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',

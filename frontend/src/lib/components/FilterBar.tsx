@@ -55,7 +55,7 @@ export const FilterBar = ({ top, left, right, className }: FilterBarProps): JSX.
 
 const FoldableFilters = ({ children }: React.PropsWithChildren<{}>): JSX.Element => {
     return (
-        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
+        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full items-start">
             {children}
         </div>
     )
