@@ -1848,11 +1848,11 @@ async def test_partition_folders_with_uuid_id_and_created_at(team, postgres_conf
     "partition_format,test_dates,expected_partitions",
     [
         ("day", ["2025-01-01", "2025-01-02", "2025-01-03"], ["2025-01-01", "2025-01-02", "2025-01-03"]),
-        ("week", ["2024-12-31", "2025-01-01", "2025-01-06"], ["2025-W01", "2025-W01", "2025-W02"]),
+        ("week", ["2024-12-31", "2025-01-01", "2025-01-06"], ["2025-w01", "2025-w01", "2025-w02"]),
         ("month", ["2025-01-01", "2025-02-01", "2025-03-01"], ["2025-01", "2025-02", "2025-03"]),
     ],
 )
-async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
+async def test_partition_folders_with_uuid_id_and_created_at_with_parametrized_format(
     team, postgres_config, postgres_connection, minio_client, partition_format, test_dates, expected_partitions
 ):
     table_name = f"test_partition_{partition_format}"
