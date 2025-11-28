@@ -39,9 +39,10 @@ def create_test_task(repository=None):
 
         # Parse repository argument or use default
         if repository:
-            if "/" not in repository:
+            parts = repository.split("/")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
                 raise ValueError("Repository must be in format 'owner/repo'")
-            org, repo = repository.split("/", 1)
+            org, repo = parts
         else:
             org, repo = "posthog", "posthog-js"
 
@@ -226,7 +227,7 @@ def main():
     api_key = api_key_value
     github_token = args.github_token or github_token_from_integration
     team_id = 1  # Hardcoded to hedgebox team
-    repository = f"{task.repository_config['organization']}/{task.repository_config['repository']}"
+    repository = task.repository
 
     try:
         exit_code = run_agent_in_docker(
