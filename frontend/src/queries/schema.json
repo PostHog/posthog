@@ -17518,6 +17518,13 @@
                 "level": {
                     "$ref": "#/definitions/LogSeverityLevel"
                 },
+                "live_logs_checkpoint": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "new": {
+                    "type": "boolean"
+                },
                 "observed_timestamp": {
                     "format": "date-time",
                     "type": "string"
@@ -17602,6 +17609,9 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "liveLogsCheckpoint": {
+                    "type": "string"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -18800,6 +18810,10 @@
                 },
                 "filter_test_accounts": {
                     "type": "boolean"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many recordings the user requested to use. Skip if user did not indicate preference."
                 },
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",

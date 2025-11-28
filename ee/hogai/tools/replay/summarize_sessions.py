@@ -57,23 +57,6 @@ class SummarizeSessionsToolArgs(BaseModel):
         * If there's not enough context to generated the summary name - keep it an empty string ("")
         """).strip()
     )
-    session_summarization_limit: int = Field(
-        description=dedent("""
-        - The maximum number of sessions to summarize
-        - This will be used to apply to DB query to limit the results.
-        - Extract the limit from the user's query if present. Set to -1 if not present.
-        - IMPORTANT: Extract the limit only if the user's query explicitly mentions a number of sessions to summarize.
-        - Examples:
-          * 'summarize all sessions from yesterday' -> limit: -1
-          * 'summarize last 100 sessions' -> limit: 100
-          * 'summarize these sessions' -> limit: -1
-          * 'summarize first 10 of these sessions' -> limit: 10
-          * 'summarize the sessions of the users with at least 10 events' -> limit: -1
-          * 'summarize the sessions of the last 30 days' -> limit: -1
-          * 'summarize last 500 sessions of the MacOS users from US' -> limit: 500
-          * and similar
-        """).strip()
-    )
 
 
 class SummarizeSessionsTool(MaxTool):
@@ -92,19 +75,21 @@ class SummarizeSessionsTool(MaxTool):
         self,
         recordings_filters_or_explicit_session_ids: MaxRecordingUniversalFilters | list[str],
         summary_title: str,
-        session_summarization_limit: int,
     ) -> tuple[str, ToolMessagesArtifact | None]:
         # Convert filters to recordings query
         if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters):
             recordings_query = self._convert_max_filters_to_recordings_query(recordings_filters_or_explicit_session_ids)
             # Determine query limit
-            query_limit = session_summarization_limit
-            if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+            if (
+                not recordings_query.limit
+                or recordings_query.limit <= 0
+                or recordings_query.limit > MAX_SESSIONS_TO_SUMMARIZE
+            ):
                 # If no limit provided (none or negative) or too large - use the default limit
-                query_limit = MAX_SESSIONS_TO_SUMMARIZE
+                recordings_query.limit = MAX_SESSIONS_TO_SUMMARIZE
             # Get session IDs
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                recordings_query, query_limit
+                recordings_query
             )
         else:
             # TODO: _validate_specific_session_ids
@@ -228,6 +213,7 @@ class SummarizeSessionsTool(MaxTool):
             date_to=replay_filters.date_to,
             properties=properties,
             filter_test_accounts=replay_filters.filter_test_accounts,
+            limit=replay_filters.limit,
             order=replay_filters.order,
             # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
             having_predicates=(
@@ -241,15 +227,14 @@ class SummarizeSessionsTool(MaxTool):
         )
         return recordings_query
 
-    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
-        replay_filters.limit = limit
         try:
             query_runner = SessionRecordingListFromQuery(
-                team=self._team, query=replay_filters, hogql_query_modifiers=None, limit=limit
+                team=self._team, query=replay_filters, hogql_query_modifiers=None
             )
             results = query_runner.run()
         except Exception as e:
@@ -273,7 +258,7 @@ class SummarizeSessionsTool(MaxTool):
             nonlocal completed
             result = await execute_summarize_session(
                 session_id=session_id,
-                user_id=self._user.id,
+                user=self._user,
                 team=self._team,
                 model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                 video_validation_enabled=video_validation_enabled,
@@ -310,7 +295,7 @@ class SummarizeSessionsTool(MaxTool):
 
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
-            user_id=self._user.id,
+            user=self._user,
             team=self._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,

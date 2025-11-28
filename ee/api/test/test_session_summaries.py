@@ -123,7 +123,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Verify execute_summarize_session_group was called correctly
         mock_execute.assert_called_once_with(
             session_ids=["session1", "session2"],
-            user_id=self.user.pk,
+            user=self.user,
             team=self.team,
             min_timestamp=datetime(2024, 1, 1, 10, 0, 0),
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
