@@ -319,3 +319,88 @@ class TestSessionLevelAggregation(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results) > 0
         assert results[0]["data"] is not None
+
+    def test_session_level_aggregation_with_invalid_property(self):
+        """Verify graceful handling of non-existent session properties"""
+        # Create test events
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            timestamp="2024-01-01 12:00:00",
+            properties={"$session_id": "session1"},
+        )
+
+        flush_persons_and_events()
+
+        # Query with a non-existent session property
+        query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math="avg",
+                    math_property="$nonexistent_session_property",
+                    math_property_type="session_properties",
+                )
+            ],
+            trendsFilter=TrendsFilter(sessionLevelAggregation=True),
+        )
+
+        # Should not crash, should return empty or zero results
+        with freeze_time("2024-01-02"):
+            results = self._run_trends_query(query)
+
+        assert isinstance(results, list)
+        # Results should exist but likely be null or 0
+        assert len(results) > 0
+
+    def test_session_level_aggregation_with_null_session_id(self):
+        """Events without session_id should be excluded or handled gracefully"""
+        # Create events with and without session_id
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            timestamp="2024-01-01 12:00:00",
+            properties={"$session_id": "session1"},
+        )
+
+        # Event without session_id
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user2",
+            timestamp="2024-01-01 12:05:00",
+            properties={},  # No session_id
+        )
+
+        # Event with null session_id
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user3",
+            timestamp="2024-01-01 12:10:00",
+            properties={"$session_id": None},
+        )
+
+        flush_persons_and_events()
+
+        query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math="avg",
+                    math_property="$pageview_count",
+                    math_property_type="session_properties",
+                )
+            ],
+            trendsFilter=TrendsFilter(sessionLevelAggregation=True),
+        )
+
+        # Should not crash and should handle null session_id gracefully
+        with freeze_time("2024-01-02"):
+            results = self._run_trends_query(query)
+
+        assert isinstance(results, list)
+        assert len(results) > 0
+        # Should have results, but null session events should be excluded or handled

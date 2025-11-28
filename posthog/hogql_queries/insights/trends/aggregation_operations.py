@@ -126,6 +126,10 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
 
+    def _is_session_duration_property(self) -> bool:
+        """Helper to check if math_property is $session_duration"""
+        return self.series.math_property == "$session_duration"
+
     def aggregating_on_session_property(self) -> bool:
         """
         Check if we need session-level aggregation.
@@ -133,7 +137,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         1. Using $session_duration (backwards compatibility - always uses session-level aggregation)
         2. Using a session property as math_property AND sessionLevelAggregation flag is enabled
         """
-        if self.series.math_property == "$session_duration":
+        if self._is_session_duration_property():
             return True
 
         # Check if opt-in flag is enabled AND using session property
@@ -147,6 +151,10 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return False
 
     def aggregating_on_session_duration(self) -> bool:
+        """
+        Deprecated: Use aggregating_on_session_property() instead.
+        Kept for backwards compatibility during migration.
+        """
         return self.aggregating_on_session_property()
 
     def is_count_per_actor_variant(self):
@@ -173,7 +181,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def _get_math_chain(self) -> list[str | int]:
         if not self.series.math_property:
             raise ValueError("No math property set")
-        if self.series.math_property == "$session_duration":
+        if self._is_session_duration_property():
             # Special alias for backwards compatibility
             # The wrapper query creates an alias called "session_duration"
             return ["session_duration"]
