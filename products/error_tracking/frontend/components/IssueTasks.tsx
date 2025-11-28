@@ -192,12 +192,14 @@ const createTaskForm = (
                                 defaultIntegration.config?.account?.name ||
                                 defaultIntegration.config?.account?.login ||
                                 'GitHub'
-                            repository = `${organization}/${repoName}`
+                            repository = repoName
                         }
 
                         taskData.github_integration = defaultIntegration.id
-
-                        taskData.repository = repository
+                        taskData.repository_config = {
+                            organization,
+                            repository,
+                        }
                     }
                 }
 
