@@ -8,6 +8,8 @@ Here I'll list step-by-step what we learned, where we messed up, and lots of pra
 
 Let's forget about scaling for a moment, and focus just on a single user session - user visited a website or app, navigated a bit, did something useful, and left. The logic seems straightforward - take all the session events, send to LLM, get the summary.
 
+{{ screenshot of the player with the summary }}
+
 However...
 
 ### Not all the context is equally useful
@@ -33,4 +35,11 @@ Proper analysis takes time. Lots of user analytics tools generate summaries in a
 
 At the first glance it makes sense to
 
-### **Problem 1.3:** Crying wolf effect
+### Crying wolf effect
+
+Fast-growing products (start-ups specifically) has a bad habbit of generating lots of exceptions, especially frontend ones. LLMs seems them, panicks, and generates a summary of the session where the user completely failed in all their goals. In reality the user successfully got what they came from, and didn't even notice these exceptions.
+
+**Out approach:**
+
+- Programmatically pre-filter events that look like exceptions, especially if one causes multiple others as avalanche and they create a context that LLM can't ignore. For example, drop all JS exceptions that aren't API errors.
+- It won't save you anyway.
