@@ -270,6 +270,94 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
     )
 }
 
+export function isOpenAIImageURLMessage(input: unknown): boolean {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'image_url' &&
+        'image_url' in input &&
+        typeof input.image_url === 'object' &&
+        input.image_url !== null &&
+        'url' in input.image_url &&
+        typeof input.image_url.url === 'string'
+    )
+}
+
+export function isOpenAIFileMessage(input: unknown): boolean {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'file' &&
+        'file' in input &&
+        typeof input.file === 'object' &&
+        input.file !== null &&
+        'file_data' in input.file &&
+        'filename' in input.file &&
+        typeof input.file.file_data === 'string' &&
+        typeof input.file.filename === 'string'
+    )
+}
+
+export function isOpenAIAudioMessage(input: unknown): boolean {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'audio' &&
+        'data' in input &&
+        typeof input.data === 'string'
+    )
+}
+
+export function isAnthropicImageMessage(input: unknown): boolean {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'image' &&
+        'source' in input &&
+        typeof input.source === 'object' &&
+        input.source !== null &&
+        'type' in input.source &&
+        input.source.type === 'base64' &&
+        'data' in input.source &&
+        'media_type' in input.source &&
+        typeof input.source.data === 'string' &&
+        typeof input.source.media_type === 'string'
+    )
+}
+
+export function isGeminiImageMessage(input: unknown): boolean {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'image' &&
+        'inline_data' in input &&
+        typeof input.inline_data === 'object' &&
+        input.inline_data !== null &&
+        'data' in input.inline_data &&
+        'mime_type' in input.inline_data &&
+        typeof input.inline_data.data === 'string' &&
+        typeof input.inline_data.mime_type === 'string'
+    )
+}
+
+export function isGeminiAudioMessage(input: unknown): boolean {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'audio' &&
+        'data' in input &&
+        'mime_type' in input &&
+        typeof input.data === 'string' &&
+        typeof input.mime_type === 'string'
+    )
+}
+
 export function isLiteLLMChoice(input: unknown): input is LiteLLMChoice {
     return (
         !!input &&
@@ -349,7 +437,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                     item.type === 'input_text' ||
                     item.type === 'function' ||
                     item.type === 'image' ||
-                    item.type === 'input_image')
+                    item.type === 'input_image' ||
+                    item.type === 'image_url' ||
+                    item.type === 'file' ||
+                    item.type === 'audio')
         )
     ) {
         return [

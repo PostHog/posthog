@@ -37,6 +37,52 @@ export interface VercelSDKInputImageMessage {
     image_url: string
 }
 
+export interface OpenAIImageURLMessage {
+    type: 'image_url'
+    image_url: {
+        url: string
+    }
+}
+
+export interface OpenAIFileMessage {
+    type: 'file'
+    file: {
+        file_data: string
+        filename: string
+    }
+}
+
+export interface OpenAIAudioMessage {
+    type: 'audio'
+    data: string
+    transcript: string
+    id: string
+    expires_at: number
+}
+
+export interface AnthropicImageMessage {
+    type: 'image'
+    source: {
+        type: 'base64'
+        media_type: string
+        data: string
+    }
+}
+
+export interface GeminiAudioMessage {
+    type: 'audio'
+    data: string
+    mime_type: string
+}
+
+export interface GeminiImageMessage {
+    type: 'image'
+    inline_data: {
+        data: string
+        mime_type: string
+    }
+}
+
 export interface VercelSDKInputTextMessage {
     type: 'input_text'
     text: string
