@@ -471,9 +471,7 @@ class BillingManager:
             ).exists()
 
             if not has_integration:
-                raise ValueError(
-                    f"Organization {organization.id} does not have a {billing_provider} integration configured"
-                )
+                raise ValueError(f"Organization does not have a {billing_provider} integration configured")
 
         data = {"billing_provider": billing_provider}
 
