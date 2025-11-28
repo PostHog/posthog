@@ -1,19 +1,19 @@
-import { EmbeddingEvent } from 'onboarding/llm-analytics/_snippets/embedding-event'
-import { GenerationEvent } from 'onboarding/llm-analytics/_snippets/generation-event'
-import { SpanEvent } from 'onboarding/llm-analytics/_snippets/span-event'
-import { TraceEvent } from 'onboarding/llm-analytics/_snippets/trace-event'
-import { AnthropicInstallation } from 'onboarding/llm-analytics/anthropic'
-import { GoogleInstallation } from 'onboarding/llm-analytics/google'
-import { LangChainInstallation } from 'onboarding/llm-analytics/langchain'
-import { LiteLLMInstallation } from 'onboarding/llm-analytics/litellm'
-import { ManualInstallation } from 'onboarding/llm-analytics/manual'
-import { OpenAIInstallation } from 'onboarding/llm-analytics/openai'
-import { OpenRouterInstallation } from 'onboarding/llm-analytics/openrouter'
-import { VercelAIInstallation } from 'onboarding/llm-analytics/vercel-ai'
+import { EmbeddingEvent } from 'shared-docs/onboarding/llm-analytics/_snippets/embedding-event'
+import { GenerationEvent } from 'shared-docs/onboarding/llm-analytics/_snippets/generation-event'
+import { SpanEvent } from 'shared-docs/onboarding/llm-analytics/_snippets/span-event'
+import { TraceEvent } from 'shared-docs/onboarding/llm-analytics/_snippets/trace-event'
+import { AnthropicInstallation } from 'shared-docs/onboarding/llm-analytics/anthropic'
+import { GoogleInstallation } from 'shared-docs/onboarding/llm-analytics/google'
+import { LangChainInstallation } from 'shared-docs/onboarding/llm-analytics/langchain'
+import { LiteLLMInstallation } from 'shared-docs/onboarding/llm-analytics/litellm'
+import { ManualInstallation } from 'shared-docs/onboarding/llm-analytics/manual'
+import { OpenAIInstallation } from 'shared-docs/onboarding/llm-analytics/openai'
+import { OpenRouterInstallation } from 'shared-docs/onboarding/llm-analytics/openrouter'
+import { VercelAIInstallation } from 'shared-docs/onboarding/llm-analytics/vercel-ai'
+
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
-
-import { OnboardingDocsContentWrapper } from '../../OnboardingDocsContentWrapper'
 
 function LLMManualInstructions(): JSX.Element {
     const snippets = {

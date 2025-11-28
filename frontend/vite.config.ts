@@ -21,27 +21,6 @@ export default defineConfig(({ mode }) => {
             publicAssetsPlugin(),
             // Specifically for onboarding instructions to be shared with website repo
             {
-                name: 'docs-components-alias',
-                resolveId(id, importer) {
-                    // Only handle imports from docs directory
-                    if (!importer || !importer.includes('/docs/onboarding/')) {
-                        return null
-                    }
-                    // Handle components/* imports
-                    if (id.startsWith('components/')) {
-                        const componentPath = id.replace('components/', '')
-                        // Map OnboardingContentWrapper (old name) or OnboardingDocsContentWrapper to the actual location
-                        if (
-                            componentPath === 'Docs/OnboardingContentWrapper' ||
-                            componentPath === 'Docs/OnboardingDocsContentWrapper'
-                        ) {
-                            return resolve(__dirname, 'src/scenes/onboarding/OnboardingDocsContentWrapper.tsx')
-                        }
-                    }
-                    return null
-                },
-            },
-            {
                 name: 'onboarding-alias',
                 resolveId(id) {
                     // Handle onboarding/* imports
@@ -105,13 +84,9 @@ export default defineConfig(({ mode }) => {
                 // Just for Vite: we copy public assets to src/assets, we need to alias it to the correct path
                 public: resolve(__dirname, 'src/assets'),
                 products: resolve(__dirname, '../products'),
-                // Alias for docs/onboarding directory
-                onboarding: resolve(__dirname, '../docs/onboarding'),
-                // Alias for components/Docs/OnboardingContentWrapper (used in docs)
-                'components/Docs/OnboardingContentWrapper': resolve(
-                    __dirname,
-                    'src/scenes/onboarding/OnboardingDocsContentWrapper.tsx'
-                ),
+                // Alias for shared-docs directory (matches tsconfig.json)
+                'shared-docs': resolve(__dirname, '../docs'),
+
                 // Node.js polyfills for browser compatibility
                 buffer: 'buffer',
             },

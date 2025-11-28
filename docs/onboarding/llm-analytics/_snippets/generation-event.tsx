@@ -1,4 +1,4 @@
-import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import React from 'react'
 
 const propertyColumnStyle = { minWidth: '150px' }

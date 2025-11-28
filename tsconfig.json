@@ -12,7 +12,7 @@
             "~/*": ["src/*"],
             "public/*": ["public/*"],
             "products/*": ["../products/*"],
-            "onboarding/*": ["../docs/onboarding/*"]
+            "shared-docs/*": ["../docs/*"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled
@@ -49,7 +49,7 @@
         "products/**/manifest.tsx",
         "common/esbuilder/*",
         "common/storybook/*",
-        "docs/onboarding/**/*"
+        "docs/docs/**/*"
     ],
     "exclude": ["frontend/dist/**/*", "**/*.mdx"],
     "ts-node": {

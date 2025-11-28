@@ -1,4 +1,4 @@
-import { useMDXComponents } from 'components/Docs/OnboardingContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export const ManualInstallation = (): JSX.Element => {
     const { Markdown, Tab, CodeBlock, snippets, dedent } = useMDXComponents()

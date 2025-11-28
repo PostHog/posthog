@@ -1,5 +1,5 @@
 import React from "react"
-import { useMDXComponents } from "components/Docs/OnboardingContentWrapper"
+import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export const LangChainInstallation = (): JSX.Element => {
     const {
