@@ -12,38 +12,26 @@ import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import type { TicketChannel } from '../../data/tickets'
 
-const contentTypes = [
-    { value: 'procedures', label: 'Procedures' },
-    { value: 'articles', label: 'Articles' },
-    { value: 'snippets', label: 'Snippets' },
-]
-
 const contentEntries = [
     {
         id: 'cnt-001',
-        title: 'Cloudflare allowlist procedure',
-        type: 'Procedure',
-        targeting: 'Region = EU',
+        title: 'Widget connection troubleshooting',
         channels: ['widget', 'slack'],
-        status: 'published',
+        enabled: true,
         updated: '2h ago',
     },
     {
         id: 'cnt-002',
-        title: 'Refund policy escalation rules',
-        type: 'Procedure',
-        targeting: 'Plan = Enterprise',
+        title: 'Refund policy overview',
         channels: ['widget'],
-        status: 'published',
+        enabled: true,
         updated: 'Yesterday',
     },
     {
         id: 'cnt-003',
-        title: 'Chargeback snippet',
-        type: 'Snippet',
-        targeting: 'Segment = High ARR',
+        title: 'Billing inquiry response',
         channels: ['email'],
-        status: 'draft',
+        enabled: false,
         updated: 'Today',
     },
 ]
@@ -54,6 +42,7 @@ export const scene: SceneExport = {
 
 export function ConversationsContentScene(): JSX.Element {
     const { push } = useActions(router)
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -67,30 +56,19 @@ export function ConversationsContentScene(): JSX.Element {
 
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-2">
-                    <LemonSelect value="procedures" options={contentTypes} placeholder="Content type" size="small" />
                     <LemonSelect
                         value="all"
                         options={[
-                            { value: 'all', label: 'All statuses' },
-                            { value: 'draft', label: 'Draft' },
-                            { value: 'published', label: 'Published' },
+                            { value: 'all', label: 'All' },
+                            { value: 'enabled', label: 'Enabled' },
+                            { value: 'disabled', label: 'Disabled' },
                         ]}
                         placeholder="Status"
                         size="small"
                     />
-                    <LemonSelect
-                        value="audience"
-                        options={[
-                            { value: 'audience', label: 'Audience' },
-                            { value: 'geo', label: 'Geo' },
-                            { value: 'plan', label: 'Plan' },
-                        ]}
-                        placeholder="Audience"
-                        size="small"
-                    />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <LemonButton type="primary">New content</LemonButton>
+                    <LemonButton type="primary">New article</LemonButton>
                 </div>
             </div>
 
@@ -104,17 +82,7 @@ export function ConversationsContentScene(): JSX.Element {
                     columns={[
                         {
                             title: 'Title',
-                            key: 'title',
-                            render: (_, entry) => (
-                                <div>
-                                    <div className="font-medium">{entry.title}</div>
-                                    <div className="text-xs text-muted-alt">{entry.targeting}</div>
-                                </div>
-                            ),
-                        },
-                        {
-                            title: 'Type',
-                            dataIndex: 'type',
+                            dataIndex: 'title',
                         },
                         {
                             title: 'Channels',
@@ -137,7 +105,7 @@ export function ConversationsContentScene(): JSX.Element {
                             align: 'right',
                             render: (_, entry) => (
                                 <div className="flex justify-end">
-                                    <LemonSwitch checked={entry.status === 'published'} onChange={() => null} />
+                                    <LemonSwitch checked={entry.enabled} onChange={() => null} />
                                 </div>
                             ),
                         },

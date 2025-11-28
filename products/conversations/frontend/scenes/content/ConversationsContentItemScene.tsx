@@ -1,5 +1,6 @@
-import { LemonButton, LemonCard, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
+import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -7,20 +8,14 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
-import { ScenesTabs } from '../../components/ScenesTabs'
 import type { TicketChannel } from '../../data/tickets'
 
 const mockContent = {
     id: 'cnt-001',
-    title: 'Cloudflare allowlist procedure',
-    status: 'published',
+    title: 'Widget connection troubleshooting',
+    enabled: true,
     content:
-        'Step-by-step procedure to unblock widget websocket connections when Cloudflare rules change. Include CSP, Cloudflare rules, and contact details.',
-    audience: {
-        geo: 'Germany, France',
-        plan: 'Enterprise',
-        segment: 'High ARR',
-    },
+        'Common solutions for widget connectivity issues including CSP headers, firewall rules, and websocket configuration. Reference this when customers report connection problems.',
     channels: [
         { key: 'widget' as TicketChannel, enabled: true },
         { key: 'slack' as TicketChannel, enabled: true },
@@ -36,10 +31,9 @@ export const scene: SceneExport = {
 
 export function ConversationsContentItemScene(): JSX.Element {
     return (
-        <SceneContent className="space-y-5">
-            <ScenesTabs />
+        <SceneContent>
             <SceneTitleSection
-                name={`${mockContent.title} (${mockContent.id})`}
+                name={mockContent.id}
                 resourceType={{ type: 'conversation' }}
                 description={`Last updated ${mockContent.updatedAt} by ${mockContent.updatedBy}`}
                 forceBackTo={{
@@ -47,49 +41,43 @@ export function ConversationsContentItemScene(): JSX.Element {
                     path: urls.conversationsContent(),
                     key: 'conversationsContent',
                 }}
-                actions={
-                    <div className="flex gap-2">
-                        <LemonButton type="secondary">
-                            {mockContent.status === 'published' ? 'Unpublish' : 'Publish'}
-                        </LemonButton>
-                        <LemonButton type="primary">Save</LemonButton>
-                    </div>
-                }
+                actions={<LemonButton type="secondary">{mockContent.enabled ? 'Disable' : 'Enable'}</LemonButton>}
             />
 
-            <div className="grid gap-4 lg:grid-cols-3">
-                <LemonCard hoverEffect={false} className="space-y-4 lg:col-span-2">
-                    <LemonInput value={mockContent.title} placeholder="Title" />
-                    <LemonTextArea minRows={8} value={mockContent.content} placeholder="Content text" />
-                </LemonCard>
+            <LemonCard hoverEffect={false} className="p-4 space-y-4">
+                <div className="space-y-2">
+                    <label className="text-sm font-medium">Name</label>
+                    <LemonInput value={mockContent.title} placeholder="Article name" />
+                </div>
 
-                <LemonCard hoverEffect={false} className="space-y-4">
+                <div className="space-y-2">
+                    <label className="text-sm font-medium">Channels</label>
                     <div className="space-y-2">
-                        <h3 className="text-lg font-semibold">Channels</h3>
-                        <div className="space-y-2">
-                            {mockContent.channels.map(({ key, enabled }) => (
-                                <LemonCheckbox
-                                    key={key}
-                                    label={<ChannelsTag channel={key} />}
-                                    checked={enabled}
-                                    onChange={() => null}
-                                />
-                            ))}
-                        </div>
+                        {mockContent.channels.map(({ key, enabled }) => (
+                            <LemonCheckbox
+                                key={key}
+                                label={<ChannelsTag channel={key} />}
+                                checked={enabled}
+                                onChange={() => null}
+                            />
+                        ))}
                     </div>
-                    <div className="space-y-2">
-                        <h3 className="text-lg font-semibold">Audience</h3>
-                        <div className="mt-2 space-y-2">
-                            <label className="text-xs text-muted-alt block">Geo</label>
-                            <LemonInput value={mockContent.audience.geo} placeholder="e.g. Germany, France" />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-xs text-muted-alt block">Segment</label>
-                            <LemonInput value={mockContent.audience.segment} placeholder="e.g. High ARR" />
-                        </div>
-                    </div>
-                </LemonCard>
-            </div>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="text-sm font-medium">Content</label>
+
+                    <LemonRichContentEditor
+                        minRows={8}
+                        logicKey="content-editor"
+                        placeholder="Write your knowledge base article here. Use formatting, links, and lists to structure the content. AI will reference and synthesize from this."
+                    />
+                </div>
+
+                <div className="flex gap-2 justify-end">
+                    <LemonButton type="primary">Save</LemonButton>
+                </div>
+            </LemonCard>
         </SceneContent>
     )
 }

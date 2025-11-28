@@ -26,7 +26,7 @@ export const SCENE_TABS: SceneTabConfig[] = [
     },
     {
         key: 'content',
-        label: 'Content',
+        label: 'Knowledge base',
         href: urls.conversationsContent(),
     },
     {
