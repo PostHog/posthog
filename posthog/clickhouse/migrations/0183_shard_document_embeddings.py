@@ -12,18 +12,8 @@ from products.error_tracking.backend.embedding import (
     KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL,
 )
 
-# This migration creates the new sharded table structure alongside the existing
-# replicated table. The old replicated table (posthog_document_embeddings) is
-# left intact so data can be copied from it to the new sharded table.
-#
-# New tables created:
-# - sharded_posthog_document_embeddings: The sharded data table
-# - distributed_posthog_document_embeddings: Distributed read table for the sharded data
-#
-# The MV and writable table are recreated to write to the new sharded table.
-
 operations = [
-    # 1. Drop MV to stop writes
+    # 1. Drop MV
     run_sql_with_exceptions(
         f"DROP TABLE IF EXISTS {DOCUMENT_EMBEDDINGS_MV}",
         node_roles=[NodeRole.INGESTION_SMALL],
@@ -33,7 +23,7 @@ operations = [
         f"DROP TABLE IF EXISTS {KAFKA_DOCUMENT_EMBEDDINGS}",
         node_roles=[NodeRole.INGESTION_SMALL],
     ),
-    # 3. Drop old writable distributed table
+    # 3. Drop old writable table
     run_sql_with_exceptions(
         f"DROP TABLE IF EXISTS {DOCUMENT_EMBEDDING_WRITABLE}",
         node_roles=[NodeRole.INGESTION_SMALL],
