@@ -26,7 +26,7 @@ For revertible cloud deploys:
 
 ## Troubleshooting
 
-### Running `./udfs/build.sh` fails in flox environment
+### Running `./build.sh` fails in flox environment
 
 If you're using `flox` for development, you'll have to exit out of the environment first (nix os isn't supported).
 
