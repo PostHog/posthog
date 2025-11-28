@@ -1,14 +1,14 @@
-import { IconComment, IconLetter } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
-import { IconSlack } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
+import type { TicketChannel } from '../../data/tickets'
 
 const mockContent = {
     id: 'cnt-001',
@@ -21,11 +21,11 @@ const mockContent = {
         plan: 'Enterprise',
         segment: 'High ARR',
     },
-    channels: {
-        widget: { label: 'Widget', enabled: true, icon: <IconComment /> },
-        slack: { label: 'Slack', enabled: true, icon: <IconSlack /> },
-        email: { label: 'Email', enabled: false, icon: <IconLetter /> },
-    },
+    channels: [
+        { key: 'widget' as TicketChannel, enabled: true },
+        { key: 'slack' as TicketChannel, enabled: true },
+        { key: 'email' as TicketChannel, enabled: false },
+    ],
     updatedAt: 'Today • 09:22',
     updatedBy: 'Alex Rivera',
 }
@@ -67,16 +67,11 @@ export function ConversationsContentItemScene(): JSX.Element {
                     <div className="space-y-2">
                         <h3 className="text-lg font-semibold">Channels</h3>
                         <div className="space-y-2">
-                            {Object.entries(mockContent.channels).map(([key, channel]) => (
+                            {mockContent.channels.map(({ key, enabled }) => (
                                 <LemonCheckbox
                                     key={key}
-                                    label={
-                                        <span className="flex items-center gap-2">
-                                            {channel.icon}
-                                            {channel.label}
-                                        </span>
-                                    }
-                                    checked={channel.enabled}
+                                    label={<ChannelsTag channel={key} />}
+                                    checked={enabled}
                                     onChange={() => null}
                                 />
                             ))}

@@ -2,28 +2,21 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconBrowser, IconClock, IconComment } from '@posthog/icons'
+import { IconClock } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IconSlack } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { escalationTickets } from '../../data/escalations'
 import { conversationsKpis } from '../../data/kpis'
-import { ticketPods } from '../../data/ticketPods'
+import { escalationTickets, ticketPods } from '../../data/tickets'
 import { type ChannelFilter, conversationsDashboardSceneLogic } from './conversationsDashboardSceneLogic'
-
-const channelIcon: Record<string, JSX.Element> = {
-    widget: <IconBrowser />,
-    slack: <IconSlack />,
-    email: <IconComment />,
-}
 
 export const scene: SceneExport = {
     component: ConversationsDashboardScene,
@@ -122,13 +115,15 @@ export function ConversationsDashboardScene(): JSX.Element {
                                 className: 'w-1/3',
                             },
                             {
-                                title: 'Owner',
+                                title: 'Channel',
+                                key: 'channel',
+                                render: (_, ticket) => <ChannelsTag channel={ticket.channel} />,
+                            },
+                            {
+                                title: 'Assignee',
                                 key: 'owner',
                                 render: (_, ticket) => (
-                                    <div className="flex items-center gap-1 text-muted-alt text-xs">
-                                        {channelIcon[ticket.channel]}
-                                        <span>{ticket.owner}</span>
-                                    </div>
+                                    <span className="text-xs text-muted-alt">{ticket.owner || 'Unassigned'}</span>
                                 ),
                             },
                             {
@@ -170,9 +165,7 @@ export function ConversationsDashboardScene(): JSX.Element {
                                     <div className="mt-1 flex items-center gap-2 text-xs text-muted-alt">
                                         <IconClock />
                                         <span>{ticket.customer}</span>
-                                        <LemonTag size="small" type="muted">
-                                            {ticket.channel}
-                                        </LemonTag>
+                                        <ChannelsTag channel={ticket.channel} />
                                     </div>
                                 </div>
                             ))}

@@ -5,7 +5,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
+import type { TicketChannel } from '../../data/tickets'
 
 type GuidancePack = {
     id: string
@@ -115,9 +117,7 @@ export function ConversationsGuidanceScene(): JSX.Element {
                         render: (_, record) => (
                             <div className="flex gap-1 text-xs text-muted-alt">
                                 {record.channels.map((channel) => (
-                                    <LemonTag key={channel} size="small" type="muted">
-                                        {channel}
-                                    </LemonTag>
+                                    <ChannelsTag key={channel} channel={channel as TicketChannel} />
                                 ))}
                             </div>
                         ),

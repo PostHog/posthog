@@ -1,14 +1,16 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonSelect, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
+import type { TicketChannel } from '../../data/tickets'
 
 const contentTypes = [
     { value: 'procedures', label: 'Procedures' },
@@ -88,7 +90,6 @@ export function ConversationsContentScene(): JSX.Element {
                     />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <LemonButton type="secondary">Import CSV</LemonButton>
                     <LemonButton type="primary">New content</LemonButton>
                 </div>
             </div>
@@ -121,20 +122,9 @@ export function ConversationsContentScene(): JSX.Element {
                             render: (_, entry) => (
                                 <div className="flex gap-1 text-xs text-muted-alt">
                                     {entry.channels.map((channel) => (
-                                        <LemonTag key={channel} size="small" type="muted">
-                                            {channel}
-                                        </LemonTag>
+                                        <ChannelsTag key={channel} channel={channel as TicketChannel} />
                                     ))}
                                 </div>
-                            ),
-                        },
-                        {
-                            title: 'Status',
-                            key: 'status',
-                            render: (_, entry) => (
-                                <LemonTag type={entry.status === 'published' ? 'success' : 'default'}>
-                                    {entry.status}
-                                </LemonTag>
                             ),
                         },
                         {
@@ -142,11 +132,13 @@ export function ConversationsContentScene(): JSX.Element {
                             dataIndex: 'updated',
                         },
                         {
-                            title: 'Toggle',
-                            key: 'toggle',
+                            title: 'Enabled',
+                            key: 'enabled',
                             align: 'right',
                             render: (_, entry) => (
-                                <LemonSwitch checked={entry.status === 'published'} onChange={() => null} />
+                                <div className="flex justify-end">
+                                    <LemonSwitch checked={entry.status === 'published'} onChange={() => null} />
+                                </div>
                             ),
                         },
                     ]}

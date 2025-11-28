@@ -2,17 +2,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconComment, IconLetter } from '@posthog/icons'
 import { LemonCard, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IconSlack } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import type { TicketChannel, TicketSlaState, TicketStatus } from '../../data/tickets'
 import { conversationsTicketsSceneLogic } from './conversationsTicketsSceneLogic'
@@ -43,12 +42,6 @@ const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [
     { value: 'at-risk', label: 'At risk' },
     { value: 'breached', label: 'Breached' },
 ]
-
-const channelIcon: Record<string, JSX.Element> = {
-    widget: <IconComment />,
-    slack: <IconSlack />,
-    email: <IconLetter />,
-}
 
 export const scene: SceneExport = {
     component: ConversationsTicketsScene,
@@ -164,12 +157,7 @@ export function ConversationsTicketsScene(): JSX.Element {
                     {
                         title: 'Channel',
                         key: 'channel',
-                        render: (_, ticket) => (
-                            <div className="flex items-center gap-1 text-muted-alt text-xs">
-                                {channelIcon[ticket.channel]}
-                                <span>{ticket.channel}</span>
-                            </div>
-                        ),
+                        render: (_, ticket) => <ChannelsTag channel={ticket.channel} />,
                     },
                     {
                         title: 'Assignee',
