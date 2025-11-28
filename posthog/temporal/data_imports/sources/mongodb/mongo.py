@@ -337,7 +337,7 @@ def mongo_source(
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
-        with mongo_client(connection_string, connection_params) as read_client:
+        with mongo_client(connection_string) as read_client:
             read_db = read_client[connection_params["database"]]
             read_collection = read_db[collection_name]
 
