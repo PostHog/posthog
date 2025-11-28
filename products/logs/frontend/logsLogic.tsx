@@ -14,6 +14,7 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
@@ -32,6 +33,7 @@ const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
 const DEFAULT_LOGS_PAGE_SIZE: number = 100
+const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
@@ -55,8 +57,16 @@ export const logsLogic = kea<logsLogicType>([
     tabAwareScene(),
     tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
-            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
-                actions.setDateRange(params.dateRange)
+            if (params.dateRange) {
+                try {
+                    const dateRange =
+                        typeof params.dateRange === 'string' ? JSON.parse(params.dateRange) : params.dateRange
+                    if (!equal(dateRange, values.dateRange)) {
+                        actions.setDateRange(dateRange)
+                    }
+                } catch {
+                    // Ignore malformed dateRange JSON in URL
+                }
             }
             if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
                 actions.setFilterGroup(params.filterGroup, false)
@@ -84,6 +94,9 @@ export const logsLogic = kea<logsLogicType>([
             }
             if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
                 actions.setLogsPageSize(+params.logsPageSize)
+            }
+            if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
+                actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
         }
         return {
@@ -158,7 +171,22 @@ export const logsLogic = kea<logsLogicType>([
             })
         }
 
+        const clearInitialLogsLimit = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'initialLogsLimit', null, DEFAULT_INITIAL_LOGS_LIMIT)
+                return params
+            })
+        }
+
         return {
+            fetchLogsSuccess: () => clearInitialLogsLimit(),
             setDateRange: () => buildUrlAndRunQuery(),
             setFilterGroup: () => buildUrlAndRunQuery(),
             setSearchTerm: () => buildUrlAndRunQuery(),
@@ -217,6 +245,8 @@ export const logsLogic = kea<logsLogicType>([
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
         setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
+        setInitialLogsLimit: (initialLogsLimit: number | null) => ({ initialLogsLimit }),
+        copyLinkToLog: (logId: string) => ({ logId }),
         highlightNextLog: true,
         highlightPreviousLog: true,
         toggleExpandLog: (logId: string) => ({ logId }),
@@ -235,6 +265,13 @@ export const logsLogic = kea<logsLogicType>([
             DEFAULT_LOGS_PAGE_SIZE,
             {
                 setLogsPageSize: (_, { logsPageSize }) => logsPageSize,
+            },
+        ],
+        initialLogsLimit: [
+            DEFAULT_INITIAL_LOGS_LIMIT as number | null,
+            {
+                setInitialLogsLimit: (_, { initialLogsLimit }) => initialLogsLimit,
+                fetchLogsSuccess: () => null,
             },
         ],
         dateRange: [
@@ -421,7 +458,7 @@ export const logsLogic = kea<logsLogicType>([
 
                     const response = await api.logs.query({
                         query: {
-                            limit: values.logsPageSize,
+                            limit: values.initialLogsLimit ?? values.logsPageSize,
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.searchTerm,
@@ -964,6 +1001,24 @@ export const logsLogic = kea<logsLogicType>([
                     .sort((a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.level.localeCompare(b.level))
                     .filter((item) => latest_time_bucket.diff(dayjs(item.time), 'seconds') <= sparklineTimeWindow)
             )
+        },
+        copyLinkToLog: ({ logId }: { logId: string }) => {
+            const url = new URL(window.location.href)
+            url.searchParams.set('highlightedLogId', logId)
+            if (values.visibleLogsTimeRange) {
+                url.searchParams.set(
+                    'dateRange',
+                    JSON.stringify({
+                        date_from: values.visibleLogsTimeRange.date_from,
+                        date_to: values.visibleLogsTimeRange.date_to,
+                        explicitDate: true,
+                    })
+                )
+            }
+            if (values.logs.length > 0) {
+                url.searchParams.set('initialLogsLimit', String(values.logs.length))
+            }
+            void copyToClipboard(url.toString(), 'link to log')
         },
     })),
 
