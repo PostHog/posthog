@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
@@ -36,7 +36,7 @@ export function TeamDisplayName({ updateInline = false }: { updateInline?: boole
 
     const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
-    const debouncedUpdateCurrentTeam = debounce(updateCurrentTeam, 500)
+    const debouncedUpdateCurrentTeam = useMemo(() => debounce(updateCurrentTeam, 500), [updateCurrentTeam])
     const handleChange = (value: string): void => {
         setName(value)
         if (updateInline) {
@@ -261,10 +261,7 @@ export function TeamTimezone({ displayWarning = true }: { displayWarning?: boole
 export function TeamBusinessModel({ bare }: { bare?: boolean }): JSX.Element {
     return (
         <>
-            <p>
-                Configure your business model to better cater UI, suggestions and provide better insights tailored to
-                your use case.
-            </p>
+            <p>Set your business model if you want tailored UI, recommendations, and insights to your use case.</p>
             <div className="deprecated-space-y-2">
                 {!bare && <LemonLabel id="business-model">Business model</LemonLabel>}
                 <BusinessModelConfig />
