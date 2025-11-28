@@ -43,6 +43,7 @@ export const urls = {
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
+    feed: (): string => '/feed',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
@@ -54,7 +55,8 @@ export const urls = {
         view_id?: string,
         insightShortId?: string,
         draftId?: string,
-        outputTab?: OutputTab
+        outputTab?: OutputTab,
+        endpointName?: string
     ): string => {
         const params = new URLSearchParams()
 
@@ -70,6 +72,10 @@ export const urls = {
 
         if (outputTab) {
             params.set('output_tab', outputTab)
+        }
+
+        if (endpointName) {
+            params.set('endpoint_name', endpointName)
         }
 
         const queryString = params.toString()

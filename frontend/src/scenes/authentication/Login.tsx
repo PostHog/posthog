@@ -83,14 +83,18 @@ export function Login(): JSX.Element {
     const preventPasswordError = useRef(false)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
     const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
+    const wasPasswordHiddenRef = useRef(isPasswordHidden)
 
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
 
     useEffect(() => {
+        const wasPasswordHidden = wasPasswordHiddenRef.current
+        wasPasswordHiddenRef.current = isPasswordHidden
+
         if (!isPasswordHidden) {
             passwordInputRef.current?.focus()
-        } else {
-            // clear form when password field becomes hidden
+        } else if (!wasPasswordHidden) {
+            // clear form when transitioning from visible to hidden
             resetLogin()
         }
     }, [isPasswordHidden, resetLogin])

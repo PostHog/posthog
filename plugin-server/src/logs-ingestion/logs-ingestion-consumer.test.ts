@@ -466,7 +466,7 @@ describe('LogsIngestionConsumer', () => {
             expect(recordsReceivedSpy).toHaveBeenCalledWith(15)
             expect(recordsAllowedSpy).toHaveBeenCalledWith(5)
             expect(recordsDroppedSpy).toHaveBeenCalledWith(10)
-            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'rate_limited' })
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'rate_limited' }, 1)
         })
 
         it('should handle missing header values with defaults', async () => {

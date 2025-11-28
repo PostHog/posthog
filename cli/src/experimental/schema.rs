@@ -13,6 +13,7 @@ use crate::invocation_context::context;
 #[serde(rename_all = "lowercase")]
 enum Language {
     TypeScript,
+    Golang,
 }
 
 impl Language {
@@ -20,6 +21,7 @@ impl Language {
     fn as_str(&self) -> &'static str {
         match self {
             Language::TypeScript => "typescript",
+            Language::Golang => "golang",
         }
     }
 
@@ -27,6 +29,7 @@ impl Language {
     fn display_name(&self) -> &'static str {
         match self {
             Language::TypeScript => "TypeScript",
+            Language::Golang => "Go",
         }
     }
 
@@ -34,18 +37,55 @@ impl Language {
     fn default_output_path(&self) -> &'static str {
         match self {
             Language::TypeScript => "posthog-typed.ts",
+            Language::Golang => "posthog-typed.go",
+        }
+    }
+
+    /// Get the message to show to the user upon completion of the command (e.g. the next steps)
+    fn next_steps_text(&self, output_path: &str) -> String {
+        match self {
+            Language::TypeScript => format!(
+                r#"
+1. Import PostHog from your generated module:
+   import posthog from './{output_path}'
+2. Use typed events with autocomplete and type safety on known events:
+   posthog.capture('event_name', {{ property: 'value' }})
+3. Use captureRaw() when you need to bypass type checking:
+   posthog.captureRaw('dynamic_event_name', {{ whatever: 'data' }})
+"#
+            ),
+            Language::Golang => format!(
+                r#"
+1. Install the PostHog Go SDK if you haven't already:
+   go get github.com/posthog/posthog-go
+2. Store the generated Go code in a folder named `typed` (e.g. `/src/lib/typed`):
+   mkdir -p <your-directory>/src/lib/typed
+   mv {0}.go <your-directory>/src/lib/typed
+   > If you prefer a different folder, you will need to update the `package` at the top of
+   > the generated file.
+3. Migrate your code to the typed event captures:
+   cap := typed.EventNameCapture("user_id", requiredProp1, requiredProp2)
+   err := client.Enqueue(cap)
+
+You can add optional properties through the option functions:
+    cap := typed.EventNameCapture("user_id", required,
+       typed.EventNameWithOptionalProp("value"))
+"#,
+                output_path.trim_end_matches(".go")
+            ),
         }
     }
 
     /// Get all available languages
     fn all() -> Vec<Language> {
-        vec![Language::TypeScript]
+        vec![Language::TypeScript, Language::Golang]
     }
 
     /// Parse a language from a string identifier
     fn from_str(s: &str) -> Option<Language> {
         match s {
             "typescript" => Some(Language::TypeScript),
+            "golang" => Some(Language::Golang),
             _ => None,
         }
     }
@@ -164,7 +204,7 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
         }
     }
 
-    // Write TypeScript definitions to file
+    // Write language definitions to file
     info!("Writing {}...", output_path);
 
     // Create parent directories if they don't exist
@@ -190,15 +230,9 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     config.save()?;
     info!("✓ Updated posthog.json");
 
-    println!("\n✓ Schema sync complete!");
+    println!("✓ Schema sync complete!");
     println!("\nNext steps:");
-    println!("  1. Import PostHog from your generated module:");
-    println!("     import posthog from './{output_path}'");
-    println!("  2. Use typed events with autocomplete and type safety on known events:");
-    println!("     posthog.capture('event_name', {{ property: 'value' }})");
-    println!("  3. Use captureRaw() when you need to bypass type checking:");
-    println!("     posthog.captureRaw('dynamic_event_name', {{ whatever: 'data' }})");
-    println!();
+    println!("{}", language.next_steps_text(&output_path));
 
     Ok(())
 }

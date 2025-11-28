@@ -4,7 +4,12 @@ from django.db.models import QuerySet
 
 from django_scim import constants
 from django_scim.filters import GroupFilterQuery, UserFilterQuery
-from rest_framework import status
+from rest_framework import (
+    exceptions as drf_exceptions,
+    status,
+)
+from rest_framework.parsers import JSONParser
+from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -31,6 +36,45 @@ SCIM_USER_ATTR_MAP = {
 SCIM_GROUP_ATTR_MAP = {
     ("displayName", None, None): "name",
 }
+
+
+class SCIMJSONParser(JSONParser):
+    media_type = "application/scim+json"
+
+
+class SCIMJSONRenderer(JSONRenderer):
+    media_type = "application/scim+json"
+
+
+class SCIMBaseView(APIView):
+    """
+    Base view for all SCIM endpoints.
+    """
+
+    authentication_classes = [SCIMBearerTokenAuthentication]
+    renderer_classes = [SCIMJSONRenderer, JSONRenderer]
+    parser_classes = [SCIMJSONParser, JSONParser]
+
+    def handle_exception(self, exc):
+        if isinstance(exc, drf_exceptions.NotAuthenticated):
+            return Response(
+                {
+                    "schemas": [constants.SchemaURI.ERROR],
+                    "status": 401,
+                    "detail": "No bearer token provided",
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if isinstance(exc, drf_exceptions.AuthenticationFailed):
+            return Response(
+                {
+                    "schemas": [constants.SchemaURI.ERROR],
+                    "status": 403,
+                    "detail": "Authentication failed",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().handle_exception(exc)
 
 
 class PostHogUserFilterQuery(UserFilterQuery):
@@ -63,9 +107,7 @@ class PostHogGroupFilterQuery(GroupFilterQuery):
         )
 
 
-class SCIMUsersView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMUsersView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
@@ -113,12 +155,13 @@ class SCIMUsersView(APIView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid user data"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 
-class SCIMUserDetailView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMUserDetailView(SCIMBaseView):
     def get_object(self, user_id: int) -> PostHogSCIMUser:
         organization_domain = cast(OrganizationDomain, self.request.auth)
         user = User.objects.filter(id=user_id).first()
@@ -128,7 +171,10 @@ class SCIMUserDetailView(APIView):
 
     def handle_exception(self, exc):
         if isinstance(exc, User.DoesNotExist):
-            return Response({"detail": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 404, "detail": "User not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         return super().handle_exception(exc)
 
     def get(self, request: Request, domain_id: str, user_id: int) -> Response:
@@ -151,7 +197,10 @@ class SCIMUserDetailView(APIView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid user data"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def patch(self, request: Request, domain_id: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
@@ -170,7 +219,10 @@ class SCIMUserDetailView(APIView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Failed to update user"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Failed to update user"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def delete(self, request: Request, domain_id: str, user_id: int) -> Response:
         scim_user = self.get_object(user_id)
@@ -178,9 +230,7 @@ class SCIMUserDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class SCIMGroupsView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMGroupsView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
@@ -228,12 +278,13 @@ class SCIMGroupsView(APIView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid group data"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
 
-class SCIMGroupDetailView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMGroupDetailView(SCIMBaseView):
     def get_object(self, group_id: str) -> PostHogSCIMGroup:
         organization_domain = cast(OrganizationDomain, self.request.auth)
         role = Role.objects.filter(id=group_id, organization=organization_domain.organization).first()
@@ -243,7 +294,10 @@ class SCIMGroupDetailView(APIView):
 
     def handle_exception(self, exc):
         if isinstance(exc, Role.DoesNotExist):
-            return Response({"detail": "Group not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 404, "detail": "Group not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         return super().handle_exception(exc)
 
     def get(self, request: Request, domain_id: str, group_id: str) -> Response:
@@ -266,7 +320,10 @@ class SCIMGroupDetailView(APIView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid group data"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def patch(self, request: Request, domain_id: str, group_id: str) -> Response:
         scim_group = self.get_object(group_id)
@@ -285,7 +342,10 @@ class SCIMGroupDetailView(APIView):
                     "request_data": request.data,
                 },
             )
-            return Response({"detail": "Failed to update group"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Failed to update group"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def delete(self, request: Request, domain_id: str, group_id: str) -> Response:
         scim_group = self.get_object(group_id)
@@ -293,9 +353,7 @@ class SCIMGroupDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class SCIMServiceProviderConfigView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMServiceProviderConfigView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         return Response(
             {
@@ -320,9 +378,7 @@ class SCIMServiceProviderConfigView(APIView):
         )
 
 
-class SCIMResourceTypesView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMResourceTypesView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         return Response(
             {
@@ -336,9 +392,7 @@ class SCIMResourceTypesView(APIView):
         )
 
 
-class SCIMSchemasView(APIView):
-    authentication_classes = [SCIMBearerTokenAuthentication]
-
+class SCIMSchemasView(SCIMBaseView):
     def get(self, request: Request, domain_id: str) -> Response:
         return Response(
             {

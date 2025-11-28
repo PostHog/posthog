@@ -182,13 +182,78 @@ describe('BatchWritingPersonStore', () => {
         )
         expect(response2).toEqual([{ ...person, version: 1, properties: { test: 'test' } }, [], false])
 
-        // Check cache contains merged updates
+        // Check cache contains merged updates with conflict resolution
+        // When unsetting a property that was previously set, it should be removed from properties_to_set
         const cache = personStoreForBatch.getUpdateCache()
         const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
         expect(cachedUpdate.properties).toEqual({ test: 'test' })
-        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test', value_to_unset: 'value_to_unset' })
-        expect(cachedUpdate.properties_to_unset).toEqual(['value_to_unset']) // No properties to unset
+        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test' })
+        expect(cachedUpdate.properties_to_unset).toEqual(['value_to_unset'])
         expect(cachedUpdate.needs_write).toBe(true)
+
+        await personStoreForBatch.flush()
+
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: { test: 'test' },
+            }),
+            expect.anything(),
+            'updatePersonNoAssert'
+        )
+    })
+
+    it('should handle setting a property after unsetting it (re-setting)', async () => {
+        const personStoreForBatch = getBatchStoreForBatch()
+
+        // First, unset a property
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(person, {}, ['prop_to_toggle'], {}, 'test')
+
+        // Then, set the same property again
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            { prop_to_toggle: 'new_value' },
+            [],
+            {},
+            'test'
+        )
+
+        // Check cache - property should be in properties_to_set and NOT in properties_to_unset
+        const cache = personStoreForBatch.getUpdateCache()
+        const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
+        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test', prop_to_toggle: 'new_value' })
+        expect(cachedUpdate.properties_to_unset).toEqual([])
+
+        await personStoreForBatch.flush()
+
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: { test: 'test', prop_to_toggle: 'new_value' },
+            }),
+            expect.anything(),
+            'updatePersonNoAssert'
+        )
+    })
+
+    it('should handle unsetting a property after setting it', async () => {
+        const personStoreForBatch = getBatchStoreForBatch()
+
+        // First, set a property
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            { prop_to_toggle: 'some_value' },
+            [],
+            {},
+            'test'
+        )
+
+        // Then, unset the same property
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(person, {}, ['prop_to_toggle'], {}, 'test')
+
+        // Check cache - property should be in properties_to_unset and NOT in properties_to_set
+        const cache = personStoreForBatch.getUpdateCache()
+        const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
+        expect(cachedUpdate.properties_to_set).toEqual({ test: 'test' })
+        expect(cachedUpdate.properties_to_unset).toEqual(['prop_to_toggle'])
 
         await personStoreForBatch.flush()
 
@@ -955,6 +1020,132 @@ describe('BatchWritingPersonStore', () => {
         )
     })
 
+    it('should handle set/unset conflicts when merging updates for same person via different distinct IDs', async () => {
+        // This test validates that when two distinct IDs point to the same person,
+        // and one unsets a property while the other sets it, the conflict is resolved correctly
+        const distinctId1 = 'user-email@example.com'
+        const distinctId2 = 'user-device-abc123'
+
+        const sharedPerson = {
+            ...person,
+            properties: {
+                existing_prop: 'existing_value',
+            },
+        }
+
+        const mockRepo = createMockRepository()
+        mockRepo.fetchPerson = jest.fn().mockImplementation(() => {
+            return Promise.resolve(sharedPerson)
+        })
+        const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+        // Update via first distinct ID - unset 'conflicting_prop'
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            sharedPerson,
+            {},
+            ['conflicting_prop'],
+            {},
+            distinctId1
+        )
+
+        // Update via second distinct ID - set 'conflicting_prop' (should win over unset)
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            sharedPerson,
+            { conflicting_prop: 'new_value' },
+            [],
+            {},
+            distinctId2
+        )
+
+        const cache = personStoreForBatch.getUpdateCache()
+        const cacheValue = cache.get(`${teamId}:${sharedPerson.id}`)
+
+        expect(cacheValue).toBeDefined()
+        // The set should win - property should be in properties_to_set and NOT in properties_to_unset
+        expect(cacheValue?.properties_to_set).toEqual({
+            existing_prop: 'existing_value',
+            conflicting_prop: 'new_value',
+        })
+        expect(cacheValue?.properties_to_unset).toEqual([])
+
+        await personStoreForBatch.flush()
+
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: {
+                    existing_prop: 'existing_value',
+                    conflicting_prop: 'new_value',
+                },
+            }),
+            expect.anything(),
+            'updatePersonNoAssert'
+        )
+    })
+
+    it('should handle unset after set conflicts when merging updates for same person via different distinct IDs', async () => {
+        // This test validates that when two distinct IDs point to the same person,
+        // and one sets a property while the other unsets it (in that order), the unset wins
+        const distinctId1 = 'user-email@example.com'
+        const distinctId2 = 'user-device-abc123'
+
+        const sharedPerson = {
+            ...person,
+            properties: {
+                existing_prop: 'existing_value',
+            },
+        }
+
+        const mockRepo = createMockRepository()
+        mockRepo.fetchPerson = jest.fn().mockImplementation(() => {
+            return Promise.resolve(sharedPerson)
+        })
+        const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+        // Update via first distinct ID - set 'conflicting_prop'
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            sharedPerson,
+            { conflicting_prop: 'some_value' },
+            [],
+            {},
+            distinctId1
+        )
+
+        // Update via second distinct ID - unset 'conflicting_prop' (should win over set)
+        await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+            sharedPerson,
+            {},
+            ['conflicting_prop'],
+            {},
+            distinctId2
+        )
+
+        const cache = personStoreForBatch.getUpdateCache()
+        const cacheValue = cache.get(`${teamId}:${sharedPerson.id}`)
+
+        expect(cacheValue).toBeDefined()
+        // The unset should win - property should be in properties_to_unset and NOT in properties_to_set
+        expect(cacheValue?.properties_to_set).toEqual({
+            existing_prop: 'existing_value',
+        })
+        expect(cacheValue?.properties_to_unset).toEqual(['conflicting_prop'])
+
+        await personStoreForBatch.flush()
+
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                properties: {
+                    existing_prop: 'existing_value',
+                },
+            }),
+            expect.anything(),
+            'updatePersonNoAssert'
+        )
+    })
+
     describe('moveDistinctIds', () => {
         it('should preserve cached merged properties when moving distinct IDs', async () => {
             const mockRepo = createMockRepository()
@@ -1546,6 +1737,40 @@ describe('BatchWritingPersonStore', () => {
             expect(mockPersonPropertyKeyUpdateCounter.labels({ key: '$browser' }).inc).toHaveBeenCalledTimes(1)
         })
 
+        it('should write to database when force_update is set even with only filtered properties', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            // Update person with only filtered properties but with force_update=true (simulating $identify/$set events)
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                { ...person, properties: { $browser: 'Firefox', utm_source: 'twitter' } },
+                { $browser: 'Chrome', utm_source: 'google' },
+                [],
+                {},
+                'test',
+                true // force_update=true for $identify/$set events
+            )
+
+            // Flush SHOULD write to database because force_update bypasses filtering
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+
+            // Verify metrics - should be 'changed' because force_update bypasses filtering
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'changed' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            // With force_update, properties should not be marked as ignored
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            // personPropertyKeyUpdateCounter should be called for the updated properties
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(2)
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'utm_source' })
+        })
+
         it('integration: multiple events with only filtered properties should not trigger database write', async () => {
             const mockRepo = createMockRepository()
             const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
@@ -1748,6 +1973,134 @@ describe('BatchWritingPersonStore', () => {
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(1)
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'other' })
             expect(mockPersonPropertyKeyUpdateCounter.labels({ key: 'other' }).inc).toHaveBeenCalledTimes(1)
+        })
+
+        it('integration: chain of events - normal event (ignored), $identify event (forces update), then normal event (also written)', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const personWithFiltered = {
+                ...person,
+                properties: {
+                    $browser: 'Firefox',
+                    utm_source: 'twitter',
+                    $geoip_city_name: 'New York',
+                },
+            }
+
+            // Event 1: Normal pageview event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Chrome', utm_source: 'google' },
+                [],
+                {},
+                'test'
+            )
+
+            // Event 2: $identify event with ONLY filtered properties - should force update
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $geoip_city_name: 'San Francisco', $browser: 'Safari' },
+                [],
+                {},
+                'test',
+                true // forceUpdate=true ($identify event)
+            )
+
+            // Event 3: Another normal event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { utm_source: 'facebook' },
+                [],
+                {},
+                'test'
+            )
+
+            // Flush SHOULD write to database because $identify event set force_update=true
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+
+            // Verify that ALL property changes from all three events are written
+            expect(mockRepo.updatePerson).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    properties: expect.objectContaining({
+                        $browser: 'Safari',
+                        utm_source: 'facebook',
+                        $geoip_city_name: 'San Francisco',
+                    }),
+                }),
+                expect.anything(),
+                'updatePersonNoAssert'
+            )
+        })
+
+        it('integration: chain without $identify/$set should not trigger update', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const personWithFiltered = {
+                ...person,
+                properties: {
+                    $browser: 'Firefox',
+                    utm_source: 'twitter',
+                },
+            }
+
+            // Event 1: Normal event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Chrome' },
+                [],
+                {},
+                'test'
+                // forceUpdate not set
+            )
+
+            // Event 2: Another normal event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { utm_source: 'google' },
+                [],
+                {},
+                'test'
+                // forceUpdate not set
+            )
+
+            // Event 3: Yet another normal event with filtered properties
+            await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
+                personWithFiltered,
+                { $browser: 'Safari' },
+                [],
+                {},
+                'test'
+                // forceUpdate not set
+            )
+
+            // Flush should NOT write to database - all events are normal with only filtered properties
+            await personStoreForBatch.flush()
+
+            expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+
+            // Verify metrics - should be 'ignored' since all properties are filtered and no force_update
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledTimes(1)
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+            expect(mockPersonProfileBatchUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalledTimes(
+                1
+            )
+            // Properties should be marked as ignored
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(2)
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: '$browser',
+            })
+            expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                property: 'utm_source',
+            })
+            // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
+            expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
         })
     })
 })
