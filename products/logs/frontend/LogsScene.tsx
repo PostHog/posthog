@@ -68,7 +68,6 @@ export function LogsScene(): JSX.Element {
         isPinned,
         hasMoreLogsToLoad,
         logsPageSize,
-        totalLogsMatchingFilters,
         logsRemainingToLoad,
     } = useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline, loadMoreLogs } = useActions(logsLogic)
@@ -177,7 +176,7 @@ export function LogsScene(): JSX.Element {
                                 {logsLoading
                                     ? 'Loading more logs...'
                                     : hasMoreLogsToLoad
-                                      ? `Showing ${humanFriendlyNumber(parsedLogs.length)} of ${humanFriendlyNumber(totalLogsMatchingFilters)} logs – load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
+                                      ? `Click to load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
                                       : `Showing all ${humanFriendlyNumber(parsedLogs.length)} logs`}
                             </LemonButton>
                         </div>
@@ -461,6 +460,7 @@ const DisplayOptions = (): JSX.Element => {
         timestampFormat,
         logsPageSize,
         totalLogsMatchingFilters,
+        parsedLogs,
         sparklineLoading,
     } = useValues(logsLogic)
     const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat, setLogsPageSize } = useActions(logsLogic)
@@ -505,7 +505,10 @@ const DisplayOptions = (): JSX.Element => {
             </div>
             <div className="flex items-center gap-4">
                 {!sparklineLoading && totalLogsMatchingFilters > 0 && (
-                    <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsMatchingFilters)} logs</span>
+                    <span className="text-muted text-xs">
+                        Showing {humanFriendlyNumber(parsedLogs.length)} of{' '}
+                        {humanFriendlyNumber(totalLogsMatchingFilters)} logs
+                    </span>
                 )}
                 <LemonField.Pure label="Page size" inline className="items-center gap-2">
                     <LemonSelect
