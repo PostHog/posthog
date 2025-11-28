@@ -4,6 +4,54 @@
  * PostHog API - batch_exports
  * OpenAPI spec version: 1.0.0
  */
+export type ModelEnum = (typeof ModelEnum)[keyof typeof ModelEnum]
+export const ModelEnum = {
+    events: 'events',
+    persons: 'persons',
+    sessions: 'sessions',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
+export type IntervalEnum = (typeof IntervalEnum)[keyof typeof IntervalEnum]
+export const IntervalEnum = {
+    hour: 'hour',
+    day: 'day',
+    week: 'week',
+    every_5_minutes: 'every 5 minutes',
+} as const
+
+export type BatchExportRunStatusEnum = (typeof BatchExportRunStatusEnum)[keyof typeof BatchExportRunStatusEnum]
+export const BatchExportRunStatusEnum = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
+
+export const BatchExportDestinationTypeEnum = {
+    S3: 'S3',
+    Snowflake: 'Snowflake',
+    Postgres: 'Postgres',
+    Redshift: 'Redshift',
+    BigQuery: 'BigQuery',
+    Databricks: 'Databricks',
+    HTTP: 'HTTP',
+    NoOp: 'NoOp',
+} as const
+
 export interface PaginatedBatchExportList {
     count: number
     /** @nullable */
@@ -250,26 +298,12 @@ export interface PatchedBatchExport {
  * `persons` - Persons
  * `sessions` - Sessions
  */
-export type ModelEnum = (typeof ModelEnum)[keyof typeof ModelEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ModelEnum = {
-    events: 'events',
-    persons: 'persons',
-    sessions: 'sessions',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 /**
  * Serializer for an BatchExportDestination model.
@@ -303,15 +337,8 @@ export interface BatchExportDestination {
  * `week` - week
  * `every 5 minutes` - every 5 minutes
  */
-export type IntervalEnum = (typeof IntervalEnum)[keyof typeof IntervalEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const IntervalEnum = {
-    hour: 'hour',
-    day: 'day',
-    week: 'week',
-    every_5_minutes: 'every 5 minutes',
-} as const
 
 /**
  * * `Cancelled` - Cancelled
@@ -325,21 +352,8 @@ export const IntervalEnum = {
  * `Running` - Running
  * `Starting` - Starting
  */
-export type BatchExportRunStatusEnum = (typeof BatchExportRunStatusEnum)[keyof typeof BatchExportRunStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportRunStatusEnum = {
-    Cancelled: 'Cancelled',
-    Completed: 'Completed',
-    ContinuedAsNew: 'ContinuedAsNew',
-    Failed: 'Failed',
-    FailedRetryable: 'FailedRetryable',
-    FailedBilling: 'FailedBilling',
-    Terminated: 'Terminated',
-    TimedOut: 'TimedOut',
-    Running: 'Running',
-    Starting: 'Starting',
-} as const
 
 /**
  * * `S3` - S3
@@ -355,16 +369,6 @@ export type BatchExportDestinationTypeEnum =
     (typeof BatchExportDestinationTypeEnum)[keyof typeof BatchExportDestinationTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportDestinationTypeEnum = {
-    S3: 'S3',
-    Snowflake: 'Snowflake',
-    Postgres: 'Postgres',
-    Redshift: 'Redshift',
-    BigQuery: 'BigQuery',
-    Databricks: 'Databricks',
-    HTTP: 'HTTP',
-    NoOp: 'NoOp',
-} as const
 
 export type EnvironmentsBatchExportsListParams = {
     /**

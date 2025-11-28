@@ -4,6 +4,32 @@
  * PostHog API - desktop_recordings
  * OpenAPI spec version: 1.0.0
  */
+export const CreateRecordingRequestPlatformEnum = {
+    zoom: 'zoom',
+    teams: 'teams',
+    meet: 'meet',
+    desktop_audio: 'desktop_audio',
+    slack: 'slack',
+} as const
+
+export type Platform9aaEnum = (typeof Platform9aaEnum)[keyof typeof Platform9aaEnum]
+export const Platform9aaEnum = {
+    zoom: 'zoom',
+    teams: 'teams',
+    meet: 'meet',
+    desktop_audio: 'desktop_audio',
+    slack: 'slack',
+} as const
+
+export type Status292Enum = (typeof Status292Enum)[keyof typeof Status292Enum]
+export const Status292Enum = {
+    recording: 'recording',
+    uploading: 'uploading',
+    processing: 'processing',
+    ready: 'ready',
+    error: 'error',
+} as const
+
 export interface PaginatedDesktopRecordingList {
     count: number
     /** @nullable */
@@ -234,13 +260,6 @@ export type CreateRecordingRequestPlatformEnum =
     (typeof CreateRecordingRequestPlatformEnum)[keyof typeof CreateRecordingRequestPlatformEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CreateRecordingRequestPlatformEnum = {
-    zoom: 'zoom',
-    teams: 'teams',
-    meet: 'meet',
-    desktop_audio: 'desktop_audio',
-    slack: 'slack',
-} as const
 
 /**
  * * `zoom` - Zoom
@@ -249,16 +268,8 @@ export const CreateRecordingRequestPlatformEnum = {
  * `desktop_audio` - Desktop audio
  * `slack` - Slack huddle
  */
-export type Platform9aaEnum = (typeof Platform9aaEnum)[keyof typeof Platform9aaEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Platform9aaEnum = {
-    zoom: 'zoom',
-    teams: 'teams',
-    meet: 'meet',
-    desktop_audio: 'desktop_audio',
-    slack: 'slack',
-} as const
 
 /**
  * * `recording` - Recording
@@ -267,16 +278,8 @@ export const Platform9aaEnum = {
  * `ready` - Ready
  * `error` - Error
  */
-export type Status292Enum = (typeof Status292Enum)[keyof typeof Status292Enum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Status292Enum = {
-    recording: 'recording',
-    uploading: 'uploading',
-    processing: 'processing',
-    ready: 'ready',
-    error: 'error',
-} as const
 
 /**
  * Serializer for individual transcript segments from AssemblyAI

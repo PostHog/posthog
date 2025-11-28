@@ -8,14 +8,9 @@ import api from 'lib/api'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
 
-interface RequestOptions extends RequestInit {
-    method: HttpMethod
-    body?: string
-}
-
-export const apiMutator = async <T>(url: string, options: RequestOptions): Promise<T> => {
+export const apiMutator = async <T>(url: string, options: RequestInit & { method: HttpMethod }): Promise<T> => {
     const { method, body, signal } = options
-    const data = body ? JSON.parse(body) : undefined
+    const data = body ? JSON.parse(body as string) : undefined
     const apiOptions = signal ? { signal } : undefined
 
     switch (method) {

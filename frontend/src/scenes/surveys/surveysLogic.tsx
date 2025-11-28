@@ -21,6 +21,8 @@ import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLog
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 
+import { surveysList } from 'products/surveys/frontend/generated'
+
 import type { surveysLogicType } from './surveysLogicType'
 
 export enum SurveysTabs {
@@ -133,8 +135,10 @@ export const surveysLogic = kea<surveysLogicType>([
                 searchSurveysCount: 0,
             } as SurveyDataState,
             loadSurveys: async () => {
-                const response = await api.surveys.list()
-                return mergeSurveysData(values.data, response)
+                const projectId = String(values.currentTeam?.id)
+                const response = await surveysList(projectId)
+                // Generated types are more accurate than manual ~/types - cast for now
+                return mergeSurveysData(values.data, response.data as unknown as CountedPaginatedResponse<Survey>)
             },
             loadNextPage: async () => {
                 const offset = values.data.surveys.length
