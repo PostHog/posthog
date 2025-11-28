@@ -1258,7 +1258,7 @@ class SessionRecordingViewSet(
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
         return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
+            stream_recording_summary(session_id=session_id, user=user, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
 

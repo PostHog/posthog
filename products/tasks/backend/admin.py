@@ -1,6 +1,19 @@
 from django.contrib import admin
 
 
+class TaskAdmin(admin.ModelAdmin):
+    list_display = ("title", "team", "origin_product", "created_at")
+    list_filter = ("origin_product",)
+    search_fields = ("title",)
+    raw_id_fields = ("team", "created_by")
+
+
+class TaskRunAdmin(admin.ModelAdmin):
+    list_display = ("task", "status", "created_at")
+    list_filter = ("status",)
+    raw_id_fields = ("task", "team")
+
+
 class SandboxSnapshotAdmin(admin.ModelAdmin):
     list_display = ("external_id", "status", "created_at", "updated_at")
     list_filter = ("status", "created_at")

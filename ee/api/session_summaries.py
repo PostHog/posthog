@@ -106,7 +106,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @staticmethod
     async def _get_summary_from_progress_stream(
         session_ids: list[str],
-        user_id: int,
+        user: User,
         team: Team,
         min_timestamp: datetime,
         max_timestamp: datetime,
@@ -117,7 +117,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         results: list[tuple[SessionSummaryStreamUpdate, tuple[EnrichedSessionGroupSummaryPatternsList, str] | str]] = []
         async for update in execute_summarize_session_group(
             session_ids=session_ids,
-            user_id=user_id,
+            user=user,
             team=team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
@@ -171,7 +171,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         try:
             summary = async_to_sync(self._get_summary_from_progress_stream)(
                 session_ids=session_ids,
-                user_id=user.id,
+                user=user,
                 team=self.team,
                 min_timestamp=min_timestamp,
                 max_timestamp=max_timestamp,
@@ -217,7 +217,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @staticmethod
     async def _summarize_session(
         session_id: str,
-        user_id: int,
+        user: User,
         team: Team,
         video_validation_enabled: bool | None,
         extra_summary_context: ExtraSummaryContext | None = None,
@@ -225,7 +225,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         try:
             summary_raw = await execute_summarize_session(
                 session_id=session_id,
-                user_id=user_id,
+                user=user,
                 team=team,
                 video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
@@ -240,7 +240,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     async def _get_individual_summaries(
         self,
         session_ids: list[str],
-        user_id: int,
+        user: User,
         team: Team,
         video_validation_enabled: bool | None,
         extra_summary_context: ExtraSummaryContext | None = None,
@@ -251,7 +251,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tasks[session_id] = tg.create_task(
                     self._summarize_session(
                         session_id=session_id,
-                        user_id=user_id,
+                        user=user,
                         team=team,
                         video_validation_enabled=video_validation_enabled,
                         extra_summary_context=extra_summary_context,
@@ -262,9 +262,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             res: SessionSummarySerializer | Exception = task.result()
             if isinstance(res, Exception):
                 logger.exception(
-                    f"Failed to generate individual session summary for session {session_id} from team {team.pk} by user {user_id}: {res}",
+                    f"Failed to generate individual session summary for session {session_id} from team {team.pk} by user {user.id}: {res}",
                     team_id=team.pk,
-                    user_id=user_id,
+                    user_id=user.id,
                 )
             else:
                 # Return only successful summaries
@@ -296,7 +296,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         try:
             summaries = async_to_sync(self._get_individual_summaries)(
                 session_ids=session_ids,
-                user_id=user.id,
+                user=user,
                 team=self.team,
                 video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,

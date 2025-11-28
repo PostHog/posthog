@@ -67,6 +67,8 @@ import type {
     ProductKey,
     QuerySchema,
     QueryStatus,
+    QuickFilterContext,
+    QuickFilterType,
     RecordingOrder,
     RecordingsQuery,
     RevenueAnalyticsConfig,
@@ -1221,6 +1223,7 @@ export interface RecordingUniversalFilters {
     filter_group: UniversalFiltersGroup
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
+    limit?: RecordingsQuery['limit']
 }
 
 export interface UniversalFiltersGroup {
@@ -2477,6 +2480,7 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
+    WEB_ANALYTICS = 'WEB_ANALYTICS',
 }
 
 export enum PathType {
@@ -3346,6 +3350,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: SurveyRatingScaleValue
     lowerBoundLabel: string
     upperBoundLabel: string
+    isNpsQuestion?: boolean
     skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
@@ -6106,4 +6111,22 @@ export interface EnrichedPatternAssignedEvent {
     event: string
     event_type: string | null
     event_index: number
+}
+
+export interface QuickFilterOption {
+    id: string
+    value: string | string[] | null
+    label: string
+    operator: PropertyOperator
+}
+
+export interface QuickFilter {
+    id: string
+    name: string
+    property_name: string
+    type: QuickFilterType
+    options: QuickFilterOption[]
+    contexts: QuickFilterContext[]
+    created_at: string
+    updated_at: string
 }
