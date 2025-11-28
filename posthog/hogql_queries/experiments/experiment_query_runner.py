@@ -22,6 +22,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import tag_queries
@@ -47,6 +48,7 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 from posthog.hogql_queries.experiments.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
+    get_experiment_query_sql,
     get_experiment_stats_method,
     get_frequentist_experiment_result,
     get_variant_results,
@@ -126,6 +128,9 @@ class ExperimentQueryRunner(QueryRunner):
             self.use_new_query_builder = False
         else:
             self.use_new_query_builder = self.experiment.stats_config.get("use_new_query_builder", False)
+
+        self.clickhouse_sql: str | None = None
+        self.hogql: str | None = None
 
     def _should_use_new_query_builder(self) -> bool:
         """
@@ -583,9 +588,13 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
         )
 
+        experiment_query_ast = self._get_experiment_query()
+        self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
+        self.hogql = to_printed_hogql(experiment_query_ast, self.team)
+
         response = execute_hogql_query(
             query_type="ExperimentQuery",
-            query=self._get_experiment_query(),
+            query=experiment_query_ast,
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
@@ -622,6 +631,9 @@ class ExperimentQueryRunner(QueryRunner):
         # Attach breakdown data if present
         if breakdown_results is not None:
             result.breakdown_results = breakdown_results
+
+        result.clickhouse_sql = self.clickhouse_sql
+        result.hogql = self.hogql
 
         return result
 

@@ -44,19 +44,17 @@ export const SeverityLevelsFilter = (): JSX.Element => {
             : 'All levels'
 
     return (
-        <span className="rounded bg-surface-primary">
-            <LemonMenu
-                closeOnClickInside={false}
-                items={Object.entries(options).map(([key, label]) => ({
-                    label,
-                    onClick: () => onClick(key as LogMessage['severity_text']),
-                    active: severityLevels.includes(key as LogMessage['severity_text']),
-                }))}
-            >
-                <LemonButton icon={<IconFilter />} size="small" type="secondary" className="whitespace-nowrap">
-                    {displayLevels}
-                </LemonButton>
-            </LemonMenu>
-        </span>
+        <LemonMenu
+            closeOnClickInside={false}
+            items={Object.entries(options).map(([key, label]) => ({
+                label,
+                onClick: () => onClick(key as LogMessage['severity_text']),
+                active: severityLevels.includes(key as LogMessage['severity_text']),
+            }))}
+        >
+            <LemonButton icon={<IconFilter />} size="small" type="secondary" className="whitespace-nowrap">
+                {displayLevels}
+            </LemonButton>
+        </LemonMenu>
     )
 }

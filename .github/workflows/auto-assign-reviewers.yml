@@ -10,16 +10,16 @@
 # If you need to create an auto-assign reviewers workflow, please use a
 # different name and workflow file
 
-name: "Auto Assign Reviewers"
+name: 'Auto Assign Reviewers'
 
 on:
-  workflow_dispatch:
+    workflow_dispatch:
 
 jobs:
-  blocked:
-    runs-on: ubuntu-latest
-    steps:
-      - name: This workflow is blocked
-        run: |
-          echo "� A workflow with this name was previously compromised and is now blocked."
-          exit 1
+    blocked:
+        runs-on: ubuntu-latest
+        steps:
+            - name: This workflow is blocked
+              run: |
+                  echo "� A workflow with this name was previously compromised and is now blocked."
+                  exit 1

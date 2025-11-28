@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from unittest.case import skip
 
 from parameterized import parameterized
 from rest_framework import status
@@ -79,6 +80,21 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(log.item_id, str(endpoint.id))
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "test_query")
+
+    @skip("Validation of HogQL not implemented yet")
+    def test_cannot_create_endpoint_with_invalid_sql(self):
+        """Test creating an endpoint with invalid HogQL fails."""
+        data = {
+            "name": "test_query",
+            "description": "Test query description",
+            "query": {"kind": "HogQLQuery", "query": "selet 100"},  # intentionally wrong spelling
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        response_data = response.json()
+        self.assertEqual(response_data["type"], "validation_error")
 
     def test_create_insight_endpoint(self):
         data = {
@@ -167,39 +183,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
 
-    def test_execute_endpoint(self):
-        """Test executing a endpoint successfully."""
-        Endpoint.objects.create(
-            name="execute_test",
-            team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1 as result"},
-            created_by=self.user,
-            is_active=True,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/execute_test/run/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-
-        # Verify response structure (should match query response format)
-        self.assertIn("results", response_data)
-        self.assertIsInstance(response_data["results"], list)
-
-    def test_execute_inactive_query(self):
-        """Test that inactive queries cannot be executed."""
-        Endpoint.objects.create(
-            name="inactive_test",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            is_active=False,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/inactive_test/run/")
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
     def test_invalid_query_name_validation(self):
         """Test validation of invalid query names."""
         data = {
@@ -258,104 +241,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/other_team_query/run/")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_execute_query_with_invalid_sql(self):
-        """Test error handling when executing query with invalid SQL."""
-        Endpoint.objects.create(
-            name="invalid_sql_test",
-            team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT FROM invalid_syntax"},
-            created_by=self.user,
-            is_active=True,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/invalid_sql_test/run/")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("detail", response.json())
-
-    def test_execute_query_with_variables(self):
-        """Test executing a endpoint with variables."""
-        variable = InsightVariable.objects.create(
-            team=self.team,
-            name="From Date",
-            code_name="from_date",
-            type=InsightVariable.Type.DATE,
-            default_value="2025-01-01",
-        )
-
-        query_with_variables = {
-            "kind": "HogQLQuery",
-            "query": "select * from events where toDate(timestamp) > {variables.from_date}",
-            "variables": {
-                str(variable.id): {"variableId": str(variable.id), "code_name": "from_date", "value": "2025-01-01"}
-            },
-        }
-
-        Endpoint.objects.create(
-            name="query_with_variables",
-            team=self.team,
-            query=query_with_variables,
-            created_by=self.user,
-            is_active=True,
-        )
-
-        distinct_id = str(uuid4())
-
-        # add 3 events before 2025-09-18
-        for _ in range(0, 3):
-            _create_event(
-                distinct_id=distinct_id,
-                team=self.team,
-                event="$event1",
-                properties={"$lib": "$web"},
-                timestamp=datetime(2025, 9, 10),
-            )
-        # add 3 events after 2025-09-18
-        for _ in range(0, 3):
-            _create_event(
-                distinct_id=distinct_id,
-                team=self.team,
-                event="$event2",
-                properties={"$lib": "$web"},
-                timestamp=datetime(2025, 9, 21),
-            )
-
-        request_data = {"variables": {"from_date": "2025-09-18"}}
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/query_with_variables/run/", request_data, format="json"
-        )
-
-        response_data = response.json()
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
-        self.assertEqual(len(response_data["results"]), 3)
-
-    def test_execute_insight_endpoint_with_filters_override(self):
-        Endpoint.objects.create(
-            name="trends_query",
-            team=self.team,
-            query=TrendsQuery(series=[EventsNode()]).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
-        request_data = {
-            "filters_override": {
-                "date_from": "2025-09-18",
-                "date_to": "2025-09-21",
-                "properties": [{"type": "event", "operator": "exact", "key": "event", "value": "$pageview"}],
-            }
-        }
-        expected_filters = [{"key": "event", "label": None, "operator": "exact", "type": "event", "value": "$pageview"}]
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/trends_query/run/", request_data, format="json"
-        )
-        response_data = response.json()
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
-        self.assertEqual(response_data["resolved_date_range"]["date_from"], "2025-09-18T00:00:00Z")
-        self.assertEqual(response_data["resolved_date_range"]["date_to"], "2025-09-21T23:59:59.999999Z")
-        self.assertEqual(response_data["results"][0]["filter"]["properties"], expected_filters)
 
     def test_list_filter_by_is_active(self):
         """Test filtering endpoints by is_active status."""
@@ -601,79 +486,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         endpoint = Endpoint.objects.get(name="comprehensive_trends_test", team=self.team)
         self.assertEqual(endpoint.created_by, self.user)
         self.assertEqual("TrendsQuery", endpoint.query["kind"])
-
-    def test_execute_endpoint_with_trends_query_override(self):
-        """Test executing a endpoint with TrendsQuery override containing key fields."""
-        trends_query = {
-            "kind": "TrendsQuery",
-            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
-            "dateRange": {"date_from": "2025-01-01", "date_to": "2025-01-20"},
-            "interval": "week",
-            "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event", "breakdown_limit": 5},
-            "compareFilter": {"compare": True, "compare_to": "-1d"},
-            "trendsFilter": {"display": "ActionsLineGraph", "showLegend": True, "decimalPlaces": 1},
-            "properties": [{"key": "$current_url", "operator": "icontains", "type": "event", "value": "posthog.com"}],
-            "filterTestAccounts": False,
-            "samplingFactor": 0.5,
-        }
-
-        Endpoint.objects.create(
-            name="trends_execution_test",
-            team=self.team,
-            query=trends_query,
-            created_by=self.user,
-            is_active=True,
-        )
-
-        override_payload = {
-            "query_override": {
-                "interval": "hour",
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview", "math": "total"},
-                    {"kind": "EventsNode", "event": "$autocapture", "math": "dau"},
-                ],
-                "dateRange": {"date_from": "2025-01-01", "date_to": "2025-01-02"},
-            }
-        }
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/trends_execution_test/run/", override_payload, format="json"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        response_data = response.json()
-
-        self.assertIn("results", response_data)
-        self.assertIsInstance(response_data["results"], list)
-
-        # TODO: make this more specific
-        if response_data["results"]:
-            first_series_result = response_data["results"][0]
-            self.assertEqual(first_series_result["interval"], "hour")
-            self.assertEqual(len(first_series_result["data"]), 25)
-
-    def test_execute_hogql_query_with_override_validation_error(self):
-        """Test that executing a HogQL query with query_override raises a validation error."""
-        hogql_query = {"kind": "HogQLQuery", "query": "SELECT count(1) FROM events"}
-
-        Endpoint.objects.create(
-            name="hogql_validation_test",
-            team=self.team,
-            query=hogql_query,
-            created_by=self.user,
-            is_active=True,
-        )
-
-        # Try to execute with query_override (should fail)
-        override_payload = {"query_override": {"query": "SELECT count(2) FROM events"}}
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/endpoints/hogql_validation_test/run/", override_payload, format="json"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        response_data = response.json()
-        self.assertEqual("validation_error", response_data["type"])
 
     def test_get_last_execution_times_empty_names(self):
         """Test getting last execution times with empty names list."""
@@ -967,3 +779,231 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("abc123xyz", response_data["derived_from_insight"])
         endpoint = Endpoint.objects.get(name="test_with_insight", team=self.team)
         self.assertEqual(endpoint.derived_from_insight, "abc123xyz")
+
+
+class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
+    ENDPOINT = "endpoints"
+
+    def setUp(self):
+        super().setUp()
+        self.sample_hogql_query = {
+            "explain": None,
+            "filters": None,
+            "kind": "HogQLQuery",
+            "modifiers": None,
+            "name": None,
+            "query": "SELECT count(1) FROM query_log",
+            "response": None,
+            "tags": None,
+            "values": None,
+            "variables": None,
+            "version": None,
+        }
+        self.sample_insight_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode"}],
+        }
+
+    def test_execute_endpoint(self):
+        """Test executing a endpoint successfully."""
+        Endpoint.objects.create(
+            name="execute_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 as result"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/execute_test/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertIn("results", response_data)
+        self.assertIsInstance(response_data["results"], list)
+
+    def test_execute_inactive_query(self):
+        """Test that inactive queries cannot be executed."""
+        Endpoint.objects.create(
+            name="inactive_test",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=False,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/inactive_test/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # TODO: can we drop this one? yes after test_cant_create_endpoint_with_invalid_sql is green
+    def test_execute_query_with_invalid_sql(self):
+        """Test error handling when executing query with invalid SQL."""
+        Endpoint.objects.create(
+            name="invalid_sql_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT FROM invalid_syntax"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/invalid_sql_test/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", response.json())
+
+    def test_execute_query_with_variables(self):
+        """Test executing a endpoint with variables."""
+        variable = InsightVariable.objects.create(
+            team=self.team,
+            name="From Date",
+            code_name="from_date",
+            type=InsightVariable.Type.DATE,
+            default_value="2025-01-01",
+        )
+
+        query_with_variables = {
+            "kind": "HogQLQuery",
+            "query": "select * from events where toDate(timestamp) > {variables.from_date}",
+            "variables": {
+                str(variable.id): {"variableId": str(variable.id), "code_name": "from_date", "value": "2025-01-01"}
+            },
+        }
+
+        Endpoint.objects.create(
+            name="query_with_variables",
+            team=self.team,
+            query=query_with_variables,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        distinct_id = str(uuid4())
+
+        # add 3 events before 2025-09-18
+        for _ in range(0, 3):
+            _create_event(
+                distinct_id=distinct_id,
+                team=self.team,
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=datetime(2025, 9, 10),
+            )
+        # add 3 events after 2025-09-18
+        for _ in range(0, 3):
+            _create_event(
+                distinct_id=distinct_id,
+                team=self.team,
+                event="$event2",
+                properties={"$lib": "$web"},
+                timestamp=datetime(2025, 9, 21),
+            )
+
+        request_data = {"variables": {"from_date": "2025-09-18"}}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/query_with_variables/run/", request_data, format="json"
+        )
+
+        response_data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+        self.assertEqual(len(response_data["results"]), 3)
+
+    def test_execute_insight_endpoint_with_filters_override(self):
+        Endpoint.objects.create(
+            name="trends_query",
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode()]).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+        request_data = {
+            "filters_override": {
+                "date_from": "2025-09-18",
+                "date_to": "2025-09-21",
+                "properties": [{"type": "event", "operator": "exact", "key": "event", "value": "$pageview"}],
+            }
+        }
+        expected_filters = [{"key": "event", "label": None, "operator": "exact", "type": "event", "value": "$pageview"}]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/trends_query/run/", request_data, format="json"
+        )
+        response_data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+        self.assertEqual(response_data["resolved_date_range"]["date_from"], "2025-09-18T00:00:00Z")
+        self.assertEqual(response_data["resolved_date_range"]["date_to"], "2025-09-21T23:59:59.999999Z")
+        self.assertEqual(response_data["results"][0]["filter"]["properties"], expected_filters)
+
+    def test_execute_insight_endpoint_with_query_override(self):
+        """Test executing a endpoint with TrendsQuery override containing key fields."""
+        trends_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+            "dateRange": {"date_from": "2025-01-01", "date_to": "2025-01-20"},
+            "interval": "week",
+            "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event", "breakdown_limit": 5},
+            "compareFilter": {"compare": True, "compare_to": "-1d"},
+            "trendsFilter": {"display": "ActionsLineGraph", "showLegend": True, "decimalPlaces": 1},
+            "properties": [{"key": "$current_url", "operator": "icontains", "type": "event", "value": "posthog.com"}],
+            "filterTestAccounts": False,
+            "samplingFactor": 0.5,
+        }
+
+        Endpoint.objects.create(
+            name="trends_execution_test",
+            team=self.team,
+            query=trends_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        override_payload = {
+            "query_override": {
+                "interval": "hour",
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                    {"kind": "EventsNode", "event": "$autocapture", "math": "dau"},
+                ],
+                "dateRange": {"date_from": "2025-01-01", "date_to": "2025-01-02"},
+            }
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/trends_execution_test/run/", override_payload, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        response_data = response.json()
+
+        self.assertIn("results", response_data)
+        self.assertIsInstance(response_data["results"], list)
+
+        # TODO: make this more specific
+        if response_data["results"]:
+            first_series_result = response_data["results"][0]
+            self.assertEqual(first_series_result["interval"], "hour")
+            self.assertEqual(len(first_series_result["data"]), 25)
+
+    def test_execute_hogql_query_with_override_validation_error(self):
+        """Test that executing a HogQL query with query_override raises a validation error."""
+        hogql_query = {"kind": "HogQLQuery", "query": "SELECT count(1) FROM events"}
+
+        Endpoint.objects.create(
+            name="hogql_validation_test",
+            team=self.team,
+            query=hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Try to execute with query_override (should fail)
+        override_payload = {"query_override": {"query": "SELECT count(2) FROM events"}}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/hogql_validation_test/run/", override_payload, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        response_data = response.json()
+        self.assertEqual("validation_error", response_data["type"])
