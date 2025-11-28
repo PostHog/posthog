@@ -139,6 +139,7 @@ def get_variant_result(
         - FunnelMetric: step_counts, [optional: step_sessions]
         - RatioMetric: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
         - MeanMetric: (no additional fields)
+        - RetentionMetric: (no additional fields)
     """
     # Determine number of breakdowns from metric definition
     num_breakdowns = 0
@@ -190,6 +191,8 @@ def get_variant_result(
             base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
             base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
         case ExperimentMeanMetric():
+            pass  # No additional fields beyond base_stats
+        case ExperimentRetentionMetric():
             pass  # No additional fields beyond base_stats
 
     return (breakdown_tuple, ExperimentStatsBase(**base_stats))
