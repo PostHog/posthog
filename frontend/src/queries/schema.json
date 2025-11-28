@@ -2,7 +2,15 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
         "AIEventType": {
-            "enum": ["$ai_generation", "$ai_embedding", "$ai_span", "$ai_trace", "$ai_metric", "$ai_feedback"],
+            "enum": [
+                "$ai_generation",
+                "$ai_embedding",
+                "$ai_span",
+                "$ai_trace",
+                "$ai_metric",
+                "$ai_feedback",
+                "$ai_evaluation"
+            ],
             "type": "string"
         },
         "ActionConversionGoal": {
@@ -17509,6 +17517,13 @@
                 "level": {
                     "$ref": "#/definitions/LogSeverityLevel"
                 },
+                "live_logs_checkpoint": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "new": {
+                    "type": "boolean"
+                },
                 "observed_timestamp": {
                     "format": "date-time",
                     "type": "string"
@@ -17593,6 +17608,9 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "liveLogsCheckpoint": {
+                    "type": "string"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -18791,6 +18809,10 @@
                 },
                 "filter_test_accounts": {
                     "type": "boolean"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many recordings the user requested to use. Skip if user did not indicate preference."
                 },
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
@@ -24258,6 +24280,14 @@
             },
             "required": ["query"],
             "type": "object"
+        },
+        "QuickFilterContext": {
+            "enum": ["error-tracking-issue-filters", "logs-filters"],
+            "type": "string"
+        },
+        "QuickFilterType": {
+            "enum": ["manual-options", "auto-discovery"],
+            "type": "string"
         },
         "ReasoningMessage": {
             "additionalProperties": false,

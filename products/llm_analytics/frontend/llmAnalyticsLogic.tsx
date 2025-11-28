@@ -1382,7 +1382,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()
 
-        if (values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]) {
+        if (
+            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
+            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        ) {
             actions.loadLLMDashboards()
         }
     }),

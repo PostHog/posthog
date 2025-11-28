@@ -92,6 +92,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         heatmapColorPalette,
         samplingFactor,
         elementsLoading,
+        processingProgress,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -177,7 +178,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 <div className="p-2">
                     <SectionButton
                         onChange={(e) => toggleClickmapsEnabled(e)}
-                        loading={elementStatsLoading}
+                        loading={elementStatsLoading || elementsLoading || !!processingProgress}
                         checked={!!clickmapsEnabled}
                     >
                         Clickmaps (autocapture)
@@ -263,7 +264,17 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
 
                             <div className="my-2">
                                 Found: {countedElements.length} elements / {clickCount} clicks
-                                {elementsLoading ? ' (processing...)' : '!'}
+                                {processingProgress ? (
+                                    <span className="text-muted">
+                                        {' '}
+                                        (Processing: {processingProgress.processed.toLocaleString()}/
+                                        {processingProgress.total.toLocaleString()})
+                                    </span>
+                                ) : elementsLoading ? (
+                                    ' (processing...)'
+                                ) : (
+                                    '!'
+                                )}
                             </div>
                             <div className="flex flex-col w-full h-full">
                                 {countedElements.length ? (

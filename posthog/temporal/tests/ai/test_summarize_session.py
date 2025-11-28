@@ -456,7 +456,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
             results = []
             generator = execute_summarize_session_stream(
                 session_id=mock_session_id,
-                user_id=mock_user.id,
+                user=mock_user,
                 team=mock_team,
                 extra_summary_context=None,
                 local_reads_prod=False,
@@ -528,7 +528,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
                 list(
                     execute_summarize_session_stream(
                         session_id=mock_session_id,
-                        user_id=mock_user.id,
+                        user=mock_user,
                         team=mock_team,
                         extra_summary_context=None,
                         local_reads_prod=False,
@@ -615,7 +615,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
             result = list(
                 execute_summarize_session_stream(
                     session_id=mock_session_id,
-                    user_id=mock_user.id,
+                    user=mock_user,
                     team=mock_team,
                     extra_summary_context=None,
                     local_reads_prod=False,
