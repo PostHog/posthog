@@ -403,6 +403,7 @@ export const logsLogic = kea<logsLogicType>([
                     }
                     return newSet
                 },
+                clearLogs: () => new Set<string>(),
             },
         ],
     }),
