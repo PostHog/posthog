@@ -12,6 +12,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
@@ -27,6 +28,7 @@ import {
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
     InsightLogicProps,
+    InsightModel,
     InsightType,
     StepOrderValue,
     TrendResult,
@@ -46,6 +48,20 @@ import {
 } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
+
+function isFunnelsQueryOrLegacyFilter(
+    insightData: Partial<InsightModel> | null | undefined,
+    querySource: InsightQueryNode | null
+): boolean {
+    /**
+     * TODO: Remove legacy filter check once all tests are migrated to query-based format.
+     * There are still multiple tests relying on the legacy format in funnelDataLogic.test.ts.
+     */
+    if (insightData?.filters?.insight === InsightType.FUNNELS) {
+        return true
+    }
+    return isFunnelsQuery(querySource)
+}
 
 export const funnelDataLogic = kea<funnelDataLogicType>([
     path((key) => ['scenes', 'funnels', 'funnelDataLogic', key]),
@@ -199,14 +215,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 s.isTimeToConvertFunnel,
             ],
             (
-                _insightData,
+                insightData,
                 _vizQuerySource,
                 querySource,
                 breakdownFilter,
                 results,
                 isTimeToConvertFunnel
             ): FunnelStepWithNestedBreakdown[] => {
-                if (!querySource) {
+                if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return []
                 }
 
@@ -339,8 +355,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         hasFunnelResults: [
             (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
-            (_insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
-                if (!querySource) {
+            (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
+                if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return false
                 }
 
