@@ -31,7 +31,6 @@ const DEFAULT_HIGHLIGHTED_LOG_ID = null as string | null
 const DEFAULT_ORDER_BY = 'latest' as LogsQuery['orderBy']
 const DEFAULT_WRAP_BODY = true
 const DEFAULT_PRETTIFY_JSON = true
-const DEFAULT_TIMESTAMP_FORMAT = 'absolute' as 'absolute' | 'relative'
 const DEFAULT_LOGS_PAGE_SIZE: number = 100
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
@@ -82,9 +81,6 @@ export const logsLogic = kea<logsLogicType>([
             }
             if (params.prettifyJson !== undefined && params.prettifyJson !== values.prettifyJson) {
                 actions.setPrettifyJson(params.prettifyJson)
-            }
-            if (params.timestampFormat && params.timestampFormat !== values.timestampFormat) {
-                actions.setTimestampFormat(params.timestampFormat)
             }
             if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
                 actions.setLogsPageSize(+params.logsPageSize)
@@ -143,7 +139,6 @@ export const logsLogic = kea<logsLogicType>([
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'wrapBody', values.wrapBody, DEFAULT_WRAP_BODY)
                 updateSearchParams(params, 'prettifyJson', values.prettifyJson, DEFAULT_PRETTIFY_JSON)
-                updateSearchParams(params, 'timestampFormat', values.timestampFormat, DEFAULT_TIMESTAMP_FORMAT)
                 return params
             })
         }
@@ -174,7 +169,6 @@ export const logsLogic = kea<logsLogicType>([
             setHighlightedLogId: () => updateHighlightURL(),
             setWrapBody: () => updateUrlWithDisplayPreferences(),
             setPrettifyJson: () => updateUrlWithDisplayPreferences(),
-            setTimestampFormat: () => updateUrlWithDisplayPreferences(),
         }
     }),
 
@@ -212,7 +206,6 @@ export const logsLogic = kea<logsLogicType>([
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
         setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
-        setTimestampFormat: (timestampFormat: 'absolute' | 'relative') => ({ timestampFormat }),
         addFilter: (key: string, value: string, operator: PropertyOperator = PropertyOperator.Exact) => ({
             key,
             value,
@@ -302,12 +295,6 @@ export const logsLogic = kea<logsLogicType>([
             DEFAULT_PRETTIFY_JSON as boolean,
             {
                 setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
-            },
-        ],
-        timestampFormat: [
-            DEFAULT_TIMESTAMP_FORMAT as 'absolute' | 'relative',
-            {
-                setTimestampFormat: (_, { timestampFormat }) => timestampFormat,
             },
         ],
         logsAbortController: [
