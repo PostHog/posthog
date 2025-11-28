@@ -27,7 +27,7 @@ export const generateHogQLHandler: ToolBase<typeof schema>['handler'] = async (c
             ],
         }
     }
-    return { content: [{ type: 'text', text: JSON.stringify(result.data) }] }
+    return result.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

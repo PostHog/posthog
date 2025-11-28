@@ -13,7 +13,9 @@ Endpoint:
 """
 
 import json
+import time
 import hashlib
+from typing import cast
 
 from django.core.cache import cache
 
@@ -27,6 +29,8 @@ from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.rate_limit import LLMAnalyticsTextReprBurstThrottle, LLMAnalyticsTextReprSustainedThrottle
 
 from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr, format_trace_text_repr
@@ -135,6 +139,8 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         """
         # Sort options dict for consistent hashing
         options_str = json.dumps(options, sort_keys=True)
+        # this hash has no security impact
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         options_hash = hashlib.md5(options_str.encode()).hexdigest()[:8]
         return f"llm_text_repr:{self.team_id}:{event_type}:{entity_id}:{options_hash}"
 
@@ -301,6 +307,7 @@ The response includes the formatted text and metadata about the rendering.
                 return Response(cached_result, status=status.HTTP_200_OK)
 
             # Cache miss - generate text representation
+            start_time = time.time()
             if event_type == "$ai_trace":
                 # For traces, expect data to have trace and hierarchy
                 text = format_trace_text_repr(
@@ -311,6 +318,7 @@ The response includes the formatted text and metadata about the rendering.
             else:
                 # For $ai_generation and $ai_span
                 text = format_event_text_repr(event=data, options=options)
+            duration_seconds = time.time() - start_time
 
             # Apply max_length cap if output exceeds limit
             max_len = options.get("max_length", 4000000)
@@ -349,6 +357,20 @@ The response includes the formatted text and metadata about the rendering.
                 entity_id=entity_id,
                 team_id=self.team_id,
                 char_count=len(text),
+            )
+
+            # Track user action
+            report_user_action(
+                cast(User, self.request.user),
+                "llma text repr generated",
+                {
+                    "event_type": event_type,
+                    "entity_id": entity_id,
+                    "char_count": len(text),
+                    "truncated": truncated_by_max_length,
+                    "duration_seconds": duration_seconds,
+                },
+                self.team,
             )
 
             return Response(result, status=status.HTTP_200_OK)

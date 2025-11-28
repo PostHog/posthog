@@ -144,7 +144,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to send verification email: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(request.path)
+            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[user.pk]))
 
         if request.POST.get("revoke_sessions") == "1":
             try:
@@ -159,7 +159,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to revoke sessions: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(request.path)
+            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[user.pk]))
 
         return super().change_view(request, object_id, form_url, extra_context)
 

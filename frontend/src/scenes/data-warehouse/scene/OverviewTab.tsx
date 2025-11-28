@@ -96,7 +96,7 @@ export function OverviewTab(): JSX.Element {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="flex items-start gap-1">
-                        <div className="text-sm text-muted">Rows Processed</div>
+                        <div className="text-sm text-muted">Rows processed</div>
                         <Tooltip
                             title="Total rows processed this month by all data sources and materialized views"
                             placement="bottom"
@@ -162,7 +162,7 @@ export function OverviewTab(): JSX.Element {
                         <div className="flex items-center justify-between mb-4 flex-shrink-0">
                             <div className="flex items-center gap-2">
                                 <div className="flex items-start gap-1">
-                                    <div className="text-lg font-medium">Sync Success Rate</div>
+                                    <div className="text-lg font-medium">Sync success rate</div>
                                 </div>
                                 {jobStatsLoading && <Spinner className="text-muted" />}
                             </div>

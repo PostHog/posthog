@@ -1,9 +1,16 @@
+import json
+import uuid
 import random
+from datetime import timedelta
 from typing import Any, Literal, TypedDict
+from zoneinfo import ZoneInfo
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Survey, Team, User
+from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
 
 
 class MultipleChoiceTemplate(TypedDict):
@@ -83,6 +90,69 @@ FEATURES = [
     "annotations",
 ]
 
+# Sample responses for generating realistic survey response data
+OPEN_RESPONSES = {
+    "feedback": [
+        "Love the new dashboard! The analytics are much clearer now.",
+        "The interface could be more intuitive. Sometimes I get lost in the navigation.",
+        "Great product overall, but loading times could be faster.",
+        "Amazing customer support team! They helped me resolve my issue quickly.",
+        "The mobile app needs work - it feels clunky compared to the web version.",
+        "Pricing is reasonable for the value provided. Very satisfied.",
+        "Would love to see more integrations with other tools we use.",
+        "The onboarding process was smooth and helpful.",
+        "Some features are hard to find. Maybe reorganize the menu?",
+        "Excellent reporting capabilities. Saves me hours of work.",
+        "The search functionality could be improved.",
+        "Love the real-time collaboration features!",
+        "Documentation could be more comprehensive.",
+        "The API is well-designed and easy to use.",
+        "Would appreciate dark mode support.",
+    ],
+    "improvement": [
+        "Better search and filtering options",
+        "More customization for dashboards",
+        "Faster loading times",
+        "Mobile app improvements",
+        "More integration options",
+        "Better notification system",
+        "Improved user interface",
+        "More detailed analytics",
+        "Better documentation",
+        "Enhanced security features",
+        "Bulk operations support",
+        "Advanced export options",
+        "Team collaboration tools",
+        "Automation features",
+        "Performance optimizations",
+    ],
+    "experience": [
+        "Smooth and intuitive overall",
+        "Had some initial learning curve but good now",
+        "Very positive, exceeded expectations",
+        "Mixed - some great features, some frustrations",
+        "Excellent, would recommend to others",
+        "Good but room for improvement",
+        "Outstanding customer service experience",
+        "The setup process was straightforward",
+        "Love the clean, modern interface",
+        "Sometimes slow but generally reliable",
+    ],
+}
+
+SAMPLE_DISTINCT_IDS = [
+    "user_demo_001",
+    "user_demo_002",
+    "user_demo_003",
+    "user_demo_004",
+    "user_demo_005",
+    "user_demo_006",
+    "user_demo_007",
+    "user_demo_008",
+    "user_demo_009",
+    "user_demo_010",
+]
+
 
 class Command(BaseCommand):
     help = "Generate random surveys for development purposes"
@@ -90,6 +160,18 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("count", type=int, help="Number of surveys to generate")
         parser.add_argument("--team-id", type=int, help="Team ID to create surveys for")
+        parser.add_argument(
+            "--responses",
+            type=int,
+            default=0,
+            help="Number of responses to generate per survey (default: 0, no responses)",
+        )
+        parser.add_argument(
+            "--days-back",
+            type=int,
+            default=30,
+            help="Generate responses over the last N days (default: 30)",
+        )
 
     def generate_random_question(self) -> dict[str, Any]:
         question_type: QuestionType = random.choice(["open", "rating", "multiple_choice", "link"])
@@ -206,7 +288,8 @@ class Command(BaseCommand):
             "linked_flag_id": None,
             "linked_flag": None,
             "targeting_flag": None,
-            "start_date": None,
+            # start_date must be set for survey results to load in the UI
+            "start_date": timezone.now() - timedelta(days=60),
             "end_date": None,
             "conditions": None,
             "responses_limit": None,
@@ -221,23 +304,268 @@ class Command(BaseCommand):
             "response_sampling_daily_limits": None,
         }
 
+    def generate_response_for_question(self, question: dict[str, Any]) -> str | list[str] | None:
+        """Generate a realistic response for a given question type."""
+        question_type = question.get("type")
+        question_text = question.get("question", "").lower()
+
+        if question_type == "open":
+            if "improve" in question_text or "better" in question_text:
+                return random.choice(OPEN_RESPONSES["improvement"])
+            elif "experience" in question_text or "feel" in question_text:
+                return random.choice(OPEN_RESPONSES["experience"])
+            return random.choice(OPEN_RESPONSES["feedback"])
+
+        elif question_type == "rating":
+            scale = question.get("scale", 5)
+            # Realistic distribution: skewed positive with some variation
+            rand = random.random()
+            if rand < 0.1:
+                return "1"
+            elif rand < 0.2:
+                return "2"
+            elif rand < 0.35:
+                return str(min(3, scale))
+            elif rand < 0.65:
+                return str(min(4, scale))
+            return str(scale)
+
+        elif question_type == "single_choice":
+            choices = question.get("choices", [])
+            if choices:
+                # Weight first choice higher (common pattern)
+                if random.random() < 0.4:
+                    return choices[0]
+                return random.choice(choices)
+            return None
+
+        elif question_type == "multiple_choice":
+            choices = question.get("choices", [])
+            if choices:
+                num_selections = random.randint(1, min(3, len(choices)))
+                return random.sample(choices, num_selections)
+            return None
+
+        elif question_type == "link":
+            # Link questions don't have responses
+            return None
+
+        return None
+
+    def _build_event_row(
+        self,
+        event_name: str,
+        properties: dict[str, Any],
+        distinct_id: str,
+        timestamp: Any,
+        team: Team,
+        index: int,
+    ) -> tuple[str, dict[str, Any]]:
+        """Build a single event row for bulk insertion."""
+        # timestamp and created_at are DateTime64(6) - need microseconds
+        ts_str = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
+        # person_created_at and group*_created_at are DateTime64 (seconds) - no microseconds
+        ts_str_no_micro = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
+        zero_date = "1970-01-01 00:00:00"
+
+        insert = """(
+            %(uuid_{i})s,
+            %(event_{i})s,
+            %(properties_{i})s,
+            %(timestamp_{i})s,
+            %(team_id_{i})s,
+            %(distinct_id_{i})s,
+            %(elements_chain_{i})s,
+            %(person_id_{i})s,
+            %(person_properties_{i})s,
+            %(person_created_at_{i})s,
+            %(group0_properties_{i})s,
+            %(group1_properties_{i})s,
+            %(group2_properties_{i})s,
+            %(group3_properties_{i})s,
+            %(group4_properties_{i})s,
+            %(group0_created_at_{i})s,
+            %(group1_created_at_{i})s,
+            %(group2_created_at_{i})s,
+            %(group3_created_at_{i})s,
+            %(group4_created_at_{i})s,
+            %(person_mode_{i})s,
+            %(created_at_{i})s,
+            %(_timestamp_{i})s,
+            0
+        )""".format(i=index)
+
+        params = {
+            f"uuid_{index}": str(uuid.uuid4()),
+            f"event_{index}": event_name,
+            f"properties_{index}": json.dumps(properties),
+            f"timestamp_{index}": ts_str,
+            f"team_id_{index}": team.id,
+            f"distinct_id_{index}": distinct_id,
+            f"elements_chain_{index}": "",
+            f"person_id_{index}": str(uuid.uuid4()),
+            f"person_properties_{index}": "{}",
+            f"person_created_at_{index}": zero_date,
+            f"group0_properties_{index}": "",
+            f"group1_properties_{index}": "",
+            f"group2_properties_{index}": "",
+            f"group3_properties_{index}": "",
+            f"group4_properties_{index}": "",
+            f"group0_created_at_{index}": zero_date,
+            f"group1_created_at_{index}": zero_date,
+            f"group2_created_at_{index}": zero_date,
+            f"group3_created_at_{index}": zero_date,
+            f"group4_created_at_{index}": zero_date,
+            f"person_mode_{index}": "full",
+            f"created_at_{index}": ts_str,
+            f"_timestamp_{index}": ts_str_no_micro,
+        }
+
+        return insert, params
+
+    def generate_survey_responses(
+        self, survey: Survey, team: Team, num_responses: int, days_back: int
+    ) -> tuple[int, int, int]:
+        """Generate survey response events for a survey.
+
+        Inserts directly into ClickHouse for immediate availability.
+        Returns tuple of (sent_count, shown_count, dismissed_count).
+        """
+        now = timezone.now()
+        sent_count = 0
+        shown_count = 0
+        dismissed_count = 0
+
+        # For realism, generate more "shown" events than "sent" (not everyone responds)
+        total_shown = int(num_responses * random.uniform(1.3, 1.8))
+
+        inserts: list[str] = []
+        params: dict[str, Any] = {}
+        event_index = 0
+
+        for i in range(total_shown):
+            distinct_id = random.choice(SAMPLE_DISTINCT_IDS)
+            # Spread events over the specified time range
+            timestamp = now - timedelta(
+                days=random.randint(0, days_back),
+                hours=random.randint(0, 23),
+                minutes=random.randint(0, 59),
+            )
+
+            # Create "survey shown" event
+            insert, event_params = self._build_event_row(
+                event_name="survey shown",
+                properties={
+                    "$survey_id": str(survey.id),
+                    "$survey_name": survey.name,
+                },
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                team=team,
+                index=event_index,
+            )
+            inserts.append(insert)
+            params.update(event_params)
+            event_index += 1
+            shown_count += 1
+
+            # Decide if user responded or dismissed
+            if i < num_responses:
+                # Generate response
+                response_properties: dict[str, Any] = {
+                    "$survey_id": str(survey.id),
+                    "$survey_name": survey.name,
+                }
+
+                # Generate response for each question
+                questions = survey.questions or []
+                for idx, question in enumerate(questions):
+                    response = self.generate_response_for_question(question)
+                    if response is not None:
+                        if idx == 0:
+                            response_properties["$survey_response"] = response
+                        else:
+                            response_properties[f"$survey_response_{idx}"] = response
+
+                insert, event_params = self._build_event_row(
+                    event_name="survey sent",
+                    properties=response_properties,
+                    distinct_id=distinct_id,
+                    timestamp=timestamp + timedelta(seconds=random.randint(5, 120)),
+                    team=team,
+                    index=event_index,
+                )
+                inserts.append(insert)
+                params.update(event_params)
+                event_index += 1
+                sent_count += 1
+            else:
+                # Generate dismissed event
+                insert, event_params = self._build_event_row(
+                    event_name="survey dismissed",
+                    properties={
+                        "$survey_id": str(survey.id),
+                        "$survey_name": survey.name,
+                    },
+                    distinct_id=distinct_id,
+                    timestamp=timestamp + timedelta(seconds=random.randint(2, 30)),
+                    team=team,
+                    index=event_index,
+                )
+                inserts.append(insert)
+                params.update(event_params)
+                event_index += 1
+                dismissed_count += 1
+
+        # Bulk insert all events directly into ClickHouse
+        if inserts:
+            sql = BULK_INSERT_EVENT_SQL() + ",".join(inserts)
+            sync_execute(sql, params)
+
+        return sent_count, shown_count, dismissed_count
+
     def handle(self, *args, **options):
         count = options["count"]
         team_id = options["team_id"]
+        num_responses = options["responses"]
+        days_back = options["days_back"]
 
-        if not team_id:
+        if team_id:
+            team = Team.objects.filter(id=team_id).first()
+            if not team:
+                self.stdout.write(self.style.ERROR(f"Team with ID {team_id} not found."))
+                return
+        else:
             team = Team.objects.first()
             if not team:
                 self.stdout.write(self.style.ERROR("No teams found. Please create a team first."))
                 return
-            team_id = team.id
 
-        user = User.objects.filter(current_team_id=team_id).first()
+        user = User.objects.filter(current_team_id=team.id).first()
         if not user:
-            self.stdout.write(self.style.ERROR(f"No users found for team {team_id}"))
+            # Fall back to any user in the organization
+            user = team.organization.members.first()
+        if not user:
+            self.stdout.write(self.style.ERROR(f"No users found for team {team.id}"))
             return
 
+        total_sent = 0
+        total_shown = 0
+        total_dismissed = 0
+
         for _ in range(count):
-            survey_data = self.generate_random_survey(team_id, user.id)
+            survey_data = self.generate_random_survey(team.id, user.id)
             survey = Survey.objects.create(**survey_data)
             self.stdout.write(self.style.SUCCESS(f'Created survey "{survey.name}" (ID: {survey.id})'))
+
+            if num_responses > 0:
+                sent, shown, dismissed = self.generate_survey_responses(survey, team, num_responses, days_back)
+                total_sent += sent
+                total_shown += shown
+                total_dismissed += dismissed
+                self.stdout.write(f"  Generated {sent} responses, {shown} shown events, {dismissed} dismissed events")
+
+        if num_responses > 0:
+            self.stdout.write(
+                self.style.SUCCESS(f"\nTotal: {total_sent} responses, {total_shown} shown, {total_dismissed} dismissed")
+            )

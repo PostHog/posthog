@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { formatPropertyLabel, isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
@@ -48,6 +48,7 @@ import {
     SessionRecordingId,
     SessionRecordingType,
     UniversalFilterValue,
+    UniversalFiltersGroup,
 } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -317,6 +318,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
+        limit: universalFilters.limit,
     }
 }
 
@@ -460,6 +462,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
+        applyPropertyFilter: (propertyKey: string, propertyValue: string | undefined) => ({
+            propertyKey,
+            propertyValue,
+        }),
+        togglePropertyFilter: (propertyKey: string, propertyValue: string | undefined) => ({
+            propertyKey,
+            propertyValue,
+        }),
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
@@ -529,8 +539,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
+                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(values.filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
-                        ...convertUniversalFiltersToRecordingsQuery(values.filters),
+                        ...convertedQuery,
                         person_uuid: props.personUUID ?? '',
                         // KLUDGE: some persons have >8MB of distinct_ids,
                         // which wouldn't fit in the URL,
@@ -539,7 +550,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         // you probably want the person UUID PoE optimisation anyway
                         // TODO: maybe we can slice this instead
                         distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
-                        limit: RECORDINGS_LIMIT,
+                        // Use the limit from filters if set, otherwise use the default limit
+                        limit: convertedQuery.limit ?? RECORDINGS_LIMIT,
                         // If a recording is selected from URL, ensure it's always included in results
                         session_recording_id: values.selectedRecordingId ?? undefined,
                     }
@@ -781,6 +793,182 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         resetFilters: () => {
             actions.loadSessionRecordings()
             props.onFiltersChange?.(values.filters)
+        },
+
+        applyPropertyFilter: ({ propertyKey, propertyValue }) => {
+            // Validate property value
+            if (propertyValue === undefined || propertyValue === null) {
+                return
+            }
+
+            // Determine property filter type
+            // For recordings: $browser, $os, $device_type, etc are Event properties
+            // $geoip_* and custom properties (no $) are Person properties
+            // Everything else with $ is Session property
+            const filterType =
+                propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
+                    ? PropertyFilterType.Person
+                    : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+                      ? PropertyFilterType.Event
+                      : PropertyFilterType.Session
+
+            // Create property filter object
+            const filter = {
+                type: filterType,
+                key: propertyKey,
+                value: propertyValue,
+                operator: PropertyOperator.Exact,
+            }
+
+            // Clone the current filter group structure and add to the first nested group
+            const currentGroup = values.filters.filter_group
+            const newGroup: UniversalFiltersGroup = {
+                ...currentGroup,
+                values: currentGroup.values.map((nestedGroup, index) => {
+                    // Add to the first nested group (index 0)
+                    if (index === 0 && 'values' in nestedGroup) {
+                        return {
+                            ...nestedGroup,
+                            values: [...nestedGroup.values, filter],
+                        } as UniversalFiltersGroup
+                    }
+                    return nestedGroup
+                }),
+            }
+
+            actions.setFilters({ filter_group: newGroup })
+
+            // Show toast notification with human-readable label and view filters button
+            const filterLabel = formatPropertyLabel(filter, {})
+            lemonToast.success(`Filter applied: ${filterLabel}`, {
+                toastId: `filter-applied-${propertyKey}`,
+                button: {
+                    label: 'View filters',
+                    action: () => {
+                        actions.setIsFiltersExpanded(true)
+                    },
+                },
+            })
+        },
+
+        togglePropertyFilter: ({ propertyKey, propertyValue }) => {
+            // Validate property value
+            if (propertyValue === undefined || propertyValue === null) {
+                return
+            }
+
+            // Determine property filter type
+            const filterType =
+                propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
+                    ? PropertyFilterType.Person
+                    : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+                      ? PropertyFilterType.Event
+                      : PropertyFilterType.Session
+
+            const currentGroup = values.filters.filter_group
+            const firstNestedGroup = currentGroup.values[0]
+
+            if (!firstNestedGroup || !('values' in firstNestedGroup)) {
+                return
+            }
+
+            // Check if filter with exact (key, value) exists - if so, remove it
+            const exactMatchIndex = firstNestedGroup.values.findIndex((filter) => {
+                if ('key' in filter && 'value' in filter && 'operator' in filter) {
+                    return (
+                        filter.key === propertyKey &&
+                        filter.value === propertyValue &&
+                        filter.operator === PropertyOperator.Exact
+                    )
+                }
+                return false
+            })
+
+            let newGroup: UniversalFiltersGroup
+            let actionLabel: string
+
+            if (exactMatchIndex !== -1) {
+                // Remove the exact match
+                newGroup = {
+                    ...currentGroup,
+                    values: currentGroup.values.map((nestedGroup, index) => {
+                        if (index === 0 && 'values' in nestedGroup) {
+                            return {
+                                ...nestedGroup,
+                                values: nestedGroup.values.filter((_, i) => i !== exactMatchIndex),
+                            } as UniversalFiltersGroup
+                        }
+                        return nestedGroup
+                    }),
+                }
+                actionLabel = 'Filter removed'
+            } else {
+                // Check if filter with same key but different value exists
+                const sameKeyIndex = firstNestedGroup.values.findIndex((filter) => {
+                    if ('key' in filter && 'operator' in filter) {
+                        return filter.key === propertyKey && filter.operator === PropertyOperator.Exact
+                    }
+                    return false
+                })
+
+                const newFilter = {
+                    type: filterType,
+                    key: propertyKey,
+                    value: propertyValue,
+                    operator: PropertyOperator.Exact,
+                }
+
+                if (sameKeyIndex !== -1) {
+                    // Replace the existing filter with same key
+                    newGroup = {
+                        ...currentGroup,
+                        values: currentGroup.values.map((nestedGroup, index) => {
+                            if (index === 0 && 'values' in nestedGroup) {
+                                return {
+                                    ...nestedGroup,
+                                    values: nestedGroup.values.map((filter, i) =>
+                                        i === sameKeyIndex ? newFilter : filter
+                                    ),
+                                } as UniversalFiltersGroup
+                            }
+                            return nestedGroup
+                        }),
+                    }
+                    actionLabel = 'Filter replaced'
+                } else {
+                    // Add new filter
+                    newGroup = {
+                        ...currentGroup,
+                        values: currentGroup.values.map((nestedGroup, index) => {
+                            if (index === 0 && 'values' in nestedGroup) {
+                                return {
+                                    ...nestedGroup,
+                                    values: [...nestedGroup.values, newFilter],
+                                } as UniversalFiltersGroup
+                            }
+                            return nestedGroup
+                        }),
+                    }
+                    actionLabel = 'Filter applied'
+                }
+            }
+
+            actions.setFilters({ filter_group: newGroup })
+
+            // Show toast notification
+            const filterLabel = formatPropertyLabel(
+                { type: filterType, key: propertyKey, value: propertyValue, operator: PropertyOperator.Exact },
+                {}
+            )
+            lemonToast.success(`${actionLabel}: ${filterLabel}`, {
+                toastId: `filter-toggled-${propertyKey}`,
+                button: {
+                    label: 'View filters',
+                    action: () => {
+                        actions.setIsFiltersExpanded(true)
+                    },
+                },
+            })
         },
 
         maybeLoadSessionRecordings: ({ direction }) => {

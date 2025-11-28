@@ -32,6 +32,7 @@ python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m granian \
     --reload-paths ./posthog \
     --reload-paths ./ee \
     --reload-paths ./products \
+    --reload-paths ./frontend/src/products.json \
     --host $HOST_BIND \
     --log-level debug \
     --workers 1

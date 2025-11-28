@@ -474,12 +474,16 @@ export const toolbarLogic = kea<toolbarLogicType>([
         },
         actionCreatedSuccess: (action) => {
             // if embedded, we need to tell the parent window that a new action was created
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
         },
         maybeSendNavigationMessage: () => {
             const currentPath = window.location.pathname
             if (currentPath !== values.currentPathname) {
                 actions.setCurrentPathname(currentPath)
+                // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                 window.parent.postMessage(
                     { type: PostHogAppToolbarEvent.PH_TOOLBAR_NAVIGATED, payload: { path: currentPath } },
                     '*'
@@ -581,6 +585,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
                             actions.setCommonFilters(e.data.payload.commonFilters)
                             actions.toggleClickmapsEnabled(false)
+                            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+                            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                             return
                         case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
@@ -605,6 +611,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             // Post message up to parent in case we are embedded in an app
             // Tell the parent window that we are ready
             // we check if we're in an iframe before this setup to avoid logging warnings to the console
+            // it's ok to use we use a wildcard for the origin bc data isn't sensitive
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
         }
     }),

@@ -161,7 +161,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             (scopes: string[]): string[] => {
                 const minimumEquivalentScopes = getMinimumEquivalentScopes(scopes)
 
-                return minimumEquivalentScopes.map(getScopeDescription)
+                return minimumEquivalentScopes.map(getScopeDescription).filter(Boolean) as string[]
             },
         ],
         redirectDomain: [

@@ -1,4 +1,5 @@
 import json
+import datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -6,7 +7,6 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.test import override_settings
-from django.utils import timezone
 from django.utils.timezone import now
 
 from dateutil.parser import isoparse
@@ -313,7 +313,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(
             Dashboard.objects.get().last_accessed_at,
             now(),
-            delta=timezone.timedelta(seconds=5),
+            delta=datetime.timedelta(seconds=5),
         )
         self.assertEqual(response["tiles"][0]["insight"]["result"][0]["count"], 0)
 
@@ -506,12 +506,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.assertAlmostEqual(
                 item_default.caching_state.last_refresh,
                 now(),
-                delta=timezone.timedelta(seconds=5),
+                delta=datetime.timedelta(seconds=5),
             )
             self.assertAlmostEqual(
                 item_trends.caching_state.last_refresh,
                 now(),
-                delta=timezone.timedelta(seconds=5),
+                delta=datetime.timedelta(seconds=5),
             )
 
     def test_dashboard_endpoints(self):
@@ -617,12 +617,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
-        group_type.detail_dashboard = dashboard
+        group_type.detail_dashboard_id = dashboard.id
         group_type.save()
 
         self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
         group_type.refresh_from_db()
-        self.assertIsNone(group_type.detail_dashboard)
+        self.assertIsNone(group_type.detail_dashboard_id)
 
     def test_dashboard_items(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
@@ -1466,6 +1466,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                             "select": ["*"],
                         },
                     },
+                    "resolved_date_range": ANY,
                     "query_status": None,
                     "result": None,
                     "saved": False,

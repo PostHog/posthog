@@ -9,6 +9,10 @@ export function transformDataTableToDataTableRows(rows: Record<string, any>[], c
     }
 
     return rows.map((row) => ({
-        result: columns.map((col) => row[col]),
+        result: columns.map((col, index) => {
+            // Handle both direct column access and column_index format
+            const columnKey = `${col}_${index}`
+            return row[columnKey] !== undefined ? row[columnKey] : row[col]
+        }),
     }))
 }

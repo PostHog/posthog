@@ -18,9 +18,7 @@ export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context:
         throw new Error(`Failed to delete survey: ${deleteResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(deleteResult.data) }],
-    }
+    return deleteResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({
