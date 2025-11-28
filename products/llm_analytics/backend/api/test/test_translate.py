@@ -144,7 +144,7 @@ class TestTranslateAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "Translation failed" in response.data["detail"]
+        assert response.data["detail"] == "Translation failed due to an internal error."
 
     @patch("products.llm_analytics.backend.api.translate.posthoganalytics.feature_enabled", return_value=True)
     @patch("openai.OpenAI")

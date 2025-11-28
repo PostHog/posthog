@@ -106,6 +106,6 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         except Exception as e:
             logger.exception("translation_failed", error=str(e), target_language=target_language)
             raise exceptions.APIException(
-                detail=f"Translation failed: {e!s}",
+                detail="Translation failed due to an internal error.",
                 code="translation_error",
             )
