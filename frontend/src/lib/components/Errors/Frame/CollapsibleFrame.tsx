@@ -9,6 +9,7 @@ import { CollapsibleFrameHeader } from './CollapsibleFrameHeader'
 export interface CollapsibleFrameProps {
     frame: ErrorTrackingStackFrame
     record: ErrorTrackingStackFrameRecord
+    onOpenChange?: (open: boolean) => void
 }
 
 export function CollapsibleFrame({ frame, record }: CollapsibleFrameProps): JSX.Element {

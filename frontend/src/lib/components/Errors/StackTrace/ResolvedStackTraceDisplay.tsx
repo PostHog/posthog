@@ -6,7 +6,7 @@ export interface ResolvedStackTraceDisplayProps {
     embedded?: boolean
     frames: ErrorTrackingStackFrame[]
     stackFrameRecords: KeyedStackFrameRecords
-    renderFrame: (frame: ErrorTrackingStackFrame, record: ErrorTrackingStackFrameRecord) => JSX.Element
+    renderFrame: (frame: ErrorTrackingStackFrame, record: ErrorTrackingStackFrameRecord) => React.ReactNode
     onFrameExpanded?: () => void
 }
 

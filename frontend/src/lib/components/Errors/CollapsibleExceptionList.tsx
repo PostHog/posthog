@@ -1,7 +1,4 @@
-import './StackTraces.scss'
-
 import { useValues } from 'kea'
-import { MouseEvent } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -12,27 +9,22 @@ import { CollapsibleFrame } from './Frame/CollapsibleFrame'
 import { EmptyStacktraceDisplay } from './StackTrace/EmptyStackTraceDisplay'
 import { ResolvedStackTraceDisplay } from './StackTrace/ResolvedStackTraceDisplay'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
-import { stackFrameLogic } from './stackFrameLogic'
-import { ErrorTrackingStackFrame, ErrorTrackingStackFrameContext, FingerprintRecordPart } from './types'
+import { ErrorTrackingStackFrame } from './types'
 
-type FrameContextClickHandler = (ctx: ErrorTrackingStackFrameContext, e: MouseEvent) => void
-
-export function ChainedStackTraces({
+export function CollapsibleExceptionList({
     showAllFrames,
     setShowAllFrames,
-    embedded = false,
     className,
+    onFirstFrameExpanded,
 }: {
-    fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
     setShowAllFrames: (value: boolean) => void
-    embedded?: boolean
-    onFrameContextClick?: FrameContextClickHandler
     onFirstFrameExpanded?: () => void
     className?: string
 }): JSX.Element {
-    const { exceptionList, getExceptionFingerprint, exceptionAttributes } = useValues(errorPropertiesLogic)
-    const { stackFrameRecords } = useValues(stackFrameLogic)
+    const { exceptionList, getExceptionFingerprint, exceptionAttributes, stackFrameRecords } =
+        useValues(errorPropertiesLogic)
+    // const { stackFrameRecords } = useValues(stackFrameLogic)
     // const [hasCalledOnFirstExpanded, setHasCalledOnFirstExpanded] = useState<boolean>(false)
 
     // const handleFrameExpanded = (): void => {
@@ -68,8 +60,13 @@ export function ChainedStackTraces({
                                 <ResolvedStackTraceDisplay
                                     frames={frames}
                                     stackFrameRecords={stackFrameRecords}
-                                    embedded={embedded}
-                                    renderFrame={(frame, record) => <CollapsibleFrame frame={frame} record={record} />}
+                                    renderFrame={(frame, record) => (
+                                        <CollapsibleFrame
+                                            frame={frame}
+                                            record={record}
+                                            onOpenChange={onFirstFrameExpanded}
+                                        />
+                                    )}
                                 />
                             )}
                             renderEmptyTrace={(exception) => <EmptyStacktraceDisplay exception={exception} />}

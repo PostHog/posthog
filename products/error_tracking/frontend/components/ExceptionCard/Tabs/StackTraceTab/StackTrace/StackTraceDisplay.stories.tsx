@@ -6,8 +6,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from '../../../__mocks__/events'
-import { StacktraceGenericDisplay } from './StacktraceGenericDisplay'
+import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from '../../../../../__mocks__/events'
+import { StackTraceGenericDisplay } from './StackTraceGenericDisplay'
 
 const meta: Meta = {
     title: 'ErrorTracking/StacktraceDisplay',
@@ -26,7 +26,7 @@ const meta: Meta = {
         },
         mswDecorator({
             post: {
-                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../../__mocks__/stack_frames/batch_get'),
+                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../../../../__mocks__/stack_frames/batch_get'),
             },
         }),
     ],
@@ -39,7 +39,7 @@ export default meta
 export function GenericDisplayPropertiesLoading(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="python_resolved" loading={true}>
-            <StacktraceGenericDisplay />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -48,7 +48,7 @@ GenericDisplayPropertiesLoading.parameters = { testOptions: { waitForLoadersToDi
 export function GenericDisplayEmpty(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_empty">
-            <StacktraceGenericDisplay />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -56,7 +56,7 @@ export function GenericDisplayEmpty(): JSX.Element {
 export function GenericDisplayWithStacktrace(): JSX.Element {
     return (
         <StacktraceWrapperAllEvents>
-            <StacktraceGenericDisplay />
+            <StackTraceGenericDisplay />
         </StacktraceWrapperAllEvents>
     )
 }
@@ -64,7 +64,7 @@ export function GenericDisplayWithStacktrace(): JSX.Element {
 export function GenericDisplayWithJavascriptScriptError(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_script_error">
-            <StacktraceGenericDisplay />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -72,7 +72,7 @@ export function GenericDisplayWithJavascriptScriptError(): JSX.Element {
 export function GenericDisplayWithMinifiedReactError(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_minified_react_error">
-            <StacktraceGenericDisplay />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -80,7 +80,7 @@ export function GenericDisplayWithMinifiedReactError(): JSX.Element {
 export function GenericDisplayWithNonErrorPromiseRejection(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_non_error_promise_rejection">
-            <StacktraceGenericDisplay />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }

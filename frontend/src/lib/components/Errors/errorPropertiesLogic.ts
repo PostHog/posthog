@@ -32,7 +32,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
     key((props) => props.id),
 
     connect(() => ({
-        values: [preflightLogic, ['isCloudOrDev']],
+        values: [preflightLogic, ['isCloudOrDev'], stackFrameLogic, ['stackFrameRecords']],
         actions: [stackFrameLogic, ['loadFromRawIds']],
     })),
 

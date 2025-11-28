@@ -15,7 +15,7 @@ import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
-import { StacktraceTab } from './Tabs/StacktraceTab'
+import { StackTraceTab } from './Tabs/StackTraceTab'
 import { exceptionCardLogic } from './exceptionCardLogic'
 
 interface ExceptionCardContentProps {
@@ -75,8 +75,8 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                             </div>
                         </div>
                         <div className="flex gap-2 w-full justify-center h-full">
-                            <TabsPrimitiveTrigger className="px-2" value="stacktrace">
-                                Stacktrace
+                            <TabsPrimitiveTrigger className="px-2" value="stack_trace">
+                                Stack Trace
                             </TabsPrimitiveTrigger>
                             <TabsPrimitiveTrigger className="px-2" value="properties">
                                 Properties
@@ -91,7 +91,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                         </div>
                     </TabsPrimitiveList>
                 </div>
-                <StacktraceTab value="stacktrace" issue={issue} issueLoading={issueLoading} timestamp={timestamp} />
+                <StackTraceTab value="stack_trace" issue={issue} issueLoading={issueLoading} timestamp={timestamp} />
                 <PropertiesTab value="properties" />
                 <SessionTab value="session" timestamp={timestamp} />
             </TabsPrimitive>

@@ -1,10 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
+import { P, match } from 'ts-pattern'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
+import { CollapsibleExceptionList } from 'lib/components/Errors/CollapsibleExceptionList'
+import { ExceptionListSkeleton } from 'lib/components/Errors/ExceptionList/ExceptionListSkeleton'
+import { RawExceptionList } from 'lib/components/Errors/RawExceptionList'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
+import posthog from 'lib/posthog-typed'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -18,27 +23,26 @@ import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrim
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
-import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
-import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
-import { useErrorTrackingExplainIssueMaxTool } from '../../ExplainIssueTool'
-import { FixModal } from '../FixModal'
-import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
-import { exceptionCardLogic } from '../exceptionCardLogic'
-import { SubHeader } from './SubHeader'
+import { ExceptionAttributesPreview } from '../../../ExceptionAttributesPreview'
+import { ReleasePreviewPill } from '../../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
+import { useErrorTrackingExplainIssueMaxTool } from '../../../ExplainIssueTool'
+import { FixModal } from '../../FixModal'
+import { exceptionCardLogic } from '../../exceptionCardLogic'
+import { SubHeader } from './../SubHeader'
 
-export interface StacktraceTabProps extends Omit<TabsPrimitiveContentProps, 'children'> {
+export interface StackTraceTabProps extends Omit<TabsPrimitiveContentProps, 'children'> {
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
     timestamp?: string
 }
 
-export function StacktraceTab({
+export function StackTraceTab({
     className,
     issue,
     issueLoading,
     timestamp,
     ...props
-}: StacktraceTabProps): JSX.Element {
+}: StackTraceTabProps): JSX.Element {
     const { loading, issueId } = useValues(exceptionCardLogic)
     const { setShowAllFrames } = useActions(exceptionCardLogic)
     const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames, exceptionType } =
@@ -99,16 +103,30 @@ export function StacktraceTab({
 
 function StacktraceIssueDisplay({
     className,
+    issue,
+    issueLoading,
 }: {
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
-} & { className?: string }): JSX.Element {
-    // const { showAsText, showAllFrames } = useValues(exceptionCardLogic)
-    // const componentProps = {
-    //     ...stacktraceDisplayProps,
-    //     renderEmpty: () => <StacktraceEmptyDisplay />,
-    // }
-    return <StacktraceGenericDisplay className={className} />
+} & { className?: string }): JSX.Element | null {
+    const { showAsText, loading, showAllFrames } = useValues(exceptionCardLogic)
+    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    return match([issueLoading || loading, showAsText])
+        .with([true, P.any], () => <ExceptionListSkeleton className={className} />)
+        .with([false, true], () => (
+            <RawExceptionList showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} className={className} />
+        ))
+        .with([false, false], () => (
+            <CollapsibleExceptionList
+                showAllFrames={showAllFrames}
+                setShowAllFrames={setShowAllFrames}
+                onFirstFrameExpanded={() => {
+                    posthog.capture('error_tracking_stacktrace_explored', { issue_id: issue?.id })
+                }}
+                className={className}
+            />
+        ))
+        .otherwise(() => null)
 }
 
 function ShowDropDownMenu({ children }: { children: React.ReactNode }): JSX.Element {

@@ -9,7 +9,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { ChainedStackTraces } from './StackTraces'
+import { CollapsibleExceptionList } from './CollapsibleExceptionList'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ErrorEventId, ErrorEventProperties, ErrorEventType } from './types'
 import { concatValues } from './utils'
@@ -104,7 +104,7 @@ const StackTrace = (): JSX.Element => {
                     onChange={() => setShowAllFrames(!showAllFrames)}
                 />
             </div>
-            <ChainedStackTraces showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} />
+            <CollapsibleExceptionList showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} />
         </>
     )
 }
