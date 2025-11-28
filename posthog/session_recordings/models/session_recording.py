@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Literal, Optional, Union
+from typing import Any, Optional, Union
 
 from django.conf import settings
 from django.db import models
@@ -107,10 +107,6 @@ class SessionRecording(UUIDTModel):
             self.recording_ttl = metadata["recording_ttl"]
 
         return True
-
-    @property
-    def storage(self):
-        return "object_storage"
 
     @property
     def snapshot_source(self) -> Optional[str]:
