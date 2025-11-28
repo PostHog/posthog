@@ -731,16 +731,11 @@ class _Printer(Visitor[str]):
         Optimizes an IN comparison against a list of values for property group bloom filter usage.
         Returns the optimized expression string, or None if optimization is not possible.
         """
-
-        # Remove all null values, as they will always be false for IN comparisons, see
-        # https://clickhouse.com/docs/en/sql-reference/operators/in#null-processing
-        values = [v for v in values if not (isinstance(v, ast.Constant) and v.value is None)]
-
-        # Bail on the optimisation if any value is not a Constant, is the empty string, or is not a string
+        # Bail on the optimisation if any value is not a Constant, is the empty string, is NULL, or is not a string
         for v in values:
             if not isinstance(v, ast.Constant):
                 return None
-            if v.value == "" or not isinstance(v.value, str):
+            if v.value == "" or v.value is None or not isinstance(v.value, str):
                 return None
 
         # IN with an empty or all null set of values is always false

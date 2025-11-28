@@ -813,18 +813,7 @@ class TestPrinter(BaseTest):
         # Tuples with empty string or NULL - bail out of tuple optimization (use default behavior)
         self._test_property_group_comparison("properties.key IN ('a', 'b', '')", None)
         self._test_property_group_comparison("properties.key IN ('', NULL)", None)
-
-        # Tuples with NULL values should have the NULL value removed
-        self._test_property_group_comparison(
-            "properties.key IN ('a', 'b', NULL)",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)))",
-            {
-                "hogql_val_0": "key",
-                "hogql_val_1": "a",
-                "hogql_val_2": "b",
-            },
-            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
-        )
+        self._test_property_group_comparison("properties.key IN ('a', 'b', NULL)", None)
 
         # NULL values are never equal. While this differs from the behavior of the equality operator above, it is
         # consistent with how ClickHouse treats these values:
