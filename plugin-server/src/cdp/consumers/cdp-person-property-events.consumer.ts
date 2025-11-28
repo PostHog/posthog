@@ -7,12 +7,12 @@ import {
     RealtimeSupportedFilterManagerCDP,
 } from '~/utils/realtime-supported-filter-manager-cdp'
 
-import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_PERSON_PROPERTIES, KAFKA_PERSON } from '../../config/kafka-topics'
+import { KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES, KAFKA_PERSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { ClickHousePerson, HealthCheckResult, Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { ProducedPersonPropertyEvent } from '../types-person-property'
+import { ProducedPersonPropertiesEvent } from '../types-person-properties'
 import { execHog } from '../utils/hog-exec'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -35,7 +35,7 @@ export class CdpPersonPropertyEventsConsumer extends CdpConsumerBase {
     }
 
     @instrumented('cdpPersonPropertyEventsConsumer.publishEvents')
-    private async publishEvents(events: ProducedPersonPropertyEvent[]): Promise<void> {
+    private async publishEvents(events: ProducedPersonPropertiesEvent[]): Promise<void> {
         if (!this.kafkaProducer || events.length === 0) {
             return
         }
@@ -47,7 +47,7 @@ export class CdpPersonPropertyEventsConsumer extends CdpConsumerBase {
             }))
 
             await this.kafkaProducer.queueMessages({
-                topic: KAFKA_CDP_CLICKHOUSE_PREFILTERED_PERSON_PROPERTIES,
+                topic: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
                 messages,
             })
         } catch (error) {
@@ -100,9 +100,9 @@ export class CdpPersonPropertyEventsConsumer extends CdpConsumerBase {
 
     // Parse Kafka batch and create person property evaluation events
     @instrumented('cdpPersonPropertyEventsConsumer.handleEachBatch.parseKafkaBatch')
-    public async _parseKafkaBatch(messages: Message[]): Promise<ProducedPersonPropertyEvent[]> {
+    public async _parseKafkaBatch(messages: Message[]): Promise<ProducedPersonPropertiesEvent[]> {
         return await this.runWithHeartbeat(async () => {
-            const events: ProducedPersonPropertyEvent[] = []
+            const events: ProducedPersonPropertiesEvent[] = []
 
             // Step 1: Parse all messages and group by team_id
             const personsByTeam = new Map<number, ClickHousePerson[]>()
@@ -134,7 +134,6 @@ export class CdpPersonPropertyEventsConsumer extends CdpConsumerBase {
                     const filters = allFilters.filter((f) => f.filter_type === 'person_property')
 
                     if (filters.length === 0) {
-                        // Skip teams with no person property filters
                         continue
                     }
 
@@ -150,7 +149,7 @@ export class CdpPersonPropertyEventsConsumer extends CdpConsumerBase {
 
                             // CRITICAL: Always emit - both matches AND non-matches
                             // Person properties are mutable state, need to track changes
-                            const personPropertyEvent: ProducedPersonPropertyEvent = {
+                            const personPropertyEvent: ProducedPersonPropertiesEvent = {
                                 key: person.id,
                                 payload: {
                                     person_id: person.id,
@@ -178,7 +177,7 @@ export class CdpPersonPropertyEventsConsumer extends CdpConsumerBase {
 
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, {
+            logger.info(`🔁 ${this.name} - handling batch`, {
                 size: messages.length,
             })
 
