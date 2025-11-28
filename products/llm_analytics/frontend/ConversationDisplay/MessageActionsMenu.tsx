@@ -38,6 +38,7 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
         targetLanguage,
         translation,
         translationLoading,
+        translationError,
         isTooLong,
         currentLanguageLabel,
         dataProcessingAccepted,
@@ -179,7 +180,7 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
                                     <Spinner className="text-lg" />
                                     <span className="text-muted">Translating to {currentLanguageLabel}...</span>
                                 </div>
-                            ) : translation && 'error' in translation ? (
+                            ) : translationError ? (
                                 <div className="text-center py-2">
                                     <p className="text-danger mb-2">Translation failed. Please try again.</p>
                                 </div>

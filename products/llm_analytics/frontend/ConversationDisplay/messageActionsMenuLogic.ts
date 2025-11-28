@@ -83,6 +83,15 @@ export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
                 setTargetLanguage: (state, { language }) => (state !== language ? null : state),
             },
         ],
+        translationError: [
+            null as string | null,
+            {
+                translate: () => null,
+                translateSuccess: () => null,
+                translateFailure: (_, { error }) => error,
+                resetTranslation: () => null,
+            },
+        ],
     }),
     selectors({
         isTooLong: [(s) => [s.content], (content) => content.length > MAX_TRANSLATE_LENGTH],
@@ -101,22 +110,24 @@ export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
         ],
     }),
     loaders(({ values }) => ({
-        translation: {
-            __default: null as { translation: string; targetLanguage: LanguageCode } | null,
-            translate: async () => {
-                if (!values.dataProcessingAccepted) {
-                    throw new Error('AI data processing must be approved to translate')
-                }
-                const response = await api.llmAnalytics.translate({
-                    text: values.textToTranslate,
-                    targetLanguage: values.targetLanguage,
-                })
-                return {
-                    translation: response.translation,
-                    targetLanguage: values.targetLanguage,
-                }
+        translation: [
+            null as { translation: string; targetLanguage: LanguageCode } | null,
+            {
+                translate: async () => {
+                    if (!values.dataProcessingAccepted) {
+                        throw new Error('AI data processing must be approved to translate')
+                    }
+                    const response = await api.llmAnalytics.translate({
+                        text: values.textToTranslate,
+                        targetLanguage: values.targetLanguage,
+                    })
+                    return {
+                        translation: response.translation,
+                        targetLanguage: values.targetLanguage,
+                    }
+                },
             },
-        },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setTargetLanguage: ({ language }) => {
