@@ -194,4 +194,50 @@ describe('logsLogic', () => {
             })
         })
     })
+
+    describe('parsedLogs deduplication', () => {
+        it('deduplicates logs with the same uuid', async () => {
+            const duplicateLogs = [
+                createMockLog('log-1'),
+                createMockLog('log-2'),
+                createMockLog('log-1'), // duplicate
+                createMockLog('log-3'),
+                createMockLog('log-2'), // duplicate
+            ]
+
+            logic.actions.fetchLogsSuccess(duplicateLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.parsedLogs).toHaveLength(3)
+            expect(logic.values.parsedLogs.map((l) => l.uuid)).toEqual(['log-1', 'log-2', 'log-3'])
+        })
+
+        it('preserves first occurrence when deduplicating', async () => {
+            const log1First = { ...createMockLog('log-1'), body: 'First occurrence' }
+            const log1Second = { ...createMockLog('log-1'), body: 'Second occurrence' }
+
+            logic.actions.fetchLogsSuccess([log1First, log1Second])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.parsedLogs).toHaveLength(1)
+            expect(logic.values.parsedLogs[0].body).toBe('First occurrence')
+        })
+
+        it('includes all logs when no duplicates exist', async () => {
+            const uniqueLogs = [createMockLog('log-1'), createMockLog('log-2'), createMockLog('log-3')]
+
+            logic.actions.fetchLogsSuccess(uniqueLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.parsedLogs).toHaveLength(3)
+            expect(logic.values.parsedLogs.map((l) => l.uuid)).toEqual(['log-1', 'log-2', 'log-3'])
+        })
+
+        it('returns empty array for empty logs', async () => {
+            logic.actions.fetchLogsSuccess([])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.parsedLogs).toHaveLength(0)
+        })
+    })
 })
