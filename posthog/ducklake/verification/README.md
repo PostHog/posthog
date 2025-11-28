@@ -12,13 +12,13 @@ This document summarizes the automated checks executed after every DuckLake data
 
 ## Built-in checks
 
-| Check | Description |
-| --- | --- |
-| `model.schema_hash` | Reads the Delta source schema via DuckDB, reads the DuckLake table schema, hashes both, and fails if hashes differ. Prevents silent schema drift. |
-| `model.partition_counts` | When a partition column is available, compares daily row counts between the source Delta table and DuckLake. Any partition mismatch fails verification. |
-| `model.key_cardinality.<column>` | For each inferred key column, compares `COUNT(DISTINCT column)` between Delta and DuckLake to catch dropped/duplicate identifiers. |
-| `model.null_ratio.<column>` | Ensures DuckLake null counts for columns marked non-nullable match the Delta source so we only fail when DuckLake drifts. |
-| `row_count_delta_vs_ducklake` | Defined in `data_modeling.yaml`: compares total row counts using parameterized SQL. |
+| Check                            | Description                                                                                                                                             |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model.schema_hash`              | Reads the Delta source schema via DuckDB, reads the DuckLake table schema, hashes both, and fails if hashes differ. Prevents silent schema drift.       |
+| `model.partition_counts`         | When a partition column is available, compares daily row counts between the source Delta table and DuckLake. Any partition mismatch fails verification. |
+| `model.key_cardinality.<column>` | For each inferred key column, compares `COUNT(DISTINCT column)` between Delta and DuckLake to catch dropped/duplicate identifiers.                      |
+| `model.null_ratio.<column>`      | Ensures DuckLake null counts for columns marked non-nullable match the Delta source so we only fail when DuckLake drifts.                               |
+| `row_count_delta_vs_ducklake`    | Defined in `data_modeling.yaml`: compares total row counts using parameterized SQL.                                                                     |
 
 ## Customizing checks
 
@@ -32,29 +32,29 @@ YAML defaults apply to every model, but you can override or extend them without 
 
 ```yaml
 defaults:
-    queries:
-        - name: row_count_delta_vs_ducklake
-          sql: ...
-          tolerance: 0
+  queries:
+    - name: row_count_delta_vs_ducklake
+      sql: ...
+      tolerance: 0
 models:
-    people_daily_summary:
-        inherit_defaults: true  # still runs the default row-count comparison
-        queries:
-            - name: row_count_delta_vs_ducklake
-              description: Allow a larger gap for this model’s backfill window
-              sql: |
-                  SELECT ABS(
-                      (SELECT COUNT(*) FROM delta_scan(?))
-                      -
-                      (SELECT COUNT(*) FROM {ducklake_table})
-                  )
-              parameters:
-                  - source_table_uri
-              expected: 0
-              tolerance: 500
+  people_daily_summary:
+    inherit_defaults: true # still runs the default row-count comparison
+    queries:
+      - name: row_count_delta_vs_ducklake
+        description: Allow a larger gap for this model’s backfill window
+        sql: |
+          SELECT ABS(
+              (SELECT COUNT(*) FROM delta_scan(?))
+              -
+              (SELECT COUNT(*) FROM {ducklake_table})
+          )
+        parameters:
+          - source_table_uri
+        expected: 0
+        tolerance: 500
 ```
 
-In this example the `people_daily_summary` model reuses the default query but sets a per-model tolerance of 500 rows, so transient row-count differences no longer fail verification. You can also set `inherit_defaults: false` to run *only* the queries you specify.
+In this example the `people_daily_summary` model reuses the default query but sets a per-model tolerance of 500 rows, so transient row-count differences no longer fail verification. You can also set `inherit_defaults: false` to run _only_ the queries you specify.
 
 ## Future enhancements
 
