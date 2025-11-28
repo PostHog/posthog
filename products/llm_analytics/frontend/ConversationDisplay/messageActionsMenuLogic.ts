@@ -56,6 +56,7 @@ export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
     key((props) => props.content.slice(0, 100)),
     actions({
         setShowTranslatePopover: (show: boolean) => ({ show }),
+        setShowConsentPopover: (show: boolean) => ({ show }),
         setTargetLanguage: (language: LanguageCode) => ({ language }),
         resetTranslation: true,
     }),
@@ -64,6 +65,12 @@ export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
             false,
             {
                 setShowTranslatePopover: (_, { show }) => show,
+            },
+        ],
+        showConsentPopover: [
+            false,
+            {
+                setShowConsentPopover: (_, { show }) => show,
             },
         ],
         targetLanguage: [

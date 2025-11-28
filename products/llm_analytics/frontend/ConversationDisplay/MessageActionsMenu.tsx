@@ -35,6 +35,7 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
     const logic = messageActionsMenuLogic({ content })
     const {
         showTranslatePopover,
+        showConsentPopover,
         targetLanguage,
         translation,
         translationLoading,
@@ -43,7 +44,7 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
         currentLanguageLabel,
         dataProcessingAccepted,
     } = useValues(logic)
-    const { setShowTranslatePopover, setTargetLanguage, translate } = useActions(logic)
+    const { setShowTranslatePopover, setShowConsentPopover, setTargetLanguage, translate } = useActions(logic)
 
     const insertQuoteIntoEditor = useCallback(
         (quotedContent: string, retries = 0): void => {
@@ -96,7 +97,13 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
             ? [
                   {
                       label: 'Translate',
-                      onClick: () => setShowTranslatePopover(true),
+                      onClick: () => {
+                          if (dataProcessingAccepted) {
+                              setShowTranslatePopover(true)
+                          } else {
+                              setShowConsentPopover(true)
+                          }
+                      },
                       'data-attr': 'llm-analytics-message-translate',
                   },
               ]
@@ -110,12 +117,28 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
     const translationText = translation?.translation
     const isTranslatedForCurrentLanguage = translation?.targetLanguage === targetLanguage
 
+    const handleConsentApproved = (): void => {
+        setShowConsentPopover(false)
+        setShowTranslatePopover(true)
+    }
+
     return (
         <>
             <LemonMenu items={menuItems} placement="bottom-end">
                 <LemonButton size="small" noPadding icon={<IconEllipsis />} tooltip="More actions" />
             </LemonMenu>
 
+            {/* AI consent popover - shown first if user hasn't consented */}
+            <AIConsentPopoverWrapper
+                showArrow
+                onApprove={handleConsentApproved}
+                onDismiss={() => setShowConsentPopover(false)}
+                hidden={!showConsentPopover}
+            >
+                <div />
+            </AIConsentPopoverWrapper>
+
+            {/* Translate popover - only shown after consent */}
             <Popover
                 visible={showTranslatePopover}
                 onClickOutside={() => setShowTranslatePopover(false)}
@@ -145,35 +168,14 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
                                         label: lang.label,
                                     }))}
                                 />
-                                {!dataProcessingAccepted ? (
-                                    <AIConsentPopoverWrapper
-                                        showArrow
-                                        onApprove={translate}
-                                        hidden={translationLoading}
-                                    >
-                                        <LemonButton
-                                            size="small"
-                                            type="primary"
-                                            loading={translationLoading}
-                                            disabledReason="AI data processing must be approved to translate"
-                                        >
-                                            {translationText && isTranslatedForCurrentLanguage
-                                                ? 'Re-translate'
-                                                : 'Translate'}
-                                        </LemonButton>
-                                    </AIConsentPopoverWrapper>
-                                ) : (
-                                    <LemonButton
-                                        size="small"
-                                        type="primary"
-                                        onClick={translate}
-                                        loading={translationLoading}
-                                    >
-                                        {translationText && isTranslatedForCurrentLanguage
-                                            ? 'Re-translate'
-                                            : 'Translate'}
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    onClick={translate}
+                                    loading={translationLoading}
+                                >
+                                    {translationText && isTranslatedForCurrentLanguage ? 'Re-translate' : 'Translate'}
+                                </LemonButton>
                             </div>
                             {translationLoading ? (
                                 <div className="flex items-center justify-center py-4 gap-2">
