@@ -506,6 +506,7 @@ export const logsLogic = kea<logsLogicType>([
     selectors({
         tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
         liveTailDisabledReason: [
+            (s) => [s.orderBy, s.dateRange, s.logsLoading, s.liveTailExpired],
             (
                 orderBy: LogsQuery['orderBy'],
                 dateRange: DateRange,
