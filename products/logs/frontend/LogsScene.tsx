@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import {
-    IconClock,
-    IconFilter,
-    IconMinusSquare,
-    IconPin,
-    IconPinFilled,
-    IconPlusSquare,
-    IconRefresh,
-} from '@posthog/icons'
+import { IconFilter, IconMinusSquare, IconPin, IconPinFilled, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -64,7 +56,6 @@ export function LogsScene(): JSX.Element {
         sparklineData,
         logsLoading,
         sparklineLoading,
-        timestampFormat,
         isPinned,
         hasMoreLogsToLoad,
         logsPageSize,
@@ -80,13 +71,10 @@ export function LogsScene(): JSX.Element {
         setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
     }
 
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> =
-        timestampFormat === 'absolute'
-            ? {
-                  formatDate: 'YYYY-MM-DD',
-                  formatTime: 'HH:mm:ss.SSS',
-              }
-            : {}
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
+        formatDate: 'YYYY-MM-DD',
+        formatTime: 'HH:mm:ss.SSS',
+    }
 
     return (
         <SceneContent>
@@ -117,7 +105,6 @@ export function LogsScene(): JSX.Element {
                 customHog={ListHog}
                 isEmpty={false}
             />
-            <SceneDivider />
             <Filters />
             <div className="relative h-40 flex flex-col">
                 {sparklineData.data.length > 0 ? (
@@ -453,17 +440,9 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const {
-        orderBy,
-        wrapBody,
-        prettifyJson,
-        timestampFormat,
-        logsPageSize,
-        totalLogsMatchingFilters,
-        parsedLogs,
-        sparklineLoading,
-    } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat, setLogsPageSize } = useActions(logsLogic)
+    const { orderBy, wrapBody, prettifyJson, logsPageSize, totalLogsMatchingFilters, parsedLogs, sparklineLoading } =
+        useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson, setLogsPageSize } = useActions(logsLogic)
 
     return (
         <div className="flex justify-between">
@@ -490,17 +469,6 @@ const DisplayOptions = (): JSX.Element => {
                     onChange={setPrettifyJson}
                     label="Prettify JSON"
                     size="small"
-                />
-                <LemonSelect
-                    value={timestampFormat}
-                    icon={<IconClock />}
-                    onChange={(value) => setTimestampFormat(value)}
-                    size="small"
-                    type="secondary"
-                    options={[
-                        { value: 'absolute', label: 'Absolute' },
-                        { value: 'relative', label: 'Relative' },
-                    ]}
                 />
             </div>
             <div className="flex items-center gap-4">
