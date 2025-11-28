@@ -8,7 +8,7 @@ defineKnownException({
     },
     render() {
         return (
-            <LemonBanner type="warning">
+            <LemonBanner type="info">
                 This issue occurs when non Error objects are provided to Promise rejections. When you do this a stack
                 trace is not captured as part of the caught exception.{' '}
                 <Link

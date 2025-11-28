@@ -8,7 +8,7 @@ defineKnownException({
     },
     render() {
         return (
-            <LemonBanner type="warning">
+            <LemonBanner type="info" className="bg-surface-secondary">
                 This error occurs when JavaScript exceptions are thrown from a third-party script but details are hidden
                 due to cross-origin restrictions.{' '}
                 <Link

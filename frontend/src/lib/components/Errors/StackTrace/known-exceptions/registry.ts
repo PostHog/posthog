@@ -1,4 +1,4 @@
-import { ErrorTrackingException } from '../types'
+import { ErrorTrackingException } from '../../types'
 
 export class KnownExceptionRegistry {
     private static knownExceptionList: KnownException[] = []

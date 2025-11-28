@@ -1,12 +1,12 @@
-import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
-import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { ErrorTrackingException } from '../types'
+import { KnownExceptionRegistry } from './known-exceptions'
 
 export function EmptyStacktraceDisplay({ exception }: { exception: ErrorTrackingException }): JSX.Element {
-    const { knownIssue } = useValues(errorPropertiesLogic)
+    const knownIssue = useMemo(() => KnownExceptionRegistry.match(exception), [exception])
     if (knownIssue) {
         return knownIssue.render(exception)
     }
