@@ -835,6 +835,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    PersonOnEvent = 'person_on_event',
     InternalEvent = 'internal_event',
     EventMetadata = 'event_metadata',
     /** Person properties */
@@ -885,6 +886,11 @@ export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
 /** Sync with plugin-server/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
+    operator: PropertyOperator
+}
+
+export interface PersonOnEventPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.PersonOnEvent
     operator: PropertyOperator
 }
 
@@ -967,6 +973,7 @@ export interface EmptyPropertyFilter {
 export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
+    | PersonOnEventPropertyFilter
     | ElementPropertyFilter
     | EventMetadataPropertyFilter
     | SessionPropertyFilter

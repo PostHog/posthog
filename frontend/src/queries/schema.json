@@ -677,6 +677,9 @@
                     "$ref": "#/definitions/PersonPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/PersonOnEventPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/ElementPropertyFilter"
                 },
                 {
@@ -19452,6 +19455,29 @@
             "required": ["id", "type", "protocol", "path", "created_at", "updated_at"],
             "type": "object"
         },
+        "PersonOnEventPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "person_on_event",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "PersonPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -19807,6 +19833,7 @@
             "enum": [
                 "meta",
                 "event",
+                "person_on_event",
                 "internal_event",
                 "event_metadata",
                 "person",
