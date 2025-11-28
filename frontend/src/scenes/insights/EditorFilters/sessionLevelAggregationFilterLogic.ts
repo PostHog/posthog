@@ -31,7 +31,7 @@ export const sessionLevelAggregationFilterLogic = kea<sessionLevelAggregationFil
         setSessionLevelAggregation: () => {
             actions.updateQuerySource({
                 trendsFilter: {
-                    sessionLevelAggregation: values.sessionLevelAggregation || undefined,
+                    sessionLevelAggregation: values.sessionLevelAggregation === true ? true : undefined,
                 },
             } as any)
         },

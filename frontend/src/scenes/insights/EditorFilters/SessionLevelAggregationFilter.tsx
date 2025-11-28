@@ -22,7 +22,9 @@ export function SessionLevelAggregationFilter({
     // Only show this option when using session properties as math_property in a trends query
     const isUsingSessionProperty =
         querySource?.kind === NodeKind.TrendsQuery &&
-        querySource?.series?.some((series: any) => series.math_property_type === 'session_properties')
+        querySource?.series?.some(
+            (series: any) => 'math_property_type' in series && series.math_property_type === 'session_properties'
+        )
 
     if (!isUsingSessionProperty) {
         return null
