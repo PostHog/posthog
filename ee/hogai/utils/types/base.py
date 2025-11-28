@@ -357,7 +357,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     session_summarization_limit: Optional[int] = Field(default=None)
     """
-    The maximum number of sessions to summarize.
+    DEPRECATED (now included in replay filters). The maximum number of sessions to summarize.
     """
     notebook_short_id: Optional[str] = Field(default=None)
     """
