@@ -16,13 +16,8 @@ import { urls } from 'scenes/urls'
 import { FeatureFlagType, Survey } from '~/types'
 
 export function FeedbackTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
-    const {
-        data: { surveys },
-        dataLoading,
-        surveysResponsesCountLoading,
-        surveysResponsesCount,
-    } = useValues(surveysLogic)
-    const surveysForFlag = surveys.filter((survey) => survey.linked_flag_id === featureFlag.id)
+    const { surveysResponsesCountLoading, surveysResponsesCount } = useValues(surveysLogic)
+    const surveysForFlag = featureFlag.surveys || []
 
     if (surveysForFlag.length === 0) {
         return (
@@ -73,7 +68,6 @@ export function FeedbackTab({ featureFlag }: { featureFlag: FeatureFlagType }): 
                 rowKey="name"
                 nouns={['survey', 'surveys']}
                 data-attr="surveys-table"
-                loading={dataLoading}
                 columns={[
                     {
                         dataIndex: 'name',

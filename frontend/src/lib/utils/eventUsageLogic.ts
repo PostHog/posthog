@@ -10,7 +10,7 @@ import { objectClean } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
+import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -595,6 +595,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             survey,
         }),
         reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
+        reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
+            source,
+            meta,
+        }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
@@ -1476,6 +1480,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: survey.id,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
+            })
+        },
+        reportUserFeedbackButtonClicked: ({ source, meta }) => {
+            posthog.capture('feedback button clicked', {
+                source,
+                ...meta,
             })
         },
         reportProductUnsubscribed: ({ product }) => {
