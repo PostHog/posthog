@@ -105,13 +105,13 @@ A single session summary is useful enough, true, but watching one session at a t
 
 > (under the image text) _You can check pattern based on severity and issue types_
 
-The session group summary surfaces patterns across sessions, with severity, affected session count, and specific examples. The hard part is, obviously, how to collect these patterns.
+The session group summary surfaces patterns across sessions, with severity, affected session count, and specific examples. The hard part is, obviously, how to extract these patterns.
 
 ### Patterns are hard to catch
 
 In the ideal world, we would just send 100 single session summaries in one LLM call, and get back a summary for all the patterns. Sadly, it doesn't work on multiple levels. Firstly, we will just hit context limits of LLMs, as enriched summaries are pretty heavy with metadata. Secondly, even if they fit - we would hit exactly the same lost-in-the-middle problem, with start/end sessions getting way more attention.
 
-Also, we could've just picked a sample of sessions and select patterns from them, but then the quality of the final report will be too dependent on our luck in picking the initial sessions. LLMs love finding patterns, but without proper control we would've got either duplicates or crazy insightful "wow, users clicked buttons" ones.
+Also, we could've just picked a sample of sessions and select patterns from them, but then the quality of the final report will be too dependent on our luck in picking the initial sessions. LLMs love finding patterns, but without proper control we would've gotten either duplicates or incredibly insightful "wow, users clicked buttons" ones.
 
 **Our approach:**
 We use a four-phase pipeline instead of a single prompt:
@@ -121,7 +121,7 @@ We use a four-phase pipeline instead of a single prompt:
 3. Combine patterns extracted from each chunk, by either joining similar ones or extending the list
 4. Iterate over chunks of single session summaries to assign events back to patterns for concrete examples
 
-{{ diagram of the three-phase pipeline }}
+{{ diagram of the four-phase pipeline }}
 
 > (under the image text) _Sessions → Parallel summaries → Chunked pattern extraction → Combine/dedupe → Event assignment → Final report_
 
@@ -129,15 +129,15 @@ We use a four-phase pipeline instead of a single prompt:
 
 Even if we got patterns - there's just too much data to process easily, so we need to rank them properly. For example, a blocking error that happens once in 100 sessions is annoying. The same error in 80 sessions is critical. Or, the exception could happen 10 times, but just for a single user out of 100, and saying "issue X happened 15 times" could cause a false alarm.
 
-Our approach:
+**Our approach:**
 
-- We limit 1 example per session per pattern, so if the report says "happened 15 times" you can be sure it happened in 15 different sessions
+- We limit 1 example per session per pattern. So, if the report says "happened 15 times" you can be sure it happened in 15 different sessions, not one user rage-clicking the same broken button.
 - We calculate detailed pattern statistics: occurrence count, affected sessions, percentage of total, severity
 - The default report shows only issues with blocking errors by default, but you can show other types if you want to dig deeper
 
-### Results should be easily checked
+### Patterns need to be verifiable
 
-And the last, even if we picked the pattern right, and attached proper examples, it's LLMs, right? You can't trust them right away. Seeing "Users experience checkout timeouts" is useful. Seeing "Users experience checkout timeouts - here are 5 specific sessions where it happened, with timestamps and video clips" is actionable.
+Extracting patterns is only half the job. If users can't verify the patterns are real, they won't trust the report. "Users experience checkout timeouts" is useful. "Users experience checkout timeouts - here are 5 specific sessions where it happened, with timestamps and video clips" is actionable.
 
 To make it work, we needed a way to easily display the whole story to the user and give them the tools to validate the issue themselves. So we did.
 
@@ -145,7 +145,7 @@ To make it work, we needed a way to easily display the whole story to the user a
 
 > (under the image text) _TODO_
 
-Our approach:
+**Our approach:**
 
 - We display not just the issue, but also the segment that issue was part of, what happened before the issue, and what happened after
 - Timestamp and event type of the issue is clear, and easy to validate
