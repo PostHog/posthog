@@ -62,6 +62,11 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         ):
             raise exceptions.PermissionDenied("LLM trace translation is not enabled for this user")
 
+        if not self.organization.is_ai_data_processing_approved:
+            raise exceptions.PermissionDenied(
+                "AI data processing must be approved by your organization before using translation"
+            )
+
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Translate text to target language."""
         self._validate_feature_access(request)
