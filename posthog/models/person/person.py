@@ -7,18 +7,15 @@ from django.db.models import F, Q
 from django.db.models.deletion import Collector
 
 from posthog.models.utils import UUIDT
+from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from ..team import Team
 from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
 
-if "persons_db_reader" in connections:
-    READ_DB_FOR_PERSONS = "persons_db_reader"
-elif "replica" in connections:
-    READ_DB_FOR_PERSONS = "replica"
-else:
-    READ_DB_FOR_PERSONS = "default"
+# Use centralized database routing constant
+READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 
 class PersonQuerySet(models.QuerySet):
@@ -127,8 +124,44 @@ class PersonManager(models.Manager):
             person._add_distinct_ids(distinct_ids)
             return person
 
+    def bulk_create(
+        self,
+        objs,
+        batch_size=None,
+        ignore_conflicts=False,
+        update_conflicts=False,
+        update_fields=None,
+        unique_fields=None,
+    ):
+        # For composite PK tables, pre-generate IDs from the sequence
+        # Django's bulk_create tries to INSERT id=NULL which violates NOT NULL constraint
+        # This is a workaround to generate IDs for the persons database during tests/generate_demo_data
+
+        objs_needing_ids = [obj for obj in objs if obj.id is None]
+        if objs_needing_ids:
+            # Use the persons database connection
+            with connections[self.db].cursor() as cursor:
+                cursor.execute(
+                    "SELECT nextval('posthog_person_id_seq') FROM generate_series(1, %s)",
+                    [len(objs_needing_ids)],
+                )
+                new_ids = [row[0] for row in cursor.fetchall()]
+                for obj, new_id in zip(objs_needing_ids, new_ids):
+                    obj.id = new_id
+        return super().bulk_create(
+            objs,
+            batch_size=batch_size,
+            ignore_conflicts=ignore_conflicts,
+            update_conflicts=update_conflicts,
+            update_fields=update_fields,
+            unique_fields=unique_fields,
+        )
+
 
 class Person(models.Model):
+    # Note: In posthog_person_new (partitioned table), the PK is composite: (team_id, id)
+    # Django doesn't fully support composite PKs, so we mark id as primary_key for ORM compatibility
+    # but the actual database constraint is on (team_id, id)
     id = models.BigAutoField(primary_key=True)
     _distinct_ids: Optional[list[str]]
 
@@ -160,6 +193,11 @@ class Person(models.Model):
         # migrations managed via rust/persons_migrations
         managed = False
         db_table = settings.PERSON_TABLE_NAME
+        # Note: Database has composite PK (team_id, id) but Django doesn't support declaring it
+        constraints = [
+            # Composite PK constraint exists in database but can't be declared in Django
+            # models.UniqueConstraint(fields=["team_id", "id"], name="posthog_person_new_pkey")
+        ]
 
     @property
     def distinct_ids(self) -> list[str]:
@@ -290,7 +328,10 @@ class PersonDistinctId(models.Model):
     id = models.BigAutoField(primary_key=True)
     # DO_NOTHING + db_constraint=False: Team deletion handled manually, may be cross-database
     team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_index=False, db_constraint=False)
-    person = models.ForeignKey(Person, on_delete=models.CASCADE)
+    # db_constraint=False: FK constraint managed manually at database level as composite key
+    # Database has: FOREIGN KEY (team_id, person_id) REFERENCES posthog_person(team_id, id)
+    # This composite FK enables partition pruning on the partitioned person table
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, db_constraint=False)
     distinct_id = models.CharField(max_length=400)
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table

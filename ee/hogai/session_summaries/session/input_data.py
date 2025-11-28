@@ -3,6 +3,8 @@ import json
 import datetime
 from typing import cast
 
+import structlog
+
 from posthog.models import Team
 from posthog.session_recordings.constants import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT, EXTRA_SUMMARY_EVENT_FIELDS
 from posthog.session_recordings.models.metadata import RecordingMetadata
@@ -13,6 +15,8 @@ from ee.hogai.session_summaries.local.input_data import (
     _get_production_session_metadata_locally,
 )
 from ee.hogai.session_summaries.utils import get_column_index
+
+logger = structlog.get_logger(__name__)
 
 
 def get_team(team_id: int) -> Team:
@@ -26,7 +30,9 @@ def get_session_metadata(session_id: str, team_id: int, local_reads_prod: bool =
     else:
         session_metadata = _get_production_session_metadata_locally(events_obj, session_id, team_id)
     if not session_metadata:
-        raise ValueError(f"No session metadata found for session_id {session_id}")
+        msg = f"No session metadata found for session_id {session_id}"
+        logger.error(msg, session_id=session_id, team_id=team_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return session_metadata
 
 
@@ -85,11 +91,15 @@ def get_session_events(
         if len(page_events) < items_per_page:
             break
     if not columns:
-        raise ValueError(f"No columns found for session_id {session_id}")
+        msg = f"No columns found for session_id {session_id}"
+        logger.error(msg, session_id=session_id, team_id=team_id, signals_type="session-summaries")
+        raise ValueError(msg)
     if not all_events:
         # Raise an error only if there were no events on all pages,
         # to avoid false positives when the first page consumed all events precisely
-        raise ValueError(f"No events found for session_id {session_id}")
+        msg = f"No events found for session_id {session_id}"
+        logger.error(msg, session_id=session_id, team_id=team_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return columns, all_events
 
 
@@ -166,7 +176,9 @@ def _skip_event_without_valid_context(
 
 
 def add_context_and_filter_events(
-    session_events_columns: list[str], session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]]
+    session_events_columns: list[str],
+    session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]],
+    session_id: str,
 ) -> tuple[list[str], list[tuple[str | datetime.datetime | list[str] | None, ...]]]:
     indexes = {
         "event": get_column_index(session_events_columns, "event"),
@@ -198,7 +210,9 @@ def add_context_and_filter_events(
             continue
         chain = event[indexes["elements_chain"]]
         if not isinstance(chain, str):
-            raise ValueError(f"Elements chain is not a string: {chain}")
+            msg = f"Elements chain is not a string: {chain}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
         if not chain:
             # If no chain - no additional context will come, so it's ok to check if to skip right away
             if _skip_event_without_valid_context(updated_event, indexes):
@@ -207,11 +221,15 @@ def add_context_and_filter_events(
             continue
         elements_chain_texts = event[indexes["elements_chain_texts"]]
         if not isinstance(elements_chain_texts, list):
-            raise ValueError(f"Elements chain texts is not a list: {elements_chain_texts}")
+            msg = f"Elements chain texts is not a list: {elements_chain_texts}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
         updated_event[indexes["elements_chain_texts"]] = _get_improved_elements_chain_texts(chain, elements_chain_texts)
         elements_chain_elements = event[indexes["elements_chain_elements"]]
         if not isinstance(elements_chain_elements, list):
-            raise ValueError(f"Elements chain elements is not a list: {elements_chain_elements}")
+            msg = f"Elements chain elements is not a list: {elements_chain_elements}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
         updated_event[indexes["elements_chain_elements"]] = _get_improved_elements_chain_elements(
             chain, elements_chain_elements
         )
