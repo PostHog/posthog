@@ -597,6 +597,8 @@ def _run_key_cardinality_verifications(
         """
         try:
             row = conn.execute(sql, [inputs.model.source_table_uri]).fetchone()
+            if row is None:
+                raise ValueError(f"Key cardinality query for {column} returned no rows")
         except Exception as exc:
             results.append(
                 DuckLakeCopyVerificationResult(
@@ -644,6 +646,8 @@ def _run_non_nullable_verifications(
         try:
             source_row = conn.execute(source_sql, [source_uri]).fetchone()
             ducklake_row = conn.execute(ducklake_sql).fetchone()
+            if source_row is None or ducklake_row is None:
+                raise ValueError(f"Null ratio query for {column} returned no rows")
         except Exception as exc:
             results.append(
                 DuckLakeCopyVerificationResult(
