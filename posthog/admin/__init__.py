@@ -112,8 +112,6 @@ def register_all_admin():
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
     admin.site.register(OAuthApplication, OAuthApplicationAdmin)
 
-    admin.site.register(Task, TaskAdmin)
-    admin.site.register(TaskRun, TaskRunAdmin)
     admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
 
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
