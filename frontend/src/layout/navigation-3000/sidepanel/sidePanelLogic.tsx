@@ -111,10 +111,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.Settings)
-
-                if (featureFlags[FEATURE_FLAGS.SDK_DOCTOR_BETA]) {
-                    tabs.push(SidePanelTab.SdkDoctor)
-                }
+                tabs.push(SidePanelTab.SdkDoctor)
 
                 if (!currentTeam) {
                     return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
