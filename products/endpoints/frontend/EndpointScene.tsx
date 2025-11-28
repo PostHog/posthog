@@ -40,8 +40,6 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     const { deleteEndpoint, confirmToggleActive } = useActions(endpointLogic({ tabId }))
     const { searchParams } = useValues(router)
 
-    const isNewEndpoint = !endpoint?.name || endpoint.name === 'new-endpoint'
-
     const tabs: LemonTab<EndpointTab>[] = [
         {
             key: EndpointTab.QUERY,
@@ -121,7 +119,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                 {!endpointLoading && <EndpointOverview tabId={tabId} />}
                 <LemonTabs activeKey={activeTab} tabs={tabs} />
             </SceneContent>
-            {endpoint && !isNewEndpoint && (
+            {endpoint && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={handleToggleActive}>
