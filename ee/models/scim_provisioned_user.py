@@ -1,9 +1,9 @@
 from django.db import models
 
-from posthog.models.utils import UpdatedMetaFields
+from posthog.models.utils import UpdatedMetaFields, UUIDModel
 
 
-class SCIMProvisionedUser(UpdatedMetaFields):
+class SCIMProvisionedUser(UUIDModel, UpdatedMetaFields):
     class IdentityProvider(models.TextChoices):
         OKTA = "okta", "Okta"
         ENTRA_ID = "entra_id", "Microsoft Entra ID"
