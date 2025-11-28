@@ -91,6 +91,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     batch_run_id,
                     model,
                 ],
+                activity_id=f"summarize-{trace_id}",
                 schedule_to_close_timeout=timedelta(seconds=GENERATE_SUMMARY_TIMEOUT_SECONDS),
                 retry_policy=constants.SUMMARIZE_RETRY_POLICY,
             )
