@@ -11,7 +11,7 @@ use crate::flags::flag_models::{
 use common_cache::{CacheConfig, CacheResult, ReadThroughCache};
 use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
-use common_types::ProjectId;
+use common_types::TeamId;
 
 // Constants for cache configuration
 /// Default TTL for feature flags cache: 5 days (432,000 seconds)
@@ -56,7 +56,7 @@ impl FeatureFlagList {
     /// # Arguments
     /// * `cache` - ReadThroughCache instance
     /// * `pg_client` - PostgreSQL client for database fallback
-    /// * `project_id` - Project ID to fetch flags for
+    /// * `team_id` - Team ID to fetch flags for
     ///
     /// # Returns
     /// * `Ok(CacheResult<Vec<FeatureFlag>>)` - Cache result containing flags
@@ -64,16 +64,16 @@ impl FeatureFlagList {
     pub async fn get_with_cache(
         cache: &ReadThroughCache,
         pg_client: PostgresReader,
-        project_id: ProjectId,
+        team_id: TeamId,
     ) -> Result<CacheResult<Vec<FeatureFlag>>, FlagError> {
         let pg_client = pg_client.clone();
         let cache_result = cache
-            .get_or_load(&project_id, move |&project_id| {
+            .get_or_load(&team_id, move |&team_id| {
                 let pg_client = pg_client.clone();
                 async move {
                     // Load from PostgreSQL - always returns Some, even for empty results
                     // This ensures empty flag lists are cached to prevent repeated DB queries
-                    let flags = Self::from_pg(pg_client, project_id).await?;
+                    let flags = Self::from_pg(pg_client, team_id).await?;
                     Ok::<Option<Vec<FeatureFlag>>, FlagError>(Some(flags))
                 }
             })
@@ -82,17 +82,17 @@ impl FeatureFlagList {
         Ok(cache_result)
     }
 
-    /// Returns feature flags from postgres given a project_id
+    /// Returns feature flags from postgres given a team_id
     pub async fn from_pg(
         client: PostgresReader,
-        project_id: ProjectId,
+        team_id: TeamId,
     ) -> Result<Vec<FeatureFlag>, FlagError> {
         let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_flags")
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get database connection for project {}: {}",
-                    project_id,
+                    "Failed to get database connection for team {}: {}",
+                    team_id,
                     e
                 );
                 FlagError::DatabaseUnavailable
@@ -122,19 +122,19 @@ impl FeatureFlagList {
               LEFT JOIN posthog_featureflagevaluationtag AS et ON (f.id = et.feature_flag_id)
               -- Only fetch names for tags that are evaluation constraints (not all org tags)
               LEFT JOIN posthog_tag AS tag ON (et.tag_id = tag.id)
-            WHERE t.project_id = $1
+            WHERE t.id = $1
               AND f.deleted = false
             GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active, 
                      f.ensure_experience_continuity, f.version, f.evaluation_runtime
         "#;
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
-            .bind(project_id)
+            .bind(team_id)
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to fetch feature flags from database for project {}: {}",
-                    project_id,
+                    "Failed to fetch feature flags from database for team {}: {}",
+                    team_id,
                     e
                 );
                 FlagError::Internal(format!("Database query error: {e}"))
@@ -160,9 +160,8 @@ impl FeatureFlagList {
                     Err(e) => {
                         // This is highly unlikely to happen, but if it does, we skip the flag.
                         tracing::warn!(
-                            "Failed to deserialize filters for flag {} in project {} (team {}): {}",
+                            "Failed to deserialize filters for flag {} in team {}: {}",
                             row.key,
-                            project_id,
                             row.team_id,
                             e
                         );
@@ -182,9 +181,9 @@ impl FeatureFlagList {
             .collect();
 
         tracing::debug!(
-            "Successfully fetched {} flags from database for project {}",
+            "Successfully fetched {} flags from database for team {}",
             flags.len(),
-            project_id
+            team_id
         );
 
         Ok(flags)
@@ -211,11 +210,11 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        insert_flags_for_team_in_redis(redis_client.clone(), team.id, team.project_id(), None)
+        insert_flags_for_team_in_redis(redis_client.clone(), team.id, None)
             .await
             .expect("Failed to insert flags");
 
-        let flags_from_redis = get_flags_from_redis(redis_client.clone(), team.project_id())
+        let flags_from_redis = get_flags_from_redis(redis_client.clone(), team.id)
             .await
             .expect("Failed to fetch flags from redis");
         assert_eq!(flags_from_redis.flags.len(), 1);
@@ -261,10 +260,9 @@ mod tests {
             .await
             .expect("Failed to insert flag");
 
-        let flags_from_pg =
-            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
-                .await
-                .expect("Failed to fetch flags from pg");
+        let flags_from_pg = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags_from_pg.len(), 1);
         let flag = flags_from_pg.first().expect("Flags should be in pg");
@@ -358,10 +356,9 @@ mod tests {
             .await
             .expect("Failed to insert flags");
 
-        let flags_from_pg =
-            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
-                .await
-                .expect("Failed to fetch flags from pg");
+        let flags_from_pg = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags_from_pg.len(), 2);
         for flag in &flags_from_pg {
@@ -392,10 +389,9 @@ mod tests {
             .await
             .expect("Failed to insert evaluation tags");
 
-        let flags_from_pg =
-            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
-                .await
-                .expect("Failed to fetch flags from pg");
+        let flags_from_pg = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
 
         assert_eq!(flags_from_pg.len(), 1);
         let flag = flags_from_pg.first().expect("Should have one flag");

@@ -266,6 +266,11 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                     onClick={handleExecute}
                     loading={endpointResultLoading}
                     tooltip="Cmd/Ctrl + Enter"
+                    disabledReason={
+                        !endpoint?.is_active
+                            ? 'This endpoint is inactive. Activate it in the actions panel on the top right to execute.'
+                            : undefined
+                    }
                 >
                     Execute endpoint
                 </LemonButton>

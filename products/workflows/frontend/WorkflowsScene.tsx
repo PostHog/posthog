@@ -142,7 +142,6 @@ export function WorkflowsScene(): JSX.Element {
             key: 'workflows',
             content: (
                 <>
-                    <p>Create and manage your workflows</p>
                     <WorkflowsTable />
                 </>
             ),
@@ -153,7 +152,6 @@ export function WorkflowsScene(): JSX.Element {
             key: 'library',
             content: (
                 <>
-                    <p>Create and manage messages</p>
                     <MessageTemplatesTable />
                 </>
             ),

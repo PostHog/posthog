@@ -81,7 +81,7 @@ export function AggregationColumnItem({
     let value: number | undefined = undefined
     if (aggregation === 'total' || isNonTimeSeriesDisplay) {
         value = item.count ?? item.aggregated_value
-        if (item.aggregated_value > item.count) {
+        if (item.aggregated_value > item.count || (item.aggregated_value < 0 && item.aggregated_value < item.count)) {
             value = item.aggregated_value
         }
     } else if (aggregation === 'average') {
