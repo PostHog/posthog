@@ -43,7 +43,7 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                 ref={testResultsRef}
                 className={clsx(
                     'p-3 rounded border',
-                    expanded ? 'bg-surface-primary' : 'bg-surface-secondary',
+                    expanded ? 'bg-surface-primary' : 'bg-muted',
                     expanded ? 'min-h-120' : ''
                 )}
             >

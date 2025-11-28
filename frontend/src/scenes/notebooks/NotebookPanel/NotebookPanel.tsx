@@ -59,7 +59,7 @@ export function NotebookPanel(): JSX.Element | null {
                         />
                     </SidePanelPaneHeader>
 
-                    <div className="flex flex-col flex-1 overflow-y-auto p-3 bg-[var(--card)]">
+                    <div className="flex flex-col flex-1 overflow-y-auto p-3 bg-[var(--color-card)]">
                         <Notebook
                             key={selectedNotebook}
                             shortId={selectedNotebook}

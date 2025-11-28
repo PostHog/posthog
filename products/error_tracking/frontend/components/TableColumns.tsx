@@ -111,7 +111,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                     >
                         {(anyAssignee) => (
                             <div
-                                className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
+                                className="flex items-center hover:bg-accent p-[0.1rem] rounded cursor-pointer"
                                 role="button"
                             >
                                 <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />

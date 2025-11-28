@@ -25,8 +25,8 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
     return (
         <div className={clsx('border-l-4', focused ? 'border-accent' : !isExecutable ? 'border-transparent' : null)}>
             <div
-                className={`flex items-center w-full px-2 hover:bg-surface-secondary ${
-                    focused ? 'bg-surface-secondary' : 'bg-surface-primary'
+                className={`flex items-center w-full px-2 hover:bg-muted ${
+                    focused ? 'bg-muted' : 'bg-surface-primary'
                 } border-b cursor-pointer`}
                 onClick={() => {
                     if (isExecutable) {

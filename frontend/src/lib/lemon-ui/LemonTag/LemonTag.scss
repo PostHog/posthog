@@ -22,20 +22,20 @@
     }
 
     &.LemonTag--primary {
-        color: var(--color-accent);
+        color: var(--color-primary);
         background: none;
-        border-color: var(--color-accent);
+        border-color: var(--color-primary);
     }
 
     &.LemonTag--option {
-        color: var(--color-accent);
-        background-color: var(--card);
+        color: var(--color-primary);
+        background-color: var(--color-card);
     }
 
     &.LemonTag--highlight {
-        color: var(--color-accent);
+        color: var(--color-primary);
         background: none;
-        border-color: var(--color-accent);
+        border-color: var(--color-primary);
     }
 
     &.LemonTag--warning {
@@ -44,7 +44,7 @@
         border-color: var(--warning);
 
         [theme='dark'] & {
-            background-color: var(--card);
+            background-color: var(--color-card);
         }
     }
 
@@ -74,7 +74,7 @@
 
     &.LemonTag--muted {
         color: var(--color-text-secondary);
-        background-color: var(--card);
+        background-color: var(--color-card);
     }
 
     &.LemonTag--none {

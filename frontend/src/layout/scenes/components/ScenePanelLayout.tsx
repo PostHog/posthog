@@ -24,7 +24,7 @@ export function ScenePanelLayout(): JSX.Element {
         <>
             <div
                 className={cn(
-                    'scene-layout__content-panel fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width)+var(--scene-layout-scrollbar-width))] bg-surface-secondary flex flex-col overflow-hidden h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] top-[var(--scene-layout-header-height)] min-w-0',
+                    'scene-layout__content-panel fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width)+var(--scene-layout-scrollbar-width))] bg-muted flex flex-col overflow-hidden h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] top-[var(--scene-layout-header-height)] min-w-0',
                     {
                         hidden: !scenePanelOpen,
                         'col-start-2 col-span-1 row-start-1 row-span-2':
@@ -33,7 +33,7 @@ export function ScenePanelLayout(): JSX.Element {
                     }
                 )}
             >
-                <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
+                <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-border shrink-0">
                     <div className="flex items-center gap-2">
                         <IconListCheck className="size-5 text-tertiary" />
                         <h4 className="text-base font-medium text-primary m-0">Info & actions</h4>

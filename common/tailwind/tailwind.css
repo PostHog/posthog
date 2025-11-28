@@ -3,7 +3,7 @@
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
 
-@theme inline {
+@theme {
     --color-red-50: oklch(0.971 0.013 17.38deg);
     --color-red-100: oklch(0.936 0.032 17.717deg);
     --color-red-200: oklch(0.885 0.062 18.334deg);
@@ -306,6 +306,10 @@
     --color-posthog-brand-yellow-saturation: 94%;
     --color-posthog-brand-yellow-lightness: 57%;
 
+    --color-brand-primary-hue: var(--color-posthog-brand-orange-hue);
+    --color-brand-primary-saturation: var(--color-posthog-brand-orange-saturation);
+    --color-brand-primary-lightness: var(--color-posthog-brand-orange-lightness);
+
     /* Product specific colors */
     --color-product-data-pipeline-light: rgb(46 162 211);
     --color-product-product-analytics-light: rgb(47 128 250);
@@ -324,7 +328,7 @@
     --color-product-experiments-light: rgb(182 42 217);
     --color-product-error-tracking-light: rgb(211 148 24);
     --color-product-error-tracking-dark: rgb(247 165 1);
-    --color-product-surveys-light: rgb(243 84 84);
+    --color-prosduct-surveys-light: rgb(243 84 84);
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
     --color-product-links-light: rgb(143 7 255);
@@ -348,46 +352,51 @@
     --color-insight-sql-light: rgb(245 78 0);
 
     /* Colors */
-    --black: black;
-    --white: white;
+    --color-black: black;
+    --color-white: white;
 
     /* Main application background and foreground */
-    --background: var(--color-posthog-3000-150); /* => --color-bg-primary */
-    --foreground: var(--color-neutral-950); /* => --color-text-primary */
+    --color-background: var(--color-posthog-3000-150); /* => --color-bg-primary */
+    --color-foreground: var(--color-neutral-950); /* => --color-text-primary */
 
     /* Card background and foreground */
-    --card: var(--color-white); /* => --card */
-    --card-foreground: var(--color-neutral-950);
+    --color-card: var(--white); /* => --card */
+    --color-card-foreground: var(--color-neutral-950);
 
     /* Brand color for primary actions (buttons, highlights) */
-    --primary: var(--color-brand-primary);
-    --primary-foreground: var(--color-brand-primary-foreground);
+    --color-primary: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness)
+    );
+    --color-primary-foreground: var(--color-brand-primary-foreground);
 
     /* Subdued background for less important elements */
-    --muted: var(--color-posthog-3000-50); /* => --color-bg-surface-tertiary */
-    --muted-foreground: var(--color-neutral-950);
+    --color-muted: var(--color-posthog-3000-50); /* => --color-bg-surface-tertiary */
+    --color-muted-foreground: var(--color-neutral-950);
 
     /* Highlight color for active or focused elements */
-    --accent: var(--black) --accent-foreground: var(--white);
+    --color-accent: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --color-accent-strong: color-mix(in oklab, var(--color-black) 10%, transparent);
 
     /* Info color for informative messages */
-    --info: var(--color-blue-50);
-    --info-foreground: var(--color-blue-950);
+    --color-info: var(--color-blue-50);
+    --color-info-foreground: var(--color-blue-950);
 
     /* Warning color for warnings and cautions */
-    --warning: var(--color-yellow-50);
-    --warning-foreground: var(--color-yellow-950);
+    --color-warning: var(--color-yellow-50);
+    --color-warning-foreground: var(--color-yellow-950);
 
     /* Destructive color for errors and critical actions */
-    --destructive: var(--color-red-50);
-    --destructive-foreground: var(--color-red-950);
+    --color-destructive: var(--color-red-50);
+    --color-destructive-foreground: var(--color-red-950);
 
-    --border: var(--color-posthog-3000-200);
-    --border-muted: var(--color-posthog-3000-400);
-    --border-strong: var(--color-posthog-3000-400);
+    --color-border: var(--color-posthog-3000-200);
+    --color-border-muted: var(--color-posthog-3000-100);
+    --color-border-strong: var(--color-posthog-3000-300);
 
-    --ring: var(--primary);
-    --ring-muted: var(--primary); /* TODO: what is this? */
+    --color-ring: var(--primary);
+    --color-ring-muted: var(--primary); /* TODO: what is this? */
 
     /* Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal */
     --data-color-1: #1d4aff;
@@ -468,7 +477,7 @@
 
     @keyframes inputFocusPulse {
         0% {
-            box-shadow: 0 0 0px 2px var(--color-accent);
+            box-shadow: 0 0 0px 2px var(--color-primary);
         }
         100% {
             box-shadow: 0 0 0px 2px transparent;

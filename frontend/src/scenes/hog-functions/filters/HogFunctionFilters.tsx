@@ -251,7 +251,7 @@ export function HogFunctionFilters({
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (
-                                <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">
+                                <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-muted">
                                     <div className="flex-1 text-center">
                                         <span className="text-sm font-medium">Suggested by Max</span>
                                     </div>

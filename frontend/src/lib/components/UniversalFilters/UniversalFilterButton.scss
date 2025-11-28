@@ -6,8 +6,8 @@
     color: var(--text-3000);
     white-space: nowrap;
     cursor: default;
-    background: var(--color-bg-fill-button-tertiary-hover);
-    border: 1px solid var(--color-border-primary);
+    background: var(--color-accent);
+    border: 1px solid var(--color-border);
     border-radius: 0.275rem;
     outline: 0;
 
@@ -18,7 +18,7 @@
 
     &:hover:not([aria-disabled='true']),
     &:focus {
-        border-color: var(--secondary-3000-button-border-hover);
+        border-color: var(--color-accent);
     }
 
     &:not(.UniversalFilterButton--clickable) {

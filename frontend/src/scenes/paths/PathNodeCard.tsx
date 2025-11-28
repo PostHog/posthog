@@ -69,7 +69,7 @@ export function PathNodeCard({ insightProps, node, canvasHeight }: PathNodeCardP
                     border: `1px solid ${
                         isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
                             ? 'purple'
-                            : 'var(--color-border-primary)'
+                            : 'var(--color-border)'
                     }`,
                 }}
                 data-attr="path-node-card-button"

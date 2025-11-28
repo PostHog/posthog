@@ -28,7 +28,7 @@ export function ReleasePreviewPill(): JSX.Element {
             onMouseLeaveInside={() => setIsOpen(false)}
         >
             <LemonTag
-                className="bg-fill-primary cursor-default inline-flex items-center"
+                className="bg-card cursor-default inline-flex items-center"
                 onMouseEnter={() => setIsOpen(true)}
                 onMouseLeave={() => setIsOpen(false)}
             >

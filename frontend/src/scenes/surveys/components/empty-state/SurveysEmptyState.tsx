@@ -61,7 +61,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
     }
 
     return (
-        <div className="border-2 border-dashed border-primary w-full p-4 rounded">
+        <div className="border-2 border-dashed border-border w-full p-4 rounded">
             <div className="flex items-center justify-center">
                 <div className="space-y-6">
                     <div>

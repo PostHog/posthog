@@ -22,7 +22,7 @@ export function getCRMColumns(groupTypeName: string, groupTypeIndex: number): Qu
                         <LemonTableLink to={urls.group(groupTypeIndex, groupKey)} title={value as string} />
                         <CopyToClipboardInline
                             explicitValue={groupKey}
-                            iconStyle={{ color: 'var(--color-accent)' }}
+                            iconStyle={{ color: 'var(--color-primary)' }}
                             description="group id"
                         >
                             {stringWithWBR(groupKey, 100)}

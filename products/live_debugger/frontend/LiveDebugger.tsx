@@ -34,7 +34,7 @@ function BreakpointInstanceCard({
         <div
             className={clsx(
                 'p-2 border rounded cursor-pointer transition-colors text-xs',
-                isSelected ? 'border-primary bg-primary-highlight' : 'border-border hover:bg-bg-light',
+                isSelected ? 'border-border bg-primary-highlight' : 'border-border hover:bg-bg-light',
                 isNew && 'animate-pulse bg-warning-highlight border-warning'
             )}
             onClick={onClick}

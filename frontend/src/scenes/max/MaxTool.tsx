@@ -97,7 +97,7 @@ export function MaxTool({
                 // Rounding is +1px to account for the border
                 isMaxOpen &&
                     active &&
-                    'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
+                    'border border-border-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
                 className
             )}
         >

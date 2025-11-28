@@ -129,7 +129,7 @@ export function SessionEventItem({
                 isExpanded && 'border-accent',
                 isExpanded && highlightColor === 'danger' && 'border-danger-dark',
                 isExpanded && highlightColor === 'warning' && 'border-warning-dark',
-                isExpanded && highlightColor === 'primary' && 'border-primary-dark'
+                isExpanded && highlightColor === 'primary' && 'border-border-dark'
             )}
             style={{
                 zIndex: isExpanded ? 1 : 0,

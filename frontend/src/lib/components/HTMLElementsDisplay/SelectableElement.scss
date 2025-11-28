@@ -9,7 +9,7 @@
     &.SelectableElement--selected {
         color: var(--color-text-primary);
         text-decoration: underline;
-        background: var(--color-accent);
+        background: var(--color-primary);
 
         [theme='dark'] & {
             color: var(--color-text-primary-inverse);

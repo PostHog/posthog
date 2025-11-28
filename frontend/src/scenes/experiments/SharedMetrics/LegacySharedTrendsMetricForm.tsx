@@ -121,7 +121,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             !sharedMetricQuery.exposure_query
                                                 ? 'border-accent bg-accent-highlight-secondary'
-                                                : 'border-primary'
+                                                : 'border-border'
                                         }`}
                                         onClick={() => {
                                             setSharedMetric({
@@ -135,7 +135,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Default</span>
                                             {!sharedMetricQuery.exposure_query && (
-                                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
+                                                <IconCheckCircle fontSize={18} color="var(--color-primary)" />
                                             )}
                                         </div>
                                         <div className="text-secondary text-sm leading-relaxed">
@@ -149,7 +149,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             sharedMetricQuery.exposure_query
                                                 ? 'border-accent bg-accent-highlight-secondary'
-                                                : 'border-primary'
+                                                : 'border-border'
                                         }`}
                                         onClick={() => {
                                             setSharedMetric({
@@ -185,7 +185,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Custom</span>
                                             {sharedMetricQuery.exposure_query && (
-                                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
+                                                <IconCheckCircle fontSize={18} color="var(--color-primary)" />
                                             )}
                                         </div>
                                         <div className="text-secondary text-sm leading-relaxed">

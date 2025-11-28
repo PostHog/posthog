@@ -16,7 +16,7 @@
     width: 100%;
     height: 100vh;
     overflow: hidden;
-    background: var(--background);
+    background: var(--color-background);
 
     .storybook-test-runner & {
         height: auto;
@@ -108,7 +108,7 @@
         flex-direction: column;
         justify-content: space-between;
         overflow-y: auto;
-        background: var(--color-bg-surface-secondary);
+        background: var(--color-bg-muted);
 
         .LemonButton__chrome {
             --lemon-button-padding-horizontal: 0.25rem !important;
@@ -181,7 +181,7 @@
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 3rem;
-    --sidebar-background: var(--background);
+    --sidebar-background: var(--color-background);
 
     position: relative;
     box-sizing: content-box;
@@ -193,7 +193,7 @@
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
     [theme='dark'] & {
-        --sidebar-background: var(--card);
+        --sidebar-background: var(--color-card);
     }
 
     &.Sidebar3000--resizing {
@@ -255,7 +255,7 @@
     white-space: nowrap;
 
     // Extend the border into viewport overscroll
-    border-right: min(1px, var(--sidebar-width)) solid var(--color-border-primary);
+    border-right: min(1px, var(--sidebar-width)) solid var(--color-border);
 
     .Sidebar3000--resizing & {
         will-change: width;
@@ -284,7 +284,7 @@
     padding: 0 var(--sidebar-horizontal-padding);
     font-weight: 500;
     user-select: none;
-    background: var(--background);
+    background: var(--color-background);
     border-top-width: 1px;
 }
 
@@ -315,7 +315,7 @@
     }
 
     &::before {
-        background: var(--color-border-primary);
+        background: var(--color-border);
         transition: 100ms ease transform;
     }
 
@@ -354,7 +354,7 @@
     --accordion-arrow-size: 1rem;
     --accordion-row-height: 32px;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--card);
+    --accordion-header-background: var(--color-card);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -364,7 +364,7 @@
     min-height: var(--accordion-row-height);
 
     [theme='dark'] & {
-        --accordion-header-background: var(--background);
+        --accordion-header-background: var(--color-background);
     }
 
     &[aria-expanded] {
@@ -402,7 +402,7 @@
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--color-border-primary);
+        background: var(--color-border);
     }
 
     > .LemonIcon {
@@ -421,7 +421,7 @@
 .SidebarListItemAccordion {
     --accordion-arrow-size: 1rem;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--card);
+    --accordion-header-background: var(--color-card);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -431,7 +431,7 @@
     height: 100%;
 
     [theme='dark'] & {
-        --accordion-header-background: var(--background);
+        --accordion-header-background: var(--color-background);
     }
 
     &[role='region'] {
@@ -459,7 +459,7 @@
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--color-border-primary);
+        background: var(--color-border);
     }
 
     > .LemonIcon {
@@ -495,7 +495,7 @@
     &:hover:not([aria-disabled='true']),
     &[aria-current='page'],
     &.SidebarListItem--is-renaming {
-        --sidebar-list-item-background: var(--color-border-primary);
+        --sidebar-list-item-background: var(--color-border);
 
         opacity: 1;
     }
@@ -601,7 +601,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--color-border-primary);
+        border: 1px solid var(--color-border);
     }
 }
 
@@ -627,7 +627,7 @@
     cursor: pointer;
 
     &:hover {
-        background: var(--color-border-primary);
+        background: var(--color-border);
     }
 
     .SidebarListItem__icon {
@@ -640,7 +640,7 @@
     justify-content: center;
 
     // Pseudo-elements don't work on inputs, so we use a wrapper div
-    background: var(--card);
+    background: var(--color-card);
 
     input {
         width: 100%;
@@ -657,7 +657,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--color-border-primary);
+        border: 1px solid var(--color-border);
 
         .SidebarListItem[aria-invalid='true'] & {
             border-color: var(--danger);

@@ -192,7 +192,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                 label="Variant keys"
                 help="The rollout percentage of experiment variants must add up to 100%"
             >
-                <div className="text-sm border border-primary rounded p-4">
+                <div className="text-sm border border-border rounded p-4">
                     <div className="grid grid-cols-24 gap-2 font-bold mb-2 items-center">
                         <div />
                         <div className="col-span-4">Variant key</div>

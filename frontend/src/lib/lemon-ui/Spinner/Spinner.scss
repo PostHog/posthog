@@ -1,6 +1,6 @@
 .Spinner {
     --spinner-speed: 1s;
-    --spinner-color: var(--color-accent);
+    --spinner-color: var(--color-primary);
 
     display: inline-block; // Same as .LemonIcon
     flex-shrink: 0;
@@ -81,7 +81,7 @@
         position: absolute;
         inset: 0;
         content: '';
-        background: var(--card);
+        background: var(--color-card);
         opacity: 0.5;
     }
 
@@ -90,6 +90,6 @@
     }
 
     &.SpinnerOverlay--scene-level::before {
-        background: var(--background);
+        background: var(--color-background);
     }
 }

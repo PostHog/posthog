@@ -602,9 +602,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     ].map((option) => (
                                                         <div
                                                             key={option.value}
-                                                            className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
+                                                            className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-border-light ${
                                                                 value === option.value
-                                                                    ? 'border-primary bg-primary-highlight'
+                                                                    ? 'border-border bg-primary-highlight'
                                                                     : 'border-border'
                                                             }`}
                                                             onClick={() => onChange(option.value)}

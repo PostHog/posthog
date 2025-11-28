@@ -64,8 +64,8 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                         {toolsInReverse.map((tool) => {
                             const toolDef = getToolDefinition(tool.identifier)
                             return (
-                                // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
-                                // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
+                                // We're using --color-posthog-3000-300 instead of border-border (--color-posthog-3000-200)
+                                // or border-border-strong (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
                                 <em className="relative inline-flex items-center gap-1" key={tool.identifier}>
                                     <span className="flex text-sm">{toolDef?.icon || <IconWrench />}</span>
                                     {/* Controls how the create_and_query_insight tool displays its name */}

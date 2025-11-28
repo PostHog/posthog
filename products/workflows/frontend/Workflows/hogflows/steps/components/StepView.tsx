@@ -43,9 +43,9 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     ? `${Step?.color}`
                     : `${Step?.color}20`
                 : isSelected
-                  ? 'var(--border-primary)'
-                  : 'var(--border)',
-            colorLight: Step?.color ? `${Step?.color}20` : 'var(--border)',
+                  ? 'var(--border-border)'
+                  : 'var(--color-border)',
+            colorLight: Step?.color ? `${Step?.color}20` : 'var(--color-border)',
             color: Step?.color || 'var(--text-secondary)',
             icon: Step?.icon,
         }
@@ -106,7 +106,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         ) : (
                             <Tooltip title={action.name}>
                                 <div
-                                    className="text-[0.45rem] font-sans font-medium cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 truncate min-w-0 flex-1"
+                                    className="text-[0.45rem] font-sans font-medium cursor-text hover:bg-accent rounded px-0.5 -mx-0.5 transition-colors pl-1 truncate min-w-0 flex-1"
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         startEditingName()
@@ -147,7 +147,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     ) : (
                         <Tooltip title={action.description || ''}>
                             <div
-                                className="text-[0.3rem]/1.5 text-muted line-clamp-2 cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden"
+                                className="text-[0.3rem]/1.5 text-muted line-clamp-2 cursor-text hover:bg-accent rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden"
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     startEditingDescription()

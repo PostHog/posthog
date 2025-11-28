@@ -63,7 +63,7 @@ export function ResponseCard({
                 )}
             </div>
             {hasPersonData && (
-                <div className="bg-surface-secondary px-3 py-2 border-t flex flex-1 justify-center flex-col">
+                <div className="bg-muted px-3 py-2 border-t flex flex-1 justify-center flex-col">
                     {showCount && <div className="text-xs text-secondary mb-1">Last respondent:</div>}
                     <PersonDisplay
                         person={{

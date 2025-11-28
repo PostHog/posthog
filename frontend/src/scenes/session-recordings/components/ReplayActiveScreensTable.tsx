@@ -38,7 +38,7 @@ export const ReplayActiveScreensTable = (): JSX.Element => {
                 loading={countedScreensLoading}
                 onRow={(record) => {
                     return {
-                        className: 'cursor-pointer hover:bg-surface-secondary',
+                        className: 'cursor-pointer hover:bg-muted',
                         onClick: () => {
                             router.actions.push(
                                 urls.replay(ReplayTabs.Home, {

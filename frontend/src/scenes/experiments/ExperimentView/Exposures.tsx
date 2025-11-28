@@ -138,8 +138,8 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 width: '60px',
                 height: '20px',
                 pointerEvents: 'none',
-                borderBottom: '1px solid var(--color-border-primary)',
-                borderRight: '1px solid var(--color-border-primary)',
+                borderBottom: '1px solid var(--color-border)',
+                borderRight: '1px solid var(--color-border)',
             }}
         >
             <canvas ref={canvasRef} />

@@ -177,7 +177,10 @@ export function Tooltip({
                         })}
                     >
                         <div
-                            className={clsx('bg-surface-tooltip py-1.5 px-2 break-words rounded text-start', className)}
+                            className={clsx(
+                                'bg-card text-card-foreground py-1.5 px-2 break-words rounded text-start',
+                                className
+                            )}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...transitionStyles }}
                         >
@@ -203,7 +206,7 @@ export function Tooltip({
                                 staticOffset={
                                     typeof arrowOffset === 'function' ? arrowOffset(context.placement) : arrowOffset
                                 }
-                                fill="var(--color-bg-surface-tooltip)"
+                                fill="var(--color-card)"
                             />
                         </div>
                     </div>

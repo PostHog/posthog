@@ -77,7 +77,7 @@ export const SelectOption = <T,>({ title, description, value, selectedValue }: S
             className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
                 value === selectedValue
                     ? 'bg-accent text-primary-inverse [text-shadow:0_0_1px_black]'
-                    : 'bg-surface-secondary text-primary'
+                    : 'bg-muted text-primary'
             }`}
         >
             {value}

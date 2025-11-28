@@ -70,7 +70,7 @@ function Property({ property, title, iconOnly }: { property: string; title?: str
             <PropertyIcon property={property} value={title} className="text-sm text-secondary" />
         </Tooltip>
     ) : (
-        <LemonTag className="bg-fill-primary">
+        <LemonTag className="bg-card">
             <PropertyIcon property={property} value={title} className="text-sm text-secondary" />
             <span className="capitalize">{title}</span>
         </LemonTag>

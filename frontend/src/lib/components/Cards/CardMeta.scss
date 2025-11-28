@@ -42,7 +42,7 @@
     flex-shrink: 0;
     width: 100%;
     max-height: calc(100% - 2rem);
-    background: var(--card);
+    background: var(--color-card);
     border-radius: var(--radius);
 
     h5 {
@@ -73,7 +73,7 @@
     .CardMeta__divider {
         height: 1px;
         margin: 0 1rem;
-        background: var(--color-border-primary);
+        background: var(--color-border);
         opacity: 0;
         transition: opacity 200ms ease;
     }
@@ -86,7 +86,7 @@
         max-height: 24rem;
         margin-top: -1px; // To cause overlap with the divider when closed
         overflow-y: auto;
-        background: var(--card);
+        background: var(--color-card);
         border-bottom-width: 1px;
         transition:
             box-shadow 200ms ease,

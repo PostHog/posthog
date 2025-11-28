@@ -164,7 +164,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                             className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
                                                 message.role === 'assistant'
                                                     ? 'bg-surface-primary dark:bg-surface-primary text-default'
-                                                    : 'bg-surface-primary dark:bg-surface-secondary text-default'
+                                                    : 'bg-surface-primary dark:bg-muted text-default'
                                             }`}
                                         >
                                             {message.role === 'assistant'

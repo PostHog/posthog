@@ -82,7 +82,7 @@
         overflow: auto;
         border-spacing: 0;
         border-collapse: separate;
-        border: 1px solid var(--border);
+        border: 1px solid var(--color-border);
         border-radius: var(--radius);
     }
 
@@ -92,8 +92,8 @@
         color: var(--default);
         text-align: left;
         vertical-align: top;
-        border-right: 1px solid var(--border);
-        border-bottom: 1px solid var(--border);
+        border-right: 1px solid var(--color-border);
+        border-bottom: 1px solid var(--color-border);
 
         &:last-child {
             border-right: none;

@@ -276,7 +276,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     fullWidth
                     className={clsx(
                         'taxonomic-list-row',
-                        'border border-dashed border-secondary rounded min-h-9 justify-center'
+                        'border border-dashed border-border-strong rounded min-h-9 justify-center'
                     )}
                     outlined={false}
                     onKeyDown={(e) => {

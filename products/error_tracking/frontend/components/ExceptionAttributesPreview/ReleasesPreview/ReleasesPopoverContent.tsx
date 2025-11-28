@@ -49,7 +49,7 @@ function GitFooter({ git }: { git: ReleaseGitMetadata }): JSX.Element {
         [remote_url]
     )
     return (
-        <div className="border-t-1 p-1 bg-fill-primary">
+        <div className="border-t-1 p-1 bg-card">
             <div className="flex items-center gap-1 flex-wrap">
                 {commit_id && (
                     <PropertyDisplay
@@ -103,7 +103,7 @@ function PropertyDisplay({
     function renderContent(): JSX.Element {
         return (
             <LemonTag
-                className={cn('bg-fill-primary cursor-pointer hover:bg-fill-secondary', tagProps.className)}
+                className={cn('bg-card cursor-pointer hover:bg-fill-secondary', tagProps.className)}
                 {...tagProps}
             >
                 {icon && createElement(icon, { className: 'text-sm text-secondary' })}

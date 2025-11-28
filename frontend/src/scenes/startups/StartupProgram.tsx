@@ -201,7 +201,7 @@ export function StartupProgram(): JSX.Element {
             </div>
 
             <div className="grid md:grid-cols-2 gap-8 mb-8">
-                <div className="bg-surface-secondary rounded-lg p-6">
+                <div className="bg-muted rounded-lg p-6">
                     <h2 className="text-xl mb-4">
                         {isReferralProgram && referrerDisplayName
                             ? `We've teamed up with ${referrerDisplayName} to offer you`
@@ -310,7 +310,7 @@ export function StartupProgram(): JSX.Element {
 
                 <div className="space-y-4">
                     {/* Step 1: Add billing details */}
-                    <div className="bg-surface-secondary rounded-lg p-6">
+                    <div className="bg-muted rounded-lg p-6">
                         <div className="flex items-center justify-between mb-4">
                             <h2 className="text-xl m-0">Step 1: Add billing details</h2>
                         </div>
@@ -344,7 +344,7 @@ export function StartupProgram(): JSX.Element {
                     </div>
 
                     {/* Step 2: Submit application form */}
-                    <div className="bg-surface-secondary rounded-lg p-6">
+                    <div className="bg-muted rounded-lg p-6">
                         <div className="flex items-center justify-between mb-4">
                             <h2 className="text-xl m-0">Step 2: Submit application</h2>
                         </div>

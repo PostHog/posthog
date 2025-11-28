@@ -445,7 +445,7 @@ function Category({
                     </>
                 </div>
             </div>
-            <div className="h-px w-full bg-border-primary" />
+            <div className="h-px w-full bg-border-border" />
         </>
     )
 }

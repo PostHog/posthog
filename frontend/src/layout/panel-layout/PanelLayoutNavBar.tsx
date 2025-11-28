@@ -433,7 +433,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     })}
                                 </div>
 
-                                <div className="border-b border-primary h-px my-1" />
+                                <div className="border-b border-border h-px my-1" />
 
                                 <div
                                     className={cn(
@@ -446,7 +446,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        <div className="border-b border-primary h-px " />
+                        <div className="border-b border-border h-px " />
 
                         <div className="p-1 flex flex-col gap-px items-center">
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />

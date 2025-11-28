@@ -167,7 +167,7 @@ const Content = ({
                                 key={path}
                             >
                                 <div
-                                    className="absolute top-0 left-0 h-full opacity-80 bg-surface-secondary"
+                                    className="absolute top-0 left-0 h-full opacity-80 bg-muted"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width }}
                                 />

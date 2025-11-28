@@ -51,7 +51,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
             <div
                 className={clsx(
                     'w-full px-2 hover:bg-primary border-l-4 border-b cursor-pointer',
-                    focused ? 'bg-surface-secondary border-l-accent' : 'bg-surface-primary'
+                    focused ? 'bg-muted border-l-accent' : 'bg-surface-primary'
                 )}
                 onClick={() => {
                     if (mobileLayout) {

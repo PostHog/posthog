@@ -24,7 +24,7 @@
         background: var(--color-accent-highlight-secondary);
 
         .LemonRow__icon {
-            color: var(--color-accent);
+            color: var(--color-primary);
         }
     }
 
@@ -47,7 +47,7 @@
     }
 
     &.LemonRow--status-muted {
-        background: var(--background);
+        background: var(--color-background);
     }
 
     &.LemonRow--disabled {
@@ -72,7 +72,7 @@
 }
 
 .LemonRow--outlined {
-    border: 1px solid var(--color-border-primary);
+    border: 1px solid var(--color-border);
 }
 
 .LemonRow--full-width {

@@ -16,8 +16,8 @@
     max-width: 30rem;
     overflow: hidden;
     font-size: 0.8125rem;
-    background: var(--card);
-    border: 1px solid var(--color-border-primary);
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation-3000);
 
@@ -38,7 +38,7 @@
         border-bottom-left-radius: 0;
 
         &:not(:last-child) {
-            border-bottom: 1px solid var(--color-border-primary);
+            border-bottom: 1px solid var(--color-border);
         }
 
         .insights-label {
@@ -76,7 +76,7 @@
                 overflow: hidden;
                 color: var(--primary-alt);
                 vertical-align: middle;
-                background-color: var(--color-border-primary);
+                background-color: var(--color-border);
                 border: 0;
             }
         }
@@ -87,7 +87,7 @@
         font-size: 0.75rem;
         color: var(--color-text-secondary);
         text-align: center;
-        background-color: var(--card);
+        background-color: var(--color-card);
 
         .table-subtext-truncated {
             margin-bottom: 4px;

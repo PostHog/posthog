@@ -82,7 +82,7 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
             <div className="grid md:grid-cols-2 gap-8 mb-8">
                 {/* Left: Benefits & Eligibility */}
                 <div className="space-y-6">
-                    <div className="bg-surface-secondary rounded-lg p-6">
+                    <div className="bg-muted rounded-lg p-6">
                         <h2 className="text-xl mb-4">What you'll get</h2>
                         <div className="space-y-3">
                             {config.benefits.map((benefit, index) => (
@@ -99,7 +99,7 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                     </div>
 
                     {config.eligibilityCriteria && config.eligibilityCriteria.length > 0 && (
-                        <div className="bg-surface-secondary rounded-lg p-6">
+                        <div className="bg-muted rounded-lg p-6">
                             <h2 className="text-xl mb-4">Eligibility</h2>
                             <ul className="space-y-2">
                                 {config.eligibilityCriteria.map((criterion, index) => (
@@ -117,7 +117,7 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                 <div className="space-y-4">
                     {/* Step 1: Add billing details (conditional) */}
                     {requiresBilling && (
-                        <div className="bg-surface-secondary rounded-lg p-6">
+                        <div className="bg-muted rounded-lg p-6">
                             <h2 className="text-xl mb-4">Step 1: Add billing details</h2>
                             {billingLoading ? (
                                 <div className="flex items-center gap-2">
@@ -152,7 +152,7 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                     )}
 
                     {/* Step 2: Redeem coupon */}
-                    <div className="bg-surface-secondary rounded-lg p-6">
+                    <div className="bg-muted rounded-lg p-6">
                         <h2 className="text-xl mb-4">{requiresBilling ? 'Step 2: ' : ''}Redeem your coupon</h2>
 
                         {claimed ? (

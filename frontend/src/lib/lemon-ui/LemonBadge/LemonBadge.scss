@@ -1,5 +1,5 @@
 .LemonBadge {
-    --lemon-badge-color: var(--color-accent);
+    --lemon-badge-color: var(--color-primary);
     --lemon-badge-size: 1.5rem;
     --lemon-badge-font-size: 0.75rem;
     --lemon-badge-position-offset: 0.5rem;
@@ -20,11 +20,11 @@
     font-size: var(--lemon-badge-font-size);
     font-weight: 700;
     line-height: var(--lemon-badge-size);
-    color: var(--card);
+    color: var(--color-card);
     pointer-events: none;
     user-select: none;
     background: var(--lemon-badge-color);
-    border: var(--lemon-badge-border-width) solid var(--card);
+    border: var(--lemon-badge-border-width) solid var(--color-card);
     border-radius: calc(var(--lemon-badge-size) / 2);
 
     > * {

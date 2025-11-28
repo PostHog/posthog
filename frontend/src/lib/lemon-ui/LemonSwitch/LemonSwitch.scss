@@ -53,8 +53,8 @@
         min-height: calc(2.125rem + 3px); // Medium size button height + button shadow height
         padding: 0 0.75rem;
         line-height: 1.4;
-        background: var(--card);
-        border: 1px solid var(--color-border-primary);
+        background: var(--color-card);
+        border: 1px solid var(--color-border);
         border-radius: var(--radius);
 
         &.LemonSwitch--small {
@@ -105,11 +105,11 @@
     background-color: var(--color-bg-fill-switch);
     border: none;
     border-radius: var(--lemon-switch-height);
-    outline: 1px solid var(--color-border-primary);
+    outline: 1px solid var(--color-border);
     transition: background-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--color-accent);
+        background-color: var(--color-primary);
     }
 
     .LemonSwitch--disabled & {
@@ -139,8 +139,8 @@
         border-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: var(--card);
-        border-color: var(--color-accent);
+        background-color: var(--color-card);
+        border-color: var(--color-primary);
         transform: var(--lemon-switch-active-translate);
     }
 

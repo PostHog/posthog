@@ -3,13 +3,13 @@
     flex: 1;
     flex-direction: column;
     overflow: hidden;
-    background-color: var(--background);
+    background-color: var(--color-background);
 
     .NotebookPanelDropzone {
         display: flex;
         height: 4rem;
         margin: 0.5rem;
-        border: 2px dashed var(--color-border-primary);
+        border: 2px dashed var(--color-border);
         border-radius: var(--radius);
         transition: all 150ms;
 
@@ -25,7 +25,7 @@
             color: var(--color-text-secondary);
             text-align: center;
             pointer-events: none;
-            background-color: var(--card);
+            background-color: var(--color-card);
             opacity: 0.75;
             transition: all 150ms;
         }
@@ -39,7 +39,7 @@
 
         &--active {
             height: 8rem;
-            border-color: var(--color-accent);
+            border-color: var(--color-primary);
 
             .NotebookPanelDropzone__message {
                 opacity: 1;

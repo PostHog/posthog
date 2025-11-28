@@ -12,7 +12,7 @@
     transition: background 0.3s ease;
 
     &:hover {
-        background-color: var(--background);
+        background-color: var(--color-background);
     }
 
     input::-webkit-outer-spin-button,
@@ -41,8 +41,8 @@
     margin-right: 0.25rem;
     margin-left: 0.25rem;
     line-height: 1.5rem;
-    background-color: var(--card);
-    border: 1px solid var(--color-border-primary);
+    background-color: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
 
     .LemonInput {
@@ -76,7 +76,7 @@
         }
 
         &:hover {
-            background-color: var(--card);
+            background-color: var(--color-card);
         }
     }
 }

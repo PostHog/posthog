@@ -31,7 +31,7 @@ export const LemonCard = forwardRef<HTMLDivElement, LemonCardProps>(function Lem
                 {
                     'LemonCard--hoverEffect': hoverEffect,
                     'border-2 border-accent': focused,
-                    'border-primary': !focused,
+                    'border-border': !focused,
                     'cursor-pointer': !!onClick && !focused,
                 },
                 className

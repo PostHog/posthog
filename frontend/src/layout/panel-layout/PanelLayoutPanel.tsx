@@ -31,7 +31,7 @@ interface PanelLayoutPanelProps {
 }
 
 const panelLayoutPanelVariants = cva({
-    base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
+    base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-border transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
         isLayoutPanelPinned: {
             true: 'relative',
@@ -115,7 +115,7 @@ export function PanelLayoutPanel({
         >
             <div
                 className={cn(
-                    'z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true',
+                    'z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-muted group/colorful-product-icons colorful-product-icons-true',
                     'bg-background'
                 )}
             >

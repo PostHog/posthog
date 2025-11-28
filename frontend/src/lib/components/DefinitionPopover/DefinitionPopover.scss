@@ -64,7 +64,7 @@
                 }
 
                 &.taxonomy-icon-built-in {
-                    color: var(--color-accent);
+                    color: var(--color-primary);
                 }
             }
         }
@@ -103,7 +103,7 @@
     }
 
     .DefinitionPopover {
-        background-color: var(--background);
+        background-color: var(--color-background);
 
         .DefinitionPopover__label {
             align-items: flex-start;

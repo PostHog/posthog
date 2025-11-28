@@ -8,7 +8,7 @@
     font-weight: 500;
     color: var(--color-text-primary);
     text-align: left;
-    border: solid 1px var(--color-border-primary);
+    border: solid 1px var(--color-border);
     border-radius: var(--radius);
 
     &.LemonBanner--square {
@@ -16,8 +16,8 @@
     }
 
     &.LemonBanner--info {
-        background-color: var(--color-bg-fill-primary);
-        border-color: var(--color-border-primary);
+        background-color: var(--color-card);
+        border-color: var(--color-border);
     }
 
     &.LemonBanner--warning {

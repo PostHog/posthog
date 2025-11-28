@@ -190,7 +190,7 @@ export function HogFunctionTest(): JSX.Element {
                 ref={testResultsRef}
                 className={clsx(
                     'p-3 rounded border deprecated-space-y-2',
-                    expanded ? 'bg-surface-primary' : 'bg-surface-secondary',
+                    expanded ? 'bg-surface-primary' : 'bg-muted',
                     expanded ? 'min-h-120' : ''
                 )}
             >

@@ -44,7 +44,7 @@ export function TemplateCard({
 }: TemplateCardProps): JSX.Element {
     return (
         <button
-            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
+            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-border-3000-hover focus:border-border-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
             data-attr="survey-template"
             onClick={() => handleTemplateClick(template)}
         >

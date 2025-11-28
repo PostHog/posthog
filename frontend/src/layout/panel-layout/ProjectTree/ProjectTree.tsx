@@ -131,7 +131,7 @@ export function ProjectTree({
                 name: 'Example shortcuts',
                 type: 'category',
                 displayName: (
-                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
+                    <div className="border border-border text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
                         Shortcuts are added by pressing{' '}
                         <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
                         side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file
@@ -153,7 +153,7 @@ export function ProjectTree({
                 name: 'Example apps',
                 type: 'category',
                 displayName: (
-                    <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1 mt-6">
+                    <div className="border border-border text-xs mb-2 font-normal rounded-xs p-2 -mx-1 mt-6">
                         This list will display your more frequently used apps. You can configure what items show up in
                         here by clicking on the{' '}
                         <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
@@ -697,7 +697,7 @@ export function ProjectTree({
                 <ButtonPrimitive
                     tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
                     onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-surface-primary border border-primary z-[var(--z-resizer)]"
+                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-surface-primary border border-border z-[var(--z-resizer)]"
                     data-attr="tree-panel-switch-view-button"
                     iconOnly
                 >

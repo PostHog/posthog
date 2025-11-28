@@ -102,7 +102,7 @@ function PreviewCard({ feature, title, description, actions, children }: Preview
         <BasicCard
             className="pl-4 pr-2 pt-2 pb-3 gap-1 @container"
             id={`${feature.flagKey}`}
-            backgroundColor="var(--card)"
+            backgroundColor="var(--color-card)"
         >
             <div className="flex flex-col justify-between gap-2">
                 <div className="flex flex-col gap-1">

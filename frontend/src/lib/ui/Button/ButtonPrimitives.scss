@@ -74,18 +74,18 @@
         &[data-state='checked'],
         &[data-highlighted],
         &.button-primitive--active {
-            background-color: var(--color-bg-fill-button-tertiary-active);
+            background-color: var(--color-accent);
         }
 
         &[data-focused='true'],
         &:hover {
-            background-color: var(--color-bg-fill-button-tertiary-hover);
+            background-color: var(--color-accent);
         }
     }
 }
 
 .button-primitive--variant-panel {
-    background-color: var(--color-bg-fill-button-panel);
+    background-color: var(--color-accent-strong);
     border: 1px solid transparent;
 
     &:not([aria-disabled='true']) {
@@ -95,12 +95,12 @@
         &[data-state='checked'],
         &[data-highlighted],
         &.button-primitive--active {
-            background-color: var(--color-bg-fill-button-panel-active);
+            background-color: var(--color-accent-strong);
         }
 
         &[data-focused='true'],
         &:hover {
-            background-color: var(--color-bg-fill-button-panel-hover);
+            background-color: var(--color-accent-strong);
         }
     }
 }
@@ -127,7 +127,7 @@
 }
 
 .button-primitive--variant-outline {
-    border: 1px solid var(--color-border-primary);
+    border: 1px solid var(--color-border);
 
     &:not([aria-disabled='true']) {
         &[data-active='true'],
@@ -136,12 +136,12 @@
         &[data-state='checked'],
         &[data-highlighted],
         &.button-primitive--active {
-            background-color: var(--color-bg-fill-button-tertiary-active);
+            background-color: var(--color-accent);
         }
 
         &[data-focused='true'],
         &:hover {
-            background-color: var(--color-bg-fill-button-tertiary-hover);
+            background-color: var(--color-accent);
         }
     }
 }

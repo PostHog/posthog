@@ -495,7 +495,7 @@ function isContainer(item: Active | Over): boolean {
 
 function DropIndicator(): JSX.Element {
     return (
-        <LemonCard className="p-3 my-1 border-2 border-dashed border-primary/50 bg-transparent pointer-events-none">
+        <LemonCard className="p-3 my-1 border-2 border-dashed border-border/50 bg-transparent pointer-events-none">
             <div className="flex justify-between items-start mb-2">
                 <div className="h-3 w-2/3 bg-border/60 rounded" />
             </div>

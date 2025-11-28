@@ -158,8 +158,8 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             {/* Current Status */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {/* Events Status */}
-                                <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
-                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
+                                <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
+                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-border">
                                         {hasEvents ? (
                                             <IconCheckCircle className="w-6 h-6" />
                                         ) : (
@@ -181,8 +181,8 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                 </div>
 
                                 {/* Sources Status */}
-                                <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
-                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
+                                <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
+                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-border">
                                         {hasSources ? (
                                             <IconCheckCircle className="w-6 h-6" />
                                         ) : (
@@ -213,7 +213,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             </div>
 
                             {/* Action Buttons */}
-                            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-primary">
+                            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
                                 <LemonButton
                                     type="primary"
                                     icon={<IconPlus />}
@@ -279,7 +279,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border border-primary">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border border-border">
                                 <IconDatabase className="w-7 h-7" style={{ color: 'var(--primary-3000)' }} />
                             </div>
                             <div>
@@ -296,9 +296,9 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                         'relative p-4 rounded-lg border-2',
                                         source.isAvailable
                                             ? source.isConnected
-                                                ? 'border-primary bg-primary-lightest'
-                                                : 'border-primary bg-bg-light'
-                                            : 'border-primary bg-bg-light opacity-60',
+                                                ? 'border-border bg-primary-lightest'
+                                                : 'border-border bg-bg-light'
+                                            : 'border-border bg-bg-light opacity-60',
                                         source.isAvailable ? 'cursor-pointer' : 'cursor-not-allowed'
                                     )}
                                     onClick={source.isAvailable ? () => handleSourceSelect(source.id) : undefined}

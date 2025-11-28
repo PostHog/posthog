@@ -36,7 +36,7 @@ export const PositionButton = ({
                 <div
                     className={cn(
                         'size-4 border border-transparent rounded-xs',
-                        isActive ? 'bg-accent' : 'group-hover:bg-accent/40 border-primary'
+                        isActive ? 'bg-accent' : 'group-hover:bg-accent/40 border-border'
                     )}
                 />
             </div>

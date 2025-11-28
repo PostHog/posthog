@@ -246,7 +246,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 onChange={(files) => setCSVFile(files[0] || null)}
                                 showUploadedFiles={false}
                                 callToAction={
-                                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary-light transition-colors cursor-pointer w-full">
+                                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-border-light transition-colors cursor-pointer w-full">
                                         <div className="text-sm text-muted">
                                             Drop your CSV file here or click to browse
                                         </div>

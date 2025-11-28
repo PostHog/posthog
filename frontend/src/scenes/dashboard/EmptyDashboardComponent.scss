@@ -17,7 +17,7 @@
             height: 10rem;
             pointer-events: none;
             content: '';
-            background: linear-gradient(to top, var(--background), transparent);
+            background: linear-gradient(to top, var(--color-background), transparent);
         }
     }
 
@@ -28,7 +28,7 @@
         width: 360px;
         max-width: calc(100% - 32px);
         padding: 1.5rem;
-        background: var(--card);
+        background: var(--color-card);
         border-width: 1px;
         border-radius: var(--radius);
         box-shadow: var(--shadow-elevation-3000);

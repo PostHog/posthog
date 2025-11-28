@@ -42,7 +42,7 @@ function RenderCombobox(): JSX.Element {
 
                 {/* Groups with no value are "static" and don't affect Empty state */}
                 <Combobox.Group>
-                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                    <div className="-mx-1 my-1 h-px bg-border-border shrink-0" />
                 </Combobox.Group>
 
                 <Combobox.Group value={['Banana']}>
@@ -51,7 +51,7 @@ function RenderCombobox(): JSX.Element {
                         <ButtonPrimitive menuItem>Searchable: Banana</ButtonPrimitive>
                     </Combobox.Item>
                 </Combobox.Group>
-                <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                <div className="-mx-1 my-1 h-px bg-border-border shrink-0" />
 
                 <Combobox.Group value={['projectName']}>
                     <ButtonGroupPrimitive fullWidth className="[&>span]:contents">

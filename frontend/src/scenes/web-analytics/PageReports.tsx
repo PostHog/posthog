@@ -16,7 +16,7 @@ import { pageReportsLogic } from './pageReportsLogic'
 
 function NoUrlSelectedMessage(): JSX.Element {
     return (
-        <div className="border-2 border-dashed border-primary w-full p-8 rounded flex items-center justify-center gap-8">
+        <div className="border-2 border-dashed border-border w-full p-8 rounded flex items-center justify-center gap-8">
             <div className="flex-shrink-0">
                 <XRayHog2 alt="X-ray hedgehog" className="w-60" />
             </div>

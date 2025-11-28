@@ -153,7 +153,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                             return (
                                 <div
                                     key={metric.uuid || index}
-                                    className={`w-full border border-primary bg-light ${
+                                    className={`w-full border border-border bg-light ${
                                         metrics.length === 1
                                             ? 'rounded'
                                             : isFirstMetric

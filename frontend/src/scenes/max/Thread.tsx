@@ -625,7 +625,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
             </div>
             {isExpanded && (
-                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-[calc(0.775rem)]">
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-strong pl-3.5 ml-[calc(0.775rem)]">
                     {steps.map((step, index) => {
                         const isCompleted = step.status === 'completed'
                         const isInProgress = step.status === 'in_progress'
@@ -769,10 +769,7 @@ function AssistantActionComponent({
             </div>
             {isExpanded && substeps && substeps.length > 0 && (
                 <div
-                    className={clsx(
-                        'space-y-1 border-l-2 border-border-secondary',
-                        icon && 'pl-3.5 ml-[calc(0.775rem)]'
-                    )}
+                    className={clsx('space-y-1 border-l-2 border-border-strong', icon && 'pl-3.5 ml-[calc(0.775rem)]')}
                 >
                     {substeps.map((substep, substepIndex) => {
                         const isCurrentSubstep = substepIndex === substeps.length - 1
@@ -1210,7 +1207,7 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
                                 'w-full text-left p-2 rounded transition-colors text-sm',
                                 selectedIndex === index
                                     ? 'bg-primary text-primary-inverted font-semibold'
-                                    : 'hover:bg-surface-secondary'
+                                    : 'hover:bg-muted'
                             )}
                         >
                             {item.title}

@@ -48,7 +48,7 @@
                     }
 
                     &.taxonomy-icon-built-in {
-                        color: var(--color-accent);
+                        color: var(--color-primary);
                     }
                 }
             }
@@ -67,7 +67,7 @@
 
         &.hover,
         &.active {
-            background-color: var(--background);
+            background-color: var(--color-background);
             border-radius: var(--radius);
         }
 
@@ -76,7 +76,7 @@
         }
 
         &.expand-row {
-            color: var(--color-accent);
+            color: var(--color-primary);
         }
     }
 }

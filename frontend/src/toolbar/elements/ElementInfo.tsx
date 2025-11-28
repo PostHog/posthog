@@ -53,7 +53,7 @@ export function ElementInfo(): JSX.Element | null {
                 </div>
             ) : null}
 
-            <div className="p-3 border-l-[5px] border-l-success bg-surface-secondary">
+            <div className="p-3 border-l-[5px] border-l-success bg-muted">
                 {!automaticActionCreationEnabled && (
                     <>
                         <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>

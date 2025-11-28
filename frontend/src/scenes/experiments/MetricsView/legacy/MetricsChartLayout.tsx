@@ -42,7 +42,7 @@ export function MetricsChartLayout({
         <div className="rounded bg-[var(--color-bg-table)]">
             <div className="flex">
                 {/* Metric title panel - 20% width with right border */}
-                <div className="w-1/5 border-r border-primary">
+                <div className="w-1/5 border-r border-border">
                     {isFirstMetric && (
                         <>
                             {/* Spacer div to match tick panel height */}
@@ -50,7 +50,7 @@ export function MetricsChartLayout({
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ height: `${ticksSvgHeight}px` }}
                             />
-                            <div className="w-full border-t border-primary" />
+                            <div className="w-full border-t border-border" />
                         </>
                     )}
 
@@ -78,7 +78,7 @@ export function MetricsChartLayout({
                                     tickPanelHeight={tickPanelHeight}
                                 />
                             </div>
-                            <div className="w-full border-t border-primary" />
+                            <div className="w-full border-t border-border" />
                         </>
                     )}
 

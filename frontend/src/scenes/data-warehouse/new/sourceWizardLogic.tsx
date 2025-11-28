@@ -599,10 +599,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                     {fullRefreshTables
                                         .slice(0, Math.min(fullRefreshTables.length, maxTablesShownPerSection))
                                         .map((table) => (
-                                            <div
-                                                key={table.table}
-                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
-                                            >
+                                            <div key={table.table} className="font-mono px-2 rounded bg-muted w-min">
                                                 {table.table}
                                             </div>
                                         ))}
@@ -637,10 +634,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                     {appendOnlyTables
                                         .slice(0, Math.min(appendOnlyTables.length, maxTablesShownPerSection))
                                         .map((table) => (
-                                            <div
-                                                key={table.table}
-                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
-                                            >
+                                            <div key={table.table} className="font-mono px-2 rounded bg-muted w-min">
                                                 {table.table}
                                             </div>
                                         ))}

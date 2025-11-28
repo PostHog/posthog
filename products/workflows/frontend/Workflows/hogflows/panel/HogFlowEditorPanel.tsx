@@ -50,8 +50,8 @@ export function HogFlowEditorPanel(): JSX.Element | null {
             <div
                 className="relative flex flex-col rounded-md overflow-hidden bg-surface-primary max-h-full z-10"
                 style={{
-                    border: '1px solid var(--border)',
-                    boxShadow: '0 3px 0 var(--border)',
+                    border: '1px solid var(--color-border)',
+                    boxShadow: '0 3px 0 var(--color-border)',
                 }}
             >
                 <div className="flex gap-2 border-b items-center">

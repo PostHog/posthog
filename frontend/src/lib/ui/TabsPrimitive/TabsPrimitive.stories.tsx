@@ -30,7 +30,7 @@ export function TabsSimple(): JSX.Element {
                 <div>2 seconds ago</div>
             </div>
             <TabsPrimitiveContent value="stacktrace">
-                <div className="tabs-sub-header border-b-1 bg-surface-secondary px-2 py-1">Tab sub header</div>
+                <div className="tabs-sub-header border-b-1 bg-muted px-2 py-1">Tab sub header</div>
                 Stacktrace
             </TabsPrimitiveContent>
             <TabsPrimitiveContent value="properties">Properties</TabsPrimitiveContent>

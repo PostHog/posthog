@@ -25,7 +25,7 @@
         z-index: 2;
         height: var(--bar-height);
         cursor: pointer;
-        background-color: var(--color-border-primary);
+        background-color: var(--color-border);
         border-radius: var(--bar-height);
         transition:
             height 150ms ease-in-out,
@@ -43,16 +43,16 @@
 
         .PlayerSeekbar__bufferbar {
             z-index: 2;
-            background-color: var(--color-border-primary);
+            background-color: var(--color-border);
             border-radius: var(--bar-height);
 
             &--loading {
                 background-image: repeating-linear-gradient(
                     45deg,
-                    var(--color-border-primary),
-                    var(--color-border-primary) 10px,
-                    var(--color-bg-surface-secondary) 10px,
-                    var(--color-bg-surface-secondary) 20px
+                    var(--color-border),
+                    var(--color-border) 10px,
+                    var(--color-bg-muted) 10px,
+                    var(--color-bg-muted) 20px
                 );
                 background-size: 28px 28px;
                 animation: PlayerSeekbar__loading-stripes 0.8s linear infinite;
@@ -61,7 +61,7 @@
 
         .PlayerSeekbar__currentbar {
             z-index: 3;
-            background-color: var(--color-accent);
+            background-color: var(--color-primary);
             border-radius: var(--bar-height) 0 0 var(--bar-height);
         }
 
@@ -74,7 +74,7 @@
             .PlayerSeekbar__segments__item {
                 float: left;
                 height: 100%;
-                background-color: var(--card);
+                background-color: var(--color-card);
                 opacity: 0.5;
 
                 &--active {
@@ -87,13 +87,13 @@
                 }
 
                 &--buffer-loading {
-                    background-color: var(--color-border-primary);
+                    background-color: var(--color-border);
                     background-image: repeating-linear-gradient(
                         45deg,
-                        var(--color-border-primary),
-                        var(--color-border-primary) 10px,
-                        var(--color-bg-surface-secondary) 10px,
-                        var(--color-bg-surface-secondary) 20px
+                        var(--color-border),
+                        var(--color-border) 10px,
+                        var(--color-bg-muted) 10px,
+                        var(--color-bg-muted) 20px
                     );
                     background-size: 28px 28px;
                     opacity: 1;
@@ -109,8 +109,8 @@
             width: var(--thumb-size);
             height: var(--thumb-size);
             margin-top: calc(var(--thumb-size) / 2 * -1);
-            background-color: var(--color-accent);
-            border: 2px solid var(--card);
+            background-color: var(--color-primary);
+            border: 2px solid var(--color-card);
             border-radius: 50%;
             transition: top 150ms ease-in-out;
             backface-visibility: hidden;
@@ -181,7 +181,7 @@
         }
 
         &--primary {
-            --tick-color: var(--color-accent);
+            --tick-color: var(--color-primary);
         }
 
         .PlayerSeekbarTick__line {

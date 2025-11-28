@@ -251,7 +251,7 @@ function StepTriggerConfigurationWebhook({
                     {
                         key: 'instructions',
                         header: 'Usage instructions',
-                        className: 'p-3 bg-surface-secondary flex flex-col gap-2',
+                        className: 'p-3 bg-muted flex flex-col gap-2',
                         content: (
                             <>
                                 {!webhookUrl ? (
@@ -382,7 +382,7 @@ function StepTriggerConfigurationTrackingPixel({
                     {
                         key: 'instructions',
                         header: 'Usage instructions',
-                        className: 'p-3 bg-surface-secondary flex flex-col gap-2',
+                        className: 'p-3 bg-muted flex flex-col gap-2',
                         content: (
                             <>
                                 {!trackingPixelUrl ? (

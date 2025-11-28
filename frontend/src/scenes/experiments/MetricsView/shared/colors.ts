@@ -20,7 +20,7 @@ export function useChartColors(): ChartColors {
 
     return {
         TICK_TEXT_COLOR: 'var(--color-text-tertiary)',
-        BOUNDARY_LINES: 'var(--color-border-primary)',
+        BOUNDARY_LINES: 'var(--color-border)',
         ZERO_LINE: 'var(--border-bold)',
         BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
         BAR_POSITIVE: isDarkModeOn ? '#12a461' : '#36cd6f',
@@ -35,7 +35,7 @@ export function useChartColors(): ChartColors {
 // Default colors for imports that don't need the hook
 export const COLORS: ChartColors = {
     TICK_TEXT_COLOR: 'var(--color-text-tertiary)',
-    BOUNDARY_LINES: 'var(--color-border-primary)',
+    BOUNDARY_LINES: 'var(--color-border)',
     ZERO_LINE: 'var(--border-bold)',
     BAR_NEGATIVE: '#f84257',
     BAR_POSITIVE: '#36cd6f',

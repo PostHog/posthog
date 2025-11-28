@@ -177,13 +177,13 @@
                     input[type='checkbox'] {
                         width: 1rem;
                         height: 1rem;
-                        accent-color: var(--color-accent);
+                        accent-color: var(--color-primary);
                         border-radius: 4px;
                         transform: translateY(1px);
                     }
 
                     > label:hover {
-                        background: var(--card);
+                        background: var(--color-card);
                     }
 
                     ul li,
@@ -235,7 +235,7 @@
                 line-height: 1.6;
                 tab-size: 2;
                 background-color: rgb(0 0 0 / 4%);
-                border: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
+                border: 1px solid color-mix(in oklab, var(--color-border), transparent 35%);
                 border-radius: calc(var(--radius) + 4px);
 
                 [theme='dark'] & {
@@ -270,7 +270,7 @@
                 );
                 font-size: 0.95em;
                 background-color: rgb(0 0 0 / 4%);
-                border: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
+                border: 1px solid color-mix(in oklab, var(--color-border), transparent 35%);
                 border-radius: calc(var(--radius) - 2px);
 
                 [theme='dark'] & {
@@ -282,7 +282,7 @@
             > blockquote {
                 padding: 0.6rem 0.9rem;
                 margin: 1rem 0;
-                background: color-mix(in oklab, var(--card), transparent 45%);
+                background: color-mix(in oklab, var(--color-card), transparent 45%);
                 border-left-width: 3px;
                 border-radius: var(--radius);
             }
@@ -329,26 +329,26 @@
                 padding: 0.5rem 0.75rem;
                 vertical-align: top;
                 border: 0;
-                border-bottom: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
+                border-bottom: 1px solid color-mix(in oklab, var(--color-border), transparent 35%);
             }
 
             > table th {
                 font-weight: 600;
                 text-align: left;
-                background: var(--card);
+                background: var(--color-card);
             }
 
             > table tbody tr:nth-child(odd) {
-                background: color-mix(in oklab, var(--card), transparent 60%);
+                background: color-mix(in oklab, var(--color-card), transparent 60%);
             }
 
             > table tbody tr:hover {
-                background: color-mix(in oklab, var(--card), transparent 30%);
+                background: color-mix(in oklab, var(--color-card), transparent 30%);
             }
 
             // Links
             a {
-                color: var(--color-accent);
+                color: var(--color-primary);
                 text-decoration: underline;
                 text-underline-offset: 2px;
                 border-bottom: 0;
@@ -362,7 +362,7 @@
                 }
 
                 &:focus-visible {
-                    outline: 2px solid color-mix(in oklab, var(--color-accent), transparent 70%);
+                    outline: 2px solid color-mix(in oklab, var(--color-primary), transparent 70%);
                     outline-offset: 2px;
                 }
             }
@@ -400,12 +400,12 @@
 
         .Backlink {
             padding: 0.125rem 0.25rem;
-            background-color: var(--card);
-            border: 1px solid var(--color-border-primary);
+            background-color: var(--color-card);
+            border: 1px solid var(--color-border);
             border-radius: var(--radius);
 
             &:hover {
-                background-color: var(--background);
+                background-color: var(--color-background);
             }
 
             & svg {
@@ -413,13 +413,13 @@
             }
 
             &.Backlink--selected {
-                border-color: var(--color-accent);
+                border-color: var(--color-primary);
             }
 
             &.Backlink--active {
                 color: var(--white);
-                background: var(--color-accent);
-                border: 1px solid var(--color-accent);
+                background: var(--color-primary);
+                border: 1px solid var(--color-primary);
 
                 & .Backlink__label,
                 & svg {
@@ -590,7 +590,7 @@
             inset: 0;
             z-index: -1;
             content: '';
-            background: var(--color-accent);
+            background: var(--color-primary);
             opacity: var(--notebook-comment-background-opacity);
         }
     }

@@ -5,9 +5,9 @@
 
 .tabs-trigger:hover,
 .tabs-trigger[data-state='active'] {
-    color: var(--color-accent);
+    color: var(--color-primary);
 }
 
 .tabs-trigger[data-state='active'] {
-    border-color: var(--color-accent);
+    border-color: var(--color-primary);
 }

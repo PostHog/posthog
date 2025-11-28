@@ -1,14 +1,14 @@
 .cohort-recalculating {
     padding: 0.5rem 1rem;
     margin-top: 1rem;
-    background-color: var(--background);
+    background-color: var(--color-background);
     border-radius: var(--radius);
 }
 
 .cohort-csv-dragger {
     height: 155px !important;
     margin-top: 1rem;
-    border-color: var(--color-accent);
+    border-color: var(--color-primary);
     border-style: dashed;
     border-width: 2px;
     border-radius: var(--radius);

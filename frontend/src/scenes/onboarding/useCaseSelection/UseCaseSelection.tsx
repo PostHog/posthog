@@ -30,7 +30,7 @@ export function UseCaseSelection(): JSX.Element {
                     {USE_CASE_OPTIONS.map((useCase) => (
                         <LemonCard
                             key={useCase.key}
-                            className="cursor-pointer hover:border-primary transition-colors hover:transform-none"
+                            className="cursor-pointer hover:border-border transition-colors hover:transform-none"
                             onClick={() => selectUseCase(useCase.key)}
                             hoverEffect
                         >

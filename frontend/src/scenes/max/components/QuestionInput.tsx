@@ -97,7 +97,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 className={clsx(
                     'flex flex-col items-center',
                     isSticky &&
-                        'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                        'mb-2 border border-[var(--color-border)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
                 {/* Have to increase z-index to overlay ToolsDisplay */}
@@ -106,10 +106,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <div
                         className={clsx(
                             'flex flex-col',
-                            'border border-[var(--color-border-primary)]',
-                            'bg-[var(--color-bg-fill-input)]',
+                            'border border-[var(--color-border)]',
+                            'bg-[var(--color-card)]',
                             'hover:border-border-bold focus-within:border-border-bold',
-                            isThreadVisible ? 'border-primary m-0.5 rounded-[10px]' : 'rounded-lg'
+                            isThreadVisible ? 'border-border m-0.5 rounded-[10px]' : 'rounded-lg'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks

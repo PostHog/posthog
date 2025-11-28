@@ -85,7 +85,7 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
     }
 
     return (
-        <div className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center">
+        <div className="flex justify-between mt-2 gap-2 border rounded bg-card items-center">
             <div className="flex items-center justify-between flex-auto p-2">
                 <div>
                     <span className="text-link font-medium block">{asset.filename}</span>
@@ -171,7 +171,7 @@ const ExportsEmpty = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-2 items-center justify-center mt-4">
-            <div className="border rounded bg-fill-primary p-4 text-center">
+            <div className="border rounded bg-card p-4 text-center">
                 <p className="mb-2">No exports matching current filters</p>
                 {ttlMessage && <p className="text-xs text-secondary">{ttlMessage}</p>}
             </div>

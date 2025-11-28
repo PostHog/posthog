@@ -286,7 +286,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         variant: 'default',
                         size: 'lg',
                     }),
-                    'flex gap-1 focus-within:border-secondary items-center h-8 rounded-lg',
+                    'flex gap-1 focus-within:border-border-strong items-center h-8 rounded-lg',
                     isFocused && 'animate-input-focus-pulse'
                 )}
             >
@@ -300,7 +300,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         <DropdownMenuTrigger asChild>
                             <ButtonPrimitive
                                 variant="outline"
-                                className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary hover:border-secondary data-[state=open]:border-secondary ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
+                                className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary hover:border-border-strong data-[state=open]:border-border-strong ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
                                 iconOnly
                                 size="sm"
                                 tooltip={

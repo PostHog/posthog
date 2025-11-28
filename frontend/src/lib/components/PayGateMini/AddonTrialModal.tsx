@@ -29,7 +29,7 @@ export function AddonTrialModal({ product, isOpen, onClose }: AddonTrialModalPro
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title={product.name} description={product.description}>
             <div className="flex flex-col">
-                <div className="bg-surface-secondary rounded p-6 flex flex-col">
+                <div className="bg-muted rounded p-6 flex flex-col">
                     <div className="hidden sm:flex [@media(max-height:850px)]:hidden justify-center my-2">
                         <BigLeaguesHog className="h-auto w-auto max-w-full max-h-[250px]" />
                     </div>
