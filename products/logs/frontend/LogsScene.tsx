@@ -302,7 +302,7 @@ function LogsTable({
                         render: (_, { cleanBody, parsedBody }) => {
                             if (parsedBody && prettifyJson) {
                                 return (
-                                    <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
+                                    <pre className={cn('text-xs m-0', wrapBody ? '' : 'whitespace-nowrap')}>
                                         {JSON.stringify(parsedBody, null, 2)}
                                     </pre>
                                 )
