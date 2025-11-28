@@ -150,14 +150,13 @@ describe('createApplyDropRestrictionsStep', () => {
         )
     })
 
-    it('should pass event name and uuid when present in headers', async () => {
+    it('should pass event name when present in headers', async () => {
         const input = {
             message: {} as any,
             headers: {
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 event: '$pageview',
-                uuid: 'event-uuid-123',
                 force_disable_person_processing: false,
             },
         }
@@ -171,6 +170,30 @@ describe('createApplyDropRestrictionsStep', () => {
             'user-456',
             undefined,
             '$pageview',
+            undefined
+        )
+    })
+
+    it('should pass uuid when present in headers', async () => {
+        const input = {
+            message: {} as any,
+            headers: {
+                token: 'valid-token-123',
+                distinct_id: 'user-456',
+                uuid: 'event-uuid-123',
+                force_disable_person_processing: false,
+            },
+        }
+        jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
+
+        const result = await step(input)
+
+        expect(result).toEqual(ok(input))
+        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
+            'valid-token-123',
+            'user-456',
+            undefined,
+            undefined,
             'event-uuid-123'
         )
     })
@@ -196,6 +219,30 @@ describe('createApplyDropRestrictionsStep', () => {
             undefined,
             '$blocked_event',
             undefined
+        )
+    })
+
+    it('should drop event when uuid is restricted', async () => {
+        const input = {
+            message: {} as any,
+            headers: {
+                token: 'valid-token-123',
+                distinct_id: 'user-456',
+                uuid: 'blocked-uuid-789',
+                force_disable_person_processing: false,
+            },
+        }
+        jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
+
+        const result = await step(input)
+
+        expect(result).toEqual(drop('blocked_token'))
+        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
+            'valid-token-123',
+            'user-456',
+            undefined,
+            undefined,
+            'blocked-uuid-789'
         )
     })
 })

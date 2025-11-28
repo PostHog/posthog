@@ -232,14 +232,13 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
         )
     })
 
-    it('passes event name and uuid to restriction checks when present', async () => {
+    it('passes event name to restriction checks when present', async () => {
         const input = {
             message: {} as any,
             headers: {
                 token: 't-xyz',
                 distinct_id: 'd-1',
                 event: '$pageview',
-                uuid: 'event-uuid-123',
                 force_disable_person_processing: false,
             },
         }
@@ -257,14 +256,119 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
             'd-1',
             undefined,
             '$pageview',
-            'event-uuid-123'
+            undefined
         )
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
             't-xyz',
             'd-1',
             undefined,
             '$pageview',
+            undefined
+        )
+    })
+
+    it('passes uuid to restriction checks when present', async () => {
+        const input = {
+            message: {} as any,
+            headers: {
+                token: 't-xyz',
+                distinct_id: 'd-1',
+                uuid: 'event-uuid-123',
+                force_disable_person_processing: false,
+            },
+        }
+
+        jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
+
+        const result = await step(input)
+
+        expect(result).toEqual(
+            redirect('Event redirected to overflow due to force overflow restrictions', 'overflow-topic', true, false)
+        )
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
+            't-xyz',
+            'd-1',
+            undefined,
+            undefined,
             'event-uuid-123'
+        )
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            't-xyz',
+            'd-1',
+            undefined,
+            undefined,
+            'event-uuid-123'
+        )
+    })
+
+    it('overflows event when event_name is restricted', async () => {
+        const input = {
+            message: {} as any,
+            headers: {
+                token: 't-abc',
+                distinct_id: 'd-2',
+                event: '$blocked_event',
+                force_disable_person_processing: false,
+            },
+        }
+
+        jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
+
+        const result = await step(input)
+
+        expect(result).toEqual(
+            redirect('Event redirected to overflow due to force overflow restrictions', 'overflow-topic', true, false)
+        )
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
+            't-abc',
+            'd-2',
+            undefined,
+            '$blocked_event',
+            undefined
+        )
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            't-abc',
+            'd-2',
+            undefined,
+            '$blocked_event',
+            undefined
+        )
+    })
+
+    it('overflows event when uuid is restricted', async () => {
+        const input = {
+            message: {} as any,
+            headers: {
+                token: 't-abc',
+                distinct_id: 'd-2',
+                uuid: 'blocked-uuid-789',
+                force_disable_person_processing: false,
+            },
+        }
+
+        jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
+
+        const result = await step(input)
+
+        expect(result).toEqual(
+            redirect('Event redirected to overflow due to force overflow restrictions', 'overflow-topic', true, false)
+        )
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
+            't-abc',
+            'd-2',
+            undefined,
+            undefined,
+            'blocked-uuid-789'
+        )
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            't-abc',
+            'd-2',
+            undefined,
+            undefined,
+            'blocked-uuid-789'
         )
     })
 

@@ -188,7 +188,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         )
     })
 
-    it('should pass session_id, event name and uuid from headers to shouldSkipPerson', async () => {
+    it('should pass session_id from headers to shouldSkipPerson', async () => {
         const eventWithTeam = createEventWithTeam({
             event: { properties: { defaultProp: 'defaultValue' } },
             team: { person_processing_opt_out: false },
@@ -197,8 +197,6 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
             token: 'valid-token-abc',
             distinct_id: 'user-123',
             session_id: 'session-456',
-            event: '$pageview',
-            uuid: 'event-uuid-789',
         })
         const input = { eventWithTeam, headers }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
@@ -210,8 +208,84 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
             'valid-token-abc',
             'user-123',
             'session-456',
+            undefined,
+            undefined
+        )
+    })
+
+    it('should pass event name from headers to shouldSkipPerson', async () => {
+        const eventWithTeam = createEventWithTeam({
+            event: { properties: { defaultProp: 'defaultValue' } },
+            team: { person_processing_opt_out: false },
+        })
+        const headers = createHeaders({
+            token: 'valid-token-abc',
+            distinct_id: 'user-123',
+            event: '$pageview',
+        })
+        const input = { eventWithTeam, headers }
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
+
+        const result = await step(input)
+
+        expect(result).toEqual(ok(input))
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            'valid-token-abc',
+            'user-123',
+            undefined,
             '$pageview',
+            undefined
+        )
+    })
+
+    it('should pass uuid from headers to shouldSkipPerson', async () => {
+        const eventWithTeam = createEventWithTeam({
+            event: { properties: { defaultProp: 'defaultValue' } },
+            team: { person_processing_opt_out: false },
+        })
+        const headers = createHeaders({
+            token: 'valid-token-abc',
+            distinct_id: 'user-123',
+            uuid: 'event-uuid-789',
+        })
+        const input = { eventWithTeam, headers }
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
+
+        const result = await step(input)
+
+        expect(result).toEqual(ok(input))
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            'valid-token-abc',
+            'user-123',
+            undefined,
+            undefined,
             'event-uuid-789'
+        )
+    })
+
+    it('should skip person processing when session_id is restricted', async () => {
+        const eventWithTeam = createEventWithTeam({
+            event: { properties: { defaultProp: 'defaultValue' } },
+            team: { person_processing_opt_out: false },
+        })
+        const headers = createHeaders({
+            token: 'valid-token-abc',
+            distinct_id: 'user-123',
+            session_id: 'restricted-session',
+        })
+        const input = { eventWithTeam, headers }
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
+
+        const result = await step(input)
+
+        expect(result).toEqual(ok(input))
+        expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            'valid-token-abc',
+            'user-123',
+            'restricted-session',
+            undefined,
+            undefined
         )
     })
 
@@ -238,6 +312,32 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
             undefined,
             '$restricted_event',
             undefined
+        )
+    })
+
+    it('should skip person processing when uuid is restricted', async () => {
+        const eventWithTeam = createEventWithTeam({
+            event: { properties: { defaultProp: 'defaultValue' } },
+            team: { person_processing_opt_out: false },
+        })
+        const headers = createHeaders({
+            token: 'valid-token-abc',
+            distinct_id: 'user-123',
+            uuid: 'restricted-uuid-789',
+        })
+        const input = { eventWithTeam, headers }
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
+
+        const result = await step(input)
+
+        expect(result).toEqual(ok(input))
+        expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            'valid-token-abc',
+            'user-123',
+            undefined,
+            undefined,
+            'restricted-uuid-789'
         )
     })
 })
