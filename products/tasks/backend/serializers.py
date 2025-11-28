@@ -61,7 +61,8 @@ class TaskSerializer(serializers.ModelSerializer):
         if not value:
             return value
 
-        if "/" not in value:
+        parts = value.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
             raise serializers.ValidationError("Repository must be in the format organization/repository")
 
         return value.lower()

@@ -69,13 +69,15 @@ def create_test_task(repository=None):
             github_integration.sensitive_config.get("access_token") if github_integration.sensitive_config else None
         )
 
+        repository = f"{org}/{repo}"
+
         task = Task.objects.create(
             team=team,
             title="Test Task for runAgent.mjs",
             description="This is a test task created to test the runAgent.mjs script outside of sandbox",
             origin_product=Task.OriginProduct.USER_CREATED,
             github_integration=github_integration,
-            repository_config={"organization": org, "repository": repo},
+            repository=repository,
         )
 
         api_key_value = generate_random_token_personal()

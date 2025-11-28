@@ -69,7 +69,8 @@ class Task(DeletedMetaFields, models.Model):
 
     def save(self, *args, **kwargs):
         if self.repository:
-            if "/" not in self.repository:
+            parts = self.repository.split("/")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
                 raise ValidationError({"repository": "Format for repository is organization/repo"})
 
             self.repository = self.repository.lower()
