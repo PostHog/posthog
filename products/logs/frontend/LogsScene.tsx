@@ -560,7 +560,7 @@ const DisplayOptions = (): JSX.Element => {
                     />
                 </LemonField.Pure>
                 {/* Full keyboard shortcuts on larger screens */}
-                <span className="text-muted text-xs items-center gap-1 hidden 2xl:flex">
+                <span className="text-muted text-xs items-center gap-1 hidden @2xl/main-content:flex">
                     <KeyboardShortcut arrowup />
                     <KeyboardShortcut arrowdown />
                     or
@@ -587,7 +587,7 @@ const DisplayOptions = (): JSX.Element => {
                         </span>
                     }
                 >
-                    <span className="text-muted cursor-help 2xl:hidden">
+                    <span className="text-muted cursor-help @2xl/main-content:hidden">
                         <IconInfo className="w-4 h-4" />
                     </span>
                 </Tooltip>
