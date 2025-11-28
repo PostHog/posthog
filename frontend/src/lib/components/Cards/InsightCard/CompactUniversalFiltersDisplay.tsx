@@ -42,7 +42,7 @@ export function CompactUniversalFiltersDisplay({
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    if (!groupFilter || !groupFilter.values.length) {
+    if (!groupFilter || !groupFilter.values?.length) {
         return <i>None</i>
     }
 
