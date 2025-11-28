@@ -48,22 +48,18 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { addProductIntent } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
-import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
-import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -101,6 +97,7 @@ import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -111,85 +108,6 @@ import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVaria
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
-
-// Utility function to create MaxTool configuration for feature flag survey creation
-export function createMaxToolSurveyConfig(
-    featureFlag: FeatureFlagType,
-    user: any,
-    multivariateEnabled: boolean,
-    variants: any[]
-): {
-    identifier: 'create_survey'
-    active: boolean
-    initialMaxPrompt: string
-    suggestions: string[]
-    context: Record<string, any>
-    contextDescription: {
-        text: string
-        icon: JSX.Element
-    }
-    callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => void
-} {
-    return {
-        identifier: 'create_survey' as const,
-        active: Boolean(user?.uuid),
-        initialMaxPrompt: `Create a survey to collect feedback about the "${featureFlag.key}" feature flag${featureFlag.name ? ` (${featureFlag.name})` : ''}${multivariateEnabled && variants?.length > 0 ? ` which has variants: ${variants.map((v) => `"${v.key}"`).join(', ')}` : ''}`,
-        suggestions:
-            multivariateEnabled && variants?.length > 0
-                ? [
-                      `Create a feedback survey comparing variants of the "${featureFlag.key}" feature flag`,
-                      `Create a survey for users who saw the "${variants[0]?.key}" variant of the "${featureFlag.key}" feature flag`,
-                      `Create an A/B test survey asking users to compare the "${featureFlag.key}" feature flag variants`,
-                      `Create a survey to understand which variant of the "${featureFlag.key}" feature flag performs better`,
-                      `Create a survey targeting all variants of the "${featureFlag.key}" feature flag to gather overall feedback`,
-                  ]
-                : [
-                      `Create a feedback survey for users who see the "${featureFlag.key}" feature flag`,
-                      `Create an NPS survey for users exposed to the "${featureFlag.key}" feature flag`,
-                      `Create a satisfaction survey asking about the "${featureFlag.key}" feature flag experience`,
-                      `Create a survey to understand user reactions to the "${featureFlag.key}" feature flag`,
-                  ],
-        context: {
-            feature_flag_key: featureFlag.key,
-            feature_flag_id: featureFlag.id,
-            feature_flag_name: featureFlag.name,
-            target_feature_flag: featureFlag.key,
-            survey_purpose: 'collect_feedback_for_feature_flag',
-            is_multivariate: multivariateEnabled,
-            variants:
-                multivariateEnabled && variants?.length > 0
-                    ? variants.map((v) => ({
-                          key: v.key,
-                          name: v.name || '',
-                          rollout_percentage: v.rollout_percentage,
-                      }))
-                    : [],
-            variant_count: variants?.length || 0,
-        },
-        contextDescription: {
-            text: featureFlag.name,
-            icon: iconForType('feature_flag'),
-        },
-        callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
-            addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEY_CREATED,
-                metadata: {
-                    survey_id: toolOutput.survey_id,
-                    source: SURVEY_CREATED_SOURCE.FEATURE_FLAGS,
-                    created_successfully: !toolOutput?.error,
-                },
-            })
-
-            if (toolOutput?.error || !toolOutput?.survey_id) {
-                return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.FEATURE_FLAGS)
-            }
-
-            // Redirect to the new survey
-            router.actions.push(urls.survey(toolOutput.survey_id))
-        },
-    }
-}
 
 export const scene: SceneExport<FeatureFlagLogicProps> = {
     component: FeatureFlag,
@@ -209,8 +127,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         isEditingFlag,
         activeTab,
         accessDeniedToFeatureFlag,
-        multivariateEnabled,
-        variants,
         experiment,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -229,14 +145,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
 
     const { tags } = useValues(tagsModel)
-    const { hasAvailableFeature, user } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    // Initialize MaxTool hook for survey creation
-    const { openMax } = useMaxTool(createMaxToolSurveyConfig(featureFlag, user, multivariateEnabled, variants))
+    const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
 
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
@@ -340,7 +255,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: (
                 <div className="flex flex-row">
                     <div>Analysis</div>
-                    <LemonTag className="ml-1 float-right uppercase" type="warning">
+                    <LemonTag className="ml-2 float-right uppercase" type="warning">
                         {' '}
                         Beta
                     </LemonTag>
@@ -368,6 +283,22 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: 'Permissions',
             key: FeatureFlagsTab.PERMISSIONS,
             content: <FeatureFlagPermissions featureFlag={featureFlag} />,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL]) {
+        tabs.push({
+            label: (
+                <div className="flex flex-row">
+                    <div>User feedback</div>
+                    <LemonTag className="ml-2 float-right uppercase" type="primary">
+                        {' '}
+                        New
+                    </LemonTag>
+                </div>
+            ),
+            key: FeatureFlagsTab.FEEDBACK,
+            content: <FeedbackTab featureFlag={featureFlag} />,
         })
     }
 
@@ -820,16 +751,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         Create cohort
                                     </ButtonPrimitive>
                                 )}
-                                {openMax && (
-                                    <ButtonPrimitive
-                                        menuItem
-                                        data-attr={`${RESOURCE_TYPE}-create-survey`}
-                                        onClick={() => openMax()}
-                                    >
-                                        <IconPlusSmall />
-                                        Create survey
-                                    </ButtonPrimitive>
-                                )}
+                                <ButtonPrimitive
+                                    menuItem
+                                    data-attr={`${RESOURCE_TYPE}-create-survey`}
+                                    onClick={() => setIsQuickSurveyModalOpen(true)}
+                                >
+                                    <IconPlusSmall />
+                                    Create survey
+                                </ButtonPrimitive>
                             </ScenePanelActionsSection>
                             <ScenePanelDivider />
                             <ScenePanelActionsSection>
@@ -926,6 +855,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     </>
                 )}
             </div>
+            <QuickSurveyModal
+                flag={featureFlag}
+                isOpen={isQuickSurveyModalOpen}
+                onClose={() => setIsQuickSurveyModalOpen(false)}
+            />
         </>
     )
 }

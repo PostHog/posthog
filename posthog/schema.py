@@ -509,6 +509,19 @@ class BillingUsageResponseBreakdownType(StrEnum):
     MULTIPLE = "multiple"
 
 
+class BingAdsDefaultSources(StrEnum):
+    BING = "bing"
+    MICROSOFT = "microsoft"
+
+
+class BingAdsTableExclusions(StrEnum):
+    PERFORMANCE = "performance"
+
+
+class BingAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
+
+
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -571,18 +584,6 @@ class CalendarHeatmapFilter(BaseModel):
 class CalendarHeatmapMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
-
-
-class MatchField(StrEnum):
-    CAMPAIGN_NAME = "campaign_name"
-    CAMPAIGN_ID = "campaign_id"
-
-
-class CampaignFieldPreference(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    match_field: MatchField
 
 
 class ChartDisplayCategory(StrEnum):
@@ -1700,6 +1701,27 @@ class GoalLine(BaseModel):
     value: float
 
 
+class GoogleAdsDefaultSources(StrEnum):
+    GOOGLE = "google"
+    ADWORDS = "adwords"
+    YOUTUBE = "youtube"
+    DISPLAY = "display"
+    GMAIL = "gmail"
+    GOOGLE_MAPS = "google_maps"
+    GOOGLE_PLAY = "google_play"
+    GOOGLE_DISCOVER = "google_discover"
+    ADMOB = "admob"
+    WAZE = "waze"
+
+
+class GoogleAdsTableExclusions(StrEnum):
+    STATS = "stats"
+
+
+class GoogleAdsTableKeywords(StrEnum):
+    CAMPAIGN = "campaign"
+
+
 class HedgehogColorOptions(StrEnum):
     GREEN = "green"
     RED = "red"
@@ -1824,6 +1846,7 @@ class InsightFilterProperty(StrEnum):
     STICKINESS_FILTER = "stickinessFilter"
     CALENDAR_HEATMAP_FILTER = "calendarHeatmapFilter"
     LIFECYCLE_FILTER = "lifecycleFilter"
+    PROPERTIES = "properties"
 
 
 class InsightNodeKind(StrEnum):
@@ -1833,6 +1856,8 @@ class InsightNodeKind(StrEnum):
     PATHS_QUERY = "PathsQuery"
     STICKINESS_QUERY = "StickinessQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
+    WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
+    WEB_OVERVIEW_QUERY = "WebOverviewQuery"
 
 
 class InsightThresholdType(StrEnum):
@@ -1917,6 +1942,19 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class LinkedinAdsDefaultSources(StrEnum):
+    LINKEDIN = "linkedin"
+    LI = "li"
+
+
+class LinkedinAdsTableExclusions(StrEnum):
+    STATS = "stats"
+
+
+class LinkedinAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
+
+
 class LogSeverityLevel(StrEnum):
     TRACE = "trace"
     DEBUG = "debug"
@@ -1981,6 +2019,121 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     DATETIME = "datetime"
     DATE = "date"
     BOOLEAN = "boolean"
+
+
+class MarketingIntegrationConfig1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaign"] = "campaign"
+    defaultSources: list[str] = Field(..., max_length=10, min_length=10)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["campaign_name"] = "campaign_name"
+    primarySource: Literal["google"] = "google"
+    sourceType: Literal["GoogleAds"] = "GoogleAds"
+    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["linkedin"] = "linkedin"
+    sourceType: Literal["LinkedinAds"] = "LinkedinAds"
+    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=9, min_length=9)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["meta"] = "meta"
+    sourceType: Literal["MetaAds"] = "MetaAds"
+    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["campaign_name"] = "campaign_name"
+    primarySource: Literal["tiktok"] = "tiktok"
+    sourceType: Literal["TikTokAds"] = "TikTokAds"
+    statsTableName: Literal["campaign_report"] = "campaign_report"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["reddit"] = "reddit"
+    sourceType: Literal["RedditAds"] = "RedditAds"
+    statsTableName: Literal["campaign_report"] = "campaign_report"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig6(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["bing"] = "bing"
+    sourceType: Literal["BingAds"] = "BingAds"
+    statsTableName: Literal["campaign_performance_report"] = "campaign_performance_report"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig(
+    RootModel[
+        MarketingIntegrationConfig1
+        | MarketingIntegrationConfig2
+        | MarketingIntegrationConfig3
+        | MarketingIntegrationConfig4
+        | MarketingIntegrationConfig5
+        | MarketingIntegrationConfig6
+    ]
+):
+    root: (
+        MarketingIntegrationConfig1
+        | MarketingIntegrationConfig2
+        | MarketingIntegrationConfig3
+        | MarketingIntegrationConfig4
+        | MarketingIntegrationConfig5
+        | MarketingIntegrationConfig6
+    )
+
+
+class MatchField(StrEnum):
+    CAMPAIGN_NAME = "campaign_name"
+    CAMPAIGN_ID = "campaign_id"
 
 
 class MatchedRecordingEvent(BaseModel):
@@ -2127,6 +2280,26 @@ class MaxProductInfo(BaseModel):
     usage_limit: float | None = None
 
 
+class MetaAdsDefaultSources(StrEnum):
+    META = "meta"
+    FACEBOOK = "facebook"
+    INSTAGRAM = "instagram"
+    MESSENGER = "messenger"
+    FB = "fb"
+    WHATSAPP = "whatsapp"
+    AUDIENCE_NETWORK = "audience_network"
+    FACEBOOK_MARKETPLACE = "facebook_marketplace"
+    THREADS = "threads"
+
+
+class MetaAdsTableExclusions(StrEnum):
+    STATS = "stats"
+
+
+class MetaAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
+
+
 class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2145,6 +2318,15 @@ class MultipleBreakdownType(StrEnum):
     SESSION = "session"
     HOGQL = "hogql"
     REVENUE_ANALYTICS = "revenue_analytics"
+
+
+class NativeMarketingSource(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    LINKEDIN_ADS = "LinkedinAds"
+    META_ADS = "MetaAds"
+    TIK_TOK_ADS = "TikTokAds"
+    REDDIT_ADS = "RedditAds"
+    BING_ADS = "BingAds"
 
 
 class NodeKind(StrEnum):
@@ -2619,6 +2801,18 @@ class RecordingPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class RedditAdsDefaultSources(StrEnum):
+    REDDIT = "reddit"
+
+
+class RedditAdsTableExclusions(StrEnum):
+    REPORT = "report"
+
+
+class RedditAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
 
 
 class RefreshType(StrEnum):
@@ -3141,6 +3335,18 @@ class TestSetupResponse(BaseModel):
     result: Any | None = None
     success: bool
     test_name: str
+
+
+class TikTokAdsDefaultSources(StrEnum):
+    TIKTOK = "tiktok"
+
+
+class TikTokAdsTableExclusions(StrEnum):
+    REPORT = "report"
+
+
+class TikTokAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
 
 
 class TimelineEntry(BaseModel):
@@ -3944,6 +4150,13 @@ class Series(BaseModel):
     value: int
 
 
+class CampaignFieldPreference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    match_field: MatchField
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4654,6 +4867,21 @@ class MarketingAnalyticsSchemaField(BaseModel):
     isCurrency: bool
     required: bool
     type: list[MarketingAnalyticsSchemaFieldTypes]
+
+
+class MarketingIntegrationConfigType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: str
+    defaultSources: list[str]
+    idField: str
+    nameField: str
+    primarySource: str
+    sourceType: NativeMarketingSource
+    statsTableName: str
+    tableExclusions: list[str]
+    tableKeywords: list[str]
 
 
 class MatchedRecording(BaseModel):
@@ -5495,6 +5723,7 @@ class SurveyQuestionSchema(BaseModel):
     display: Display1 | None = None
     hasOpenChoice: bool | None = None
     id: str | None = None
+    isNpsQuestion: bool | None = None
     link: str | None = None
     lowerBoundLabel: str | None = None
     optional: bool | None = None
@@ -11924,12 +12153,25 @@ class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: CompareFilter | None = None
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+    )
     kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -11937,6 +12179,7 @@ class WebExternalClicksTableQuery(BaseModel):
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: WebExternalClicksTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
     stripQueryParams: bool | None = None
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
@@ -11947,12 +12190,25 @@ class WebGoalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: CompareFilter | None = None
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+    )
     kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -11960,6 +12216,7 @@ class WebGoalsQuery(BaseModel):
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: WebGoalsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -11969,18 +12226,32 @@ class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: CompareFilter | None = None
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+    )
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: WebOverviewQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -11990,12 +12261,25 @@ class WebPageURLSearchQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: CompareFilter | None = None
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+    )
     kind: Literal["WebPageURLSearchQuery"] = "WebPageURLSearchQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -12003,6 +12287,7 @@ class WebPageURLSearchQuery(BaseModel):
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: WebPageURLSearchQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
     searchTerm: str | None = None
     stripQueryParams: bool | None = None
     tags: QueryLogTags | None = None
@@ -12014,15 +12299,28 @@ class WebStatsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     breakdownBy: WebStatsBreakdown
     compareFilter: CompareFilter | None = None
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeBounceRate: bool | None = None
     includeRevenue: bool | None = None
     includeScrollDepth: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+    )
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -12031,6 +12329,7 @@ class WebStatsTableQuery(BaseModel):
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: WebStatsTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12893,6 +13192,7 @@ class InsightFilter(
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
+        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     ]
 ):
     root: (
@@ -12903,6 +13203,7 @@ class InsightFilter(
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
+        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     )
 
 
@@ -12910,8 +13211,17 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: CompareFilter | None = None
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
@@ -12920,11 +13230,16 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
+    interval: IntervalType | None = Field(
+        default=None,
+        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+    )
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: MarketingAnalyticsAggregatedQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
     select: list[str] | None = Field(
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
@@ -12937,8 +13252,17 @@ class MarketingAnalyticsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
@@ -12950,6 +13274,10 @@ class MarketingAnalyticsTableQuery(BaseModel):
     )
     includeRevenue: bool | None = None
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration type")
+    interval: IntervalType | None = Field(
+        default=None,
+        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+    )
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -12960,6 +13288,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: MarketingAnalyticsTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
     select: list[str] | None = Field(
         default=None, description="Return a limited set of data. Will use default columns if empty."
     )
@@ -13322,13 +13651,24 @@ class WebTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: CompareFilter | None = None
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
-    interval: IntervalType
+    interval: IntervalType = Field(
+        ..., description="For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+    )
     kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
     limit: int | None = None
     metrics: list[WebTrendsMetric]
@@ -13338,6 +13678,7 @@ class WebTrendsQuery(BaseModel):
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: WebTrendsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -13347,12 +13688,25 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: CompareFilter | None = None
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+    )
     kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
     metric: WebVitalsMetric
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -13361,6 +13715,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: WebVitalsPathBreakdownQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: bool | None = None
@@ -14706,6 +15061,12 @@ class PathsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ProductAnalyticsInsightQueryNode(
+    RootModel[TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery]
+):
+    root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
+
+
 class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14990,9 +15351,16 @@ class InsightVizNode(BaseModel):
     showLastComputationRefresh: bool | None = None
     showResults: bool | None = None
     showTable: bool | None = None
-    source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery = Field(
-        ..., discriminator="kind"
-    )
+    source: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | WebStatsTableQuery
+        | WebOverviewQuery
+    ) = Field(..., discriminator="kind")
     suppressSessionAnalysisWarning: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: VizSpecificOptions | None = None
@@ -15013,21 +15381,42 @@ class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: int | None = Field(
+        default=None, description="Groups aggregation - not used in Web Analytics but required for type compatibility"
+    )
     compareFilter: CompareFilter | None = None
     conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+    )
     kind: Literal["WebVitalsQuery"] = "WebVitalsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
     response: WebGoalsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
-    source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery = Field(
-        ..., discriminator="kind"
-    )
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    source: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | WebStatsTableQuery
+        | WebOverviewQuery
+    ) = Field(..., discriminator="kind")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -15057,7 +15446,16 @@ class EndpointRequest(BaseModel):
     )
     name: str | None = None
     query: (
-        HogQLQuery | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | None
+        HogQLQuery
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | WebStatsTableQuery
+        | WebOverviewQuery
+        | None
     ) = None
     sync_frequency: DataWarehouseSyncInterval | None = Field(
         default=None, description="How frequently should the underlying materialized view be updated"
@@ -15117,9 +15515,16 @@ class InsightActorsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: ActorsQueryResponse | None = None
     series: int | None = None
-    source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery = Field(
-        ..., discriminator="kind"
-    )
+    source: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | PathsQuery
+        | StickinessQuery
+        | LifecycleQuery
+        | WebStatsTableQuery
+        | WebOverviewQuery
+    ) = Field(..., discriminator="kind")
     status: str | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
