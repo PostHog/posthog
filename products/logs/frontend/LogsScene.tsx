@@ -561,29 +561,13 @@ const DisplayOptions = (): JSX.Element => {
                 </LemonField.Pure>
                 {/* Full keyboard shortcuts on larger screens */}
                 <span className="text-muted text-xs items-center gap-1 hidden @2xl/main-content:flex">
-                    <KeyboardShortcut arrowup />
-                    <KeyboardShortcut arrowdown />
-                    or
-                    <KeyboardShortcut j />
-                    <KeyboardShortcut k />
-                    navigate
-                    <span className="mx-1">·</span>
-                    <KeyboardShortcut enter />
-                    expand
+                    <KeyboardShortcuts />
                 </span>
                 {/* Collapsed tooltip on smaller screens */}
                 <Tooltip
                     title={
                         <span className="flex items-center gap-1">
-                            <KeyboardShortcut arrowup />
-                            <KeyboardShortcut arrowdown />
-                            or
-                            <KeyboardShortcut j />
-                            <KeyboardShortcut k />
-                            navigate
-                            <span className="mx-1">·</span>
-                            <KeyboardShortcut enter />
-                            expand
+                            <KeyboardShortcuts />
                         </span>
                     }
                 >
@@ -595,3 +579,17 @@ const DisplayOptions = (): JSX.Element => {
         </div>
     )
 }
+
+const KeyboardShortcuts = (): JSX.Element => (
+    <>
+        <KeyboardShortcut arrowup />
+        <KeyboardShortcut arrowdown />
+        <span className="mx-1 text-muted">or</span>
+        <KeyboardShortcut j />
+        <KeyboardShortcut k />
+        <span className="text-muted">navigate</span>
+        <span className="mx-1">·</span>
+        <KeyboardShortcut enter />
+        <span className="text-muted">expand</span>
+    </>
+)
