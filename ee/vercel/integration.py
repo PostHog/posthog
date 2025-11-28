@@ -36,6 +36,7 @@ from posthog.utils import absolute_uri
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
 from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_types import BillingProvider
 from ee.vercel.client import SSOTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
@@ -357,7 +358,7 @@ class VercelIntegration:
         if license:
             try:
                 billing_manager = BillingManager(license)
-                billing_manager.authorize(organization, billing_provider="vercel")
+                billing_manager.authorize(organization, billing_provider=BillingProvider.VERCEL)
                 logger.info(
                     "Created Stripe customer for Vercel installation",
                     installation_id=installation_id,
