@@ -254,6 +254,9 @@ class FunnelEventQuery:
     def _get_funnel_cols(self, source_kind: SourceTableKind, table_name) -> tuple[list[ast.Expr]]:
         cols: list[ast.Expr] = []
 
+        # extra fields
+        cols.extend(self._get_extra_fields(source_kind))
+
         # step cols
         for index, entity in enumerate(self.context.query.series):
             step_col = self._get_step_col(source_kind, table_name, entity, index)
@@ -267,9 +270,6 @@ class FunnelEventQuery:
 
         # breakdown (attribution) col
         cols.extend(self._get_breakdown_select_prop())
-
-        # extra fields
-        cols.extend(self._get_extra_fields(source_kind))
 
         return cols
 
