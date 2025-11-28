@@ -95,7 +95,7 @@ export const logsLogic = kea<logsLogicType>([
             if (+params.logsPageSize && +params.logsPageSize !== values.logsPageSize) {
                 actions.setLogsPageSize(+params.logsPageSize)
             }
-            if (+params.initialLogsLimit && +params.initialLogsLimit !== values.initialLogsLimit) {
+            if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
         }
