@@ -1002,20 +1002,7 @@ export const logsLogic = kea<logsLogicType>([
                     .filter((item) => latest_time_bucket.diff(dayjs(item.time), 'seconds') <= sparklineTimeWindow)
             )
         },
-    })),
-
-    events(({ values, actions }) => ({
-        beforeUnmount: () => {
-            actions.setLiveTailRunning(false)
-            actions.cancelInProgressLiveTail(null)
-            if (values.logsAbortController) {
-                values.logsAbortController.abort('unmounting component')
-            }
-            if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
-            }
-        },
-        copyLinkToLog: ({ logId }) => {
+        copyLinkToLog: ({ logId }: { logId: string }) => {
             const url = new URL(window.location.href)
             url.searchParams.set('highlightedLogId', logId)
             if (values.visibleLogsTimeRange) {
@@ -1032,6 +1019,19 @@ export const logsLogic = kea<logsLogicType>([
                 url.searchParams.set('initialLogsLimit', String(values.logs.length))
             }
             void copyToClipboard(url.toString(), 'link to log')
+        },
+    })),
+
+    events(({ values, actions }) => ({
+        beforeUnmount: () => {
+            actions.setLiveTailRunning(false)
+            actions.cancelInProgressLiveTail(null)
+            if (values.logsAbortController) {
+                values.logsAbortController.abort('unmounting component')
+            }
+            if (values.sparklineAbortController) {
+                values.sparklineAbortController.abort('unmounting component')
+            }
         },
     })),
 ])
