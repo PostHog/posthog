@@ -227,6 +227,7 @@ export function DataTable({
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const recordingColumnShown =
         showRecordingColumn && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
+
     const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
         ? (columnsInResponse ?? columnsInQuery)
         : columnsInQuery
@@ -631,6 +632,9 @@ export function DataTable({
                   },
               ]
             : []),
+        // TODO: Consider consolidating EventRowActions with the generic rowActions implementation above.
+        // EventRowActions is event-specific while rowActions is a generic pattern that could be used
+        // for all query types. See context.rowActions for the generic implementation.
         ...(eventActionsColumnShown
             ? [
                   {

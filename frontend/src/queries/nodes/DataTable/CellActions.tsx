@@ -43,9 +43,9 @@ export function CellActions({
     }
 
     return (
-        <div className="flex items-center gap-1 group/cell-actions">
+        <div className="flex items-center gap-1">
             <div className="flex-1 min-w-0">{children}</div>
-            <div className="opacity-0 group-hover/cell-actions:opacity-100 transition-opacity flex-shrink-0">
+            <div className="flex-shrink-0">
                 <More overlay={actions} size="xsmall" />
             </div>
         </div>
