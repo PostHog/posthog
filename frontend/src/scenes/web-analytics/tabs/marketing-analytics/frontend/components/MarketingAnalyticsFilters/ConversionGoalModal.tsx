@@ -13,7 +13,12 @@ import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
-import { defaultConversionGoalFilter } from '../settings/constants'
+import {
+    conversionGoalDescription,
+    conversionGoalNamePlaceholder,
+    defaultConversionGoalFilter,
+    getConfiguredConversionGoalsLabel,
+} from '../settings/constants'
 
 export function ConversionGoalModal(): JSX.Element {
     const { conversionGoalModalVisible, draftConversionGoal, conversionGoalInput, uniqueConversionGoalName } =
@@ -126,8 +131,7 @@ export function ConversionGoalModal(): JSX.Element {
         >
             <div className="space-y-4">
                 <p className="text-muted">
-                    Define conversion goals by selecting events or data warehouse tables. These goals can be used to
-                    track and analyze user conversions in your marketing analytics.{' '}
+                    {conversionGoalDescription}
                     <Link to={urls.settings('environment-marketing-analytics')}>
                         Manage saved conversion goals in settings
                     </Link>
@@ -144,7 +148,7 @@ export function ConversionGoalModal(): JSX.Element {
                                 conversion_goal_name: value,
                             })
                         }}
-                        placeholder="Conversion goal name, e.g. purchase, sign up, download"
+                        placeholder={conversionGoalNamePlaceholder}
                     />
                 </div>
 
@@ -166,7 +170,7 @@ export function ConversionGoalModal(): JSX.Element {
                             onClick={() => setConfiguredGoalsExpanded(!configuredGoalsExpanded)}
                             className="justify-start"
                         >
-                            Configured conversion goals ({conversion_goals.length})
+                            {getConfiguredConversionGoalsLabel(conversion_goals.length)}
                         </LemonButton>
                         {configuredGoalsExpanded && (
                             <div className="border-t">
