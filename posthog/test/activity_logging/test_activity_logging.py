@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
-from posthog.models.activity_logging.utils import ActivityVisibilityRestrictions
+from posthog.models.activity_logging.utils import activity_visibility_manager
 from posthog.models.utils import UUIDT
 
 
@@ -112,7 +112,7 @@ class TestActivityLogModel(BaseTest):
             self.assertIsInstance(logged_warning["msg"]["exception"], ValueError)
 
 
-class TestActivityVisibilityRestrictions(BaseTest):
+class TestActivityLogVisibilityManager(BaseTest):
     @parameterized.expand(
         [
             # Restricted: impersonated login/logout should be hidden from external destinations
@@ -141,9 +141,7 @@ class TestActivityVisibilityRestrictions(BaseTest):
             activity=activity,
             was_impersonated=was_impersonated,
         )
-        self.assertEqual(
-            ActivityVisibilityRestrictions.is_restricted(log, restrict_for_staff=True), expected_restricted
-        )
+        self.assertEqual(activity_visibility_manager.is_restricted(log, restrict_for_staff=True), expected_restricted)
 
     @parameterized.expand(
         [
@@ -164,9 +162,7 @@ class TestActivityVisibilityRestrictions(BaseTest):
             activity=activity,
             was_impersonated=was_impersonated,
         )
-        self.assertEqual(
-            ActivityVisibilityRestrictions.is_restricted(log, restrict_for_staff=False), expected_restricted
-        )
+        self.assertEqual(activity_visibility_manager.is_restricted(log, restrict_for_staff=False), expected_restricted)
 
     def test_queryset_excludes_restricted_logs_for_non_staff(self) -> None:
         # Create a mix of activity logs
@@ -178,7 +174,7 @@ class TestActivityVisibilityRestrictions(BaseTest):
         )
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
-        filtered = ActivityVisibilityRestrictions.apply_to_queryset(queryset, is_staff=False)
+        filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=False)
 
         self.assertEqual(queryset.count(), 4)
         self.assertEqual(filtered.count(), 2)
@@ -195,6 +191,6 @@ class TestActivityVisibilityRestrictions(BaseTest):
         )
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
-        filtered = ActivityVisibilityRestrictions.apply_to_queryset(queryset, is_staff=True)
+        filtered = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
 
         self.assertEqual(filtered.count(), 3)
