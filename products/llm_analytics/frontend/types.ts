@@ -69,6 +69,15 @@ export interface AnthropicImageMessage {
     }
 }
 
+export interface AnthropicDocumentMessage {
+    type: 'document'
+    source: {
+        type: 'base64'
+        media_type: string
+        data: string
+    }
+}
+
 export interface GeminiAudioMessage {
     type: 'audio'
     data: string
@@ -77,6 +86,14 @@ export interface GeminiAudioMessage {
 
 export interface GeminiImageMessage {
     type: 'image'
+    inline_data: {
+        data: string
+        mime_type: string
+    }
+}
+
+export interface GeminiDocumentMessage {
+    type: 'document'
     inline_data: {
         data: string
         mime_type: string

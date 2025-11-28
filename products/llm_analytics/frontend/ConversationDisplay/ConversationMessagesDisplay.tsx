@@ -17,8 +17,10 @@ import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, VercelSDKImageMessage } from '../types'
 import {
+    isAnthropicDocumentMessage,
     isAnthropicImageMessage,
     isGeminiAudioMessage,
+    isGeminiDocumentMessage,
     isGeminiImageMessage,
     isOpenAIAudioMessage,
     isOpenAIFileMessage,
@@ -293,6 +295,34 @@ function renderContentItem(item: any, searchQuery?: string): JSX.Element | null 
             // eslint-disable-next-line react/forbid-elements
             <a href={item.file.file_data} download={item.file.filename} className="text-link hover:underline">
                 {item.file.filename}
+            </a>
+        )
+    }
+
+    if (isAnthropicDocumentMessage(item)) {
+        const fileName = `document.${item.source.media_type.split('/')[1] || 'bin'}`
+        return (
+            // eslint-disable-next-line react/forbid-elements
+            <a
+                href={`data:${item.source.media_type};base64,${item.source.data}`}
+                download={fileName}
+                className="text-link hover:underline"
+            >
+                {fileName}
+            </a>
+        )
+    }
+
+    if (isGeminiDocumentMessage(item)) {
+        const fileName = `document.${item.inline_data.mime_type.split('/')[1] || 'bin'}`
+        return (
+            // eslint-disable-next-line react/forbid-elements
+            <a
+                href={`data:${item.inline_data.mime_type};base64,${item.inline_data.data}`}
+                download={fileName}
+                className="text-link hover:underline"
+            >
+                {fileName}
             </a>
         )
     }

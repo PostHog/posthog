@@ -329,12 +329,46 @@ export function isAnthropicImageMessage(input: unknown): boolean {
     )
 }
 
+export function isAnthropicDocumentMessage(input: unknown): boolean {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'document' &&
+        'source' in input &&
+        typeof input.source === 'object' &&
+        input.source !== null &&
+        'type' in input.source &&
+        input.source.type === 'base64' &&
+        'data' in input.source &&
+        'media_type' in input.source &&
+        typeof input.source.data === 'string' &&
+        typeof input.source.media_type === 'string'
+    )
+}
+
 export function isGeminiImageMessage(input: unknown): boolean {
     return (
         !!input &&
         typeof input === 'object' &&
         'type' in input &&
         input.type === 'image' &&
+        'inline_data' in input &&
+        typeof input.inline_data === 'object' &&
+        input.inline_data !== null &&
+        'data' in input.inline_data &&
+        'mime_type' in input.inline_data &&
+        typeof input.inline_data.data === 'string' &&
+        typeof input.inline_data.mime_type === 'string'
+    )
+}
+
+export function isGeminiDocumentMessage(input: unknown): boolean {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'document' &&
         'inline_data' in input &&
         typeof input.inline_data === 'object' &&
         input.inline_data !== null &&
@@ -418,7 +452,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
 
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
-    // Supported types include: text, output_text, input_text, function, image, input_image
+    // Supported types include: text, output_text, input_text, function, image, input_image, document
     if (
         rawMessage &&
         typeof rawMessage === 'object' &&
@@ -440,7 +474,8 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                     item.type === 'input_image' ||
                     item.type === 'image_url' ||
                     item.type === 'file' ||
-                    item.type === 'audio')
+                    item.type === 'audio' ||
+                    item.type === 'document')
         )
     ) {
         return [
