@@ -787,6 +787,7 @@ export function LineGraph_({
                                         })
                                     }
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
+                                    {...tooltipConfig}
                                     groupTypeLabel={
                                         labelGroupType === 'people'
                                             ? 'people'
@@ -794,7 +795,6 @@ export function LineGraph_({
                                               ? ''
                                               : aggregationLabel(labelGroupType).plural
                                     }
-                                    {...tooltipConfig}
                                 />
                             )
                         }

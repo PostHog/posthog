@@ -22,6 +22,7 @@ from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     create_session_batch_events_query,
 )
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -87,10 +88,12 @@ def _get_db_events_per_page(
     runner = SessionBatchEventsQueryRunner(query=query, team=team)
     response = runner.run()
     if not isinstance(response, CachedSessionBatchEventsQueryResponse):
-        raise ValueError(
+        msg = (
             f"Failed to fetch events for sessions {logging_session_ids(session_ids)} in team {team.id} "
             f"when fetching batch events for group summary"
         )
+        temporalio.activity.logger.error(msg, extra={"team_id": team.id, "signals_type": "session-summaries"})
+        raise ValueError(msg)
     return response
 
 
@@ -167,18 +170,22 @@ async def fetch_session_batch_events_activity(
         if not session_events:
             temporalio.activity.logger.exception(
                 f"No events found for session {session_id} in team {inputs.team_id} "
-                f"when fetching batch events for group summary"
+                f"when fetching batch events for group summary",
+                extra={"session_id": session_id, "team_id": inputs.team_id, "signals_type": "session-summaries"},
             )
             continue
         session_metadata = metadata_dict.get(session_id)
         if not session_metadata:
             temporalio.activity.logger.exception(
                 f"No metadata found for session {session_id} in team {inputs.team_id} "
-                f"when fetching batch events for group summary"
+                f"when fetching batch events for group summary",
+                extra={"session_id": session_id, "team_id": inputs.team_id, "signals_type": "session-summaries"},
             )
             continue
         # Prepare the data to be used by the next activity
-        filtered_columns, filtered_events = add_context_and_filter_events(columns, session_events)
+        filtered_columns, filtered_events = add_context_and_filter_events(
+            session_events_columns=columns, session_events=session_events, session_id=session_id
+        )
         session_db_data = SessionSummaryDBData(
             session_metadata=session_metadata, session_events_columns=filtered_columns, session_events=filtered_events
         )
@@ -194,6 +201,7 @@ async def fetch_session_batch_events_activity(
         input_data = prepare_single_session_summary_input(
             session_id=session_id,
             user_id=inputs.user_id,
+            user_distinct_id_to_log=inputs.user_distinct_id_to_log,
             summary_data=summary_data,
             model_to_use=inputs.model_to_use,
         )
@@ -281,24 +289,29 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     async def _fetch_session_group_data(self, inputs: SessionGroupSummaryInputs) -> list[SingleSessionSummaryInputs]:
         """Fetch DB data for all sessions in batch and return successful inputs."""
         if not inputs.session_ids:
-            raise ApplicationError(f"No sessions to fetch data for group summary: {inputs}")
+            msg = f"No sessions to fetch data for group summary: {inputs}"
+            temporalio.workflow.logger.error(msg, extra={"signals_type": "session-summaries"})
+            raise ApplicationError(msg)
         # Fetch data for all sessions in a single batch
         fetch_result = await self._fetch_session_batch_data(inputs)
         if isinstance(fetch_result, Exception):
-            temporalio.workflow.logger.error(
-                f"Session batch data fetch failed for group summary for sessions {inputs.session_ids} "
-                f"in team {inputs.team_id} for user {inputs.user_id}: {fetch_result}"
-            )
-            raise ApplicationError(
+            msg = (
                 f"Failed to fetch batch data from DB, when summarizing {len(inputs.session_ids)} "
                 f"sessions ({inputs.session_ids}) for user {inputs.user_id} in team {inputs.team_id}"
             )
+            temporalio.workflow.logger.error(
+                f"Session batch data fetch failed for group summary for sessions {inputs.session_ids} "
+                f"in team {inputs.team_id} for user {inputs.user_id}: {fetch_result}",
+                extra={"team_id": inputs.team_id, "user_id": inputs.user_id, "signals_type": "session-summaries"},
+            )
+            raise ApplicationError(msg) from fetch_result
         # Create SingleSessionSummaryInputs for each session
         session_inputs: list[SingleSessionSummaryInputs] = []
         for session_id in fetch_result:
             single_session_input = SingleSessionSummaryInputs(
                 session_id=session_id,
                 user_id=inputs.user_id,
+                user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                 team_id=inputs.team_id,
                 redis_key_base=inputs.redis_key_base,
                 model_to_use=inputs.model_to_use,
@@ -315,7 +328,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 f"({list(set(inputs.session_ids) - extracted_session_ids)}) "
                 f"for user {inputs.user_id} in team {inputs.team_id}"
             )
-            temporalio.workflow.logger.exception(exception_message)
+            temporalio.workflow.logger.exception(
+                exception_message,
+                extra={"team_id": inputs.team_id, "user_id": inputs.user_id, "signals_type": "session-summaries"},
+            )
             raise ApplicationError(exception_message)
         return session_inputs
 
@@ -354,7 +370,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         Generate per-session summaries.
         """
         if not inputs:
-            raise ApplicationError("No sessions to summarize for group summary")
+            msg = "No sessions to summarize for group summary"
+            temporalio.workflow.logger.error(msg, extra={"signals_type": "session-summaries"})
+            raise ApplicationError(msg)
         # Summarize all sessions
         tasks = {}
         async with asyncio.TaskGroup() as tg:
@@ -372,7 +390,13 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
                     f"Session summary failed for group summary for session {session_id} "
-                    f"for user {inputs[0].user_id} in team {inputs[0].team_id}: {res}"
+                    f"for user {inputs[0].user_id} in team {inputs[0].team_id}: {res}",
+                    extra={
+                        "session_id": session_id,
+                        "user_id": inputs[0].user_id,
+                        "team_id": inputs[0].team_id,
+                        "signals_type": "session-summaries",
+                    },
                 )
             else:
                 # Store only successful generations
@@ -386,7 +410,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 f"({logging_session_ids(session_ids)}) "
                 f"for user {inputs[0].user_id} in team {inputs[0].team_id}"
             )
-            temporalio.workflow.logger.error(exception_message)
+            temporalio.workflow.logger.error(
+                exception_message,
+                extra={"user_id": inputs[0].user_id, "team_id": inputs[0].team_id, "signals_type": "session-summaries"},
+            )
             raise ApplicationError(exception_message)
         return session_inputs
 
@@ -444,6 +471,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 chunk_summaries_input = SessionGroupSummaryOfSummariesInputs(
                     single_session_summaries_inputs=chunk_inputs,
                     user_id=inputs.user_id,
+                    user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                     team_id=inputs.team_id,
                     summary_title=inputs.summary_title,
                     model_to_use=inputs.model_to_use,
@@ -468,7 +496,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             res = task.result()
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
-                    f"Pattern extraction failed for chunk {chunk_redis_key} containing sessions {chunk_session_ids}: {res}"
+                    f"Pattern extraction failed for chunk {chunk_redis_key} containing sessions {chunk_session_ids}: {res}",
+                    extra={"signals_type": "session-summaries"},
                 )
                 continue
             # Store only chunks of sessions were extracted successfully
@@ -476,10 +505,12 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             session_ids_with_patterns_extracted.extend(chunk_session_ids)
         # Check failure ratio
         if ceil(len(chunks) * FAILED_PATTERNS_EXTRACTION_MIN_RATIO) > len(redis_keys_of_chunks_to_combine):
-            raise ApplicationError(
+            msg = (
                 f"Too many chunks failed during pattern extraction: "
                 f"{len(chunks) - len(redis_keys_of_chunks_to_combine)}/{len(chunks)} chunks failed"
             )
+            temporalio.workflow.logger.error(msg, extra={"signals_type": "session-summaries"})
+            raise ApplicationError(msg)
         # If enough chunks succeeded - combine patterns extracted from chunks in a single list
         self._current_status.append("Combining similar behavior patterns into groups")
         await temporalio.workflow.execute_activity(
@@ -488,6 +519,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 redis_keys_of_chunks_to_combine=redis_keys_of_chunks_to_combine,
                 session_ids=session_ids_with_patterns_extracted,
                 user_id=inputs.user_id,
+                user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                 team_id=inputs.team_id,
                 redis_key_base=inputs.redis_key_base,
                 extra_summary_context=inputs.extra_summary_context,
@@ -512,6 +544,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
                 user_id=inputs.user_id,
+                user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                 team_id=inputs.team_id,
                 summary_title=inputs.summary_title,
                 model_to_use=inputs.model_to_use,
@@ -537,6 +570,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=single_session_summaries_inputs,
                 user_id=inputs.user_id,
+                user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                 team_id=inputs.team_id,
                 summary_title=inputs.summary_title,
                 model_to_use=inputs.model_to_use,
@@ -606,7 +640,9 @@ async def _start_session_group_summary_workflow(
             WorkflowExecutionStatus.TERMINATED,
             WorkflowExecutionStatus.TIMED_OUT,
         ):
-            raise ApplicationError(f"Workflow {workflow_id} failed with status: {workflow_description.status}")
+            msg = f"Workflow {workflow_id} failed with status: {workflow_description.status}"
+            logger.error(msg, workflow_id=workflow_id, signals_type="session-summaries")
+            raise ApplicationError(msg)
         # Workflow still running
         else:
             # Yield the current status for UI
@@ -646,7 +682,7 @@ def _generate_shared_id(session_ids: list[str]) -> str:
 
 async def execute_summarize_session_group(
     session_ids: list[str],
-    user_id: int,
+    user: User,
     team: Team,
     min_timestamp: datetime,
     max_timestamp: datetime,
@@ -668,10 +704,11 @@ async def execute_summarize_session_group(
     # Use shared identifier to be able to construct all the ids to check/debug.
     shared_id = _generate_shared_id(session_ids)
     # Prepare the input data
-    redis_key_base = f"session-summary:group:{user_id}-{team.id}:{shared_id}"
+    redis_key_base = f"session-summary:group:{user.id}-{team.id}:{shared_id}"
     session_group_input = SessionGroupSummaryInputs(
         session_ids=session_ids,
-        user_id=user_id,
+        user_id=user.id,
+        user_distinct_id_to_log=user.distinct_id,
         team_id=team.id,
         redis_key_base=redis_key_base,
         summary_title=summary_title,
@@ -683,7 +720,7 @@ async def execute_summarize_session_group(
         video_validation_enabled=video_validation_enabled,
     )
     # Connect to Temporal and execute the workflow
-    workflow_id = f"session-summary:group:{user_id}-{team.id}:{shared_id}:{uuid.uuid4()}"
+    workflow_id = f"session-summary:group:{user.id}-{team.id}:{shared_id}:{uuid.uuid4()}"
     # Yield status updates and final result
     async for update in _start_session_group_summary_workflow(inputs=session_group_input, workflow_id=workflow_id):
         yield update

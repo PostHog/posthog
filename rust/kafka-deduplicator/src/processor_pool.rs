@@ -1,5 +1,9 @@
-use crate::kafka::message::{AckableMessage, MessageProcessor};
-use rdkafka::Message;
+use crate::kafka::{
+    batch_message::{Batch, KafkaMessage},
+    message::MessageProcessor,
+    metrics_consts::BATCH_CONSUMER_MESSAGE_ERROR,
+};
+use common_types::CapturedEvent;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,7 +16,7 @@ use tracing::{error, info, warn};
 /// Messages with the same key are routed to the same worker to maintain ordering
 pub struct ProcessorPool<P: MessageProcessor> {
     /// Receiver for messages from the consumer
-    receiver: mpsc::UnboundedReceiver<AckableMessage>,
+    receiver: mpsc::UnboundedReceiver<Batch<CapturedEvent>>,
 
     /// The processor instances for each worker
     processors: Vec<P>,
@@ -26,7 +30,10 @@ pub struct ProcessorPool<P: MessageProcessor> {
 
 impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
     /// Create a new processor pool with the specified number of workers
-    pub fn new(processor: P, num_workers: usize) -> (mpsc::UnboundedSender<AckableMessage>, Self) {
+    pub fn new(
+        processor: P,
+        num_workers: usize,
+    ) -> (mpsc::UnboundedSender<Batch<CapturedEvent>>, Self) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         // Clone processor for each worker
@@ -55,7 +62,7 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
         // Create channels for each worker
         let mut worker_senders = Vec::with_capacity(num_workers);
         for i in 0..num_workers {
-            let (tx, mut rx) = mpsc::unbounded_channel::<AckableMessage>();
+            let (tx, mut rx) = mpsc::unbounded_channel::<KafkaMessage<CapturedEvent>>();
             worker_senders.push(tx);
 
             let processor = self.processors[i].clone();
@@ -63,8 +70,9 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
             // Spawn worker task
             let handle = tokio::spawn(async move {
                 info!("Worker {} started", i);
-                while let Some(msg) = rx.recv().await {
-                    if let Err(e) = processor.process_message(msg).await {
+
+                while let Some(message) = rx.recv().await {
+                    if let Err(e) = processor.process_message(message).await {
                         // TODO: Implement Dead Letter Queue (DLQ) handling
                         // Future implementation should:
                         // Retry messages that fail
@@ -75,6 +83,7 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
                         error!("Worker {} failed to process message: {}", i, e);
                     }
                 }
+
                 info!("Worker {} shutting down", i);
             });
 
@@ -87,42 +96,48 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
         // Spawn router task that distributes messages to workers
         let router_handle = tokio::spawn(async move {
             info!("Message router started");
-            while let Some(msg) = self.receiver.recv().await {
-                // Determine which worker should handle this message
-                let worker_id = if let Some(key_bytes) = msg.kafka_message().key() {
-                    // Hash the key to determine the worker
-                    let mut hasher = DefaultHasher::new();
-                    key_bytes.hash(&mut hasher);
-                    let hash = hasher.finish();
-                    (hash as usize) % num_workers
-                } else {
-                    // No key - use round-robin based on offset
-                    (msg.kafka_message().offset() as usize) % num_workers
-                };
+            while let Some(batch) = self.receiver.recv().await {
+                let (messages, errors) = batch.unpack();
 
-                // Send to the selected worker
-                if let Err(send_error) = worker_senders[worker_id].send(msg) {
-                    // Worker channel closed - this means the worker panicked
-                    let failed_msg = send_error.0;
-                    let msg_offset = failed_msg.kafka_message().offset();
+                if !errors.is_empty() {
+                    for error in errors {
+                        // errors here will be msg deserialization errors; should be rare
+                        // if KafkaMessage<T> type matches expected topic contents!
+                        error!("Router: batch message processing error: {:?}", error);
+                        metrics::counter!(BATCH_CONSUMER_MESSAGE_ERROR).increment(1);
+                    }
+                }
 
-                    error!(
-                        "CRITICAL: Worker {worker_id} channel closed (worker likely panicked), message offset: {msg_offset}. Marking pool unhealthy.",
-                    );
+                for msg in messages {
+                    // Determine which worker should handle this message
+                    let worker_id = if let Some(key_bytes) = msg.key.as_ref() {
+                        // Hash the key to determine the worker
+                        let mut hasher = DefaultHasher::new();
+                        key_bytes.hash(&mut hasher);
+                        let hash = hasher.finish();
+                        (hash as usize) % num_workers
+                    } else {
+                        // No key - use round-robin based on offset
+                        (msg.get_offset() as usize) % num_workers
+                    };
 
-                    // Mark the pool as unhealthy - this will fail health checks
-                    router_health.store(false, Ordering::SeqCst);
+                    // Send to the selected worker
+                    if let Err(send_error) = worker_senders[worker_id].send(msg) {
+                        // Worker channel closed - this means the worker panicked
+                        let failed_msg = send_error.0;
+                        let msg_offset = failed_msg.get_offset();
 
-                    // Nack the message that couldn't be delivered
-                    failed_msg
-                        .nack(format!(
-                            "Worker {worker_id} died, unable to process message",
-                        ))
-                        .await;
+                        error!(
+                            "CRITICAL: Worker {worker_id} channel closed (worker likely panicked), message offset: {msg_offset}. Marking pool unhealthy.",
+                        );
 
-                    // Continue processing - subsequent messages to this worker will also fail and get nacked
-                    // The health check will fail and K8s will restart the pod
-                    warn!("Continuing to route messages, but worker {} is dead. Health check will fail.", worker_id);
+                        // Mark the pool as unhealthy - this will fail health checks
+                        router_health.store(false, Ordering::SeqCst);
+
+                        // Continue processing - subsequent messages to this worker will also fail
+                        // The health check will fail and K8s will restart the pod
+                        warn!("Continuing to route messages, but worker {} is dead. Health check will fail.", worker_id);
+                    }
                 }
             }
 
@@ -143,7 +158,9 @@ impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
 mod tests {
     use super::*;
     use crate::kafka::message::MessageProcessor;
+    use crate::kafka::types::Partition;
     use async_trait::async_trait;
+    use rdkafka::message::{Header, OwnedHeaders};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -209,7 +226,10 @@ mod tests {
 
     #[async_trait]
     impl MessageProcessor for TestProcessor {
-        async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
+        async fn process_message(
+            &self,
+            message: KafkaMessage<CapturedEvent>,
+        ) -> anyhow::Result<()> {
             let current = self.concurrent_count.fetch_add(1, Ordering::SeqCst) + 1;
 
             loop {
@@ -235,16 +255,15 @@ mod tests {
                     .fetch_add(1, Ordering::SeqCst);
             }
 
-            if let Some(key) = message.kafka_message().key() {
+            if let Some(key) = message.key.as_ref() {
                 let mut orders = self.key_orders.write().await;
                 orders
-                    .entry(key.to_vec())
+                    .entry(key.clone())
                     .or_insert_with(Vec::new)
-                    .push(message.kafka_message().offset());
+                    .push(message.get_offset());
             }
 
             sleep(self.processing_delay).await;
-            message.ack().await;
             self.concurrent_count.fetch_sub(1, Ordering::SeqCst);
 
             Ok(())
@@ -261,46 +280,51 @@ mod tests {
 
     #[async_trait]
     impl MessageProcessor for FailingProcessor {
-        async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
-            let offset = message.kafka_message().offset();
+        async fn process_message(
+            &self,
+            message: KafkaMessage<CapturedEvent>,
+        ) -> anyhow::Result<()> {
+            let offset = message.get_offset();
 
             if let Some(fail_offset) = self.fail_on_offset {
                 if offset == fail_offset {
                     self.failed_count.fetch_add(1, Ordering::SeqCst);
-                    message.ack().await;
                     return Err(anyhow::anyhow!("Simulated failure at offset {}", offset));
                 }
             }
 
             self.processed_count.fetch_add(1, Ordering::SeqCst);
-            message.ack().await;
             Ok(())
         }
     }
 
-    async fn create_test_message(key: Option<&[u8]>, offset: i64) -> AckableMessage {
-        use crate::kafka::tracker::InFlightTracker;
-        use rdkafka::message::{OwnedHeaders, OwnedMessage};
-        use rdkafka::Timestamp;
+    async fn create_test_message(key: Option<&[u8]>, offset: i64) -> KafkaMessage<CapturedEvent> {
+        let original_headers = OwnedHeaders::new().insert(Header {
+            key: "header1",
+            value: Some(b"value1"),
+        });
 
-        let tracker = Arc::new(InFlightTracker::new());
-        let permit = tracker
-            .in_flight_semaphore_clone()
-            .acquire_owned()
-            .await
-            .unwrap();
-
-        let message = OwnedMessage::new(
-            Some(b"test payload".to_vec()),
-            key.map(|k| k.to_vec()),
-            "test-topic".to_string(),
-            Timestamp::NotAvailable,
-            0,
+        KafkaMessage::new(
+            Partition::new("test-topic".to_string(), 0),
             offset,
-            Some(OwnedHeaders::new()),
-        );
-
-        tracker.track_message(message, 1024, permit).await
+            key.map(|k| k.to_vec()),
+            Some(CapturedEvent {
+                uuid: uuid::Uuid::now_v7(),
+                distinct_id: "test-distinct-id".to_string(),
+                ip: "127.0.0.1".to_string(),
+                now: "2021-01-01T00:00:00Z".to_string(),
+                token: "test-token".to_string(),
+                data: "{\"properties\": {}}".to_string(),
+                event: "test-event".to_string(),
+                timestamp: chrono::Utc::now(),
+                historical_migration: false,
+                sent_at: None,
+                is_cookieless_mode: false,
+            }),
+            std::time::SystemTime::now(),
+            Some(original_headers),
+            Some(Vec::new()), // stub value for testing
+        )
     }
 
     #[tokio::test]
@@ -311,10 +335,12 @@ mod tests {
         let (handles, _health) = pool.start();
 
         let num_messages = 100;
+        let mut batch = Batch::new();
         for i in 0..num_messages {
             let msg = create_test_message(None, i).await;
-            sender.send(msg).unwrap();
+            batch.push_message(msg);
         }
+        sender.send(batch).unwrap();
 
         sleep(Duration::from_secs(2)).await;
 
@@ -350,11 +376,13 @@ mod tests {
         let messages_per_key = 10;
 
         for (key_idx, key) in keys.iter().enumerate() {
+            let mut batch = Batch::new();
             for i in 0..messages_per_key {
                 let offset = (key_idx * messages_per_key + i) as i64;
                 let msg = create_test_message(Some(*key), offset).await;
-                sender.send(msg).unwrap();
+                batch.push_message(msg);
             }
+            sender.send(batch).unwrap();
         }
 
         sleep(Duration::from_secs(1)).await;
@@ -388,10 +416,12 @@ mod tests {
         let (handles, _health) = pool.start();
 
         let burst_size = 50;
+        let mut batch = Batch::new();
         for i in 0..burst_size {
             let msg = create_test_message(None, i).await;
-            sender.send(msg).unwrap();
+            batch.push_message(msg);
         }
+        sender.send(batch).unwrap();
 
         sleep(Duration::from_secs(2)).await;
 
@@ -423,10 +453,12 @@ mod tests {
 
         let (handles, _health) = pool.start();
 
+        let mut batch = Batch::new();
         for i in 0..10 {
             let msg = create_test_message(None, i).await;
-            sender.send(msg).unwrap();
+            batch.push_message(msg);
         }
+        sender.send(batch).unwrap();
 
         sleep(Duration::from_millis(50)).await;
 
@@ -459,12 +491,11 @@ mod tests {
 
     #[async_trait]
     impl MessageProcessor for SlowKeyProcessor {
-        async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
-            let key = message
-                .kafka_message()
-                .key()
-                .map(|k| k.to_vec())
-                .unwrap_or_default();
+        async fn process_message(
+            &self,
+            message: KafkaMessage<CapturedEvent>,
+        ) -> anyhow::Result<()> {
+            let key = message.key.unwrap_or_default();
 
             // Record when we started processing
             {
@@ -482,7 +513,6 @@ mod tests {
                 sleep(self.normal_delay).await;
             }
 
-            message.ack().await;
             Ok(())
         }
     }
@@ -497,9 +527,12 @@ mod tests {
 
     #[async_trait]
     impl MessageProcessor for OrderCheckProcessor {
-        async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
-            if let Some(key) = message.kafka_message().key() {
-                let offset = message.kafka_message().offset();
+        async fn process_message(
+            &self,
+            message: KafkaMessage<CapturedEvent>,
+        ) -> anyhow::Result<()> {
+            if let Some(key) = message.key.as_ref() {
+                let offset = message.get_offset();
 
                 let mut last_offsets = self.last_offset_per_key.write().await;
                 if let Some(&last_offset) = last_offsets.get(key) {
@@ -515,7 +548,6 @@ mod tests {
 
             // Simulate variable processing time
             sleep(self.processing_delay).await;
-            message.ack().await;
             Ok(())
         }
     }
@@ -536,16 +568,20 @@ mod tests {
         let (handles, _health) = pool.start();
 
         // Send slow key messages and fast key messages
+        let mut slow_batch = Batch::new();
+        let mut fast_batch = Batch::new();
         for i in 0..5 {
             // Slow messages
             let msg = create_test_message(Some(&slow_key), i * 2).await;
-            sender.send(msg).unwrap();
+            slow_batch.push_message(msg);
 
             // Fast messages with different keys
             let fast_key = format!("fast_{i}").into_bytes();
             let msg = create_test_message(Some(&fast_key), i * 2 + 1).await;
-            sender.send(msg).unwrap();
+            fast_batch.push_message(msg);
         }
+        sender.send(slow_batch).unwrap();
+        sender.send(fast_batch).unwrap();
 
         // Wait for processing
         sleep(Duration::from_secs(3)).await;
@@ -595,12 +631,14 @@ mod tests {
         let (handles, _health) = pool.start();
 
         // Send many messages with overlapping keys
+        let mut batch = Batch::new();
         let keys = [b"key_a", b"key_b", b"key_c", b"key_d"];
         for offset in 0..100 {
             let key = keys[offset % keys.len()];
             let msg = create_test_message(Some(key), offset as i64).await;
-            sender.send(msg).unwrap();
+            batch.push_message(msg);
         }
+        sender.send(batch).unwrap();
 
         // Wait for all processing
         sleep(Duration::from_secs(2)).await;
@@ -631,10 +669,12 @@ mod tests {
         let (handles, _health) = pool.start();
 
         // Send messages including the failing one
+        let mut batch = Batch::new();
         for i in 0..10 {
             let msg = create_test_message(None, i).await;
-            sender.send(msg).unwrap();
+            batch.push_message(msg);
         }
+        sender.send(batch).unwrap();
 
         // Wait for processing
         sleep(Duration::from_millis(500)).await;
@@ -671,13 +711,15 @@ mod tests {
 
         #[async_trait]
         impl MessageProcessor for PanickingProcessor {
-            async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
-                let offset = message.kafka_message().offset();
+            async fn process_message(
+                &self,
+                message: KafkaMessage<CapturedEvent>,
+            ) -> anyhow::Result<()> {
+                let offset = message.get_offset();
                 if offset == self.panic_on_offset {
                     panic!("Intentional panic for testing at offset {offset}");
                 }
                 self.processed_count.fetch_add(1, Ordering::SeqCst);
-                message.ack().await;
                 Ok(())
             }
         }
@@ -694,10 +736,12 @@ mod tests {
         assert!(health.load(Ordering::SeqCst), "Pool should start healthy");
 
         // Send messages before the panic offset
+        let mut batch = Batch::new();
         for i in 0..5 {
             let msg = create_test_message(None, i).await;
-            sender.send(msg).unwrap();
+            batch.push_message(msg);
         }
+        sender.send(batch).unwrap();
 
         // Wait for processing
         sleep(Duration::from_millis(100)).await;
@@ -716,8 +760,10 @@ mod tests {
         );
 
         // Send the message that will cause a panic
+        let mut panic_batch = Batch::new();
         let panic_msg = create_test_message(None, 5).await;
-        sender.send(panic_msg).unwrap();
+        panic_batch.push_message(panic_msg);
+        sender.send(panic_batch).unwrap();
 
         // Wait for the panic to occur
         sleep(Duration::from_millis(500)).await;
@@ -726,8 +772,10 @@ mod tests {
         // Send another message that routes to the same worker to detect the failure
         // Messages with no key are routed by offset % num_workers
         // offset 5 % 4 = 1, so we need another message that goes to worker 1
+        let mut detect_batch = Batch::new();
         let detect_msg = create_test_message(None, 9).await; // 9 % 4 = 1
-        sender.send(detect_msg).unwrap();
+        detect_batch.push_message(detect_msg);
+        sender.send(detect_batch).unwrap();
 
         // Wait for router to detect the dead worker
         sleep(Duration::from_millis(200)).await;
@@ -781,7 +829,10 @@ mod tests {
 
         #[async_trait]
         impl MessageProcessor for AlwaysPanicProcessor {
-            async fn process_message(&self, _message: AckableMessage) -> anyhow::Result<()> {
+            async fn process_message(
+                &self,
+                _message: KafkaMessage<CapturedEvent>,
+            ) -> anyhow::Result<()> {
                 panic!("Always panic for testing");
             }
         }
@@ -803,7 +854,10 @@ mod tests {
 
         #[async_trait]
         impl MessageProcessor for TrackingProcessor {
-            async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
+            async fn process_message(
+                &self,
+                message: KafkaMessage<CapturedEvent>,
+            ) -> anyhow::Result<()> {
                 self.messages_seen.fetch_add(1, Ordering::SeqCst);
                 // This will panic
                 self.inner.process_message(message).await
@@ -819,15 +873,19 @@ mod tests {
         let (handles, health) = pool.start();
 
         // Send a message that will cause panic
+        let mut batch = Batch::new();
         let msg1 = create_test_message(Some(b"key1"), 0).await;
-        sender.send(msg1).unwrap();
+        batch.push_message(msg1);
+        sender.send(batch).unwrap();
 
         // Wait for panic
         sleep(Duration::from_millis(200)).await;
 
         // Send another message to same worker to detect failure
+        let mut batch = Batch::new();
         let msg2 = create_test_message(Some(b"key1"), 1).await;
-        sender.send(msg2).unwrap();
+        batch.push_message(msg2);
+        sender.send(batch).unwrap();
 
         // Wait for router to detect dead worker
         sleep(Duration::from_millis(200)).await;
@@ -878,8 +936,11 @@ mod tests {
 
         #[async_trait]
         impl MessageProcessor for MessageTrackingProcessor {
-            async fn process_message(&self, message: AckableMessage) -> anyhow::Result<()> {
-                let offset = message.kafka_message().offset();
+            async fn process_message(
+                &self,
+                message: KafkaMessage<CapturedEvent>,
+            ) -> anyhow::Result<()> {
+                let offset = message.get_offset();
 
                 // Record that we started processing this message
                 self.started_messages.lock().unwrap().push(offset);
@@ -890,7 +951,6 @@ mod tests {
                 }
 
                 // Normal path: ack the message
-                message.ack().await;
                 self.acked_messages.lock().unwrap().push(offset);
                 Ok(())
             }
@@ -906,10 +966,12 @@ mod tests {
         let (handles, _health) = pool.start();
 
         // Send messages
+        let mut batch = Batch::new();
         for i in 0..4 {
             let msg = create_test_message(None, i).await;
-            sender.send(msg).unwrap();
+            batch.push_message(msg);
         }
+        sender.send(batch).unwrap();
 
         // Wait for processing
         sleep(Duration::from_millis(500)).await;

@@ -5,10 +5,8 @@ import { IconInfo, IconStethoscope } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -149,15 +147,16 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
 ]
 
 export function SidePanelSdkDoctor(): JSX.Element | null {
-    const { sdkVersionsMap, sdkVersionsLoading, teamSdkVersionsLoading, needsUpdatingCount, hasErrors, snoozedUntil } =
-        useValues(sidePanelSdkDoctorLogic)
+    const {
+        augmentedData,
+        rawDataLoading: loading,
+        needsUpdatingCount,
+        hasErrors,
+        snoozedUntil,
+    } = useValues(sidePanelSdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
 
-    const { loadTeamSdkVersions, snoozeSdkDoctor } = useActions(sidePanelSdkDoctorLogic)
-
-    const loading = sdkVersionsLoading || teamSdkVersionsLoading
-
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { loadRawData, snoozeSdkDoctor } = useActions(sidePanelSdkDoctorLogic)
 
     useOnMountEffect(() => {
         posthog.capture('sdk doctor loaded', { needsUpdatingCount })
@@ -165,36 +164,12 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
 
     const scanEvents = (): void => {
         posthog.capture('sdk doctor scan events')
-        loadTeamSdkVersions({ forceRefresh: true })
+        loadRawData({ forceRefresh: true })
     }
 
     const snoozeWarning = (): void => {
         posthog.capture('sdk doctor snooze warning')
         snoozeSdkDoctor()
-    }
-
-    if (!featureFlags[FEATURE_FLAGS.SDK_DOCTOR_BETA]) {
-        return (
-            <div className="flex flex-col h-full">
-                <SidePanelPaneHeader
-                    title={
-                        <span>
-                            SDK Doctor{' '}
-                            <LemonTag type="warning" className="ml-1">
-                                Beta
-                            </LemonTag>
-                        </span>
-                    }
-                />
-                <div className="m-2">
-                    <LemonBanner type="info">
-                        <div>
-                            <strong>SDK Doctor is in beta!</strong> It's not enabled in your account yet.
-                        </div>
-                    </LemonBanner>
-                </div>
-            </div>
-        )
     }
 
     return (
@@ -243,7 +218,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                     <div className="text-center text-muted p-4">
                         Error loading SDK information. Please try again later.
                     </div>
-                ) : Object.keys(sdkVersionsMap).length === 0 ? (
+                ) : Object.keys(augmentedData).length === 0 ? (
                     <div className="text-center text-muted p-4">
                         No SDK information found. Are you sure you have our SDK installed? You can scan events to get
                         started.
@@ -277,7 +252,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                 )}
             </div>
 
-            {Object.keys(sdkVersionsMap).map((sdkType) => (
+            {Object.keys(augmentedData).map((sdkType) => (
                 <SdkSection key={sdkType} sdkType={sdkType as SdkType} />
             ))}
         </div>
@@ -305,9 +280,9 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
 }
 
 function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
-    const { sdkVersionsMap, teamSdkVersionsLoading } = useValues(sidePanelSdkDoctorLogic)
+    const { augmentedData, rawDataLoading: loading } = useValues(sidePanelSdkDoctorLogic)
 
-    const sdk = sdkVersionsMap[sdkType]!
+    const sdk = augmentedData[sdkType]!
     const links = SDK_DOCS_LINKS[sdkType]
     const sdkName = SDK_TYPE_READABLE_NAME[sdkType]
 
@@ -352,7 +327,7 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
 
             <LemonTable
                 dataSource={sdk.allReleases}
-                loading={teamSdkVersionsLoading}
+                loading={loading}
                 columns={COLUMNS}
                 size="small"
                 emptyState="No SDK information found. Try scanning recent events."

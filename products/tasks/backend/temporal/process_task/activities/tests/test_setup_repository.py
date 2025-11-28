@@ -38,6 +38,7 @@ class TestSetupRepositoryActivity:
                 repository="posthog/posthog-js",
                 github_integration_id=github_integration.id,
                 task_id="test-task-123",
+                run_id="test-run-456",
                 distinct_id="test-user-id",
             )
 
@@ -128,6 +129,7 @@ class TestSetupRepositoryActivity:
                 repository="posthog/posthog-js",
                 github_integration_id=github_integration.id,
                 task_id="test-task-uncommitted",
+                run_id="test-run-uncommitted",
                 distinct_id="test-user-id",
             )
 

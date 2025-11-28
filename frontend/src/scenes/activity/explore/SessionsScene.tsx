@@ -6,7 +6,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
@@ -35,7 +34,6 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: sceneConfigurations[Scene.ExploreSessions].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <Query
                 attachTo={sessionsSceneLogic({ tabId })}
                 uniqueKey={`sessions-scene-${tabId}`}

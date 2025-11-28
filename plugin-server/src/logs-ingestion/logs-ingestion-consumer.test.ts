@@ -3,12 +3,23 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { LogsIngestionConsumer, logMessageDroppedCounter } from './logs-ingestion-consumer'
+import {
+    LogsIngestionConsumer,
+    logMessageDroppedCounter,
+    logsBytesAllowedCounter,
+    logsBytesDroppedCounter,
+    logsBytesReceivedCounter,
+    logsRecordsAllowedCounter,
+    logsRecordsDroppedCounter,
+    logsRecordsReceivedCounter,
+} from './logs-ingestion-consumer'
+import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -87,6 +98,8 @@ describe('LogsIngestionConsumer', () => {
         team2 = (await getTeam(hub, team2Id))!
 
         consumer = await createLogsIngestionConsumer(hub)
+
+        await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
         logMessageDroppedCounterSpy = jest.spyOn(logMessageDroppedCounter, 'inc')
     })
 
@@ -398,6 +411,75 @@ describe('LogsIngestionConsumer', () => {
             const producedMessages = mockProducerObserver.getProducedMessages()
             expect(producedMessages).toHaveLength(1)
             expect(producedMessages[0].messages[0].value).toEqual(binaryData)
+        })
+    })
+
+    describe('rate limiting', () => {
+        let bytesReceivedSpy: jest.SpyInstance
+        let bytesAllowedSpy: jest.SpyInstance
+        let bytesDroppedSpy: jest.SpyInstance
+        let recordsReceivedSpy: jest.SpyInstance
+        let recordsAllowedSpy: jest.SpyInstance
+        let recordsDroppedSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            bytesReceivedSpy = jest.spyOn(logsBytesReceivedCounter, 'inc')
+            bytesAllowedSpy = jest.spyOn(logsBytesAllowedCounter, 'inc')
+            bytesDroppedSpy = jest.spyOn(logsBytesDroppedCounter, 'inc')
+            recordsReceivedSpy = jest.spyOn(logsRecordsReceivedCounter, 'inc')
+            recordsAllowedSpy = jest.spyOn(logsRecordsAllowedCounter, 'inc')
+            recordsDroppedSpy = jest.spyOn(logsRecordsDroppedCounter, 'inc')
+        })
+
+        it('should track metrics for messages', async () => {
+            hub.LOGS_LIMITER_BUCKET_SIZE_KB = 2
+            hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 1
+            hub.LOGS_LIMITER_TTL_SECONDS = 3600
+
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub)
+
+            const logData1 = createLogMessage({ message: 'First' })
+            const logData2 = createLogMessage({ message: 'Second' })
+
+            const messages = [
+                ...createKafkaMessages([logData1], {
+                    token: team.api_token,
+                    bytes_uncompressed: '1024',
+                    bytes_compressed: '512',
+                    record_count: '5',
+                }),
+                ...createKafkaMessages([logData2], {
+                    token: team.api_token,
+                    bytes_uncompressed: '2048',
+                    bytes_compressed: '1024',
+                    record_count: '10',
+                }),
+            ]
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(1)
+            expect(bytesReceivedSpy).toHaveBeenCalledWith(3072)
+            expect(bytesAllowedSpy).toHaveBeenCalledWith(1024)
+            expect(bytesDroppedSpy).toHaveBeenCalledWith(2048)
+            expect(recordsReceivedSpy).toHaveBeenCalledWith(15)
+            expect(recordsAllowedSpy).toHaveBeenCalledWith(5)
+            expect(recordsDroppedSpy).toHaveBeenCalledWith(10)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason: 'rate_limited' }, 1)
+        })
+
+        it('should handle missing header values with defaults', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(1)
+            expect(bytesReceivedSpy).toHaveBeenCalledWith(0)
+            expect(recordsReceivedSpy).toHaveBeenCalledWith(0)
         })
     })
 })

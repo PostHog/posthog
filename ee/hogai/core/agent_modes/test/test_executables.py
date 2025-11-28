@@ -815,6 +815,38 @@ class TestRootNodeTools(BaseTest):
         self.assertIn("project", groups)
 
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_max_tool_error_groups_call_works_in_async_context(self, read_taxonomy_mock):
+        """Test that groups() call in error handler works in async context without SynchronousOnlyOperation."""
+        read_taxonomy_mock.side_effect = MaxToolFatalError("Test error")
+
+        # Re-fetch the user from DB to simulate production behavior where
+        # current_organization is NOT pre-loaded (it's lazy-loaded)
+        fresh_user = await User.objects.aget(id=self.user.id)
+
+        node = _create_agent_tools_node(self.team, fresh_user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool that will fail",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        # This config triggers the posthoganalytics.capture path
+        config = RunnableConfig(configurable={"distinct_id": "test-user-123"})
+
+        # This must not raise SynchronousOnlyOperation in the groups() call
+        result = await node.arun(state, config)
+
+        # Should complete without error
+        self.assertIsInstance(result, PartialAssistantState)
+
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_max_tool_retryable_error_returns_error_with_retry_hint(self, read_taxonomy_mock):
         """Test that MaxToolRetryableError includes retry hint for adjusted inputs."""
         read_taxonomy_mock.side_effect = MaxToolRetryableError(
