@@ -657,6 +657,7 @@ export interface TeamType extends TeamBasicType {
     experiment_recalculation_time?: string | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
+    business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
 export interface ProductIntentType {
@@ -6026,6 +6027,7 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     AI_CONSENT = 'ai_consent',
+    TELL_US_MORE = 'tell_us_more',
 }
 
 export interface Dataset {

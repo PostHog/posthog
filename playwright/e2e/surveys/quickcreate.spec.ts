@@ -6,7 +6,13 @@ import { randomString } from '../../utils'
 import { expect, test } from '../../utils/playwright-test-base'
 
 const saveFeatureFlag = async (page: Page): Promise<void> => {
-    await page.locator('[data-attr="save-feature-flag"]').first().click()
+    const saveButton = page.locator('[data-attr="save-feature-flag"]').first()
+    await expect(saveButton).toBeEnabled()
+    const responsePromise = page.waitForResponse(
+        (resp) => resp.url().includes('/feature_flags') && resp.request().method() === 'POST'
+    )
+    await saveButton.click()
+    await responsePromise
     await page.goto(urls.featureFlags())
 }
 
@@ -31,20 +37,22 @@ const expectEvents = async (page: Page, events: string[]): Promise<void> => {
     const eventsSection = eventsSpan.locator('..')
 
     await expect(eventsSpan).toBeVisible()
-    events.forEach(async (event) => {
+    for (const event of events) {
         await expect(eventsSection.locator('.LemonTag').getByText(event)).toBeVisible()
-    })
+    }
 }
 
 const addTwoVariants = async (page: Page): Promise<void> => {
     await page.getByText('Multiple variants with rollout percentages (A/B/n test)').click()
-    await page.getByText('Add variant').click()
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="0"]').fill('test-1')
+    await page.getByText('Add variant').click()
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="1"]').fill('test-2')
 }
 
 const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
-    await page.locator(`[data-row-key="${name}"] [data-attr="more-button"]`).click()
+    const row = page.locator(`[data-row-key="${name}"]`)
+    await expect(row).toBeVisible()
+    await row.locator('[data-attr="more-button"]').click()
     await page.locator('[data-attr="create-survey"]').click()
 }
 
@@ -53,11 +61,20 @@ const goToSurveyOverview = async (page: Page): Promise<void> => {
 }
 
 const launchSurvey = async (page: Page, name: string): Promise<void> => {
-    await page.getByText('Create & launch').click()
+    const createButton = page.getByTestId('quick-survey-create')
+    await expect(createButton).toBeEnabled()
+    const responsePromise = page.waitForResponse(
+        (resp) => resp.url().includes('/surveys') && resp.request().method() === 'POST'
+    )
+    await createButton.click()
+    await responsePromise
     await page.waitForURL(/project\/(\d+)\/surveys\/([\w-]+)/)
     await expect(page.locator('.scene-tab-title').first()).toContainText(name)
     await expect(page.locator('[data-attr="stop-survey"]')).toBeVisible()
 }
+
+// CI is too slow, these all fail when run in parallel, will try to find a better solution soon
+test.describe.configure({ mode: 'serial' })
 
 test.describe('Quick create survey from feature flag', () => {
     let name: string
@@ -96,7 +113,13 @@ test.describe('Quick create survey from feature flag', () => {
         await saveFeatureFlag(page)
 
         await clickCreateSurvey(page, name)
-        await page.getByText('Create & launch').click()
+        const createButton = page.getByTestId('quick-survey-create')
+        await expect(createButton).toBeEnabled()
+        const responsePromise = page.waitForResponse(
+            (resp) => resp.url().includes('/surveys') && resp.request().method() === 'POST'
+        )
+        await createButton.click()
+        await responsePromise
         await page.waitForURL(/project\/(\d+)\/surveys\/([\w-]+)/)
 
         await goToSurveyOverview(page)
@@ -128,7 +151,9 @@ test.describe('Quick create survey from feature flag', () => {
 
         // add event
         await page.locator('.LemonButton').getByText('Add event').click()
-        await page.locator('span[aria-label="Autocapture"]').getByText('Autocapture').click()
+        const autocaptureOption = page.locator('span[aria-label="Autocapture"]').getByText('Autocapture')
+        await expect(autocaptureOption).toBeVisible()
+        await autocaptureOption.click()
 
         await launchSurvey(page, name)
         await goToSurveyOverview(page)
@@ -148,7 +173,9 @@ test.describe('Quick create survey from feature flag', () => {
         await goToSurveyOverview(page)
 
         const ffLink = page.getByText(`Feature flag enabled for: ${name}`).locator('a[href]')
+        await expect(ffLink).toBeVisible()
         const ffUrl = await ffLink.getAttribute('href')
+        await page.waitForLoadState('networkidle')
         await page.goto(ffUrl!)
 
         await page.locator('.LemonTabs__tab').getByText('User feedback').click()
@@ -168,6 +195,7 @@ test.describe('Quick create survey from feature flag', () => {
         await launchSurvey(page, name)
 
         await page.goto(urls.featureFlags())
+        await expect(page.locator('h1')).toContainText('Feature flags')
         await clickCreateSurvey(page, name)
         await page.getByText(`Only users in the test-2 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
@@ -175,7 +203,9 @@ test.describe('Quick create survey from feature flag', () => {
         await goToSurveyOverview(page)
 
         const ffLink = page.getByText(`Feature flag enabled for: ${name}`).locator('a[href]')
+        await expect(ffLink).toBeVisible()
         const ffUrl = await ffLink.getAttribute('href')
+        await page.waitForLoadState('networkidle')
         await page.goto(ffUrl!)
 
         await page.locator('.LemonTabs__tab').getByText('User feedback').click()
@@ -192,7 +222,13 @@ test.describe('Quick create survey from feature flag', () => {
             .locator('.LemonButtonWithSideAction__side-button button')
             .click()
 
-        await page.getByText('Save as draft').click()
+        const saveAsDraftButton = page.getByText('Save as draft')
+        await expect(saveAsDraftButton).toBeVisible()
+        const responsePromise = page.waitForResponse(
+            (resp) => resp.url().includes('/surveys') && resp.request().method() === 'POST'
+        )
+        await saveAsDraftButton.click()
+        await responsePromise
         await page.waitForURL(/project\/(\d+)\/surveys\/([\w-]+)/)
         await expect(page.locator('.scene-tab-title').first()).toContainText(name)
         await expect(page.locator('[data-attr="launch-survey"]')).toBeVisible()
