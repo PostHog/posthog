@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
+import { useThrottledCallback } from 'use-debounce'
 
 import { IconFilter, IconMinusSquare, IconPin, IconPinFilled, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
@@ -45,6 +46,8 @@ import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
 import { ParsedLogMessage } from './types'
 
+const THROTTLE_TIME_MS = 150
+
 export const scene: SceneExport = {
     component: LogsScene,
     logic: logsLogic,
@@ -79,12 +82,21 @@ export function LogsScene(): JSX.Element {
         runQuery()
     }, [runQuery])
 
+    const throttledHighlightNext = useThrottledCallback(highlightNextLog, THROTTLE_TIME_MS, {
+        leading: true,
+        trailing: false,
+    })
+    const throttledHighlightPrev = useThrottledCallback(highlightPreviousLog, THROTTLE_TIME_MS, {
+        leading: true,
+        trailing: false,
+    })
+
     useKeyboardHotkeys(
         {
-            arrowdown: { action: highlightNextLog },
-            j: { action: highlightNextLog },
-            arrowup: { action: highlightPreviousLog },
-            k: { action: highlightPreviousLog },
+            arrowdown: { action: throttledHighlightNext },
+            j: { action: throttledHighlightNext },
+            arrowup: { action: throttledHighlightPrev },
+            k: { action: throttledHighlightPrev },
             enter: {
                 action: () => {
                     if (sceneHighlightedLogId) {
@@ -230,12 +242,10 @@ function LogsTable({
 
     useEffect(() => {
         if (!loading && highlightedLogId && tableRef.current) {
-            requestAnimationFrame(() => {
-                const highlightedRow = tableRef.current?.querySelector(`[data-row-key="${highlightedLogId}"]`)
-                if (highlightedRow) {
-                    highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                }
-            })
+            const highlightedRow = tableRef.current?.querySelector(`[data-row-key="${highlightedLogId}"]`)
+            if (highlightedRow) {
+                highlightedRow.scrollIntoView({ behavior: 'instant', block: 'center' })
+            }
         }
     }, [loading, highlightedLogId])
 
