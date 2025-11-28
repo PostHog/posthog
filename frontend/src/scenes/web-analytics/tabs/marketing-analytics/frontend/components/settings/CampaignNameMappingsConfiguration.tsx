@@ -1,23 +1,27 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { getGlobalCampaignMapping } from '../MarketingAnalyticsTable/marketingMappingUtils'
 
 const SEPARATOR = ','
 
 export interface CampaignNameMappingsConfigurationProps {
     sourceFilter?: string
     compact?: boolean
+    /** Initial UTM value to pre-populate in the input */
+    initialUtmValue?: string
 }
 
 export function CampaignNameMappingsConfiguration({
     sourceFilter,
     compact = false,
+    initialUtmValue,
 }: CampaignNameMappingsConfigurationProps): JSX.Element {
     const { marketingAnalyticsConfig, integrationCampaigns, integrationCampaignsLoading } = useValues(
         marketingAnalyticsSettingsLogic
@@ -28,7 +32,14 @@ export function CampaignNameMappingsConfiguration({
     const fieldPreferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
     const [selectedSource, setSelectedSource] = useState<string>(sourceFilter || '')
     const [newCleanName, setNewCleanName] = useState('')
-    const [newRawValues, setNewRawValues] = useState('')
+    const [newRawValues, setNewRawValues] = useState(initialUtmValue || '')
+
+    // Update newRawValues when initialUtmValue changes
+    useEffect(() => {
+        if (initialUtmValue) {
+            setNewRawValues(initialUtmValue)
+        }
+    }, [initialUtmValue])
 
     const availableSources = externalDataSources.filter((source) =>
         VALID_NATIVE_MARKETING_SOURCES.includes(source as any)
@@ -65,6 +76,33 @@ export function CampaignNameMappingsConfiguration({
         label: matchField === MatchField.CAMPAIGN_ID ? `${c.id} (${c.name})` : c.name,
     }))
 
+    // Check if any of the input utm_campaign values are already mapped globally
+    const alreadyMappedValues = useMemo(() => {
+        if (!newRawValues.trim()) {
+            return []
+        }
+
+        const rawValuesArray = newRawValues
+            .split(SEPARATOR)
+            .map((v) => v.trim())
+            .filter((v) => v.length > 0)
+
+        const mapped: Array<{ value: string; integration: string; campaignName: string }> = []
+        for (const value of rawValuesArray) {
+            const existing = getGlobalCampaignMapping(value, marketingAnalyticsConfig)
+            if (existing) {
+                mapped.push({
+                    value,
+                    integration: existing.integration,
+                    campaignName: existing.campaignName,
+                })
+            }
+        }
+        return mapped
+    }, [newRawValues, marketingAnalyticsConfig])
+
+    const hasAlreadyMappedValues = alreadyMappedValues.length > 0
+
     const updateMappings = (newMappings: Record<string, Record<string, string[]>>): void => {
         updateCampaignNameMappings(newMappings)
     }
@@ -79,11 +117,22 @@ export function CampaignNameMappingsConfiguration({
             .map((v) => v.trim())
             .filter((v) => v.length > 0)
 
+        // Filter out any values that are already mapped globally
+        const filteredValues = rawValuesArray.filter((value) => {
+            const existing = getGlobalCampaignMapping(value, marketingAnalyticsConfig)
+            return existing === null
+        })
+
+        if (filteredValues.length === 0) {
+            // All values were already mapped
+            return
+        }
+
         const sourceMappings = campaignMappings[selectedSource] || {}
         const existingValues = sourceMappings[newCleanName.trim()] || []
 
         // Merge with existing values, keeping only unique ones
-        const mergedValues = [...new Set([...existingValues, ...rawValuesArray])]
+        const mergedValues = [...new Set([...existingValues, ...filteredValues])]
 
         updateMappings({
             ...campaignMappings,
@@ -161,14 +210,14 @@ export function CampaignNameMappingsConfiguration({
             )}
             {compact && <h4 className="font-semibold text-sm mb-2">Campaign name mappings</h4>}
 
-            <div className="border rounded overflow-hidden">
-                <table className="w-full">
+            <div className="border rounded overflow-x-auto">
+                <table className="w-full table-fixed">
                     <thead>
                         <tr className="bg-bg-light border-b">
                             {!sourceFilter && (
-                                <th className="text-left text-xs font-semibold p-2 text-muted">Source</th>
+                                <th className="text-left text-xs font-semibold p-2 text-muted w-1/4">Source</th>
                             )}
-                            <th className="text-left text-xs font-semibold p-2 text-muted">{columnHeader}</th>
+                            <th className="text-left text-xs font-semibold p-2 text-muted w-1/3">{columnHeader}</th>
                             <th className="text-left text-xs font-semibold p-2 text-muted">utm_campaign</th>
                             <th className="text-right text-xs font-semibold p-2 text-muted w-16">Actions</th>
                         </tr>
@@ -244,27 +293,47 @@ export function CampaignNameMappingsConfiguration({
                                 />
                             </td>
                             <td className="p-2 align-top">
-                                <LemonInput
-                                    value={newRawValues}
-                                    onChange={setNewRawValues}
-                                    placeholder="utm_campaign values (comma-separated)"
-                                    size="small"
-                                    fullWidth
-                                />
+                                <div className="flex flex-col gap-1">
+                                    <LemonInput
+                                        value={newRawValues}
+                                        onChange={setNewRawValues}
+                                        placeholder="utm_campaign values (comma-separated)"
+                                        size="small"
+                                        fullWidth
+                                    />
+                                    {hasAlreadyMappedValues && (
+                                        <div className="flex items-start gap-1 text-warning text-xs">
+                                            <IconWarning className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                            <span>
+                                                {alreadyMappedValues.length === 1
+                                                    ? `"${alreadyMappedValues[0].value}" is already mapped to ${alreadyMappedValues[0].integration}: ${alreadyMappedValues[0].campaignName}`
+                                                    : `${alreadyMappedValues.length} values are already mapped elsewhere`}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
                             </td>
                             <td className="p-2 text-right align-top">
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
-                                    onClick={addMapping}
-                                    disabled={
-                                        (!sourceFilter && !selectedSource) ||
-                                        !newCleanName.trim() ||
-                                        !newRawValues.trim()
+                                <Tooltip
+                                    title={
+                                        hasAlreadyMappedValues
+                                            ? 'Some utm_campaign values are already mapped. Each value can only be in one mapping.'
+                                            : 'Add mapping'
                                     }
-                                    tooltip="Add mapping"
-                                />
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        icon={<IconPlusSmall />}
+                                        onClick={addMapping}
+                                        disabled={
+                                            (!sourceFilter && !selectedSource) ||
+                                            !newCleanName.trim() ||
+                                            !newRawValues.trim() ||
+                                            hasAlreadyMappedValues
+                                        }
+                                    />
+                                </Tooltip>
                             </td>
                         </tr>
                     </tbody>

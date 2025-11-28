@@ -5,6 +5,7 @@ import {
     isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
+    isNonIntegratedConversionsTableQuery,
     isPersonsNode,
     isRevenueAnalyticsTopCustomersQuery,
     isRevenueExampleDataWarehouseTablesQuery,
@@ -38,7 +39,9 @@ export enum QueryFeature {
     hideLoadNextButton,
     testAccountFilters,
     highlightExceptionEventRows,
+    /** Enables custom row actions via QueryContext.rowActions */
     rowActions,
+    /** Enables custom cell actions via QueryContextColumn.cellActions */
     cellActions,
 }
 
@@ -121,6 +124,13 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     }
 
     if (isMarketingAnalyticsTableQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.selectAndOrderByColumns)
+    }
+
+    if (isNonIntegratedConversionsTableQuery(query)) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)

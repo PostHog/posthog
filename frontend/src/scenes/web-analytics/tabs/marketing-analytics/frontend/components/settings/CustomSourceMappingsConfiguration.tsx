@@ -12,7 +12,6 @@ const SEPARATOR = ','
 
 export interface CustomSourceMappingsConfigurationProps {
     sourceFilter?: string
-    compact?: boolean
 }
 
 export function CustomSourceMappingsConfiguration({

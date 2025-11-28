@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
@@ -8,18 +8,33 @@ import { CampaignFieldPreferencesConfiguration } from './CampaignFieldPreference
 import { CampaignNameMappingsConfiguration } from './CampaignNameMappingsConfiguration'
 import { CustomSourceMappingsConfiguration } from './CustomSourceMappingsConfiguration'
 
+export type IntegrationSettingsTab = 'field' | 'mappings' | 'sources'
+
 export interface IntegrationSettingsModalProps {
     integrationName: string
     isOpen: boolean
     onClose: () => void
+    /** Initial tab to open */
+    initialTab?: IntegrationSettingsTab
+    /** Initial UTM value to pre-populate in the mappings tab */
+    initialUtmValue?: string
 }
 
 export function IntegrationSettingsModal({
     integrationName,
     isOpen,
     onClose,
+    initialTab,
+    initialUtmValue,
 }: IntegrationSettingsModalProps): JSX.Element {
-    const [activeTab, setActiveTab] = useState('field')
+    const [activeTab, setActiveTab] = useState<IntegrationSettingsTab>(initialTab || 'field')
+
+    // Update active tab when initialTab changes (e.g., when modal opens with a specific tab)
+    useEffect(() => {
+        if (initialTab && isOpen) {
+            setActiveTab(initialTab)
+        }
+    }, [initialTab, isOpen])
 
     return (
         <LemonModal
@@ -77,7 +92,11 @@ export function IntegrationSettingsModal({
                                     </button>
                                     .
                                 </p>
-                                <CampaignNameMappingsConfiguration sourceFilter={integrationName} compact />
+                                <CampaignNameMappingsConfiguration
+                                    sourceFilter={integrationName}
+                                    compact
+                                    initialUtmValue={initialUtmValue}
+                                />
                             </div>
                         ),
                     },
@@ -91,7 +110,10 @@ export function IntegrationSettingsModal({
                                     custom source values in your campaigns, add them here so we can properly attribute
                                     the traffic.
                                 </p>
-                                <CustomSourceMappingsConfiguration sourceFilter={integrationName} compact />
+                                <CustomSourceMappingsConfiguration
+                                    sourceFilter={integrationName}
+                                    initialUtmValue={initialUtmValue}
+                                />
                             </div>
                         ),
                     },

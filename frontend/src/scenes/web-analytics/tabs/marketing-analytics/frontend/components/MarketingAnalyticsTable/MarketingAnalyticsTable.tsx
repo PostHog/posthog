@@ -4,7 +4,7 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Query } from '~/queries/Query/Query'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
@@ -45,18 +45,7 @@ export const MarketingAnalyticsTable = ({
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
-    const handleIncludeAllConversionsChange = (checked: boolean): void => {
-        const sourceQuery = query.source as MarketingAnalyticsTableQuery
-        setQuery({
-            ...query,
-            source: {
-                ...sourceQuery,
-                includeAllConversions: checked,
-            },
-        })
-    }
-
-    // Create custom context with sortable headers for marketing analytics
+    // Create custom context with sortable headers for marketing analytics (no cell actions for main table)
     const marketingAnalyticsContext: QueryContext = {
         ...webAnalyticsDataTableQueryContext,
         insightProps,
@@ -91,17 +80,10 @@ export const MarketingAnalyticsTable = ({
                     <div className="flex-1">
                         <DraftConversionGoalControls />
                     </div>
-                    <div className="self-start flex flex-col gap-2">
+                    <div className="self-start">
                         <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
                             Configure columns
                         </LemonButton>
-                        <LemonSwitch
-                            checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
-                            onChange={handleIncludeAllConversionsChange}
-                            label="Non-integrated conversions"
-                            tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
-                            size="small"
-                        />
                     </div>
                 </div>
             </div>
