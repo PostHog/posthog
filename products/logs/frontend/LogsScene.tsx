@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconFilter, IconMinusSquare, IconPin, IconPinFilled, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
@@ -20,6 +20,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -78,43 +79,22 @@ export function LogsScene(): JSX.Element {
         runQuery()
     }, [runQuery])
 
-    const handleKeyDown = useCallback(
-        (e: KeyboardEvent) => {
-            // Ignore if user is typing in an input or editing a contentEditable element
-            if (
-                e.target instanceof HTMLInputElement ||
-                e.target instanceof HTMLTextAreaElement ||
-                (e.target instanceof HTMLElement && e.target.isContentEditable)
-            ) {
-                return
-            }
-
-            switch (e.key) {
-                case 'ArrowDown':
-                case 'j':
-                    e.preventDefault()
-                    highlightNextLog()
-                    break
-                case 'ArrowUp':
-                case 'k':
-                    e.preventDefault()
-                    highlightPreviousLog()
-                    break
-                case 'Enter':
+    useKeyboardHotkeys(
+        {
+            arrowdown: { action: highlightNextLog },
+            j: { action: highlightNextLog },
+            arrowup: { action: highlightPreviousLog },
+            k: { action: highlightPreviousLog },
+            enter: {
+                action: () => {
                     if (sceneHighlightedLogId) {
-                        e.preventDefault()
                         toggleExpandLog(sceneHighlightedLogId)
                     }
-                    break
-            }
+                },
+            },
         },
-        [highlightNextLog, highlightPreviousLog, toggleExpandLog, sceneHighlightedLogId]
+        [sceneHighlightedLogId]
     )
-
-    useEffect(() => {
-        window.addEventListener('keydown', handleKeyDown)
-        return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [handleKeyDown])
 
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
         setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
