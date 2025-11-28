@@ -58,9 +58,14 @@ export const logsLogic = kea<logsLogicType>([
     tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (params.dateRange) {
-                const dateRange = typeof params.dateRange === 'string' ? JSON.parse(params.dateRange) : params.dateRange
-                if (!equal(dateRange, values.dateRange)) {
-                    actions.setDateRange(dateRange)
+                try {
+                    const dateRange =
+                        typeof params.dateRange === 'string' ? JSON.parse(params.dateRange) : params.dateRange
+                    if (!equal(dateRange, values.dateRange)) {
+                        actions.setDateRange(dateRange)
+                    }
+                } catch {
+                    // Ignore malformed dateRange JSON in URL
                 }
             }
             if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
