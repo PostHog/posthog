@@ -26,6 +26,7 @@ Usually, each user-generated event has lots of metadata attached to it. User inf
 - We start with the "what I need 100%" approach, keeping minimal set of events and fields, adding new ones only if they increase the quality of the summary.
 - Mappings for everything. If event data includes URLs - we use `url_N` alias and attach mapping. Same for tab ids, and any repeating parameters.
 - CSV input. Neither JSON no TOON (heh) will provide the same generation quality per input token.
+- We don't return JSON either. If it works with free text - awesome, if not - we return YAML or CSV.
 
 ### Parallelization breaks the narrative
 
