@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import TypedDict
 from urllib.parse import urlparse
 
 import duckdb
@@ -93,18 +94,27 @@ def parse_postgres_dsn(raw_dsn: str) -> dict[str, str]:
     return params
 
 
+class PsycopgConnectionConfig(TypedDict):
+    dbname: str
+    host: str
+    port: int
+    user: str
+    password: str
+    autocommit: bool
+
+
 def ensure_ducklake_catalog(config: dict[str, str]) -> None:
     params = parse_postgres_dsn(config["DUCKLAKE_CATALOG_DSN"])
     target_db = params.get("dbname")
     if not target_db:
         raise ValueError("DUCKLAKE_CATALOG_DSN must include a dbname value")
 
-    conn_kwargs = {
+    conn_kwargs: PsycopgConnectionConfig = {
         "dbname": params.get("maintenance_db") or "postgres",
-        "host": params.get("host", "localhost"),
-        "port": int(params.get("port", "5432")),
-        "user": params.get("user", "posthog"),
-        "password": params.get("password", "posthog"),
+        "host": params.get("host") or "localhost",
+        "port": int(params.get("port") or "5432"),
+        "user": params.get("user") or "posthog",
+        "password": params.get("password") or "posthog",
         "autocommit": True,
     }
 
