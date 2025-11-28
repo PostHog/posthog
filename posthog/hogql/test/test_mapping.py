@@ -393,10 +393,10 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["extracted_int"], 42)  # extracted integer
 
     def test_generated_aggregate_combinator_functions_snapshot(self):
-        # Load the snapshot under __snapshots__/generated_aggregate_functions.txt, relative to this file
+        # Load the snapshot under __snapshots__/generated_aggregate_combinator_functions.txt, relative to this file
         snapshot_path = os.path.join(os.path.dirname(__file__), "generated_aggregate_combinator_functions.txt")
         with open(snapshot_path) as f:
-            snapshot = (x.strip() for x in f.readlines())
+            snapshot = {x.strip() for x in f.readlines()}
         generated_sigs = [
             f"{name}: ({sig.min_args}, {sig.max_args})"
             for (name, sig) in generate_combinator_suffix_combinations().items()

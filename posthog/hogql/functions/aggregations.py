@@ -52,7 +52,7 @@ def _generate_suffix_combinations(
         available_suffixes = list(COMBINATORS.keys())
     else:
         last_suffix = current_suffixes[-1]
-        allowed_suffixes: list[str] = COMBINATORS.get(last_suffix, {}).get("AllowedSuffixes", [])  # type: ignore
+        allowed_suffixes: list[str] = COMBINATORS.get(last_suffix, {}).get("allowedSuffixes", [])  # type: ignore
         available_suffixes = allowed_suffixes
 
     for suffix in available_suffixes:
