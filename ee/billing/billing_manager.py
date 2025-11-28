@@ -29,7 +29,12 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
-def build_billing_token(license: License, organization: Organization, user: User | None = None):
+def build_billing_token(
+    license: License,
+    organization: Organization,
+    user: User | None = None,
+    billing_provider: BillingProvider | None = None,
+):
     if not organization or not license:
         raise NotAuthenticated()
 
@@ -50,6 +55,9 @@ def build_billing_token(license: License, organization: Organization, user: User
 
         if org_membership:
             payload["organization_role"] = org_membership.get_level_display()
+
+    if billing_provider:
+        payload["billing_provider"] = billing_provider.value
 
     encoded_jwt = jwt.encode(
         payload,
@@ -375,10 +383,10 @@ class BillingManager:
 
         return organization
 
-    def get_auth_headers(self, organization: Organization):
+    def get_auth_headers(self, organization: Organization, billing_provider: BillingProvider | None = None):
         if not self.license:  # mypy
             raise Exception("No license found")
-        billing_service_token = build_billing_token(self.license, organization, self.user)
+        billing_service_token = build_billing_token(self.license, organization, self.user, billing_provider)
         return {"Authorization": f"Bearer {billing_service_token}"}
 
     def get_invoices(self, organization: Organization, status: str | None):
@@ -470,7 +478,7 @@ class BillingManager:
 
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
-            headers=self.get_auth_headers(organization),
+            headers=self.get_auth_headers(organization, billing_provider),
             json=data,
         )
 
