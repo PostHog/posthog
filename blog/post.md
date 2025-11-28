@@ -151,17 +151,81 @@ To make it work, we needed a way to easily display the whole story to the user a
 - Timestamp and event type of the issue is clear, and easy to validate
 - Even easier, as we load the video of the session at the moment it happened (actually, a couple of seconds before)
 
----
+<!-- ## Step 4: Make it work reliably with (RAW STEP, EDITING)
 
-Not all sessions will summarize successfully
+Now we got a pipeline that works - single session summaries, video validation, pattern extraction across 100 sessions. The problem? It's fragile. We're making ~150 LLM calls per report, any of which can fail. Timeouts, rate limits, malformed responses, hallucinated output that fails validation. If the whole thing falls apart because of one bad response, the feature is unusable.
 
-When you're making 100+ LLM calls, some will fail. Timeouts, rate limits, malformed responses, hallucinated output that fails validation. If we fail the entire report because one session errored, the
-feature becomes unusable.
+{{ diagram of the Temporal workflow architecture }}
 
-Our approach:
+> (under the image text) Temporal orchestrates the entire pipeline: parallel summaries, chunked extraction, pattern assignment - with failure handling at each stage
+
+### LLM calls fail, and that's fine
+
+When you're calling LLMs at scale, failures aren't edge cases - they're expected behavior. A model might timeout. A response might be malformed JSON (or YAML, in our case). The output might hallucinate event IDs that don't exist. Treating every failure as fatal means your feature never works in production.
+
+**Our approach:**
 
 - We set failure thresholds instead of failing on first error:
 - Session summaries: if less than 50% succeed, abort. Otherwise, continue with what we have.
 - Pattern extraction: if less than 75% of chunks succeed, abort.
 - Pattern assignment: same 75% threshold.
-- This means a report might be based on 85 sessions instead of 100, but that's usually good enough to find patterns. We surface this in the UI so users know.
+- A report based on 85 sessions instead of 100 is usually good enough to find patterns. We surface this in the UI so users know exactly what they're looking at.
+
+### State doesn't fit in memory
+
+Temporal is great for orchestrating complex workflows, but it has limits. Event history size is capped at around 2MB. When you're processing 100 sessions with rich metadata, summaries, and pattern data - you blow past that limit fast. Passing large objects between activities causes the workflow to fail.
+
+**Our approach:**
+
+- Redis as a state bridge. We store all intermediate results (session data, summaries, extracted patterns) in Redis with TTLs, and pass only keys through Temporal.
+- Gzip compression before storing. Large JSON summaries compress well, and Redis memory isn't free.
+- Clear TTLs (24 hours) so we're not paying for stale data, but long enough to retry failed workflows without re-fetching everything.
+
+**Retries shouldn't redo everything**
+
+A pattern extraction call fails after we've already summarized 100 sessions. Do we start over? That's 100 LLM calls wasted, plus minutes of user wait time. The pipeline has natural checkpoints - we should use them.
+
+**Our approach:**
+
+- Temporal activities are our checkpoints. Each phase (fetch data, summarize sessions, extract patterns, assign events) is a separate activity.
+- If pattern extraction fails, we don't re-summarize sessions - we retry from the extraction step using cached summaries.
+- Same for video validation - if it fails, the base summary is still saved. We can retry validation separately.
+
+## Step 5: Ship the beta, learn, iterate (We are here) (RAW STEP, EDITING)
+
+We have a pipeline that analyzes single sessions, validates issues with video, extracts patterns across 100 sessions, and survives LLM failures gracefully. It works. But "works" and "done" are different things.
+
+{{ screenshot of the chat interface with session summaries }}
+(under the image text) Session summaries is available now in PostHog AI chat - try it on your own sessions
+
+### It's not fast
+
+The honest truth: analyzing 100 sessions takes 5-7 minutes. We wanted 30 seconds. We tried faster models, smaller context windows, aggressive parallelization. The result was either slow or bad, never both fast and good.
+
+**Our approach:**
+
+- We picked quality. A report worth reading in 5 minutes beats a useless report in 30 seconds.
+- We show progress as it happens - which sessions are being analyzed, which patterns are emerging - so waiting doesn't feel like staring at a spinner.
+- We're exploring background processing for the future: analyze sessions continuously, surface issues proactively, no waiting required.
+
+### It only finds issues
+
+Right now, if you ask "what happened in these sessions?" - we'll tell you what went wrong. We focused on issue detection first: blocking errors, confusion, abandonments. General summarization ("user browsed products, added to cart, checked out successfully") isn't supported yet.
+
+**Our approach:**
+- Do one thing well before expanding scope. Issue detection is the highest-value use case - it's what saves hours of manual session review.
+- General summarization is coming. The architecture supports it; we just need to tune the prompts and output format.
+
+### What's next
+
+This beta is step one. Here's where we're heading:
+
+- Scale: Thousands of sessions, processed continuously in the background
+- Proactive alerts: Issues find you, not the other way around
+- Full video understanding: Transcribe entire sessions, not just validation clips
+- Beyond Replay: Apply the same pattern extraction to error tracking, LLM traces, support tickets
+- Free-text queries: "Find sessions where users looked confused for more than 30 seconds"
+
+The code is open source - you can see exactly how it works, including all the prompts.
+
+## TODO - Ending part  -->
