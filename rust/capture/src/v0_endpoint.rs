@@ -448,15 +448,10 @@ pub fn process_single_event(
     );
 
     let event_name = event.event.clone();
-    let session_id = event
-        .properties
-        .get("$session_id")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
 
     let mut metadata = ProcessedEventMetadata {
         data_type,
-        session_id: session_id.clone(),
+        session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: event_name.clone(),
     };
@@ -475,7 +470,7 @@ pub fn process_single_event(
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
-        session_id,
+        session_id: None,
         ip: resolved_ip,
         data,
         now: context
