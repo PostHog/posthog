@@ -99,7 +99,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
     // Only use feedback logic when we have a valid conversationId
     const feedbackLogicProps = useMemo(() => (conversationId ? { conversationId } : null), [conversationId])
-    const { isPromptVisible, isDetailedFeedbackVisible } = useValues(
+    const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible } = useValues(
         feedbackLogicProps ? feedbackPromptLogic(feedbackLogicProps) : feedbackPromptLogic.build({ conversationId: '' })
     )
     const { checkShouldShowPrompt, implicitDismissPrompt, implicitDismissDetailedFeedback } = useActions(
@@ -189,6 +189,11 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     )}
                     {conversationId && isDetailedFeedbackVisible && !streamingActive && (
                         <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
+                    )}
+                    {conversationId && isThankYouVisible && !streamingActive && (
+                        <MessageTemplate type="ai">
+                            <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
+                        </MessageTemplate>
                     )}
                 </>
             ) : (
