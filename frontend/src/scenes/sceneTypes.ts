@@ -140,7 +140,6 @@ export enum Scene {
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
-    EndpointNew = 'EndpointNew',
     Workflow = 'Workflow',
     Workflows = 'Workflows',
     Wizard = 'Wizard',

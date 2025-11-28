@@ -1078,7 +1078,7 @@ class TestSummarizeSessionGroupWorkflow:
             results = []
             async for update in execute_summarize_session_group(
                 session_ids=session_ids,
-                user_id=mock_user.id,
+                user=mock_user,
                 team=mock_team,
                 min_timestamp=datetime.now() - timedelta(days=1),
                 max_timestamp=datetime.now(),

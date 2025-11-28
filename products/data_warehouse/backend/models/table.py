@@ -9,6 +9,7 @@ from django.db import models
 from django.db.models import Q
 
 import chdb
+import structlog
 
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 
@@ -21,7 +22,7 @@ from posthog.hogql.database.s3_table import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -184,30 +185,55 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             context=placeholder_context,
             table_size_mib=self.size_in_s3_mib,
         )
+        logger = structlog.get_logger(__name__)
+        try:
+            # chdb hangs in CI during tests
+            if TEST:
+                raise Exception()
 
-        tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True, name="describe_wh_table")
+            quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            # chdb doesn't support parameterized queries
+            chdb_query = f"DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
-        # The cluster is a little broken right now, and so this can intermittently fail.
-        # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
-        attempts = 5
-        result = None
-        for i in range(attempts):
-            try:
-                result = sync_execute(
-                    f"""DESCRIBE TABLE {s3_table_func}""",
-                    args=placeholder_context.values,
-                )
-                break
-            except Exception as err:
-                if i >= attempts - 1:
-                    capture_exception(err)
-                    if safe_expose_ch_error:
-                        self._safe_expose_ch_error(err)
-                    else:
-                        raise
+            # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
+            # See https://github.com/chdb-io/chdb/pull/374 for the fix
+            chdb_result = chdb.query(chdb_query, output_format="CSV")
+            reader = csv.reader(StringIO(str(chdb_result)))
+            result = [tuple(row) for row in reader]
+        except Exception as chdb_error:
+            if self._is_suppressed_chdb_error(chdb_error):
+                logger.debug(chdb_error)
+            else:
+                capture_exception(chdb_error)
 
-                # Pause execution slightly to not overload clickhouse
-                time.sleep(2**i)
+            tag_queries(
+                team_id=self.team.pk,
+                table_id=self.id,
+                warehouse_query=True,
+                name="get_columns",
+                product=Product.WAREHOUSE,
+            )
+
+            # The cluster is a little broken right now, and so this can intermittently fail.
+            # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
+            attempts = 5
+            for i in range(attempts):
+                try:
+                    result = sync_execute(
+                        f"""DESCRIBE TABLE {s3_table_func}""",
+                        args=placeholder_context.values,
+                    )
+                    break
+                except Exception as err:
+                    if i >= attempts - 1:
+                        capture_exception(err)
+                        if safe_expose_ch_error:
+                            self._safe_expose_ch_error(err)
+                        else:
+                            raise
+
+                    # Pause execution slightly to not overload clickhouse
+                    time.sleep(2**i)
 
         if result is None or isinstance(result, int):
             raise Exception("No columns types provided by clickhouse in get_columns")
@@ -236,6 +262,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 table_size_mib=self.size_in_s3_mib,
             )
 
+            tag_queries(
+                team_id=self.team.pk,
+                table_id=self.id,
+                warehouse_query=True,
+                name="get_max_value_for_column",
+                product=Product.WAREHOUSE,
+            )
             result = sync_execute(
                 f"SELECT max(`{column}`) FROM {s3_table_func}",
                 args=placeholder_context.values,
@@ -273,7 +306,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             capture_exception(chdb_error)
 
             try:
-                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
+                tag_queries(
+                    team_id=self.team.pk,
+                    table_id=self.id,
+                    warehouse_query=True,
+                    name="get_count",
+                    product=Product.WAREHOUSE,
+                )
 
                 result = sync_execute(
                     f"SELECT count() FROM {s3_table_func}",

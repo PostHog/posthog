@@ -1,3 +1,5 @@
+import { useActions } from 'kea'
+
 import { IconCopy } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -7,25 +9,21 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
+import { logsLogic } from '../../logsLogic'
+
 interface LogsTableRowActionsProps {
     log: LogMessage
 }
 
 export function LogsTableRowActions({ log }: LogsTableRowActionsProps): JSX.Element {
-    const handleCopyLink = (): void => {
-        const url = new URL(window.location.href)
-        url.searchParams.set('highlightedLogId', log.uuid)
-        void copyToClipboard(url.toString(), 'link to log')
-    }
+    const { copyLinkToLog } = useActions(logsLogic)
 
     return (
         <More
             overlay={
                 <>
                     <LemonButton
-                        onClick={() => {
-                            void copyToClipboard(log.body, 'log message')
-                        }}
+                        onClick={() => copyToClipboard(log.body, 'log message')}
                         fullWidth
                         sideIcon={<IconCopy />}
                         data-attr="logs-table-copy-message"
@@ -33,7 +31,7 @@ export function LogsTableRowActions({ log }: LogsTableRowActionsProps): JSX.Elem
                         Copy log message
                     </LemonButton>
                     <LemonButton
-                        onClick={handleCopyLink}
+                        onClick={() => copyLinkToLog(log.uuid)}
                         fullWidth
                         sideIcon={<IconLink />}
                         data-attr="logs-table-copy-link"

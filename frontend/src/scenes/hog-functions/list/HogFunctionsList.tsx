@@ -4,9 +4,8 @@ import { useCallback, useMemo } from 'react'
 import {
     LemonBadge,
     LemonButton,
-    LemonDivider,
+    LemonCheckbox,
     LemonInput,
-    LemonSelect,
     LemonTable,
     LemonTableColumn,
     Link,
@@ -21,7 +20,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { HogFunctionType } from '~/types'
 
@@ -30,34 +29,34 @@ import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
-import { HogFunctionListLogicProps, hogFunctionsListLogic, urlForHogFunction } from './hogFunctionsListLogic'
+import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
+
+const urlForHogFunction = (hogFunction: HogFunctionType): string => {
+    if (hogFunction.id.startsWith('plugin-')) {
+        return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
+    }
+    if (hogFunction.id.startsWith('batch-export-')) {
+        return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
+    }
+    return urls.hogFunction(hogFunction.id)
+}
 
 export function HogFunctionList({
     extraControls,
     hideFeedback = false,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { filteredHogFunctions, filters, loading, pagination, totalCount, currentPage, statusFilter } = useValues(
+    const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
     )
-    const {
-        loadHogFunctions,
-        toggleEnabled,
-        deleteHogFunction,
-        setReorderModalOpen,
-        setPagination,
-        setSearchValue,
-        setStatusFilter,
-        setFilters,
-    } = useActions(hogFunctionsListLogic(props))
+    const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
+        useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
-    const humanizedType = humanizeHogFunctionType(props.type, true)
+    const humanizedType = humanizeHogFunctionType(props.type)
 
-    useOnMountEffect(() => {
-        loadHogFunctions()
-    })
+    useOnMountEffect(loadHogFunctions)
 
     const isManualFunction = useCallback(
         (hogFunction: HogFunctionType): boolean => {
@@ -66,7 +65,7 @@ export function HogFunctionList({
         [props.manualFunctions]
     )
 
-    const buildColumns = useMemo((): LemonTableColumn<HogFunctionType, any>[] => {
+    const columns = useMemo(() => {
         const columns: LemonTableColumn<HogFunctionType, any>[] = [
             {
                 title: '',
@@ -226,99 +225,72 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, toggleEnabled, deleteHogFunction, isManualFunction, setReorderModalOpen])
+    }, [props.type, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-col gap-4">
-            {extraControls && (
-                <div className="flex gap-2 items-center">
-                    <div className="flex-1" />
-                    {extraControls}
-                </div>
-            )}
-
-            <BindLogic logic={hogFunctionsListLogic} props={props}>
-                <div>
-                    <h3 className="mb-2">{capitalizeFirstLetter(humanizedType)}</h3>
-                    <div className="flex justify-between gap-2 flex-wrap mb-2">
-                        <div className="flex items-center gap-2">
-                            <LemonInput
-                                type="search"
-                                placeholder="Search destinations..."
-                                value={filters.search || ''}
-                                onChange={setSearchValue}
-                            />
-                            {!hideFeedback && (
-                                <>
-                                    <LemonDivider vertical />
-                                    <Link
-                                        className="text-sm font-semibold"
-                                        subtle
-                                        onClick={() => openFeedbackDialog(props.type)}
-                                    >
-                                        Can't find what you're looking for?
-                                    </Link>
-                                </>
-                            )}
-                        </div>
-                        <div className="flex-1" />
-                        <div className="flex items-center gap-2">
-                            <span>Created by:</span>
-                            <MemberSelect
-                                value={filters.createdBy || null}
-                                onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
-                            />
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span>Status:</span>
-                            <LemonSelect
-                                value={statusFilter}
-                                onChange={setStatusFilter}
-                                options={[
-                                    { value: 'all', label: 'All functions' },
-                                    { value: 'active', label: 'Active' },
-                                    { value: 'paused', label: 'Paused' },
-                                ]}
-                                size="small"
-                            />
-                        </div>
-                    </div>
-                    <LemonTable
-                        dataSource={filteredHogFunctions}
-                        size="small"
-                        loading={loading}
-                        columns={buildColumns}
-                        pagination={{
-                            controlled: true,
-                            pageSize: pagination.limit,
-                            currentPage,
-                            entryCount: totalCount,
-                        }}
-                        defaultSorting={{
-                            columnKey: 'updated_at',
-                            order: -1,
-                        }}
-                        onSort={(newSorting) => {
-                            const order = newSorting
-                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                : undefined
-                            setPagination({
-                                order,
-                                offset: 0,
-                            })
-                        }}
-                        noSortingCancellation
-                        emptyState={
-                            filteredHogFunctions.length === 0 && !loading ? (
-                                <>
-                                    No {humanizedType} found.{' '}
-                                    {filters.search && <Link onClick={() => setSearchValue('')}>Clear search</Link>}
-                                </>
-                            ) : undefined
-                        }
+            <div className="flex gap-2 items-center">
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    value={filters.search ?? ''}
+                    onChange={(e) => setFilters({ search: e })}
+                />
+                {!hideFeedback ? (
+                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
+                        Can't find what you're looking for?
+                    </Link>
+                ) : null}
+                <div className="flex-1" />
+                <div className="flex items-center gap-2">
+                    <span>Created by:</span>
+                    <MemberSelect
+                        value={filters.createdBy || null}
+                        onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                     />
                 </div>
+                <LemonCheckbox
+                    label="Show paused"
+                    bordered
+                    size="small"
+                    checked={filters.showPaused}
+                    onChange={(e) => setFilters({ showPaused: e ?? undefined })}
+                />
+                {extraControls}
+            </div>
 
+            <BindLogic logic={hogFunctionsListLogic} props={props}>
+                <LemonTable
+                    dataSource={filteredHogFunctions}
+                    size="small"
+                    loading={loading}
+                    columns={columns}
+                    emptyState={
+                        hogFunctions.length === 0 && !loading ? (
+                            `No ${humanizedType}s found`
+                        ) : (
+                            <>
+                                No {humanizedType}s matching filters.{' '}
+                                <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
+                            </>
+                        )
+                    }
+                    footer={
+                        hiddenHogFunctions.length > 0 && (
+                            <div className="p-3 text-secondary">
+                                {hiddenHogFunctions.length} hidden.{' '}
+                                <Link
+                                    onClick={() => {
+                                        resetFilters()
+                                        setFilters({ showPaused: true })
+                                    }}
+                                >
+                                    Show all
+                                </Link>
+                            </div>
+                        )
+                    }
+                />
                 <HogFunctionOrderModal />
             </BindLogic>
         </div>

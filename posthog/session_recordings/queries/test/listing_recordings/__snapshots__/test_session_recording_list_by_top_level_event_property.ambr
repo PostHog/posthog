@@ -43,7 +43,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_does_not_match_regex_event_properties
@@ -74,7 +75,7 @@
                                                                                                                                                                                                                                                             FROM events
                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                            HAVING ifNull(equals(countIf(ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                            HAVING ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
@@ -90,7 +91,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True
@@ -137,7 +139,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False
@@ -184,7 +187,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set
@@ -231,7 +235,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set
@@ -278,7 +283,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_0.test_can_filter_for_two_is_not_event_properties
@@ -325,7 +331,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_does_not_contain_event_properties
@@ -372,7 +379,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_does_not_match_regex_event_properties
@@ -403,7 +411,7 @@
                                                                                                                                                                                                                                                             FROM events
                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                            HAVING ifNull(equals(countIf(ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                            HAVING ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                             LIMIT 1000000)))
   GROUP BY s.session_id
@@ -419,7 +427,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True
@@ -466,7 +475,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False
@@ -513,7 +523,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set
@@ -560,7 +571,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set
@@ -607,7 +619,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListByTopLevelEventProperty_1.test_can_filter_for_two_is_not_event_properties
@@ -654,6 +667,7 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
