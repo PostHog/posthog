@@ -20,6 +20,7 @@ class AIEventType(StrEnum):
     FIELD_AI_TRACE = "$ai_trace"
     FIELD_AI_METRIC = "$ai_metric"
     FIELD_AI_FEEDBACK = "$ai_feedback"
+    FIELD_AI_TRACE_SUMMARY = "$ai_trace_summary"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -12243,7 +12244,9 @@ class TracesQuery(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
     randomOrder: Optional[bool] = Field(
         default=None,
-        description="Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.",
+        description=(
+            "Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias."
+        ),
     )
     response: Optional[TracesQueryResponse] = None
     showColumnConfigurator: Optional[bool] = None
