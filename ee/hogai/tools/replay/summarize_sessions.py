@@ -107,6 +107,7 @@ class SummarizeSessionsTool(MaxTool):
                 recordings_query, query_limit
             )
         else:
+            # TODO: _validate_specific_session_ids
             session_ids = recordings_filters_or_explicit_session_ids
 
         # No sessions found
