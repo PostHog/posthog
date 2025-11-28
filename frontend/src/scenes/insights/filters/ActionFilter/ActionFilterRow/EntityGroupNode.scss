@@ -1,0 +1,152 @@
+.EntityGroupNode {
+    list-style: none;
+
+    &__wrapper {
+        overflow: hidden;
+        background-color: var(--color-bg-primary);
+        border: 1px solid var(--color-border-light);
+        border-radius: 8px;
+        transition: all 0.2s ease;
+
+        &:hover {
+            border-color: var(--color-border-secondary);
+            box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+        }
+
+        &:focus-within {
+            border-color: var(--color-primary);
+            box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.1);
+        }
+    }
+
+    /* Header row: Series letter, operator dropdown, aggregation badge, delete button */
+    &__header-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--color-border-light);
+    }
+
+    &__header-left {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        min-width: 0;
+    }
+
+    &__series-indicator {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+    }
+
+    &__header-controls {
+        display: flex;
+        flex: 1;
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+
+        /* Operator dropdown */
+        .LemonSelect {
+            min-width: 100px;
+            white-space: nowrap;
+        }
+    }
+
+    &__aggregation-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 8px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--color-text-secondary);
+        white-space: nowrap;
+        background-color: var(--color-bg-secondary);
+        border: 1px solid var(--color-border-light);
+        border-radius: 4px;
+    }
+
+    &__delete-btn {
+        flex-shrink: 0;
+        opacity: 0.6;
+        transition: opacity 0.2s ease;
+
+        &:hover {
+            opacity: 1;
+        }
+    }
+
+    /* Events section */
+    &__events-section {
+        display: flex;
+        flex-direction: column;
+        padding: 10px;
+    }
+
+    &__event-item {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+        background-color: var(--color-bg-secondary);
+        border: 1px solid var(--color-border-light);
+        border-radius: 6px;
+        transition: all 0.2s ease;
+
+        &:focus-within {
+            border-color: var(--color-primary);
+            box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.1);
+        }
+    }
+
+    &__event-value {
+        display: flex;
+        flex: 1;
+        align-items: center;
+        min-width: 0;
+        overflow: hidden;
+
+        /* Make sure the EntityFilterInfo content doesn't break */
+        > * {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
+    &__event-placeholder {
+        font-style: italic;
+        color: var(--color-text-tertiary);
+    }
+
+    &__event-delete {
+        flex-shrink: 0;
+        opacity: 0.6;
+        transition: opacity 0.2s ease;
+
+        &:hover {
+            opacity: 1;
+        }
+    }
+
+    &__add-event-btn {
+        align-self: flex-start;
+        margin-top: 4px;
+        color: var(--color-primary);
+        border-color: var(--color-border-light);
+
+        &:hover {
+            background-color: var(--color-bg-light);
+            border-color: var(--color-primary-light);
+        }
+    }
+
+    &__add-event-wrapper {
+        align-self: flex-start;
+    }
+}

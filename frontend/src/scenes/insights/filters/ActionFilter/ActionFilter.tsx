@@ -21,6 +21,7 @@ import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import {
     ActionFilter as ActionFilterType,
     ChartDisplayType,
+    EntityTypes,
     FilterType,
     FunnelExclusionLegacy,
     InsightType,
@@ -29,6 +30,7 @@ import {
 
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
+import { EntityGroupNode } from './ActionFilterRow/EntityGroupNode'
 import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
@@ -233,24 +235,48 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             items={sortedItemIds}
                             strategy={verticalListSortingStrategy}
                         >
-                            {localFilters.map((filter, index) => (
-                                <ActionFilterRow
-                                    key={filter.uuid}
-                                    typeKey={typeKey}
-                                    filter={filter}
-                                    index={index}
-                                    filterCount={localFilters.length}
-                                    showNestedArrow={showNestedArrow}
-                                    singleFilter={singleFilter}
-                                    hideFilter={hideFilter || readOnly}
-                                    hideDeleteBtn={
-                                        typeof hideDeleteBtn === 'function'
-                                            ? hideDeleteBtn(filter, index)
-                                            : hideDeleteBtn
-                                    }
-                                    {...commonProps}
-                                />
-                            ))}
+                            {localFilters.map((filter, index) =>
+                                filter.type === EntityTypes.GROUPS ? (
+                                    <EntityGroupNode
+                                        key={filter.uuid}
+                                        logic={logic}
+                                        filter={filter}
+                                        index={index}
+                                        filterCount={localFilters.length}
+                                        sortable={sortable}
+                                        showSeriesIndicator={showSeriesIndicator}
+                                        seriesIndicatorType={seriesIndicatorType}
+                                        disabled={disabled}
+                                        readOnly={readOnly}
+                                        hideDeleteBtn={
+                                            typeof hideDeleteBtn === 'function'
+                                                ? hideDeleteBtn(filter, index)
+                                                : hideDeleteBtn
+                                        }
+                                        hasBreakdown={!!filters.breakdown}
+                                        actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                                        dataWarehousePopoverFields={dataWarehousePopoverFields}
+                                        excludedProperties={excludedProperties}
+                                    />
+                                ) : (
+                                    <ActionFilterRow
+                                        key={filter.uuid}
+                                        typeKey={typeKey}
+                                        filter={filter}
+                                        index={index}
+                                        filterCount={localFilters.length}
+                                        showNestedArrow={showNestedArrow}
+                                        singleFilter={singleFilter}
+                                        hideFilter={hideFilter || readOnly}
+                                        hideDeleteBtn={
+                                            typeof hideDeleteBtn === 'function'
+                                                ? hideDeleteBtn(filter, index)
+                                                : hideDeleteBtn
+                                        }
+                                        {...commonProps}
+                                    />
+                                )
+                            )}
                         </SortableContext>
                     </DndContext>
                 </ul>

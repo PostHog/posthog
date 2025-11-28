@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
     LemonCheckbox,
@@ -197,6 +197,7 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
         duplicateFilter,
+        convertFilterToGroup,
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
@@ -298,6 +299,8 @@ export function ActionFilterRow({
         name = filter.name || String(filter.id)
         value = filter.name || filter.id
     }
+
+    // console.log("[ActionFilterRow] value, filter", getValue(value, filter), filter)
 
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
@@ -407,6 +410,23 @@ export function ActionFilterRow({
         </LemonButton>
     )
 
+    const combineRowButton = (
+        <LemonButton
+            key="combine"
+            icon={<IconPlus />}
+            title="Convert to group filter (combine with other events)"
+            data-attr={`show-prop-combine-${index}`}
+            noPadding={!enablePopup}
+            onClick={() => {
+                setIsMenuVisible(false)
+                convertFilterToGroup(index)
+            }}
+            fullWidth={enablePopup}
+        >
+            {enablePopup ? 'Combine' : undefined}
+        </LemonButton>
+    )
+
     const deleteButton = (
         <LemonButton
             key="delete"
@@ -434,6 +454,7 @@ export function ActionFilterRow({
               !hideFilter && !enablePopup && propertyFiltersButton,
               !hideRename && renameRowButton,
               !hideDuplicate && !singleFilter && duplicateRowButton,
+              !singleFilter && combineRowButton,
               !hideDeleteBtn && !singleFilter && deleteButton,
           ].filter(Boolean)
         : []
@@ -650,6 +671,9 @@ export function ActionFilterRow({
                                                         label: () => duplicateRowButton,
                                                     },
                                                     {
+                                                        label: () => combineRowButton,
+                                                    },
+                                                    {
                                                         label: () => deleteButton,
                                                     },
                                                 ]}
@@ -723,7 +747,7 @@ export function ActionFilterRow({
     )
 }
 
-interface MathSelectorProps {
+export interface MathSelectorProps {
     math?: string
     mathGroupTypeIndex?: number | null
     mathAvailability: MathAvailability
@@ -1122,7 +1146,7 @@ function useMathSelectorOptions({
     ]
 }
 
-function MathSelector(props: MathSelectorProps): JSX.Element {
+export function MathSelector(props: MathSelectorProps): JSX.Element {
     const options = useMathSelectorOptions(props)
     const { math, mathGroupTypeIndex, index, onMathSelect, disabled, disabledReason } = props
 

@@ -40,6 +40,24 @@ type FilterTypeActionsAndEvents = {
     groups?: ActionFilter[]
 }
 
+const getFilterId = (node: EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode): any => {
+    if (isEntityGroupNode(node)) {
+        return null
+    }
+
+    // return isDataWarehouseNode(node) ? node.table_name : (!isActionsNode(node) ? node.event : node.id) || null
+
+    if (isDataWarehouseNode(node)) {
+        return node.table_name
+    }
+
+    if (isActionsNode(node)) {
+        return node.id
+    }
+
+    return node.event
+}
+
 export const seriesNodeToFilter = (
     node: EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode,
     index?: number
@@ -52,11 +70,7 @@ export const seriesNodeToFilter = (
               : isActionsNode(node)
                 ? EntityTypes.ACTIONS
                 : EntityTypes.EVENTS,
-        id: isDataWarehouseNode(node)
-            ? node.table_name
-            : isEntityGroupNode(node)
-              ? ''
-              : (!isActionsNode(node) ? node.event : node.id) || null,
+        id: getFilterId(node),
         order: index,
         name: node.name,
         custom_name: node.custom_name,
@@ -79,10 +93,11 @@ export const seriesNodeToFilter = (
         ...(isEntityGroupNode(node)
             ? {
                   operator: node.operator,
-                  values: (node.values || []).map((v: any, idx: number) => seriesNodeToFilter(v, idx)),
+                  values: node.values || [],
               }
             : {}),
     })
+
     return entity
 }
 

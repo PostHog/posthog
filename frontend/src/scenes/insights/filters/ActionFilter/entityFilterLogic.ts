@@ -73,7 +73,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
  */
 export function singleFilterToGroupFilter(filter: LocalFilter): LocalFilter {
     return {
-        id: '',
+        id: 'events_group_id',
         name: 'events_group', // for debugging
         type: EntityTypes.GROUPS,
         order: filter.order,
@@ -145,6 +145,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         }),
         addFilter: true,
         duplicateFilter: (filter: EntityFilter | ActionFilter) => ({ filter }),
+        convertFilterToGroup: (index: number) => ({ index }),
         updateFilterProperty: (
             filter: Partial<EntityFilter> & {
                 index?: number
@@ -341,6 +342,16 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             actions.setFilters(newFilters)
             actions.setEntityFilterVisibility(order + 1, values.entityFilterVisible[order])
             eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Duplicate)
+        },
+        convertFilterToGroup: async ({ index }) => {
+            const filter = values.localFilters[index]
+            if (!filter) {
+                return
+            }
+            const groupFilter = singleFilterToGroupFilter(filter)
+            const newFilters = [...values.localFilters]
+            newFilters[index] = groupFilter
+            actions.setFilters(newFilters)
         },
         setFilters: async ({ filters }) => {
             if (typeof props.setFilters === 'function') {
