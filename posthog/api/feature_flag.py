@@ -1149,6 +1149,7 @@ def _evaluate_flags_with_fallback(
         return get_all_feature_flags(team, distinct_id, groups)
 
 
+@extend_schema(tags=["feature_flags"])
 class FeatureFlagViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

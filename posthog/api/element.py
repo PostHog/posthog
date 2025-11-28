@@ -1,5 +1,6 @@
 from typing import Literal
 
+from drf_spectacular.utils import extend_schema
 from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -44,6 +45,7 @@ class ElementStatsSerializer(serializers.Serializer):
     elements = ElementSerializer(many=True)
 
 
+@extend_schema(tags=["product_analytics"])
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     filter_rewrite_rules = {"team_id": "group__team_id"}
