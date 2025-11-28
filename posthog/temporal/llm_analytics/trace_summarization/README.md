@@ -329,7 +329,6 @@ Key constants in `constants.py`:
 - `DEFAULT_BATCH_SIZE = 5` - Concurrent traces to process
 - `DEFAULT_MODE = "detailed"` - Summary detail level (detailed provides more context for embeddings/clustering)
 - `DEFAULT_WINDOW_MINUTES = 60` - Time window to query (matches schedule frequency)
-- `DEFAULT_WORKFLOW_MODEL = "gpt-4.1-mini"` - Default LLM model (1M token context window)
 
 **Timeouts:**
 
@@ -340,18 +339,17 @@ Key constants in `constants.py`:
 
 **Retry policies (centralized for consistency):**
 
-- `SAMPLE_RETRY_POLICY` - Retry configuration for trace sampling activity
-- `SUMMARIZE_RETRY_POLICY` - Retry configuration for summary generation activity
-- `EMBED_RETRY_POLICY` - Retry configuration for embedding activity
-- `COORDINATOR_ACTIVITY_RETRY_POLICY` - Retry configuration for coordinator activities
-- `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` - Retry configuration for child workflows
+- `SAMPLE_RETRY_POLICY` - Retry configuration for trace sampling activity (3 attempts)
+- `SUMMARIZE_RETRY_POLICY` - Retry configuration for summary generation activity (2 attempts due to LLM cost)
+- `EMBED_RETRY_POLICY` - Retry configuration for embedding activity (3 attempts)
+- `COORDINATOR_ACTIVITY_RETRY_POLICY` - Retry configuration for coordinator activities (3 attempts)
+- `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` - Retry configuration for child workflows (2 attempts)
 
 **Other:**
 
 - `ALLOWED_TEAM_IDS` - Team allowlist for coordinator (empty list = all teams allowed)
-- `LLMA_TRACE_MINIMAL_RENDERING = "llma_trace_minimal"` - Rendering type for minimal mode embeddings
-- `LLMA_TRACE_DETAILED_RENDERING = "llma_trace_detailed"` - Rendering type for detailed mode embeddings
-- `MAX_ERROR_RATE_THRESHOLD = 0.5` - Fail workflow if >50% of summaries fail
+- `EVENT_NAME_TRACE_SUMMARY` - Event name for summary storage (`$ai_trace_summary`)
+- `WORKFLOW_NAME` - Temporal workflow name (`batch-trace-summarization`)
 
 ## Processing Flow
 
@@ -381,7 +379,6 @@ Key constants in `constants.py`:
 ## Error Handling
 
 - **Individual trace failures**: Logged but don't fail the workflow (continue processing remaining traces)
-- **Workflow failure threshold**: Workflow fails if >50% of summaries fail (`MAX_ERROR_RATE_THRESHOLD`)
 - **Activity retries**: Configured via centralized retry policies in constants.py
   - Exponential backoff with configurable max attempts
   - Different policies for sampling, summarization, embedding, and coordinator activities
