@@ -1,13 +1,34 @@
-import posthogEE from '@posthog/ee/exports'
-import { EventType } from '@posthog/rrweb-types'
+import { transformEventToWeb, transformToWeb } from '.'
+import Ajv, { ErrorObject } from 'ajv'
 
-import { ifEeDescribe } from 'lib/ee.test'
+import { EventType, eventWithTime } from '@posthog/rrweb-types'
 
-import { PostHogEE } from '../../../frontend/@posthog/ee/types'
 import * as incrementalSnapshotJson from './__mocks__/increment-with-child-duplication.json'
-import { validateAgainstWebSchema, validateFromMobile } from './index'
-import { wireframe } from './mobile.types'
+import { wireframe, wireframeText } from './mobile.types'
+import mobileSchema from './schema/mobile/rr-mobile-schema.json'
+import webSchema from './schema/web/rr-web-schema.json'
 import { stripBarsFromWireframes } from './transformer/transformers'
+
+const ajv = new Ajv({
+    allowUnionTypes: true,
+}) // options can be passed, e.g. {allErrors: true}
+const webSchemaValidator = ajv.compile(webSchema)
+const mobileSchemaValidator = ajv.compile(mobileSchema)
+
+function validateAgainstWebSchema(data: unknown): boolean {
+    return webSchemaValidator(data)
+}
+
+function validateFromMobile(data: unknown): {
+    isValid: boolean
+    errors: ErrorObject[] | null | undefined
+} {
+    const isValid = mobileSchemaValidator(data)
+    return {
+        isValid,
+        errors: isValid ? null : mobileSchemaValidator.errors,
+    }
+}
 
 const unspecifiedBase64ImageURL =
     'iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII='
@@ -54,23 +75,18 @@ describe('replay/transform', () => {
         })
     })
 
-    ifEeDescribe('transform', () => {
-        let posthogEEModule: PostHogEE
-        beforeEach(async () => {
-            posthogEEModule = await posthogEE()
-        })
-
+    describe('transform', () => {
         test('can process top level screenshot', () => {
             expect(
-                posthogEEModule.mobileReplay?.transformToWeb([
+                transformToWeb([
                     {
                         data: { width: 300, height: 600 },
                         timestamp: 1,
                         type: 4,
                     },
                     {
-                        windowId: '5173a13e-abac-4def-b227-2f81dc2808b6',
                         data: {
+                            initialOffset: { top: 0, left: 0 },
                             wireframes: [
                                 {
                                     base64: 'image-content',
@@ -79,7 +95,7 @@ describe('replay/transform', () => {
                                     style: {
                                         backgroundColor: '#F3EFF7',
                                     },
-                                    type: 'screenshot',
+                                    type: 'image',
                                     width: 411,
                                     x: 0,
                                     y: 0,
@@ -95,14 +111,13 @@ describe('replay/transform', () => {
 
         test('can process screenshot mutation', () => {
             expect(
-                posthogEEModule.mobileReplay?.transformToWeb([
+                transformToWeb([
                     {
                         data: { width: 300, height: 600 },
                         timestamp: 1,
                         type: 4,
                     },
                     {
-                        windowId: '5173a13e-abac-4def-b227-2f81dc2808b6',
                         data: {
                             source: 0,
                             updates: [
@@ -124,7 +139,6 @@ describe('replay/transform', () => {
                         },
                         timestamp: 1714397336836,
                         type: 3,
-                        seen: 3551987272322930,
                     },
                 ])
             ).toMatchSnapshot()
@@ -132,7 +146,7 @@ describe('replay/transform', () => {
 
         test('can process unknown types without error', () => {
             expect(
-                posthogEEModule.mobileReplay?.transformToWeb([
+                transformToWeb([
                     {
                         data: { width: 300, height: 600 },
                         timestamp: 1,
@@ -143,7 +157,7 @@ describe('replay/transform', () => {
                         timestamp: 1,
                         type: 4,
                     },
-                    { type: 9999 },
+                    { type: 9999 } as unknown as eventWithTime,
                     {
                         type: 2,
                         data: {
@@ -159,15 +173,15 @@ describe('replay/transform', () => {
                             ],
                         },
                         timestamp: 1,
-                    },
+                    } as unknown as eventWithTime,
                 ])
             ).toMatchSnapshot()
         })
 
         test('can ignore unknown wireframe types', () => {
-            const unexpectedWireframeType = posthogEEModule.mobileReplay?.transformToWeb([
+            const unexpectedWireframeType = transformToWeb([
                 {
-                    data: { screen: 'App Home Page', width: 300, height: 600 },
+                    data: { href: 'App Home Page', width: 300, height: 600 },
                     timestamp: 1,
                     type: 4,
                 },
@@ -186,13 +200,13 @@ describe('replay/transform', () => {
                         ],
                     },
                     timestamp: 1,
-                },
+                } as unknown as eventWithTime,
             ])
             expect(unexpectedWireframeType).toMatchSnapshot()
         })
 
         test('can short-circuit non-mobile full snapshot', () => {
-            const allWeb = posthogEEModule.mobileReplay?.transformToWeb([
+            const allWeb = transformToWeb([
                 {
                     data: { href: 'https://my-awesome.site', width: 300, height: 600 },
                     timestamp: 1,
@@ -204,16 +218,16 @@ describe('replay/transform', () => {
                         node: { the: 'payload' },
                     },
                     timestamp: 1,
-                },
+                } as unknown as eventWithTime,
             ])
             expect(allWeb).toMatchSnapshot()
         })
 
         test('can convert images', () => {
-            const exampleWithImage = posthogEEModule.mobileReplay?.transformToWeb([
+            const exampleWithImage = transformToWeb([
                 {
                     data: {
-                        screen: 'App Home Page',
+                        href: 'App Home Page',
                         width: 300,
                         height: 600,
                     },
@@ -223,6 +237,7 @@ describe('replay/transform', () => {
                 {
                     type: 2,
                     data: {
+                        initialOffset: { top: 0, left: 0 },
                         wireframes: [
                             {
                                 id: 12345,
@@ -264,7 +279,7 @@ describe('replay/transform', () => {
         })
 
         test('can convert rect with text', () => {
-            const exampleWithRectAndText = posthogEEModule.mobileReplay?.transformToWeb([
+            const exampleWithRectAndText = transformToWeb([
                 {
                     data: {
                         width: 300,
@@ -276,6 +291,7 @@ describe('replay/transform', () => {
                 {
                     type: 2,
                     data: {
+                        initialOffset: { top: 0, left: 0 },
                         wireframes: [
                             {
                                 id: 12345,
@@ -297,12 +313,16 @@ describe('replay/transform', () => {
                                 y: 17,
                                 width: 100,
                                 height: 30,
-                                verticalAlign: 'top',
-                                horizontalAlign: 'right',
+
                                 type: 'text',
                                 text: 'i am in the box',
-                                fontSize: '12px',
-                                fontFamily: 'sans-serif',
+
+                                style: {
+                                    verticalAlign: 'top',
+                                    horizontalAlign: 'right',
+                                    fontSize: '12px',
+                                    fontFamily: 'sans-serif',
+                                },
                             },
                         ],
                     },
@@ -313,21 +333,28 @@ describe('replay/transform', () => {
         })
 
         test('child wireframes are processed', () => {
-            const textEvent = posthogEEModule.mobileReplay?.transformToWeb([
+            const textEvent = transformToWeb([
                 {
-                    data: { screen: 'App Home Page', width: 300, height: 600 },
+                    data: { href: 'App Home Page', width: 300, height: 600 },
                     timestamp: 1,
                     type: 4,
                 },
                 {
                     type: 2,
                     data: {
+                        initialOffset: { top: 0, left: 0 },
                         wireframes: [
                             {
                                 id: 123456789,
+                                width: 300,
+                                height: 600,
+                                type: 'div',
                                 childWireframes: [
                                     {
                                         id: 98765,
+                                        width: 200,
+                                        height: 600,
+                                        type: 'div',
                                         childWireframes: [
                                             {
                                                 id: 12345,
@@ -396,9 +423,8 @@ describe('replay/transform', () => {
         })
 
         test('respect incremental ids, replace with body otherwise', () => {
-            const textEvent = posthogEEModule.mobileReplay?.transformToWeb([
+            const textEvent = transformToWeb([
                 {
-                    windowId: 'ddc9c89d-2272-4b07-a280-c00db3a9182f',
                     data: {
                         id: 0, // must be an element id - replace with body
                         pointerType: 2,
@@ -412,7 +438,6 @@ describe('replay/transform', () => {
                     delay: 2160,
                 },
                 {
-                    windowId: 'ddc9c89d-2272-4b07-a280-c00db3a9182f',
                     data: {
                         id: 145, // element provided - respected without validation
                         pointerType: 2,
@@ -430,16 +455,17 @@ describe('replay/transform', () => {
         })
 
         test('incremental mutations de-duplicate the tree', () => {
-            const conversion = posthogEEModule.mobileReplay?.transformEventToWeb(incrementalSnapshotJson)
+            const conversion = transformEventToWeb(incrementalSnapshotJson)
             expect(conversion).toMatchSnapshot()
         })
 
         test('omitting x and y is equivalent to setting them to 0', () => {
             expect(
-                posthogEEModule.mobileReplay?.transformToWeb([
+                transformToWeb([
                     {
                         type: 2,
                         data: {
+                            initialOffset: { top: 0, left: 0 },
                             wireframes: [
                                 {
                                     id: 12345,
@@ -456,7 +482,7 @@ describe('replay/transform', () => {
         })
 
         test('can convert status bar', () => {
-            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+            const converted = transformToWeb([
                 {
                     data: {
                         width: 300,
@@ -468,6 +494,7 @@ describe('replay/transform', () => {
                 {
                     type: 2,
                     data: {
+                        initialOffset: { top: 0, left: 0 },
                         wireframes: [
                             {
                                 id: 12345,
@@ -476,7 +503,7 @@ describe('replay/transform', () => {
                                 x: 0,
                                 y: 0,
                                 // we'll process the width
-                                // width: 100,
+                                width: 100,
                                 height: 30,
                                 style: {
                                     // we can't expect to receive all of these values,
@@ -496,12 +523,13 @@ describe('replay/transform', () => {
                                 width: 100,
                                 // zero height is respected
                                 height: 0,
-                                // as with styling we don't expect to receive these values,
-                                // but we'll respect them if they are present
-                                horizontalAlign: 'right',
-                                verticalAlign: 'top',
-                                fontSize: '12px',
-                                fontFamily: 'sans-serif',
+                                style: {
+                                    // as with styling we don't expect to receive these values,
+                                    // but we'll respect them if they are present
+                                    verticalAlign: 'top',
+                                    fontSize: '12px',
+                                    fontFamily: 'sans-serif',
+                                },
                             },
                         ],
                     },
@@ -512,7 +540,7 @@ describe('replay/transform', () => {
         })
 
         test('can convert navigation bar', () => {
-            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+            const converted = transformToWeb([
                 {
                     data: {
                         width: 300,
@@ -524,6 +552,7 @@ describe('replay/transform', () => {
                 {
                     type: 2,
                     data: {
+                        initialOffset: { top: 0, left: 0 },
                         wireframes: [
                             {
                                 id: 12345,
@@ -552,7 +581,7 @@ describe('replay/transform', () => {
         })
 
         test('can convert invalid text wireframe', () => {
-            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+            const converted = transformToWeb([
                 {
                     data: {
                         width: 300,
@@ -564,6 +593,7 @@ describe('replay/transform', () => {
                 {
                     type: 2,
                     data: {
+                        initialOffset: { top: 0, left: 0 },
                         wireframes: [
                             {
                                 id: 12345,
@@ -579,7 +609,7 @@ describe('replay/transform', () => {
                                     borderRadius: '10px',
                                 },
                                 // text property is missing
-                            },
+                            } as unknown as wireframeText,
                         ],
                     },
                     timestamp: 1,
@@ -589,7 +619,7 @@ describe('replay/transform', () => {
         })
 
         test('can set background image to base64 png', () => {
-            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+            const converted = transformToWeb([
                 {
                     data: {
                         width: 300,
@@ -601,12 +631,14 @@ describe('replay/transform', () => {
                 {
                     type: 2,
                     data: {
+                        initialOffset: { top: 0, left: 0 },
                         wireframes: [
                             {
                                 id: 12345,
                                 type: 'div',
                                 x: 0,
                                 y: 0,
+                                width: 100,
                                 height: 30,
                                 style: { backgroundImage: heartEyesEmojiURL },
                             },
@@ -615,6 +647,7 @@ describe('replay/transform', () => {
                                 type: 'div',
                                 x: 0,
                                 y: 0,
+                                width: 100,
                                 height: 30,
                                 style: { backgroundImage: unspecifiedBase64ImageURL },
                             },
@@ -623,6 +656,7 @@ describe('replay/transform', () => {
                                 type: 'div',
                                 x: 0,
                                 y: 0,
+                                width: 100,
                                 height: 30,
                                 style: { backgroundImage: unspecifiedBase64ImageURL, backgroundSize: 'cover' },
                             },
@@ -631,9 +665,12 @@ describe('replay/transform', () => {
                                 type: 'div',
                                 x: 0,
                                 y: 0,
+                                width: 100,
                                 height: 30,
                                 // should be ignored
-                                style: { backgroundImage: null },
+                                style: {
+                                    backgroundImage: null as unknown as string,
+                                },
                             },
                         ],
                     },
@@ -646,7 +683,7 @@ describe('replay/transform', () => {
         describe('inputs', () => {
             test('input gets 0 padding by default but can be overridden', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         type: 2,
                         data: {
                             wireframes: [
@@ -677,7 +714,7 @@ describe('replay/transform', () => {
 
             test('buttons with nested elements', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         type: 2,
                         data: {
                             wireframes: [
@@ -722,7 +759,7 @@ describe('replay/transform', () => {
             })
             test('wrapping with labels', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         type: 2,
                         data: {
                             wireframes: [
@@ -743,7 +780,7 @@ describe('replay/transform', () => {
 
             test('web_view with URL', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         type: 2,
                         data: {
                             wireframes: [
@@ -763,7 +800,7 @@ describe('replay/transform', () => {
 
             test('progress rating', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         type: 2,
                         data: {
                             wireframes: [
@@ -786,7 +823,7 @@ describe('replay/transform', () => {
 
             test('open keyboard custom event', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         timestamp: 1,
                         type: EventType.Custom,
                         data: { tag: 'keyboard', payload: { open: true, height: 150 } },
@@ -796,7 +833,7 @@ describe('replay/transform', () => {
 
             test('isolated add mutation', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         timestamp: 1,
                         type: EventType.IncrementalSnapshot,
                         data: {
@@ -823,7 +860,7 @@ describe('replay/transform', () => {
 
             test('isolated remove mutation', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         timestamp: 1,
                         type: EventType.IncrementalSnapshot,
                         data: {
@@ -836,7 +873,7 @@ describe('replay/transform', () => {
 
             test('isolated update mutation', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         timestamp: 1,
                         type: EventType.IncrementalSnapshot,
                         data: {
@@ -865,7 +902,7 @@ describe('replay/transform', () => {
 
             test('closed keyboard custom event', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         timestamp: 1,
                         type: EventType.Custom,
                         data: { tag: 'keyboard', payload: { open: false } },
@@ -875,7 +912,7 @@ describe('replay/transform', () => {
 
             test('radio_group', () => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         type: 2,
                         data: {
                             wireframes: [
@@ -1186,7 +1223,7 @@ describe('replay/transform', () => {
                 },
             ])('$type - $inputType - $value', (testCase) => {
                 expect(
-                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                    transformEventToWeb({
                         type: 2,
                         data: {
                             wireframes: [testCase],
