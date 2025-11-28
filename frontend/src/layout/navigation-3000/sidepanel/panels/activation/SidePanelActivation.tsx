@@ -296,7 +296,7 @@ const ActivationTask = ({
                             className="h-6 font-semibold text-muted-alt activation-task-skip"
                             onClick={handleUnskip}
                         >
-                            Unskip?
+                            Unskip
                         </LemonButton>
                     ) : (
                         <LemonButton
