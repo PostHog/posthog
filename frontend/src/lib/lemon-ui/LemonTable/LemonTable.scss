@@ -267,14 +267,14 @@
         &:hover {
             &:not(:has(.LemonTable__header--no-hover:hover)) {
                 .LemonTable__header-content {
-                    color: var(--color-text-primary);
+                    color: var(--color-foreground);
                 }
             }
         }
 
         &:active {
             .LemonTable__header-content {
-                color: var(--color-text-primary);
+                color: var(--color-foreground);
             }
         }
     }

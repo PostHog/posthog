@@ -358,6 +358,7 @@
     /* Main application background and foreground */
     --color-background: var(--color-posthog-3000-150); /* => --color-bg-primary */
     --color-foreground: var(--color-neutral-950); /* => --color-text-primary */
+    --color-foreground-inverse: var(--color-neutral-50); /* => --color-text-primary-inverse */
 
     /* Card background and foreground */
     --color-card: var(--white); /* => --card */
@@ -377,7 +378,7 @@
 
     /* Highlight color for active or focused elements */
     --color-accent: color-mix(in oklab, var(--color-black) 5%, transparent);
-    --color-accent-strong: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --color-accent-strong: color-mix(in oklab, var(--color-black) 8%, transparent);
 
     /* Info color for informative messages */
     --color-info: var(--color-blue-50);
@@ -385,6 +386,7 @@
 
     /* Warning color for warnings and cautions */
     --color-warning: var(--color-yellow-50);
+    --color-warning-strong: var(--color-yellow-300);
     --color-warning-foreground: var(--color-yellow-950);
 
     /* Destructive color for errors and critical actions */
@@ -447,8 +449,6 @@
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;
 
-    --font-medium: 500;
-    --font-semibold: 600;
     --font-sans:
         'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
         helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';

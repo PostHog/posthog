@@ -22,7 +22,7 @@ function MetricCard({ title, value, isLoading, subtitle }: MetricCardProps): JSX
                     <LemonSkeleton className="h-8 w-24" />
                 ) : (
                     <>
-                        <div className="text-3xl font-bold text-primary my-2 truncate">{value ?? '-'}</div>
+                        <div className="text-3xl font-bold text-foreground my-2 truncate">{value ?? '-'}</div>
                         {subtitle && <div className="text-xs text-muted">{subtitle}</div>}
                     </>
                 )}

@@ -60,10 +60,10 @@ describe('ExperimentTypePanel', () => {
             const productCard = cards[0]
             const noCodeCard = cards[1]
 
-            expect(productCard).toHaveClass('border-accent')
+            expect(productCard).toHaveClass('border-primary')
             expect(productCard).toHaveAttribute('aria-pressed', 'true')
 
-            expect(noCodeCard).not.toHaveClass('border-accent')
+            expect(noCodeCard).not.toHaveClass('border-primary')
             expect(noCodeCard).toHaveAttribute('aria-pressed', 'false')
 
             rerender(
@@ -77,10 +77,10 @@ describe('ExperimentTypePanel', () => {
             const updatedProductCard = updatedCards[0]
             const updatedNoCodeCard = updatedCards[1]
 
-            expect(updatedProductCard).not.toHaveClass('border-accent')
+            expect(updatedProductCard).not.toHaveClass('border-primary')
             expect(updatedProductCard).toHaveAttribute('aria-pressed', 'false')
 
-            expect(updatedNoCodeCard).toHaveClass('border-accent')
+            expect(updatedNoCodeCard).toHaveClass('border-primary')
             expect(updatedNoCodeCard).toHaveAttribute('aria-pressed', 'true')
         })
     })

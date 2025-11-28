@@ -6,7 +6,7 @@
     padding: 0.5rem;
     font-size: var(--text-sm);
     font-weight: 500;
-    color: var(--color-text-primary);
+    color: var(--color-foreground);
     text-align: left;
     border: solid 1px var(--color-border);
     border-radius: var(--radius);
@@ -21,8 +21,8 @@
     }
 
     &.LemonBanner--warning {
-        background-color: var(--color-bg-fill-warning-secondary);
-        border-color: var(--color-border-warning);
+        background-color: var(--color-warning);
+        border-color: var(--color-warning-strong);
     }
 
     &.LemonBanner--error {

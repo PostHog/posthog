@@ -35,7 +35,7 @@ export function LegacyMetricSourceModal({ isSecondary }: { isSecondary?: boolean
         <LemonModal isOpen={isOpen} onClose={closeCurrentModal} width={1000} title="Choose metric source">
             <div className="flex gap-4 mb-4">
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-primary"
                     onClick={() => {
                         closeCurrentModal()
 
@@ -57,7 +57,7 @@ export function LegacyMetricSourceModal({ isSecondary }: { isSecondary?: boolean
                     </div>
                 </div>
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-primary"
                     onClick={() => {
                         closeCurrentModal()
                         openSharedMetricModal(null)

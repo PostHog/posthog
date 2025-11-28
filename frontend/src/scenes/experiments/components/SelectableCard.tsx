@@ -29,9 +29,9 @@ export function SelectableCard({
             className={cn(
                 'flex-1 cursor-pointer p-4 rounded border transition-colors',
                 {
-                    'border-accent bg-accent-highlight-secondary': selected,
+                    'border-primary bg-accent-highlight-secondary': selected,
                     'border-border': !selected,
-                    'hover:border-accent-dark': !disabled,
+                    'hover:border-primary-dark': !disabled,
                     'opacity-50 cursor-not-allowed': disabled,
                 },
                 className

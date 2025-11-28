@@ -31,7 +31,7 @@ export default function HomePage(): JSX.Element {
                                     </div>
                                 </div>
                                 <h1 className="text-4xl font-bold tracking-tight text-base-content sm:text-6xl lg:text-7xl mb-6">
-                                    Welcome back, <span className="text-primary">{user.name.split(' ')[0]}</span>
+                                    Welcome back, <span className="text-foreground">{user.name.split(' ')[0]}</span>
                                     <span className="ml-2">🦔</span>
                                 </h1>
                                 <p className="text-xl text-base-content/70 mb-8 max-w-2xl mx-auto leading-relaxed">
@@ -64,7 +64,7 @@ export default function HomePage(): JSX.Element {
                                 <h1 className="text-4xl font-bold tracking-tight text-base-content sm:text-6xl lg:text-7xl mb-6">
                                     File storage and sharing
                                     <br />
-                                    <span className="text-primary">for hedgehogs</span>
+                                    <span className="text-foreground">for hedgehogs</span>
                                 </h1>
                                 <p className="text-xl text-base-content/70 mb-8 max-w-3xl mx-auto leading-relaxed">
                                     Store, share, and collaborate on files with rock-solid security 🛡️, lightning-fast

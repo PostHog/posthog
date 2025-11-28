@@ -120,7 +120,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                     <div
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             !sharedMetricQuery.exposure_query
-                                                ? 'border-accent bg-accent-highlight-secondary'
+                                                ? 'border-primary bg-accent-highlight-secondary'
                                                 : 'border-border'
                                         }`}
                                         onClick={() => {
@@ -148,7 +148,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                     <div
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             sharedMetricQuery.exposure_query
-                                                ? 'border-accent bg-accent-highlight-secondary'
+                                                ? 'border-primary bg-accent-highlight-secondary'
                                                 : 'border-border'
                                         }`}
                                         onClick={() => {

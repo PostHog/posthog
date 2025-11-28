@@ -961,7 +961,7 @@ export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.El
                 <div key={idx} className="mb-2">
                     <div className="flex mb-1">
                         <div
-                            className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                            className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-foreground-alt border rounded"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ backgroundColor: 'var(--color-bg-table)' }}
                         >

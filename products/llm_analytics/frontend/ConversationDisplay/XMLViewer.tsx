@@ -76,14 +76,14 @@ function XMLNodeDisplay({
                     }}
                     onClick={hasChildren ? () => setIsCollapsed(!isCollapsed) : undefined}
                 >
-                    <span className="text-primary">
+                    <span className="text-foreground">
                         {'<'}
                         <span className="text-danger font-semibold">{node.name}</span>
                         {attributeString && <span className="text-warning">{attributeString}</span>}
                         {!hasChildren ? ' />' : isCollapsed ? '>' : '>'}
                         {hasChildren && isCollapsed && (
                             <span
-                                className="text-muted hover:text-primary cursor-pointer ml-1"
+                                className="text-muted hover:text-foreground cursor-pointer ml-1"
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     setIsCollapsed(false)
@@ -105,7 +105,7 @@ function XMLNodeDisplay({
                                 initialCollapsed={initialCollapsed}
                             />
                         ))}
-                        <div className="text-primary" style={{ marginLeft: `${depth * 16}px` }}>
+                        <div className="text-foreground" style={{ marginLeft: `${depth * 16}px` }}>
                             {'</'}
                             <span className="text-danger font-semibold">{node.name}</span>
                             {'>'}

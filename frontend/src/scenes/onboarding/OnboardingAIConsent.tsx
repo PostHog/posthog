@@ -80,7 +80,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                     </div>
                 </div>
 
-                <div className="border-2 border-accent-primary rounded-lg p-4 bg-accent-primary-highlight">
+                <div className="border-2 border-primary-primary rounded-lg p-4 bg-accent-primary-highlight">
                     <div className="flex items-center justify-between gap-4">
                         <div>
                             <h4 className="font-semibold mb-1">Enable PostHog AI</h4>

@@ -422,7 +422,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             key: 'name',
             render: (_, evaluation) => (
                 <div className="flex flex-col">
-                    <Link to={urls.llmAnalyticsEvaluation(evaluation.id)} className="font-semibold text-primary">
+                    <Link to={urls.llmAnalyticsEvaluation(evaluation.id)} className="font-semibold text-foreground">
                         {evaluation.name}
                     </Link>
                     {evaluation.description && <div className="text-muted text-sm">{evaluation.description}</div>}

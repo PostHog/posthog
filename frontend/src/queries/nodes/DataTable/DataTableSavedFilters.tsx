@@ -74,7 +74,7 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
                     fullWidth
                 >
                     <div className="flex items-center gap-2">
-                        {appliedSavedFilter?.id === filter.id && <IconBookmark className="text-primary" />}
+                        {appliedSavedFilter?.id === filter.id && <IconBookmark className="text-foreground" />}
                         <span className={appliedSavedFilter?.id === filter.id ? 'font-bold' : ''}>{filter.name}</span>
                     </div>
                 </LemonButton>

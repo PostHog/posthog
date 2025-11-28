@@ -57,9 +57,9 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
             <div className="flex flex-col items-center text-center gap-4 h-full">
                 <div className="bg-primary-3000/10 rounded-lg p-3 flex-shrink-0">
                     {isBlank ? (
-                        <IconPlus className="w-6 h-6 text-primary-3000" />
+                        <IconPlus className="w-6 h-6 text-foreground-3000" />
                     ) : (
-                        <div className="text-primary-3000">{getTemplateIcon(template.icon)}</div>
+                        <div className="text-foreground-3000">{getTemplateIcon(template.icon)}</div>
                     )}
                 </div>
                 <div className="flex-1 flex flex-col justify-start">

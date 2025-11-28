@@ -124,7 +124,7 @@ export function getGraphColors(): Record<string, string | null> {
 
         // TODO: these are not used anywhere, but setting them to the correct values
         tooltipBackground: getColorVar('color-bg-surface-tooltip'),
-        tooltipTitle: getColorVar('color-text-primary'),
+        tooltipTitle: getColorVar('color-text-foreground'),
         tooltipBody: getColorVar('color-bg-surface-tooltip'),
     }
 }

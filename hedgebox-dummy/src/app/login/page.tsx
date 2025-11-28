@@ -89,7 +89,7 @@ export default function LoginPage(): JSX.Element {
                                     <label className="label">
                                         <Link
                                             href="/forgot-password"
-                                            className="label-text-alt link link-hover text-primary"
+                                            className="label-text-alt link link-hover text-foreground"
                                         >
                                             Forgot your password?
                                         </Link>

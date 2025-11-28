@@ -263,7 +263,7 @@ function Category({
                                                         <span className="flex min-w-0 items-center gap-2">
                                                             {groupNoun ? (
                                                                 <>
-                                                                    <span className="text-sm truncate text-primary">
+                                                                    <span className="text-sm truncate text-foreground">
                                                                         {highlightText(
                                                                             groupDisplayName &&
                                                                                 groupDisplayName.length > 0
@@ -282,7 +282,7 @@ function Category({
                                                                     </LemonTag>
                                                                 </>
                                                             ) : (
-                                                                <span className="text-sm truncate text-primary">
+                                                                <span className="text-sm truncate text-foreground">
                                                                     {search ? (
                                                                         <SearchHighlightMultiple
                                                                             string={item.name}
@@ -376,7 +376,7 @@ function Category({
                                                         }, 0)
                                                     }
                                                 }}
-                                                className="w-full text-tertiary data-[focused=true]:text-primary"
+                                                className="w-full text-tertiary data-[focused=true]:text-foreground"
                                             >
                                                 <IconArrowRight className="rotate-90" />
                                                 {isRecentsSection
@@ -396,7 +396,7 @@ function Category({
                                     to={urls.persons()}
                                     buttonProps={{
                                         size: 'sm',
-                                        className: 'w-full text-tertiary data-[focused=true]:text-primary',
+                                        className: 'w-full text-tertiary data-[focused=true]:text-foreground',
                                     }}
                                 >
                                     <IconExternal /> See all persons
@@ -409,7 +409,7 @@ function Category({
                                     to={urls.eventDefinitions()}
                                     buttonProps={{
                                         size: 'sm',
-                                        className: 'w-full text-tertiary data-[focused=true]:text-primary',
+                                        className: 'w-full text-tertiary data-[focused=true]:text-foreground',
                                     }}
                                 >
                                     <IconExternal /> See all events
@@ -422,7 +422,7 @@ function Category({
                                     to={urls.groups(Array.from(groupTypes.keys())[0])}
                                     buttonProps={{
                                         size: 'sm',
-                                        className: 'w-full text-tertiary data-[focused=true]:text-primary',
+                                        className: 'w-full text-tertiary data-[focused=true]:text-foreground',
                                     }}
                                 >
                                     <IconExternal /> See all groups
@@ -435,7 +435,7 @@ function Category({
                                     to={urls.propertyDefinitions()}
                                     buttonProps={{
                                         size: 'sm',
-                                        className: 'w-full text-tertiary data-[focused=true]:text-primary',
+                                        className: 'w-full text-tertiary data-[focused=true]:text-foreground',
                                     }}
                                 >
                                     <IconExternal /> See all properties
@@ -445,7 +445,7 @@ function Category({
                     </>
                 </div>
             </div>
-            <div className="h-px w-full bg-border-border" />
+            <div className="h-px w-full bg-border" />
         </>
     )
 }

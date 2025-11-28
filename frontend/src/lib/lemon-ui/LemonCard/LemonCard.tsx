@@ -30,7 +30,7 @@ export const LemonCard = forwardRef<HTMLDivElement, LemonCardProps>(function Lem
                 'LemonCard border rounded p-6 bg-surface-primary relative',
                 {
                     'LemonCard--hoverEffect': hoverEffect,
-                    'border-2 border-accent': focused,
+                    'border-2 border-primary': focused,
                     'border-border': !focused,
                     'cursor-pointer': !!onClick && !focused,
                 },

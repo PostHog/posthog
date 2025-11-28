@@ -129,7 +129,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                         <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-border shrink-0">
                             <div className="flex items-center gap-2">
                                 <IconListCheck className="size-5 text-tertiary" />
-                                <h4 className="text-base font-medium text-primary m-0">Info & actions</h4>
+                                <h4 className="text-base font-medium text-foreground m-0">Info & actions</h4>
                             </div>
 
                             {scenePanelOpen && (

@@ -59,7 +59,7 @@ export function SharedMetric(): JSX.Element {
                     <div
                         className={`flex-1 cursor-pointer p-4 rounded border ${
                             sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
-                                ? 'border-accent bg-accent-highlight-secondary'
+                                ? 'border-primary bg-accent-highlight-secondary'
                                 : 'border-border'
                         }`}
                         onClick={() => {
@@ -81,7 +81,7 @@ export function SharedMetric(): JSX.Element {
                     <div
                         className={`flex-1 cursor-pointer p-4 rounded border ${
                             sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
-                                ? 'border-accent bg-accent-highlight-secondary'
+                                ? 'border-primary bg-accent-highlight-secondary'
                                 : 'border-border'
                         }`}
                         onClick={() => {

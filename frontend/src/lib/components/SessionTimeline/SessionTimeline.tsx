@@ -179,7 +179,7 @@ const itemContainer = cva({
     base: 'flex justify-between gap-2 items-center px-2 w-full h-[2rem]',
     variants: {
         selected: {
-            true: 'bg-[var(--gray-1)] border-1 border-accent',
+            true: 'bg-[var(--gray-1)] border-1 border-primary',
             false: 'border-b border-[var(--gray-2)]',
         },
     },

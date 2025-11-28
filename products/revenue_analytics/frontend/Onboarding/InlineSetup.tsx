@@ -108,7 +108,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center gap-3 mb-4">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-primary-3000 font-bold text-lg">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-foreground-3000 font-bold text-lg">
                                 1
                             </div>
                             <div>
@@ -142,7 +142,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
                                     {managedViewsetsEnabled && (
-                                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-primary-3000 font-bold text-lg">
+                                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-foreground-3000 font-bold text-lg">
                                             2
                                         </div>
                                     )}

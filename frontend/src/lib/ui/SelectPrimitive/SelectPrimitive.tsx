@@ -137,7 +137,7 @@ function SelectPrimitiveSeparator({
     return (
         <SelectPrimitiveBase.Separator
             data-slot="select-separator"
-            className={cn('-mx-1 my-1 h-px bg-border-border', className)}
+            className={cn('-mx-1 my-1 h-px bg-border', className)}
             {...props}
         />
     )

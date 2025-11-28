@@ -133,7 +133,7 @@ export function ViewsTab(): JSX.Element {
                                                     </>
                                                 }
                                             >
-                                                <span className="font-bold text-primary">{view.name}</span>
+                                                <span className="font-bold text-foreground">{view.name}</span>
                                             </Tooltip>
                                             <br />
                                             <span className="text-muted text-xs">
@@ -280,7 +280,7 @@ export function ViewsTab(): JSX.Element {
                                                     </>
                                                 }
                                             >
-                                                <span className="font-bold text-primary">{view.name}</span>
+                                                <span className="font-bold text-foreground">{view.name}</span>
                                             </Tooltip>
                                             <br />
                                             <span className="text-muted text-xs">

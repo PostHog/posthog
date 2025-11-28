@@ -37,7 +37,9 @@ function SceneTitlePanelButton(): JSX.Element | null {
                     ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
                     : setScenePanelOpen(!scenePanelOpen)
             }
-            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
+            icon={
+                !scenePanelOpen ? <IconEllipsis className="text-foreground" /> : <IconX className="text-foreground" />
+            }
             tooltip={
                 !scenePanelOpen
                     ? 'Open Info & actions panel'

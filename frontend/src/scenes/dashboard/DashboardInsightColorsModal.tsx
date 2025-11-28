@@ -116,7 +116,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 <div className="flex flex-col items-center">
                     {/* Slightly offset to the left for visual balance. */}
                     <Animation type={AnimationType.SportsHog} size="large" className="-ml-4" />
-                    <p className="text-primary">Waiting for dashboard tiles to load and refresh…</p>
+                    <p className="text-foreground">Waiting for dashboard tiles to load and refresh…</p>
                 </div>
             ) : (
                 <>

@@ -288,7 +288,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             size="xs"
                             className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
                         >
-                            <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
+                            <IconX className="text-tertiary size-3 group-hover:text-foreground z-10" />
                         </ButtonPrimitive>
                     </AppShortcut>
                 )}
@@ -321,8 +321,8 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         'w-full order-first',
                         'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 rounded-lg border border-transparent',
                         tab.active
-                            ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-primary bg-[var(--scene-layout-background)] border-border'
-                            : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover z-20',
+                            ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-foreground bg-[var(--scene-layout-background)] border-border'
+                            : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-foreground-hover z-20',
                         'focus:outline-none',
                         isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',
                         className
@@ -347,7 +347,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                     ) : isEditing ? (
                         <input
                             ref={inputRef}
-                            className="scene-tab-title grow text-left bg-primary border-none outline-1 text-primary z-30 max-w-full"
+                            className="scene-tab-title grow text-left bg-primary border-none outline-1 text-foreground z-30 max-w-full"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => {

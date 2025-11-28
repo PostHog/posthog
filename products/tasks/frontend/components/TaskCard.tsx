@@ -83,14 +83,16 @@ export function TaskCard({
                     <div className="flex items-center gap-2 text-xs text-muted">
                         <span className="font-medium">Repos:</span>
                         {task.repository_scope === 'single' && task.primary_repository && (
-                            <span className="text-primary">
+                            <span className="text-foreground">
                                 {task.primary_repository.organization}/{task.primary_repository.repository}
                             </span>
                         )}
                         {task.repository_scope === 'multiple' && task.repository_list && (
-                            <span className="text-primary">{task.repository_list.length} repositories</span>
+                            <span className="text-foreground">{task.repository_list.length} repositories</span>
                         )}
-                        {task.repository_scope === 'smart_select' && <span className="text-primary">Smart Select</span>}
+                        {task.repository_scope === 'smart_select' && (
+                            <span className="text-foreground">Smart Select</span>
+                        )}
                     </div>
                 </div>
             )}

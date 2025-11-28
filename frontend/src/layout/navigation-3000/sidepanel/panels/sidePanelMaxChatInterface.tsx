@@ -158,7 +158,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                         className={`${message.role === 'assistant' ? 'flex flex-col' : ''} max-w-full`}
                                     >
                                         {message.role === 'assistant' && (
-                                            <div className="text-sm text-primary-alt mb-1">Max</div>
+                                            <div className="text-sm text-foreground-alt mb-1">Max</div>
                                         )}
                                         <div
                                             className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
@@ -340,7 +340,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                     {(hasServerError || isRateLimited) && (
                         <div className="flex justify-start">
                             <div className="flex flex-col">
-                                <div className="text-sm text-primary-alt mb-1">Max</div>
+                                <div className="text-sm text-foreground-alt mb-1">Max</div>
                                 <div className="p-2 rounded-lg bg-surface-primary dark:bg-surface-primary text-default">
                                     <div className="flex items-center gap-2">
                                         <span>

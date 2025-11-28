@@ -75,7 +75,7 @@ export function EnvironmentSwitcherOverlay({
                     <Label intent="menu" className="px-2 mt-2">
                         Current project
                     </Label>
-                    <div className="-mx-1 my-1 h-px bg-border-border shrink-0" />
+                    <div className="-mx-1 my-1 h-px bg-border shrink-0" />
 
                     <Combobox.Group value={[projectName]}>
                         <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
@@ -171,7 +171,7 @@ export function EnvironmentSwitcherOverlay({
                         <Label intent="menu" className="px-2 mt-2">
                             Other projects
                         </Label>
-                        <div className="-mx-1.5 my-1 h-px bg-border-border shrink-0" />
+                        <div className="-mx-1.5 my-1 h-px bg-border shrink-0" />
                     </>
                 )
             }

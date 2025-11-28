@@ -29,21 +29,21 @@
         border-radius: 0.5rem;
 
         &--assistant {
-            color: var(--color-text-primary);
+            color: var(--color-foreground);
             background: var(--color-bg-light);
 
             .dark & {
-                color: var(--color-text-primary);
+                color: var(--color-foreground);
                 background: var(--color-bg-depth);
             }
         }
 
         &--user {
-            color: var(--color-text-primary);
+            color: var(--color-foreground);
             background: var(--color-card);
 
             .dark & {
-                color: var(--color-text-primary);
+                color: var(--color-foreground);
                 background: var(--color-bg-side);
             }
         }

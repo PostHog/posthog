@@ -332,7 +332,7 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
                 <IconChevronDown
                     fontSize="20px"
                     className={clsx('-mr-1 ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
-                        'text-primary opacity-100': isSortedByMyField,
+                        'text-foreground opacity-100': isSortedByMyField,
                         'rotate-180': isSortedByMyField && isAscending,
                     })}
                 />

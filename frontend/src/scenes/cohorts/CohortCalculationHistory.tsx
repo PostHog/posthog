@@ -184,7 +184,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                                                     </div>
                                                     {query.query && (
                                                         <details className="mt-2">
-                                                            <summary className="cursor-pointer text-primary">
+                                                            <summary className="cursor-pointer text-foreground">
                                                                 Show Query
                                                             </summary>
                                                             <pre className="mt-2 text-xs bg-bg-3000 p-2 rounded overflow-auto">

@@ -896,7 +896,7 @@ function DraggableValueSnack<T = string>({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
                 {...attributes}
-                className="inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5 bg-accent-highlight-secondary rounded"
+                className="inline-flex text-foreground-alt max-w-full overflow-hidden break-all items-center py-1 leading-5 bg-accent-highlight-secondary rounded"
             >
                 <span
                     className="shrink-0 flex items-center pl-1 pr-0.5 cursor-grab active:cursor-grabbing"

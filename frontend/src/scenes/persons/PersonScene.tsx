@@ -75,7 +75,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                     <LemonMenu
                         items={person.distinct_ids.slice(1).map((distinct_id: string) => ({
                             label: distinct_id,
-                            sideIcon: <IconCopy className="text-primary-3000" />,
+                            sideIcon: <IconCopy className="text-foreground-3000" />,
                             onClick: () => copyToClipboard(distinct_id, 'distinct id'),
                         }))}
                     >

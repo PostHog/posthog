@@ -42,7 +42,7 @@ function MRRLegend(): JSX.Element {
                             style={{ backgroundColor: `var(--color-${item.key})` }}
                         />
                         <div>
-                            <span className="font-semibold text-primary">{item.label}:</span>
+                            <span className="font-semibold text-foreground">{item.label}:</span>
                             <span className="text-muted text-sm ml-2">{item.description}</span>
                         </div>
                     </div>

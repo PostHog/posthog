@@ -126,7 +126,7 @@ export function SessionEventItem({
             className={clsx(
                 'border border-border rounded overflow-hidden transition-all bg-surface-primary',
                 !isExpanded && 'hover:bg-secondary-3000-hover-light',
-                isExpanded && 'border-accent',
+                isExpanded && 'border-primary',
                 isExpanded && highlightColor === 'danger' && 'border-danger-dark',
                 isExpanded && highlightColor === 'warning' && 'border-warning-dark',
                 isExpanded && highlightColor === 'primary' && 'border-border-dark'

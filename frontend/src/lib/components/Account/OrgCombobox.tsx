@@ -32,7 +32,7 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
                 <Label intent="menu" className="px-2">
                     Current organization
                 </Label>
-                <div className="-mx-1 my-1 h-px bg-border-border shrink-0" />
+                <div className="-mx-1 my-1 h-px bg-border shrink-0" />
 
                 <Combobox.Empty>No organizations found</Combobox.Empty>
 
@@ -65,7 +65,7 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
                 <Label intent="menu" className="px-2 mt-2">
                     Other organizations
                 </Label>
-                <div className="-mx-1 my-1 h-px bg-border-border shrink-0" />
+                <div className="-mx-1 my-1 h-px bg-border shrink-0" />
 
                 {otherOrganizations.map((otherOrganization) => (
                     <Combobox.Group value={[otherOrganization.name]} key={otherOrganization.id}>
@@ -95,7 +95,7 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
 
                 {preflight?.can_create_org && allowCreate && (
                     <>
-                        <div className="-mx-1 my-1 h-px bg-border-border shrink-0" />
+                        <div className="-mx-1 my-1 h-px bg-border shrink-0" />
                         <Combobox.Item asChild>
                             <ButtonPrimitive
                                 menuItem

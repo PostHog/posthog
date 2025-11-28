@@ -496,8 +496,8 @@
 
     // Borders (Useful for single pixel backgrounds to mimic borders)
     // //////////////////////////////////////////////////////////
-    // ***** USE --border --color-bg-border-border: var(--color-posthog-3000-200);
-    // ***** USE --border-border-strong --color-bg-border-border-strong: var(--color-posthog-3000-400);
+    // ***** USE --border --color-bg-border: var(--color-posthog-3000-200);
+    // ***** USE --border-border-strong --color-bg-border-strong: var(--color-posthog-3000-400);
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
@@ -976,8 +976,8 @@
     --color-bg-fill-switch: var(--color-neutral-cool-600);
     --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
     --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
-    --color-bg-border-border: var(--color-neutral-cool-800);
-    --color-bg-border-border-strong: var(--color-neutral-cool-600);
+    --color-bg-border: var(--color-neutral-cool-800);
+    --color-bg-border-strong: var(--color-neutral-cool-600);
 
     // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
@@ -1631,7 +1631,7 @@
         min-width: 8rem;
         max-width: 200px;
         overflow: hidden;
-        color: var(--color-text-primary);
+        color: var(--color-foreground);
         background-color: var(--color-card);
         border: 1px solid var(--color-border);
         border-radius: var(--radius-lg);

@@ -67,7 +67,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
         switch (status) {
             case ProgressStatus.STARTED:
             case ProgressStatus.IN_PROGRESS:
-                return 'text-primary'
+                return 'text-foreground'
             case ProgressStatus.COMPLETED:
                 return 'text-success'
             case ProgressStatus.FAILED:

@@ -117,7 +117,7 @@
     // fixed width so that animations work when changing width
     width: var(--toolbar-width-expanded);
     overflow: hidden;
-    color: var(--color-text-primary);
+    color: var(--color-foreground);
     background-color: var(--color-background);
     filter: drop-shadow(0 5px 10px var(--trace-3000));
     border: 1px solid var(--border-bold-3000);

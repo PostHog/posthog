@@ -13,7 +13,7 @@ const iconWrapperVariants = cva({
         },
         intent: {
             default: '',
-            primary: 'text-primary',
+            primary: 'text-foreground',
             secondary: 'text-secondary',
             tertiary: 'text-tertiary',
         },

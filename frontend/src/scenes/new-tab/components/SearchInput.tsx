@@ -367,7 +367,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                                 />
                                             </div>
 
-                                            <div className="font-medium text-primary">{command.displayName}</div>
+                                            <div className="font-medium text-foreground">{command.displayName}</div>
                                         </ButtonPrimitive>
                                     </DropdownMenuItem>
                                 )
@@ -383,7 +383,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     selectedCommands.map((command, index) => (
                         <ButtonPrimitive
                             key={command.value as string}
-                            className={`text-primary ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
+                            className={`text-foreground ${focusedTagIndex === index ? 'ring-2 ring-accent' : ''}`}
                             size="sm"
                             variant="outline"
                             onClick={(e) => {
@@ -402,7 +402,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     ))
                 ) : (
                     <ButtonPrimitive
-                        className="text-primary"
+                        className="text-foreground"
                         size="sm"
                         variant="outline"
                         onClick={() => setShowDropdown(true)}

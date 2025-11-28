@@ -117,7 +117,7 @@ export function SurveyTemplates(): JSX.Element {
             <div className="space-y-4">
                 <p className="text-center text-base">
                     Choose a template based on your goal, or{' '}
-                    <Link to={urls.survey('new')} className="text-primary-3000" data-attr="new-blank-survey">
+                    <Link to={urls.survey('new')} className="text-foreground-3000" data-attr="new-blank-survey">
                         start from scratch with a blank survey
                     </Link>
                     .

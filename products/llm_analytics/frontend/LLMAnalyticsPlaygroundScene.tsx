@@ -512,7 +512,7 @@ function ConfigurationPanel(): JSX.Element {
                 <input
                     id="thinkingToggle"
                     type="checkbox"
-                    className="rounded text-primary focus:ring-primary"
+                    className="rounded text-foreground focus:ring-primary"
                     checked={thinking}
                     onChange={handleThinkingToggle}
                 />

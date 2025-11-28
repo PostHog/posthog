@@ -32,7 +32,7 @@ function GenerationEvalRunsTableContent(): JSX.Element {
             title: 'Evaluation',
             key: 'evaluation',
             render: (_, run) => (
-                <Link to={urls.llmAnalyticsEvaluation(run.evaluation_id)} className="text-primary font-medium">
+                <Link to={urls.llmAnalyticsEvaluation(run.evaluation_id)} className="text-foreground font-medium">
                     {run.evaluation_name}
                 </Link>
             ),

@@ -168,7 +168,7 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 function RecordingOngoingIndicator(): JSX.Element {
     return (
         <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
-            <IconLive className="animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
+            <IconLive className="animate-[pulse_1s_ease-out_infinite] text-foreground-3000" />
         </Tooltip>
     )
 }

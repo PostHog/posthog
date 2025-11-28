@@ -178,7 +178,7 @@ export function Tooltip({
                     >
                         <div
                             className={clsx(
-                                'bg-card text-card-foreground py-1.5 px-2 break-words rounded text-start',
+                                'bg-card text-card-foreground py-1.5 px-2 break-words rounded text-start border',
                                 className
                             )}
                             // eslint-disable-next-line react/forbid-dom-props

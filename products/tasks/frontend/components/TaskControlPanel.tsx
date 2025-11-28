@@ -87,7 +87,7 @@ export function TaskControlPanel(): JSX.Element {
                     title="Total Tasks"
                     value={tasks.length}
                     icon={<IconInfo className="w-5 h-5" />}
-                    color="text-primary"
+                    color="text-foreground"
                 />
                 <OverviewCard
                     title="Active Tasks"
@@ -167,7 +167,7 @@ export function TaskControlPanel(): JSX.Element {
                                     <h4 className="font-medium text-sm">{stage.name}</h4>
                                 </div>
 
-                                <div className="text-2xl font-bold text-primary mb-1">{stageTasks.length}</div>
+                                <div className="text-2xl font-bold text-foreground mb-1">{stageTasks.length}</div>
 
                                 <div className="text-xs text-muted">
                                     {stage.is_manual_only ? 'Manual' : 'Automated'}
@@ -239,7 +239,7 @@ function TaskSummaryCard({ task, onClick }: TaskSummaryCardProps): JSX.Element {
                 } else if (stage.agent_name && !stage.is_manual_only) {
                     return 'text-warning' // Agent stages
                 } else if (stage.is_manual_only || !stage.agent_name) {
-                    return 'text-primary' // Manual stages
+                    return 'text-foreground' // Manual stages
                 }
             }
         }

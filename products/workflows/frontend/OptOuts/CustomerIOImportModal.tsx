@@ -231,7 +231,7 @@ export function CustomerIOImportModal(): JSX.Element {
                         <Link
                             to="https://posthog.com/docs/workflows/import-customerio-optouts"
                             target="_blank"
-                            className="text-primary"
+                            className="text-foreground"
                         >
                             View instructions
                         </Link>

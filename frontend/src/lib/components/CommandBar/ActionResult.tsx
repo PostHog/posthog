@@ -23,7 +23,7 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
     }, [focused])
 
     return (
-        <div className={clsx('border-l-4', focused ? 'border-accent' : !isExecutable ? 'border-transparent' : null)}>
+        <div className={clsx('border-l-4', focused ? 'border-primary' : !isExecutable ? 'border-transparent' : null)}>
             <div
                 className={`flex items-center w-full px-2 hover:bg-muted ${
                     focused ? 'bg-muted' : 'bg-surface-primary'
@@ -39,7 +39,7 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
                     <result.icon className="text-muted-3000" />
                     <span className="ml-2 text-text-3000 font-bold">{result.display}</span>
                 </div>
-                {focused && <div className="shrink-0 text-primary-3000">Run command</div>}
+                {focused && <div className="shrink-0 text-foreground-3000">Run command</div>}
             </div>
         </div>
     )

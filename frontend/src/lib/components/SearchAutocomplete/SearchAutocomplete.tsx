@@ -318,7 +318,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 {suggestions.map((item) => (
                                     <Fragment key={item.value}>
                                         {item.value === '!__placeholder__' ? (
-                                            <div className="-mx-1 my-1 h-px bg-border-border" />
+                                            <div className="-mx-1 my-1 h-px bg-border" />
                                         ) : null}
                                         <ListBox.Item asChild>
                                             <ButtonPrimitive

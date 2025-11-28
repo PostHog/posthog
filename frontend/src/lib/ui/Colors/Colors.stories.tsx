@@ -57,7 +57,7 @@ export function PrimitiveColors(): JSX.Element {
         <div className="flex gap-4 flex-wrap items-start">
             {Array.from(primtiveColorMap.entries()).map(([colorName, steps]) => (
                 <div key={colorName} className="flex flex-col gap-1">
-                    <div className="text-primary font-medium">{colorName}</div>
+                    <div className="text-foreground font-medium">{colorName}</div>
                     <div className="flex flex-col gap-1">
                         {steps.map((step) => (
                             <div key={step} className="flex items-center gap-2">
@@ -66,7 +66,7 @@ export function PrimitiveColors(): JSX.Element {
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ backgroundColor: `var(--${colorName}-${step})` }}
                                 />
-                                <div className="text-sm text-primary">{step}</div>
+                                <div className="text-sm text-foreground">{step}</div>
                             </div>
                         ))}
                     </div>
@@ -97,7 +97,7 @@ export function BrandAccentColors(): JSX.Element {
             </div>
 
             <div className="flex flex-col gap-2 border border-border rounded-md p-2">
-                <div className="text-primary font-medium">Primary accent color</div>
+                <div className="text-foreground font-medium">Primary accent color</div>
 
                 <div className="flex gap-2">
                     <label className="flex flex-col gap-1 flex-1">
@@ -160,14 +160,14 @@ function RenderTable({ colors }: { colors: RenderColorConfig[] }): JSX.Element {
 export function SemanticColors(): JSX.Element {
     const textColors: RenderColorConfig[] = [
         {
-            tailwindClass: 'text-primary',
+            tailwindClass: 'text-foreground',
             description: 'the main text color',
-            name: '--color-text-primary',
+            name: '--color-text-foreground',
         },
         {
-            tailwindClass: 'text-primary-inverse',
+            tailwindClass: 'text-foreground-inverse',
             description: 'the main text color on a inverted background',
-            name: '--color-text-primary-inverse',
+            name: '--color-text-foreground-inverse',
         },
         {
             tailwindClass: 'text-secondary',

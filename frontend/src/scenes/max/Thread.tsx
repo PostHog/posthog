@@ -531,7 +531,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                                     className="flex items-center justify-between p-3 bg-bg-3000 rounded border border-border-light"
                                 >
                                     <div className="flex items-start gap-3">
-                                        <IconNotebook className="size-4 text-primary-alt mt-0.5" />
+                                        <IconNotebook className="size-4 text-foreground-alt mt-0.5" />
                                         <div>
                                             <div className="flex items-center gap-2">
                                                 <span className="font-medium text-sm">
@@ -1206,7 +1206,7 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
                             className={clsx(
                                 'w-full text-left p-2 rounded transition-colors text-sm',
                                 selectedIndex === index
-                                    ? 'bg-primary text-primary-inverted font-semibold'
+                                    ? 'bg-primary text-foreground-inverted font-semibold'
                                     : 'hover:bg-muted'
                             )}
                         >

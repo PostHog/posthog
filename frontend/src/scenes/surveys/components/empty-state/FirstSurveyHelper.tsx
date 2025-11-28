@@ -75,7 +75,7 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
                                             <Link
                                                 to="https://posthog.com/docs/surveys/creating-surveys#display-conditions"
                                                 target="_blank"
-                                                className="text-primary-3000"
+                                                className="text-foreground-3000"
                                             >
                                                 Docs
                                             </Link>
@@ -107,7 +107,7 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
                                             <Link
                                                 to="https://posthog.com/docs/surveys/viewing-results#1-on-the-survey-page"
                                                 target="_blank"
-                                                className="text-primary-3000"
+                                                className="text-foreground-3000"
                                             >
                                                 Docs
                                             </Link>
@@ -135,7 +135,7 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
                                             <Link
                                                 to="https://posthog.com/tutorials/slack-surveys"
                                                 target="_blank"
-                                                className="text-primary-3000"
+                                                className="text-foreground-3000"
                                             >
                                                 Tutorial
                                             </Link>

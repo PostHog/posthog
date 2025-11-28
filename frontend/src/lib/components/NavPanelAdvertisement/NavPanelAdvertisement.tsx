@@ -79,7 +79,7 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
             </Tooltip>
             <Link
                 to={payload.app_link}
-                className="text-primary"
+                className="text-foreground"
                 onClick={() => {
                     posthog.capture('nav panel advertisement clicked', {
                         product_key: payload.product_key,

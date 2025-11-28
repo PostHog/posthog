@@ -233,7 +233,7 @@ function LogsTable({
                                         className={cn(
                                             'transition-opacity',
                                             pinned
-                                                ? 'text-primary opacity-100'
+                                                ? 'text-foreground opacity-100'
                                                 : 'text-muted opacity-0 group-hover:opacity-100'
                                         )}
                                     />

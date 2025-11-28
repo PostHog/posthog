@@ -404,7 +404,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                     <div
                                                         className={cn(
                                                             'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
-                                                            'text-primary mt-0 bg-transparent border border-dashed border-border hover:border-border-strong p-8',
+                                                            'text-foreground mt-0 bg-transparent border border-dashed border-border hover:border-border-strong p-8',
                                                             cohort.csv?.name && 'border-success'
                                                         )}
                                                     >
@@ -413,7 +413,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                                 <IconUpload
                                                                     style={{
                                                                         fontSize: '3rem',
-                                                                        color: 'var(--color-text-primary)',
+                                                                        color: 'var(--color-foreground)',
                                                                     }}
                                                                 />
                                                                 <div>{cohort.csv?.name ?? 'File chosen'}</div>
@@ -423,7 +423,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                                 <IconUpload
                                                                     style={{
                                                                         fontSize: '3rem',
-                                                                        color: 'var(--color-text-primary)',
+                                                                        color: 'var(--color-foreground)',
                                                                     }}
                                                                 />
                                                                 <div>

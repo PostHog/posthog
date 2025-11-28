@@ -327,7 +327,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 : item.collapsedTooltip
                                             : undefined
 
-                                        const iconClassName = 'flex text-tertiary group-hover:text-primary'
+                                        const iconClassName = 'flex text-tertiary group-hover:text-foreground'
 
                                         const listItem = (
                                             <ListBox.Item
@@ -581,7 +581,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 data-attr="menu-item-toolbar"
                             >
-                                <span className="flex text-tertiary group-hover:text-primary">
+                                <span className="flex text-tertiary group-hover:text-foreground">
                                     <IconToolbar />
                                 </span>
                                 {!isLayoutNavCollapsed && 'Toolbar'}
@@ -602,7 +602,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 data-attr="menu-item-settings"
                             >
-                                <span className="flex text-tertiary group-hover:text-primary">
+                                <span className="flex text-tertiary group-hover:text-foreground">
                                     <IconGear />
                                 </span>
                                 {!isLayoutNavCollapsed && 'Settings'}

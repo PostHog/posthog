@@ -241,10 +241,10 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                     <div className="space-y-2">
                         {marketingQuery?.orderBy ? (
                             <div className="flex items-center gap-1 text-sm">
-                                <IconArrowUp className="text-xs text-primary" />
+                                <IconArrowUp className="text-xs text-foreground" />
                                 <span className="text-muted">
-                                    Sorted by: <span className="font-medium text-primary">{currentSortColumn}</span> (
-                                    {currentSortDirection})
+                                    Sorted by: <span className="font-medium text-foreground">{currentSortColumn}</span>{' '}
+                                    ({currentSortDirection})
                                 </span>
                             </div>
                         ) : (
@@ -262,9 +262,10 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                         )}
                         {pinnedColumns.length > 0 ? (
                             <div className="flex items-center gap-1 text-sm">
-                                <IconPinFilled className="text-xs text-primary" />
+                                <IconPinFilled className="text-xs text-foreground" />
                                 <span className="text-muted">
-                                    Pinned: <span className="font-medium text-primary">{pinnedColumns.join(', ')}</span>
+                                    Pinned:{' '}
+                                    <span className="font-medium text-foreground">{pinnedColumns.join(', ')}</span>
                                 </span>
                             </div>
                         ) : (

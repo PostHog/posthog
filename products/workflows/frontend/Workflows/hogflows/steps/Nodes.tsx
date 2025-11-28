@@ -40,7 +40,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             }}
         >
             <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
-                <IconPlus className="text-sm text-primary" />
+                <IconPlus className="text-sm text-foreground" />
             </div>
         </div>
     )

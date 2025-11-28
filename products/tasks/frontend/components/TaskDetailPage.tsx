@@ -171,7 +171,7 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                                 {task.repository_config?.organization && task.repository_config?.repository ? (
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs font-medium text-muted">Repository:</span>
-                                        <span className="text-sm font-mono text-primary">
+                                        <span className="text-sm font-mono text-foreground">
                                             {task.repository_config.organization}/{task.repository_config.repository}
                                         </span>
                                     </div>

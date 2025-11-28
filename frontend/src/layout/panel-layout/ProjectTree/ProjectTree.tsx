@@ -665,7 +665,7 @@ export function ProjectTree({
                                     <IconCheckbox
                                         className={cn('size-3', {
                                             'text-tertiary': selectMode === 'default',
-                                            'text-primary': selectMode === 'multi',
+                                            'text-foreground': selectMode === 'multi',
                                         })}
                                     />
                                     {selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
@@ -683,7 +683,7 @@ export function ProjectTree({
                                     <IconPlusSmall
                                         className={cn('size-3', {
                                             'text-tertiary': selectMode === 'default',
-                                            'text-primary': selectMode === 'multi',
+                                            'text-foreground': selectMode === 'multi',
                                         })}
                                     />
                                     Add shortcut
