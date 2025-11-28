@@ -259,39 +259,40 @@ def test_add_context_and_filter_events(
 @pytest.mark.parametrize(
     "event_timestamps,expected_kept_count",
     [
-        # All events before replay start - none kept
+        # All events within 5s threshold - none kept
+        # Session starts at 18:40:32.302000, threshold is 5000ms, so events at or before 18:40:37.302000 are filtered
         (
             [
                 datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start
-                datetime(2025, 3, 31, 18, 40, 31, 0, tzinfo=UTC),  # Before start
                 datetime(2025, 3, 31, 18, 40, 32, 302000, tzinfo=UTC),  # Exactly at start (filtered)
+                datetime(2025, 3, 31, 18, 40, 37, 302000, tzinfo=UTC),  # Exactly at threshold (filtered)
             ],
             0,
         ),
-        # First event before, second at start, third after - only third kept
+        # First two within threshold, third after - only third kept
         (
             [
-                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start
-                datetime(2025, 3, 31, 18, 40, 32, 302000, tzinfo=UTC),  # Exactly at start (filtered)
-                datetime(2025, 3, 31, 18, 40, 33, 0, tzinfo=UTC),  # After start
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start (filtered)
+                datetime(2025, 3, 31, 18, 40, 35, 0, tzinfo=UTC),  # Within 5s threshold (filtered)
+                datetime(2025, 3, 31, 18, 40, 38, 0, tzinfo=UTC),  # After threshold (~5.7s after start)
             ],
             1,
         ),
-        # All events after replay start - all kept
+        # All events after 5s threshold - all kept
         (
             [
-                datetime(2025, 3, 31, 18, 40, 33, 0, tzinfo=UTC),  # After start
-                datetime(2025, 3, 31, 18, 40, 34, 0, tzinfo=UTC),  # After start
-                datetime(2025, 3, 31, 18, 40, 35, 0, tzinfo=UTC),  # After start
+                datetime(2025, 3, 31, 18, 40, 38, 0, tzinfo=UTC),  # After threshold
+                datetime(2025, 3, 31, 18, 40, 39, 0, tzinfo=UTC),  # After threshold
+                datetime(2025, 3, 31, 18, 40, 40, 0, tzinfo=UTC),  # After threshold
             ],
             3,
         ),
-        # Mix: two before, one after - one kept
+        # Mix: two within threshold, one after - one kept
         (
             [
-                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start
-                datetime(2025, 3, 31, 18, 40, 31, 0, tzinfo=UTC),  # Before start
-                datetime(2025, 3, 31, 18, 40, 39, 302000, tzinfo=UTC),  # After start
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start (filtered)
+                datetime(2025, 3, 31, 18, 40, 36, 0, tzinfo=UTC),  # Within 5s threshold (filtered)
+                datetime(2025, 3, 31, 18, 40, 39, 302000, tzinfo=UTC),  # After threshold (~7s after start)
             ],
             1,
         ),
