@@ -37,6 +37,7 @@ export function DataSourceTable<T extends Record<string, any>>({
                 title: props.title,
                 align: props.align,
                 width: props.width,
+                className: props.className,
                 render: (_, record: T, recordIndex: number, rowCount: number) =>
                     props.cellRenderer(record, recordIndex, rowCount),
             } as LemonTableColumn<T, keyof T | undefined>
@@ -49,10 +50,8 @@ export function DataSourceTable<T extends Record<string, any>>({
             }
             return {
                 // onClick handler adds style to row we don't want
-                onClick: (event: MouseEvent) => {
-                    onRowClick(record, event)
-                },
-                className: 'hover:bg-fill-highlight-50',
+                onClick: (event: MouseEvent) => onRowClick(record, event),
+                className: 'hover:bg-color-accent-highlight-secondary',
             }
         },
         [onRowClick]
@@ -105,6 +104,7 @@ export interface DataSourceTableColumnProps<T> {
     title?: string
     align?: 'left' | 'right' | 'center'
     width?: string
+    className?: string
     cellRenderer: (item: T, itemIdx: number, rowCount: number) => React.ReactNode
 }
 
