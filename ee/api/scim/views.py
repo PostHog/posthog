@@ -21,7 +21,7 @@ from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
-from ee.api.scim.user import PostHogSCIMUser
+from ee.api.scim.user import PostHogSCIMUser, SCIMUserConflict
 from ee.api.scim.utils import detect_identity_provider
 from ee.models.rbac.role import Role
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
@@ -156,20 +156,15 @@ class SCIMUsersView(SCIMBaseView):
     def post(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
 
-        # Check if user is already SCIM-provisioned for this org domain
-        email = PostHogSCIMUser._extract_email_from_value(request.data.get("emails", []))
-        if email:
-            user = User.objects.filter(email__iexact=email).first()
-            if user and SCIMProvisionedUser.objects.filter(user=user, organization_domain=organization_domain).exists():
-                return Response(
-                    {"schemas": [constants.SchemaURI.ERROR], "status": 409, "detail": "User already exists"},
-                    status=status.HTTP_409_CONFLICT,
-                )
-
         try:
             identity_provider = detect_identity_provider(request)
             scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain, identity_provider)
             return Response(scim_user.to_dict(), status=status.HTTP_201_CREATED)
+        except SCIMUserConflict:
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 409, "detail": "User already exists"},
+                status=status.HTTP_409_CONFLICT,
+            )
         except ValueError as e:
             capture_exception(
                 e,

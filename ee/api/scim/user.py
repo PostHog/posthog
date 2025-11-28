@@ -13,6 +13,10 @@ from ee.models.rbac.role import RoleMembership
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 
+class SCIMUserConflict(Exception):
+    """User is already SCIM-provisioned for this organization domain."""
+
+
 class PostHogSCIMUser(SCIMUser):
     """
     Adapter to map SCIM User schema to PostHog User model.
@@ -149,6 +153,10 @@ class PostHogSCIMUser(SCIMUser):
 
         with transaction.atomic():
             user = User.objects.filter(email__iexact=email).first()
+
+            # Check if already SCIM-provisioned for this org domain
+            if user and SCIMProvisionedUser.objects.filter(user=user, organization_domain=organization_domain).exists():
+                raise SCIMUserConflict()
 
             if user:
                 if first_name:
