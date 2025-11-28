@@ -222,7 +222,6 @@ export function BatchExportConfiguration(): JSX.Element {
                                                                 TaxonomicFilterGroupType.EventProperties,
                                                                 TaxonomicFilterGroupType.EventFeatureFlags,
                                                                 TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.Cohorts,
                                                                 TaxonomicFilterGroupType.HogQLExpression,
                                                             ]
                                                             : []
