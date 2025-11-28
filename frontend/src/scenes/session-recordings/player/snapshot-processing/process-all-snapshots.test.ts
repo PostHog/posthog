@@ -879,8 +879,10 @@ describe('process all snapshots', () => {
             const sessionId = 'test-multi-window'
 
             // This test documents the current behavior: only ONE meta event is created
-            // across all windows because hasSeenMeta is a global flag.
-            // Each window still tracks seenFullByWindow independently for the synthetic full logic.
+            // across all windows because hasSeenMeta is a global flag (not per-window).
+            // This is the intended design for now - rrweb replayer typically only needs
+            // one meta event to initialize viewport dimensions.
+            // Each window still tracks seenFullByWindow independently for synthetic full logic.
             const snapshotJsonWindowA = JSON.stringify({
                 window_id: 'window-A',
                 data: [
