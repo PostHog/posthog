@@ -57,9 +57,9 @@ When the single-session summary flags something as a "blocking error" - an excep
 
 - Generate a ~10-second video clip, starting a couple seconds before the flagged event
 - Send the clip to a multi-modal LLM to transcribe the video
-- Comfirm or deny the issue, and update the summary
+- Confirm or deny the issue, and update the summary
 
-And it works pretty well. But also leads to the question - why not to use only video? Why to use events at all?
+And it works pretty well. But also leads to the question - why not use only video? Why use events at all?
 
 ### Video explains the issue, but not the reason
 
@@ -87,9 +87,9 @@ Another downside, if that these models are this cheap not because of magic, but 
 
 ### Videos are still heavy
 
-Even with all the optimizations above, the videos are still media files. For example, if we decide to highlight important moments of sessions in UI, as GIFs, then even a 10s GIF could weight up to 7-10MB (if 1080p session). And there are hundreds of thousands of sessions that needs to be stored somewhere after a generation. If we would decide to go through with this GIF idea it would mean multiple terrabytes of media files to store/manage/pay for on S3 every day.
+Even with all the optimizations above, the videos are still media files. For example, if we decide to highlight important moments of sessions in UI, as GIFs, then even a 10s GIF could weigh up to 7-10MB (if 1080p session). And there are hundreds of thousands of sessions that need to be stored somewhere after a generation. If we would decide to go through with this GIF idea it would mean multiple terabytes of media files to store/manage/pay for on S3 every day.
 
-The example is obviously laughable, but even with regular `.mp4` format (tens times smaller) it easy to get to terrabytes pretty fast.
+The example is obviously laughable, but even with regular `.mp4` format (tens of times smaller) it easy to get to terabytes pretty fast.
 
 **Our approach:**
 
