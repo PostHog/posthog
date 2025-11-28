@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconMinusSquare, IconPin, IconPinFilled, IconPlusSquare, IconRefresh } from '@posthog/icons'
+import {
+    IconFilter,
+    IconInfo,
+    IconMinusSquare,
+    IconPin,
+    IconPinFilled,
+    IconPlusSquare,
+    IconRefresh,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -152,7 +160,7 @@ export function LogsScene(): JSX.Element {
             </div>
             <SceneDivider />
             <div>
-                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height)-3px)] z-20 bg-primary pt-2">
+                <div className="sticky top-[calc(var(--breadcrumbs-height-compact))] @2xl/main-content:top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height)-3px)] z-20 bg-primary pt-2">
                     <div className="pb-2">
                         <DisplayOptions />
                     </div>
@@ -504,8 +512,8 @@ const DisplayOptions = (): JSX.Element => {
     const { setOrderBy, setWrapBody, setPrettifyJson, setLogsPageSize } = useActions(logsLogic)
 
     return (
-        <div className="flex justify-between">
-            <div className="flex gap-2">
+        <div className="flex justify-between flex-wrap gap-y-2">
+            <div className="flex gap-2 flex-wrap">
                 <LemonSegmentedButton
                     value={orderBy}
                     onChange={setOrderBy}
@@ -530,7 +538,7 @@ const DisplayOptions = (): JSX.Element => {
                     size="small"
                 />
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
                 {!sparklineLoading && totalLogsMatchingFilters > 0 && (
                     <span className="text-muted text-xs">
                         Showing {humanFriendlyNumber(parsedLogs.length)} of{' '}
@@ -551,7 +559,8 @@ const DisplayOptions = (): JSX.Element => {
                         ]}
                     />
                 </LemonField.Pure>
-                <span className="text-muted text-xs flex items-center gap-1">
+                {/* Full keyboard shortcuts on larger screens */}
+                <span className="text-muted text-xs items-center gap-1 hidden 2xl:flex">
                     <KeyboardShortcut arrowup />
                     <KeyboardShortcut arrowdown />
                     or
@@ -562,6 +571,26 @@ const DisplayOptions = (): JSX.Element => {
                     <KeyboardShortcut enter />
                     expand
                 </span>
+                {/* Collapsed tooltip on smaller screens */}
+                <Tooltip
+                    title={
+                        <span className="flex items-center gap-1">
+                            <KeyboardShortcut arrowup />
+                            <KeyboardShortcut arrowdown />
+                            or
+                            <KeyboardShortcut j />
+                            <KeyboardShortcut k />
+                            navigate
+                            <span className="mx-1">·</span>
+                            <KeyboardShortcut enter />
+                            expand
+                        </span>
+                    }
+                >
+                    <span className="text-muted cursor-help 2xl:hidden">
+                        <IconInfo className="w-4 h-4" />
+                    </span>
+                </Tooltip>
             </div>
         </div>
     )
