@@ -4608,6 +4608,8 @@ class LogMessage(BaseModel):
     event_name: str
     instrumentation_scope: str
     level: LogSeverityLevel
+    live_logs_checkpoint: AwareDatetime | None = None
+    new: bool | None = None
     observed_timestamp: AwareDatetime
     resource_attributes: Any
     severity_number: float
@@ -14142,6 +14144,7 @@ class LogsQuery(BaseModel):
     filterGroup: PropertyGroupFilter
     kind: Literal["LogsQuery"] = "LogsQuery"
     limit: int | None = None
+    liveLogsCheckpoint: str | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy3 | None = None
@@ -14151,7 +14154,6 @@ class LogsQuery(BaseModel):
     severityLevels: list[LogSeverityLevel]
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-    liveLogsCheckpoint: str | None = None
 
 
 class QueryResponseAlternative18(BaseModel):
