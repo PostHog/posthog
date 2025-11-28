@@ -316,7 +316,6 @@ const config = {
     content: [
         // Starting all paths with '../.." to share this between frontend/, playwright/ and common/storybook/
         '../../frontend/src/**/*.{ts,tsx}',
-        '../../ee/frontend/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',

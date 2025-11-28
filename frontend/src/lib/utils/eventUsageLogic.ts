@@ -188,7 +188,8 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
         const querySource = isInsightVizNode(query) ? query.source : query
-        const { dateRange, filterTestAccounts, samplingFactor, properties } = querySource
+        const { dateRange, filterTestAccounts, properties } = querySource
+        const samplingFactor = 'samplingFactor' in querySource ? querySource.samplingFactor : undefined
 
         // date range and sampling
         payload.date_from = dateRange?.date_from || undefined
@@ -600,10 +601,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+        reportOnboardingStarted: (entryPoint: string) => ({ entryPoint }),
+        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
             recommendedProducts,
         }),
+        reportOnboardingUseCaseSkipped: true,
         // command bar
         reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
         reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
@@ -1487,11 +1491,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
+        reportOnboardingStarted: ({ entryPoint }) => {
+            posthog.capture('onboarding started', {
+                entry_point: entryPoint,
+            })
+        },
+        reportOnboardingCompleted: ({ productKey }) => {
+            posthog.capture('onboarding completed', {
+                product_key: productKey,
+            })
+        },
         reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
             posthog.capture('onboarding use case selected', {
                 use_case: useCase,
                 recommended_products: recommendedProducts,
             })
+        },
+        reportOnboardingUseCaseSkipped: () => {
+            posthog.capture('onboarding use case skipped')
         },
         reportSDKSelected: ({ sdk }) => {
             posthog.capture('sdk selected', {

@@ -130,6 +130,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "InsufficientPrivilege": None,
             "OperationalError: connection failed: connection to server at": None,
             "password authentication failed connection": None,
+            "connection timeout expired": None,
         }
 
     def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:

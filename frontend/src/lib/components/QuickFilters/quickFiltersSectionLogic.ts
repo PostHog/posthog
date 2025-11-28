@@ -1,0 +1,69 @@
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+
+import { quickFiltersLogic } from 'lib/components/QuickFilters'
+
+import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { PropertyOperator, QuickFilterOption } from '~/types'
+
+import type { quickFiltersSectionLogicType } from './quickFiltersSectionLogicType'
+
+export interface SelectedQuickFilter {
+    propertyName: string
+    optionId: string
+    value: string | string[] | null
+    operator: PropertyOperator
+}
+
+export interface QuickFiltersSectionLogicProps {
+    context: QuickFilterContext
+}
+
+export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
+    path(['lib', 'components', 'QuickFilters', 'quickFiltersSectionLogic']),
+    props({} as QuickFiltersSectionLogicProps),
+    key((props) => props.context),
+
+    connect((props: QuickFiltersSectionLogicProps) => ({
+        values: [quickFiltersLogic({ context: props.context }), ['quickFilters']],
+        actions: [quickFiltersLogic({ context: props.context }), ['deleteFilter']],
+    })),
+
+    actions({
+        setQuickFilterValue: (propertyName: string, option: QuickFilterOption) => ({
+            propertyName,
+            option,
+        }),
+        clearQuickFilter: (propertyName: string) => ({ propertyName }),
+    }),
+
+    reducers({
+        selectedQuickFilters: [
+            {} as Record<string, SelectedQuickFilter>,
+            {
+                setQuickFilterValue: (state, { propertyName, option }) => ({
+                    ...state,
+                    [propertyName]: {
+                        propertyName,
+                        optionId: option.id,
+                        value: option.value,
+                        operator: option.operator,
+                    },
+                }),
+                clearQuickFilter: (state, { propertyName }) => {
+                    const newState = { ...state }
+                    delete newState[propertyName]
+                    return newState
+                },
+            },
+        ],
+    }),
+
+    listeners(({ actions, values }) => ({
+        deleteFilter: ({ id }) => {
+            const deletedFilter = values.quickFilters.find((f) => f.id === id)
+            if (deletedFilter) {
+                actions.clearQuickFilter(deletedFilter.property_name)
+            }
+        },
+    })),
+])

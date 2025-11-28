@@ -1,8 +1,9 @@
 import re
 import json
-import time
 from collections.abc import Callable
 from typing import Any, Literal, Optional, cast
+
+from django.conf import settings
 
 import dagster
 import requests
@@ -17,6 +18,7 @@ logger = structlog.get_logger(__name__)
 CACHE_EXPIRY = 60 * 60 * 24 * 7  # 7 days
 MAX_REQUEST_RETRIES = 3
 INITIAL_RETRIES_BACKOFF = 1  # in seconds
+
 
 SdkTypes = Literal[
     "web",
@@ -49,7 +51,7 @@ SDK_TYPES: list[SdkTypes] = [
 
 
 # Using lambda here to be able to define this before defining the functions
-SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], Optional[dict[str, Any]]]] = {
+SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "web": lambda: fetch_web_sdk_data(),
     "posthog-python": lambda: fetch_python_sdk_data(),
     "posthog-node": lambda: fetch_node_sdk_data(),
@@ -73,248 +75,210 @@ def fetch_github_data_for_sdk(lib_name: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def fetch_sdk_data_from_releases(repo: str, tag_prefix: str = "") -> Optional[dict[str, Any]]:
+def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str | re.Pattern] | None = None) -> dict[str, Any]:
     """Helper function to fetch SDK data from GitHub releases API."""
-    try:
-        response = requests.get(f"https://api.github.com/repos/{repo}/releases", timeout=10)
-        if not response.ok:
-            logger.error(f"[SDK Doctor] Failed to fetch releases for {repo}", status_code=response.status_code)
-            return None
 
-        releases = response.json()
-        if not releases:
-            return None
+    # By default we'll include anything in the list if not specified
+    if tag_prefixes is None:
+        tag_prefixes = [""]
 
-        latest_version = None
-        release_dates = {}
+    releases = fetch_releases_from_repo(repo)
+    if not releases:
+        return {}
 
-        for release in releases:
-            if release.get("draft") or release.get("prerelease"):
-                continue
+    latest_version = None
+    release_dates = {}
 
-            tag = release.get("tag_name", "")
+    for release in releases:
+        if release.get("draft") or release.get("prerelease"):
+            continue
 
-            # If tag_prefix is specified, only process tags that match
-            if tag_prefix:
-                if not tag.startswith(tag_prefix):
-                    continue
-                version = tag[len(tag_prefix) :]
-            elif tag.startswith("v"):
-                version = tag[1:]
-            elif tag.startswith("android-v"):
-                version = tag[9:]
+        tag = release.get("tag_name", "")
+
+        # Only process tags that match any of the tag prefixes
+        # We also support using regex here (used to match text that starts with a number)
+        version = None
+        for tag_prefix in tag_prefixes:
+            if isinstance(tag_prefix, re.Pattern):
+                if tag_prefix.match(tag):
+                    version = tag  # For regex matches we return the full tag
+                    break
             else:
-                version = tag
+                if tag.startswith(tag_prefix):
+                    version = tag[len(tag_prefix) :]
+                    break
 
-            if version:
-                if latest_version is None:
-                    latest_version = version
-                published_at = release.get("published_at")
-                if published_at:
-                    release_dates[version] = published_at
+        if not version:
+            continue
 
-        if not latest_version:
-            return None
+        # Latest version is always the first one we find because we go in order
+        if latest_version is None:
+            latest_version = version
 
-        return {"latestVersion": latest_version, "releaseDates": release_dates}
-    except Exception as e:
-        logger.exception(f"[SDK Doctor] Failed to fetch SDK data from releases for {repo}")
-        capture_exception(e)
-        return None
+        # Unintuitively we need to use `created_at` rather than `published_at`
+        # because the former represents when the tag was created while the latter is when the release was created
+        # and since some GitHub releases were backfilled we need the actual tag date
+        if created_at := release.get("created_at"):
+            release_dates[version] = created_at
+
+    if not latest_version:
+        return {}
+
+    return {"latestVersion": latest_version, "releaseDates": release_dates}
 
 
-def fetch_web_sdk_data() -> Optional[dict[str, Any]]:
+# This is used to avoid hitting the GitHub API too often
+# for requests coming from the same pod, this doesn't happen often but it's good to have it anyway
+local_releases_cache: dict[str, list[Any]] = {}
+
+
+def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
+    """Fetch releases from a GitHub repository"""
+    global local_releases_cache
+
+    # We don't wanna have to fight against the local cache when running tests
+    # so we just skip it since the cache is only here to avoid hitting GitHub's rate limit
+    # and we fully mock the requests during tests anyway
+    if settings.TEST:
+        skip_cache = True
+
+    if repo in local_releases_cache and not skip_cache:
+        logger.info(f"[SDK Doctor] Returning cached releases for {repo}")
+        return local_releases_cache[repo]
+
+    releases = []
+    page = 1
+
+    while page <= 10:  # Github only permits us to list the first 1000 items, so that's 100 items * 10 pages
+        try:
+            url = f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}"
+            logger.info(f"[SDK Doctor] Fetching releases from {url}")
+
+            response = requests.get(url, timeout=10)
+
+            if not response.ok:
+                logger.error(f"[SDK Doctor] Failed to fetch releases for {repo}", status_code=response.status_code)
+                break
+
+            releases_json = response.json()
+            if releases_json is None:
+                logger.error(f"[SDK Doctor] Expected list of releases, got empty response", repo=repo)
+                break
+
+            if not isinstance(releases_json, list):
+                logger.error(f"[SDK Doctor] Expected list of releases, got {type(releases_json)}", repo=repo)
+                break
+
+            if len(releases_json) == 0:
+                break
+
+            releases.extend(releases_json)
+            page += 1
+        except Exception as e:
+            logger.exception(f"[SDK Doctor] Failed to fetch releases for {repo}", repo=repo)
+            capture_exception(e, additional_properties={"repo": repo, "page": page, "url": url})
+            break
+
+    # Cache for later use and return
+    local_releases_cache[repo] = releases
+    return local_releases_cache[repo]
+
+
+def fetch_web_sdk_data() -> dict[str, Any]:
     """Fetch Web SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefix="posthog-js@")
+
+    # Newer versions in `posthog-js` use a monorepo approach where we prefix tags with `posthog-js@`
+    # while older versions before the monorepo used simple `v`-prefixed tags
+    return fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-js@", "v"])
 
 
-def fetch_python_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_python_sdk_data() -> dict[str, Any]:
     """Fetch Python SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-python", tag_prefix="v")
+    return fetch_sdk_data_from_releases("PostHog/posthog-python", tag_prefixes=["v"])
 
 
-def fetch_node_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_node_sdk_data() -> dict[str, Any]:
     """Fetch Node.js SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefix="posthog-node@")
+
+    # `posthog-node` was originally developed on the `posthog-js-lite` repo, but was later moved to the `posthog-js` monorepo
+    # We fetch the latest version from both repos and join them together.
+    posthog_js = fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-node@"])
+    posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-node-"])
+
+    # Shouldn't happen, but just in case
+    if not posthog_js:
+        return {}
+
+    # The latest date is always from `posthog-js` since this is the only active repo
+    return {
+        "latestVersion": posthog_js["latestVersion"],
+        "releaseDates": {
+            **posthog_js["releaseDates"],
+            **posthog_js_lite.get("releaseDates", {}),
+        },
+    }
 
 
-def fetch_react_native_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_react_native_sdk_data() -> dict[str, Any]:
     """Fetch React Native SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefix="posthog-react-native@")
+
+    # `posthog-react-native` was originally developed on the `posthog-js-lite` repo, but was later moved to the `posthog-js` monorepo
+    # We fetch the latest version from both repos and join them together.
+    posthog_js = fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-react-native@"])
+    posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-react-native-"])
+
+    # Shouldn't happen, but just in case
+    if not posthog_js:
+        return {}
+
+    # The latest date is always from `posthog-js` since this is the only active repo
+    return {
+        "latestVersion": posthog_js["latestVersion"],
+        "releaseDates": {
+            **posthog_js["releaseDates"],
+            **posthog_js_lite.get("releaseDates", {}),
+        },
+    }
 
 
-def fetch_flutter_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_flutter_sdk_data() -> dict[str, Any]:
     """Fetch Flutter SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-flutter")
 
 
-def fetch_ios_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_ios_sdk_data() -> dict[str, Any]:
     """Fetch iOS SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-ios")
 
 
-def fetch_android_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_android_sdk_data() -> dict[str, Any]:
     """Fetch Android SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-android", tag_prefix="android-v")
+    return fetch_sdk_data_from_releases("PostHog/posthog-android", tag_prefixes=["android-v", re.compile(r"[0-9]")])
 
 
-def fetch_go_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_go_sdk_data() -> dict[str, Any]:
     """Fetch Go SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-go", tag_prefix="v")
+    return fetch_sdk_data_from_releases("PostHog/posthog-go", tag_prefixes=["v"])
 
 
-def fetch_php_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_php_sdk_data() -> dict[str, Any]:
     """Fetch PHP SDK data from History.md with release dates"""
-    try:
-        changelog_response = requests.get(
-            "https://raw.githubusercontent.com/PostHog/posthog-php/master/History.md", timeout=10
-        )
-        if not changelog_response.ok:
-            return None
-
-        changelog_content = changelog_response.text
-        version_pattern = re.compile(r"^(\d+\.\d+\.\d+) / (\d{4}-\d{2}-\d{2})", re.MULTILINE)
-        matches = version_pattern.findall(changelog_content)
-
-        if not matches:
-            return None
-
-        latest_version = matches[0][0]
-        release_dates = {}
-        for version, date in matches:
-            release_dates[version] = f"{date}T00:00:00Z"
-
-        return {"latestVersion": latest_version, "releaseDates": release_dates}
-    except Exception:
-        return None
+    return fetch_sdk_data_from_releases("PostHog/posthog-php")
 
 
-def fetch_ruby_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_ruby_sdk_data() -> dict[str, Any]:
     """Fetch Ruby SDK data from CHANGELOG.md with release dates"""
-    try:
-        changelog_response = requests.get(
-            "https://raw.githubusercontent.com/PostHog/posthog-ruby/main/CHANGELOG.md", timeout=10
-        )
-        if not changelog_response.ok:
-            return None
-
-        changelog_content = changelog_response.text
-        version_pattern = re.compile(r"^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})", re.MULTILINE)
-        matches = version_pattern.findall(changelog_content)
-
-        if not matches:
-            return None
-
-        latest_version = matches[0][0]
-        release_dates = {}
-        for version, date in matches:
-            release_dates[version] = f"{date}T00:00:00Z"
-
-        return {"latestVersion": latest_version, "releaseDates": release_dates}
-    except Exception:
-        return None
+    return fetch_sdk_data_from_releases("PostHog/posthog-ruby")
 
 
-def fetch_elixir_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_elixir_sdk_data() -> dict[str, Any]:
     """Fetch Elixir SDK data from CHANGELOG.md with release dates"""
-    try:
-        changelog_response = requests.get(
-            "https://raw.githubusercontent.com/PostHog/posthog-elixir/master/CHANGELOG.md", timeout=10
-        )
-        if not changelog_response.ok:
-            return None
-
-        changelog_content = changelog_response.text
-        version_pattern = re.compile(r"^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})", re.MULTILINE)
-        matches = version_pattern.findall(changelog_content)
-
-        if not matches:
-            return None
-
-        latest_version = matches[0][0]
-        release_dates = {}
-        for version, date in matches:
-            release_dates[version] = f"{date}T00:00:00Z"
-
-        return {"latestVersion": latest_version, "releaseDates": release_dates}
-    except Exception:
-        return None
+    return fetch_sdk_data_from_releases("PostHog/posthog-elixir", tag_prefixes=["v"])
 
 
-def fetch_dotnet_sdk_data() -> Optional[dict[str, Any]]:
+def fetch_dotnet_sdk_data() -> dict[str, Any]:
     """Fetch .NET SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-dotnet", tag_prefix="v")
-
-
-def fetch_github_release_dates(repo: str) -> dict[str, str]:
-    """Fetch release dates from GitHub releases API with exponential backoff."""
-    for attempt in range(MAX_REQUEST_RETRIES):
-        try:
-            response = requests.get(f"https://api.github.com/repos/{repo}/releases?per_page=100", timeout=10)
-
-            if response.status_code in [403, 429]:
-                if attempt < MAX_REQUEST_RETRIES - 1:
-                    backoff_time = INITIAL_RETRIES_BACKOFF * (2**attempt)
-                    logger.warning(
-                        f"[SDK Doctor] GitHub API rate limit hit for {repo} (status {response.status_code}), retrying in {backoff_time}s (attempt {attempt + 1}/{MAX_REQUEST_RETRIES})"
-                    )
-                    time.sleep(backoff_time)
-                    continue
-                else:
-                    logger.error(
-                        f"[SDK Doctor] GitHub API rate limit exceeded for {repo} after {MAX_REQUEST_RETRIES} attempts (status {response.status_code})"
-                    )
-                    return {}
-
-            if not response.ok:
-                logger.warning(f"[SDK Doctor] GitHub API error for {repo}: {response.status_code}")
-                return {}
-
-            releases = response.json()
-            release_dates = {}
-
-            for release in releases:
-                tag_name = release.get("tag_name", "")
-                published_at = release.get("published_at", "")
-
-                if not tag_name or not published_at:
-                    continue
-
-                if repo == "PostHog/posthog-js":
-                    if "@" in tag_name:
-                        version = tag_name.split("@")[1]
-                        release_dates[version] = published_at
-                elif repo in [
-                    "PostHog/posthog-python",
-                    "PostHog/posthog-flutter",
-                    "PostHog/posthog-ios",
-                    "PostHog/posthog-go",
-                    "PostHog/posthog-dotnet",
-                ]:
-                    if tag_name.startswith("v"):
-                        version = tag_name[1:]
-                        release_dates[version] = published_at
-                elif repo == "PostHog/posthog-android":
-                    if tag_name.startswith("android-v"):
-                        version = tag_name[9:]
-                        release_dates[version] = published_at
-
-            return release_dates
-        except Exception as e:
-            if attempt < MAX_REQUEST_RETRIES - 1:
-                backoff_time = INITIAL_RETRIES_BACKOFF * (2**attempt)
-                logger.warning(
-                    f"[SDK Doctor] Error fetching GitHub releases for {repo}, retrying in {backoff_time}s: {str(e)}"
-                )
-                time.sleep(backoff_time)
-                continue
-            else:
-                logger.exception(
-                    f"[SDK Doctor] Failed to fetch GitHub releases for {repo} after {MAX_REQUEST_RETRIES} attempts"
-                )
-                return {}
-
-    return {}
+    return fetch_sdk_data_from_releases("PostHog/posthog-dotnet", tag_prefixes=["v"])
 
 
 # ---- Dagster defs
@@ -415,7 +379,7 @@ def cache_github_sdk_versions_job():
 
 cache_github_sdk_versions_schedule = dagster.ScheduleDefinition(
     job=cache_github_sdk_versions_job,
-    cron_schedule="0 0 * * *",  # Every day at midnight
+    cron_schedule="30 * * * *",  # Every hour at half past the hour
     execution_timezone="UTC",
     name="cache_github_sdk_versions_schedule",
 )

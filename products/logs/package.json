@@ -22,5 +22,8 @@
         "stylelint": "*",
         "typescript": "*",
         "use-debounce": "*"
+    },
+    "devDependencies": {
+        "kea-test-utils": "*"
     }
 }
