@@ -5,7 +5,27 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 
 import type { feedbackPromptLogicType } from './feedbackPromptLogicType'
-import { FeedbackTriggerType } from './utils'
+import { maxThreadLogic } from './maxThreadLogic'
+import { FeedbackRating, FeedbackTriggerType, captureFeedback } from './utils'
+
+function getMaxThreadLogicValues(): { traceId: string | null; threadGrouped: { type: string }[] } {
+    const mountedLogic = maxThreadLogic.findMounted()
+    if (!mountedLogic) {
+        return { traceId: null, threadGrouped: [] }
+    }
+    return {
+        traceId: mountedLogic.values.traceId,
+        threadGrouped: mountedLogic.values.threadGrouped,
+    }
+}
+
+function resetMaxThreadCounts(): void {
+    const mountedLogic = maxThreadLogic.findMounted()
+    if (mountedLogic) {
+        mountedLogic.actions.resetRetryCount()
+        mountedLogic.actions.resetCancelCount()
+    }
+}
 
 interface FeedbackConfig {
     cooldownMs: number
@@ -46,6 +66,8 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
     key((props) => props.conversationId),
 
     actions({
+        submitRating: (rating: FeedbackRating) => ({ rating }),
+        completeDetailedFeedback: true,
         checkShouldShowPrompt: (messageCount: number, retryCount: number, cancelCount: number) => ({
             messageCount,
             retryCount,
@@ -55,22 +77,10 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
         hidePrompt: true,
         showDetailedFeedback: true,
         hideDetailedFeedback: true,
+        implicitDismissPrompt: true,
+        implicitDismissDetailedFeedback: true,
         recordFeedbackShown: true,
         setLastTriggeredIntervalIndex: (index: number) => ({ index }),
-        submitImplicitDismiss: (conversationId: string, triggerType: FeedbackTriggerType, traceId: string | null) => ({
-            conversationId,
-            triggerType,
-            traceId,
-        }),
-        submitDetailedFeedbackDismiss: (
-            conversationId: string,
-            triggerType: FeedbackTriggerType,
-            traceId: string | null
-        ) => ({
-            conversationId,
-            triggerType,
-            traceId,
-        }),
     }),
 
     reducers({
@@ -79,6 +89,7 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
             {
                 showPrompt: () => true,
                 hidePrompt: () => false,
+                implicitDismissPrompt: () => false,
                 showDetailedFeedback: () => false,
             },
         ],
@@ -87,6 +98,7 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
             {
                 showDetailedFeedback: () => true,
                 hideDetailedFeedback: () => false,
+                implicitDismissDetailedFeedback: () => false,
                 hidePrompt: () => false,
             },
         ],
@@ -129,7 +141,29 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        submitRating: ({ rating }) => {
+            const { conversationId } = props
+            const { currentTriggerType, messageInterval } = values
+            const { traceId, threadGrouped } = getMaxThreadLogicValues()
+
+            // For "bad" rating, show the detailed feedback form instead of capturing immediately
+            if (rating === 'bad') {
+                actions.showDetailedFeedback()
+                return
+            }
+
+            captureFeedback(conversationId, traceId, rating, currentTriggerType)
+            actions.recordFeedbackShown()
+            resetMaxThreadCounts()
+
+            // Set the interval index to current level so we don't re-trigger at the same message count
+            const humanMessageCount = threadGrouped.filter((m) => m.type === 'human').length
+            const currentIntervalIndex = Math.floor(humanMessageCount / messageInterval)
+            actions.setLastTriggeredIntervalIndex(currentIntervalIndex)
+            actions.hidePrompt()
+        },
+
         checkShouldShowPrompt: ({ messageCount, retryCount, cancelCount }) => {
             const config = getFeedbackConfig()
             if (!config) {
@@ -178,27 +212,33 @@ export const feedbackPromptLogic = kea<feedbackPromptLogicType>([
             localStorage.setItem(STORAGE_KEY, Date.now().toString())
         },
 
-        submitImplicitDismiss: ({ conversationId, triggerType, traceId }) => {
-            posthog.capture('posthog_ai_feedback_submitted', {
-                $ai_conversation_id: conversationId,
-                $ai_session_id: conversationId,
-                $ai_trace_id: traceId,
-                $ai_feedback_rating: 'implicit_dismiss',
-                $ai_feedback_trigger_type: triggerType,
-            })
+        implicitDismissPrompt: () => {
+            const { conversationId } = props
+            const { currentTriggerType } = values
+            const { traceId } = getMaxThreadLogicValues()
+
+            captureFeedback(conversationId, traceId, 'implicit_dismiss', currentTriggerType)
             actions.recordFeedbackShown()
-            actions.hidePrompt()
         },
 
-        submitDetailedFeedbackDismiss: ({ conversationId, triggerType, traceId }) => {
-            posthog.capture('posthog_ai_feedback_submitted', {
-                $ai_conversation_id: conversationId,
-                $ai_session_id: conversationId,
-                $ai_trace_id: traceId,
-                $ai_feedback_rating: 'bad',
-                $ai_feedback_trigger_type: triggerType,
-            })
+        implicitDismissDetailedFeedback: () => {
+            const { conversationId } = props
+            const { currentTriggerType } = values
+            const { traceId } = getMaxThreadLogicValues()
+
+            captureFeedback(conversationId, traceId, 'bad', currentTriggerType)
             actions.recordFeedbackShown()
+        },
+
+        completeDetailedFeedback: () => {
+            const { messageInterval } = values
+            const { threadGrouped } = getMaxThreadLogicValues()
+
+            resetMaxThreadCounts()
+
+            const humanMessageCount = threadGrouped.filter((m) => m.type === 'human').length
+            const currentIntervalIndex = Math.floor(humanMessageCount / messageInterval)
+            actions.setLastTriggeredIntervalIndex(currentIntervalIndex)
             actions.hideDetailedFeedback()
         },
     })),

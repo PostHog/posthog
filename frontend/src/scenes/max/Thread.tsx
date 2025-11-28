@@ -99,20 +99,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
     // Only use feedback logic when we have a valid conversationId
     const feedbackLogicProps = useMemo(() => (conversationId ? { conversationId } : null), [conversationId])
-    const { isPromptVisible, isDetailedFeedbackVisible, currentTriggerType, messageInterval } = useValues(
+    const { isPromptVisible, isDetailedFeedbackVisible } = useValues(
         feedbackLogicProps ? feedbackPromptLogic(feedbackLogicProps) : feedbackPromptLogic.build({ conversationId: '' })
     )
-    const {
-        checkShouldShowPrompt,
-        submitImplicitDismiss,
-        submitDetailedFeedbackDismiss,
-        hideDetailedFeedback,
-        recordFeedbackShown,
-        setLastTriggeredIntervalIndex,
-    } = useActions(
+    const { checkShouldShowPrompt, implicitDismissPrompt, implicitDismissDetailedFeedback } = useActions(
         feedbackLogicProps ? feedbackPromptLogic(feedbackLogicProps) : feedbackPromptLogic.build({ conversationId: '' })
     )
-    const { resetRetryCount, resetCancelCount } = useActions(maxThreadLogic)
 
     const prevMessageCountRef = useRef(threadGrouped.length)
     const prevStreamingActiveRef = useRef(streamingActive)
@@ -133,12 +125,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
         // If prompt is visible and user sends a new message (count increased), trigger implicit dismiss
         if (isPromptVisible && humanMessageCount > prevCount && streamingActive) {
-            submitImplicitDismiss(conversationId, currentTriggerType, traceId)
+            implicitDismissPrompt()
         }
 
         // If detailed feedback form is visible and user sends a new message, submit "bad" rating and dismiss
         if (isDetailedFeedbackVisible && humanMessageCount > prevCount && streamingActive) {
-            submitDetailedFeedbackDismiss(conversationId, currentTriggerType, traceId)
+            implicitDismissDetailedFeedback()
         }
 
         prevMessageCountRef.current = humanMessageCount
@@ -149,11 +141,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         checkShouldShowPrompt,
         isPromptVisible,
         isDetailedFeedbackVisible,
-        submitImplicitDismiss,
-        submitDetailedFeedbackDismiss,
+        implicitDismissPrompt,
+        implicitDismissDetailedFeedback,
         conversationId,
-        currentTriggerType,
-        traceId,
         retryCount,
         cancelCount,
     ])
@@ -198,20 +188,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         </MessageTemplate>
                     )}
                     {conversationId && isDetailedFeedbackVisible && !streamingActive && (
-                        <FeedbackPrompt
-                            conversationId={conversationId}
-                            traceId={traceId}
-                            triggerType={currentTriggerType}
-                            onComplete={() => {
-                                resetRetryCount()
-                                resetCancelCount()
-                                const humanMessageCount = threadGrouped.filter((m) => m.type === 'human').length
-                                const currentIntervalIndex = Math.floor(humanMessageCount / messageInterval)
-                                setLastTriggeredIntervalIndex(currentIntervalIndex)
-                                hideDetailedFeedback()
-                            }}
-                            onRecordCooldown={recordFeedbackShown}
-                        />
+                        <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
                     )}
                 </>
             ) : (

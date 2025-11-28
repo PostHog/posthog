@@ -8,28 +8,22 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
+import { feedbackPromptLogic } from './feedbackPromptLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
-import { FeedbackTriggerType, captureFeedback } from './utils'
+import { captureFeedback } from './utils'
 
 interface FeedbackPromptProps {
     conversationId: string
     traceId: string | null
-    triggerType: FeedbackTriggerType
-    onComplete: () => void
-    onRecordCooldown: () => void
 }
 
 /**
  * Detailed feedback form shown after user clicks "Bad" rating.
  * Allows text feedback submission or escalation to support ticket.
  */
-export function FeedbackPrompt({
-    conversationId,
-    traceId,
-    triggerType,
-    onComplete,
-    onRecordCooldown,
-}: FeedbackPromptProps): JSX.Element {
+export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps): JSX.Element {
+    const { currentTriggerType } = useValues(feedbackPromptLogic({ conversationId }))
+    const { recordFeedbackShown, completeDetailedFeedback } = useActions(feedbackPromptLogic({ conversationId }))
     const [feedbackText, setFeedbackText] = useState('')
     const [status, setStatus] = useState<'feedback' | 'ticket_preview' | 'done'>('feedback')
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -49,7 +43,7 @@ export function FeedbackPrompt({
     useEffect(() => {
         // When ticket submission completes (lastSubmittedTicketId changes to a new value), capture the events
         if (pendingTicketSubmission && lastSubmittedTicketId && lastSubmittedTicketId !== ticketIdBeforeSubmission) {
-            captureFeedback(conversationId, traceId, 'bad', triggerType, ticketMessageText || undefined)
+            captureFeedback(conversationId, traceId, 'bad', currentTriggerType, ticketMessageText || undefined)
 
             posthog.capture('posthog_ai_support_ticket_created', {
                 $ai_conversation_id: conversationId,
@@ -60,16 +54,16 @@ export function FeedbackPrompt({
             })
             setIsSupportModalOpen(false)
             setPendingTicketSubmission(false)
-            onComplete()
+            completeDetailedFeedback()
         }
     }, [
         lastSubmittedTicketId,
         pendingTicketSubmission,
         ticketIdBeforeSubmission,
-        onComplete,
+        completeDetailedFeedback,
         conversationId,
         traceId,
-        triggerType,
+        currentTriggerType,
         ticketMessageText,
     ])
 
@@ -78,12 +72,12 @@ export function FeedbackPrompt({
             return
         }
         setIsSubmitting(true)
-        onRecordCooldown()
+        recordFeedbackShown()
 
-        captureFeedback(conversationId, traceId, 'bad', triggerType, feedbackText)
+        captureFeedback(conversationId, traceId, 'bad', currentTriggerType, feedbackText)
 
         setStatus('done')
-        setTimeout(onComplete, 2000)
+        setTimeout(completeDetailedFeedback, 2000)
         setIsSubmitting(false)
     }
 
@@ -124,7 +118,7 @@ export function FeedbackPrompt({
         setSendSupportRequestValue('message', finalMessage)
         setTicketIdBeforeSubmission(lastSubmittedTicketId)
         setPendingTicketSubmission(true)
-        onRecordCooldown()
+        recordFeedbackShown()
         submitSendSupportRequest()
     }
 

@@ -2,13 +2,12 @@ import './QuestionInput.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { useEffect } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { feedbackPromptLogic } from '../feedbackPromptLogic'
-import { maxThreadLogic } from '../maxThreadLogic'
-import { FeedbackRating, captureFeedback } from '../utils'
+import { FeedbackRating } from '../utils'
 
 export interface FeedbackDisplayProps {
     isFloating?: boolean
@@ -16,45 +15,8 @@ export interface FeedbackDisplayProps {
 }
 
 export function FeedbackDisplay({ isFloating, conversationId }: FeedbackDisplayProps): JSX.Element | null {
-    const { isPromptVisible, currentTriggerType, messageInterval } = useValues(feedbackPromptLogic({ conversationId }))
-    const { hidePrompt, showDetailedFeedback, recordFeedbackShown, setLastTriggeredIntervalIndex } = useActions(
-        feedbackPromptLogic({ conversationId })
-    )
-    const { traceId, threadGrouped } = useValues(maxThreadLogic)
-    const { resetRetryCount, resetCancelCount } = useActions(maxThreadLogic)
-
-    const submitRating = useCallback(
-        (rating: FeedbackRating): void => {
-            // For "bad" rating, show the detailed feedback form in the thread
-            if (rating === 'bad') {
-                showDetailedFeedback()
-                return
-            }
-
-            captureFeedback(conversationId, traceId, rating, currentTriggerType)
-            recordFeedbackShown()
-            resetRetryCount()
-            resetCancelCount()
-            // Set the interval index to current level so we don't re-trigger at the same message count
-            const humanMessageCount = threadGrouped.filter((m: { type: string }) => m.type === 'human').length
-            const currentIntervalIndex = Math.floor(humanMessageCount / messageInterval)
-            setLastTriggeredIntervalIndex(currentIntervalIndex)
-            hidePrompt()
-        },
-        [
-            traceId,
-            currentTriggerType,
-            conversationId,
-            recordFeedbackShown,
-            hidePrompt,
-            showDetailedFeedback,
-            resetRetryCount,
-            resetCancelCount,
-            threadGrouped,
-            messageInterval,
-            setLastTriggeredIntervalIndex,
-        ]
-    )
+    const { isPromptVisible } = useValues(feedbackPromptLogic({ conversationId }))
+    const { submitRating } = useActions(feedbackPromptLogic({ conversationId }))
 
     // Global keyboard shortcuts - capture phase intercepts before input fields
     useEffect(() => {
