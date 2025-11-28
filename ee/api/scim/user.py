@@ -212,12 +212,18 @@ class PostHogSCIMUser(SCIMUser):
             self.obj.email = email
             self.obj.save()
 
-            SCIMProvisionedUser.objects.filter(
+            SCIMProvisionedUser.objects.update_or_create(
                 user=self.obj,
                 organization_domain=self._organization_domain,
-            ).update(
-                username=user_name,
-                active=is_active,
+                defaults={
+                    "username": user_name,
+                    "active": is_active,
+                },
+                create_defaults={
+                    "username": user_name,
+                    "active": is_active,
+                    "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                },
             )
 
             # Deactivate user if active is false
@@ -269,10 +275,16 @@ class PostHogSCIMUser(SCIMUser):
                     self.deactivate()
                     return
                 else:
-                    SCIMProvisionedUser.objects.filter(
+                    SCIMProvisionedUser.objects.update_or_create(
                         user=self.obj,
                         organization_domain=self._organization_domain,
-                    ).update(active=True)
+                        defaults={"active": True},
+                        create_defaults={
+                            "active": True,
+                            "username": self.obj.email,
+                            "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                        },
+                    )
 
             elif attr_name == "name":
                 if sub_attr == "givenName" and isinstance(value, str):
@@ -296,10 +308,16 @@ class PostHogSCIMUser(SCIMUser):
                     self.obj.email = email
 
             elif attr_name == "userName" and isinstance(value, str):
-                SCIMProvisionedUser.objects.filter(
+                SCIMProvisionedUser.objects.update_or_create(
                     user=self.obj,
                     organization_domain=self._organization_domain,
-                ).update(username=value)
+                    defaults={"username": value},
+                    create_defaults={
+                        "username": value,
+                        "active": True,
+                        "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                    },
+                )
 
             self.obj.save()
 
@@ -319,10 +337,16 @@ class PostHogSCIMUser(SCIMUser):
                     defaults={"level": OrganizationMembership.Level.MEMBER},
                 )
 
-                SCIMProvisionedUser.objects.filter(
+                SCIMProvisionedUser.objects.update_or_create(
                     user=self.obj,
                     organization_domain=self._organization_domain,
-                ).update(active=True)
+                    defaults={"active": True},
+                    create_defaults={
+                        "active": True,
+                        "username": self.obj.email,
+                        "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                    },
+                )
 
             elif attr_name == "name":
                 if sub_attr == "givenName" and isinstance(value, str):
@@ -348,10 +372,16 @@ class PostHogSCIMUser(SCIMUser):
                     self.obj.save()
 
             elif attr_name == "userName" and isinstance(value, str):
-                SCIMProvisionedUser.objects.filter(
+                SCIMProvisionedUser.objects.update_or_create(
                     user=self.obj,
                     organization_domain=self._organization_domain,
-                ).update(username=value)
+                    defaults={"username": value},
+                    create_defaults={
+                        "username": value,
+                        "active": True,
+                        "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                    },
+                )
 
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
