@@ -9,6 +9,7 @@ Here I'll list step-by-step what we learned, where we messed up, and lots of pra
 Let's forget about scaling for a moment, and focus just on a single user session - user visited a website or app, navigated a bit, did something useful, and left. The logic seems straightforward - take all the session events, send to LLM, get the summary.
 
 {{ screenshot of the player with the summary }}
+> (under the image text) *Here's how you can get a summary of a single session for a Replay player*
 
 However...
 
@@ -43,3 +44,5 @@ Fast-growing products (start-ups specifically) has a bad habbit of generating lo
 
 - Programmatically pre-filter events that look like exceptions, especially if one causes multiple others as avalanche and they create a context that LLM can't ignore. For example, drop all JS exceptions that aren't API errors.
 - It won't save you anyway.
+
+## Step 2: See what the user sees
