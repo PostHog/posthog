@@ -16,20 +16,6 @@
 - It should have a "takeaway" readers can apply to their own work
 - Balances depth with accessibility
 
-### Main context
-
-- Article is focused on the BETA release of a new feature of our PostHog AI chat assistant, but it should be useful technical article unrelated to the product
-- The product is PostHog - web analytics platform, that collects analytics data, record videos of users visiting website, and so
-- The AI feature called Session summaries - we take 100 (at the moment) user sessions at once, and "watch" them for user with LLMs - highlighting patterns of issues that we noticed in these sessions. In the end, you can talk with the report
-- The focus of the BETA release of the feature is to make a tool that does one thing - surface the issues found in the sessions, so you don't need to watch hundreds of sessions youself. It's not one-fit-all agent yet (but could be soon), but a single focused PostHog AI tool, with a straight direction to solve a single problem well. We'll use it as a basis for other tools for different mediums (LLM analytics, error tracking, Zendesk, user interviews, etc.), so it's the first step.
-
-### Code UI context
-
-- The main interfaces is this node, that spaws Temporal workflows - @ee/hogai/chat_agent/session_summaries/nodes.py
-- The UI of the session group report looks like this: {PUT SCREEN}
-- The specific example (inside the session group report pattern) looks like this: {PUT SCREEN}
-- The single session summary looks like this in the chat: {PUT SCREEN}; and like this in the Replay player: {PUT SCREEN}
-
 ### Similar articles
 
 - Focus on the style of the articles from Antrhopic (https://www.anthropic.com/engineering/advanced-tool-use and https://www.anthropic.com/engineering/code-execution-with-mcp, read them in detail). Focus on technical depth, clear diagrams, honest about limitations.
@@ -41,6 +27,14 @@
 
 - Projects have tons of users that have tons of sessions, so the developers/product managers/etc. can't watch all the sessions
 - We want to watch sessions for them and surface the issues, saving them time and highlighting what to improve, needle in the haystack
+
+### Technical challenges
+
+- Sessions could include thousands of events, leading to millions and millions of tokens to get proper context from
+- RRWeb files we use for Replay could weight up to 700MB with tens of thousands of mutations
+- We need to make it work in a meaningful time (~5-7 minutes), instead of long on-the-background processing
+- Without video validation for blocking issues the reports are a bit panicky on JavaScript errors and failed queries, so we need to actually see what the user sees to confirm the issue happened
+- Early-stage or fast-growing startups usually spam tens of exceptions and it's an expected user experience, so we need to understand which ones matter
 
 ### How does the feature work
 
@@ -80,13 +74,21 @@ The feature is accessible as a tool from PostHog AI chat. You can ask PostHog AI
 - It's the first step, next we'll do the reporting not just using your Replay data, but using your LLM analytics traces, Error tracking issues, Zendesk tickets, and so, signaling you about any new issues proactively, or tracking the trends on known issues.
 - The next iteration will allow you to find sessions based on free-text questions ("find me sessions where user stared at UI for 40s not knowing what to do") and focus on that "what users sees" more as we have (in alpha) a solution to do double-side summary - both from the events side and what user sees on their screen side (by doing full-session transcriptions, instead of 10s validation video transcriptions we do now)
 
-### Technical challenges
+## Context
 
-- Sessions could include thousands of events, leading to millions and millions of tokens to get proper context from
-- RRWeb files we use for Replay could weight up to 700MB with tens of thousands of mutations
-- We need to make it work in a meaningful time (~5-7 minutes), instead of long on-the-background processing
-- Without video validation for blocking issues the reports are a bit panicky on JavaScript errors and failed queries, so we need to actually see what the user sees to confirm the issue happened
-- Early-stage or fast-growing startups usually spam tens of exceptions and it's an expected user experience, so we need to understand which ones matter
+### Main context
+
+- Article is focused on the BETA release of a new feature of our PostHog AI chat assistant, but it should be useful technical article unrelated to the product
+- The product is PostHog - web analytics platform, that collects analytics data, record videos of users visiting website, and so
+- The AI feature called Session summaries - we take 100 (at the moment) user sessions at once, and "watch" them for user with LLMs - highlighting patterns of issues that we noticed in these sessions. In the end, you can talk with the report
+- The focus of the BETA release of the feature is to make a tool that does one thing - surface the issues found in the sessions, so you don't need to watch hundreds of sessions youself. It's not one-fit-all agent yet (but could be soon), but a single focused PostHog AI tool, with a straight direction to solve a single problem well. We'll use it as a basis for other tools for different mediums (LLM analytics, error tracking, Zendesk, user interviews, etc.), so it's the first step.
+
+### Code UI context
+
+- The main interfaces is this node, that spaws Temporal workflows - @ee/hogai/chat_agent/session_summaries/nodes.py
+- The UI of the session group report looks like this: @blog/report-ui.png
+- The specific example (inside the session group report pattern) looks like this: @blog/single-issue-inside-pattern-ui.png
+- The single session summary looks like this in the chat: @blog/single-session-summary-within-chat-ui.png; and like this in the Replay player: @blog/single-sesion-summary-within-player-ui.png
 
 ## Notes
 
