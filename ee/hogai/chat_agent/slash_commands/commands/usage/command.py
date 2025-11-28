@@ -17,7 +17,7 @@ from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     get_conversation_start_time,
     get_past_month_start,
 )
-from ee.hogai.utils.types import PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
 class UsageCommand(SlashCommand):
@@ -26,7 +26,7 @@ class UsageCommand(SlashCommand):
     Shows PostHog AI credit usage for the current conversation and billing period.
     """
 
-    async def execute(self, config: RunnableConfig) -> PartialAssistantState:
+    async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
         try:
             conversation_id = config.get("configurable", {}).get("thread_id")
             if not conversation_id:

@@ -5,8 +5,9 @@ from posthog.schema import HumanMessage
 
 from ee.hogai.chat_agent.memory.nodes import MemoryOnboardingNode
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
+from ee.hogai.chat_agent.slash_commands.commands.remember import RememberCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage import UsageCommand
-from ee.hogai.core.agent_modes.const import SLASH_COMMAND_USAGE
+from ee.hogai.core.agent_modes.const import SLASH_COMMAND_REMEMBER, SLASH_COMMAND_USAGE
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -20,9 +21,11 @@ class SlashCommandHandlerNode(AssistantNode):
     For non-command messages, it routes to the normal conversation flow.
     """
 
-    # Registry mapping slash commands to their handler classes
+    # Registry mapping slash commands to their handler classes.
+    # Commands are matched by prefix, so /remember can take arguments.
     COMMAND_HANDLERS: dict[str, type[SlashCommand]] = {
         SLASH_COMMAND_USAGE: UsageCommand,
+        SLASH_COMMAND_REMEMBER: RememberCommand,
     }
 
     def _get_command(self, state: AssistantState) -> str | None:
@@ -30,8 +33,9 @@ class SlashCommandHandlerNode(AssistantNode):
         for msg in reversed(state.messages):
             if isinstance(msg, HumanMessage):
                 content = msg.content.strip()
+                # Check for exact match first, then prefix match (for commands with args)
                 for command in self.COMMAND_HANDLERS:
-                    if content == command:
+                    if content == command or content.startswith(command + " "):
                         return command
                 return None
         return None
@@ -43,7 +47,7 @@ class SlashCommandHandlerNode(AssistantNode):
 
         command_class = self.COMMAND_HANDLERS[command]
         command_instance = command_class(self._team, self._user)
-        return await command_instance.execute(config)
+        return await command_instance.execute(config, state)
 
     def router(self, state: AssistantState) -> AssistantNodeName | list[Send]:
         """

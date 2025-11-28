@@ -8,9 +8,10 @@ from langgraph.types import Send
 from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
+from ee.hogai.chat_agent.slash_commands.commands.remember import RememberCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage import UsageCommand
 from ee.hogai.chat_agent.slash_commands.nodes import SlashCommandHandlerNode
-from ee.hogai.core.agent_modes.const import SLASH_COMMAND_USAGE
+from ee.hogai.core.agent_modes.const import SLASH_COMMAND_REMEMBER, SLASH_COMMAND_USAGE
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 
@@ -87,7 +88,33 @@ class TestSlashCommandHandlerNode(BaseTest):
             UsageCommand,
         )
 
+    def test_command_handlers_contains_remember(self):
+        """Test that COMMAND_HANDLERS registry contains /remember with correct class."""
+        self.assertIn(SLASH_COMMAND_REMEMBER, SlashCommandHandlerNode.COMMAND_HANDLERS)
+        self.assertEqual(
+            SlashCommandHandlerNode.COMMAND_HANDLERS[SLASH_COMMAND_REMEMBER],
+            RememberCommand,
+        )
+
     def test_command_handlers_are_slash_command_subclasses(self):
         """Test that all handlers are SlashCommand subclasses."""
         for command_class in SlashCommandHandlerNode.COMMAND_HANDLERS.values():
             self.assertTrue(issubclass(command_class, SlashCommand))
+
+    def test_get_command_detects_remember(self):
+        """Test that /remember command without args is detected."""
+        state = AssistantState(messages=[HumanMessage(content="/remember")])
+        result = self.node._get_command(state)
+        self.assertEqual(result, SLASH_COMMAND_REMEMBER)
+
+    def test_get_command_detects_remember_with_args(self):
+        """Test that /remember command with args is detected."""
+        state = AssistantState(messages=[HumanMessage(content="/remember My main KPI is MAU")])
+        result = self.node._get_command(state)
+        self.assertEqual(result, SLASH_COMMAND_REMEMBER)
+
+    def test_router_returns_end_for_remember_command(self):
+        """Test that /remember command routes to END."""
+        state = AssistantState(messages=[HumanMessage(content="/remember test fact")])
+        result = self.node.router(state)
+        self.assertEqual(result, AssistantNodeName.END)

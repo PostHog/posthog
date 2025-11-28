@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -23,12 +23,13 @@ class SlashCommand(ABC):
         self._user = user
 
     @abstractmethod
-    async def execute(self, config: RunnableConfig) -> PartialAssistantState:
+    async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
         """
         Execute the slash command and return the result state.
 
         Args:
             config: The runnable config containing thread_id and other metadata
+            state: The current assistant state
 
         Returns:
             PartialAssistantState with messages to send to the user
