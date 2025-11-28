@@ -11,7 +11,8 @@ Here I'll list step-by-step what we learned, where we messed up, and lots of pra
 Let's forget about scaling for a moment, and focus just on a single user session - user visited a website or app, navigated a bit, did something useful, and left. The logic seems straightforward - take all the session events, send to LLM, get the summary.
 
 {{ screenshot of the player with the summary }}
-> (under the image text) *Here's how you can get a summary of a single session from chat, or Replay player*
+
+> (under the image text) _Here's how you can get a summary of a single session from chat, or Replay player_
 
 However...
 
@@ -52,7 +53,8 @@ Fast-growing products (startups specifically) have a bad habit of generating lot
 Even with noise reduction, the core problem remained - we couldn't be sure if the issues LLM highlighted actually impacted users. A TypeError in logs looks scary, but if a retry succeeded in 200ms, the user never noticed. But what if we generate a video of the session? What if we could see what the user saw?
 
 {{ scheme/graph of the video validation logic }}
-> (under the image text) *For each blocking issue, we generate a short video clip and ask the multi-modal LLM to verify what actually happened*
+
+> (under the image text) _For each blocking issue, we generate a short video clip and ask the multi-modal LLM to verify what actually happened_
 
 When the single-session summary flags something as a "blocking error" - an exception that supposedly prevented the user from completing their goal - we don't trust it blindly. Instead, we:
 
@@ -94,3 +96,72 @@ Even with all the optimizations above, video files add up. A 10-second clip at 1
 
 - We use `.webm`. It's roughly half size of the `.mp4`, supported by most multi-modal models, and can be played by most browsers by default (in UI or not).
 - We render videos at 8-10x - 1 frame per second is usually enough for LLM to understand the context well. However, `puppeteer` or `playwright` have different keyframe settings, so after some point speed up will mean the data loss.
+
+## Step 3: Analyze lots of sessions at once
+
+A single session summary is useful enough, true, but watching one session at a time doesn't solve the original problem - there are thousands of sessions, and we need to find issues across them. As it's a beta, we decided to start small, with 100-session chunks. It won't cover all the sessions, but it can cover a good enough sample (or a specific org), and already saves tons of time.
+
+{{ screenshot of the group report UI showing patterns }}
+
+> (under the image text) _You can check pattern based on severity and issue types_
+
+The session group summary surfaces patterns across sessions, with severity, affected session count, and specific examples. The hard part is, obviously, how to collect these patterns.
+
+### Patterns are hard to catch
+
+In the ideal world, we would just send 100 single session summaries in one LLM call, and get back a summary for all the patterns. Sadly, it doesn't work on multiple levels. Firstly, we will just hit context limits of LLMs, as enriched summaries are pretty heavy with metadata. Secondly, even if they fit - we would hit exactly the same lost-in-the-middle problem, with start/end sessions getting way more attention.
+
+Also, we could've just picked a sample of sessions and select patterns from them, but then the quality of the final report will be too dependent on our luck in picking the initial sessions. LLMs love finding patterns, but without proper control we would've got either duplicates or crazy insightful "wow, users clicked buttons" ones.
+
+**Our approach:**
+We use a four-phase pipeline instead of a single prompt:
+
+1. Summarize each session individually (in parallel)
+2. Extract patterns from summaries in chunks of meaningful size (to keep attention in the middle)
+3. Combine patterns extracted from each chunk, by either joining similar ones or extending the list
+4. Iterate over chunks of single session summaries to assign events back to patterns for concrete examples
+
+{{ diagram of the three-phase pipeline }}
+
+> (under the image text) _Sessions → Parallel summaries → Chunked pattern extraction → Combine/dedupe → Event assignment → Final report_
+
+### Crying wolf effect - Patterns edition
+
+Even if we got patterns - there's just too much data to process easily, so we need to rank them properly. For example, a blocking error that happens once in 100 sessions is annoying. The same error in 80 sessions is critical. Or, the exception could happen 10 times, but just for a single user out of 100, and saying "issue X happened 15 times" could cause a false alarm.
+
+Our approach:
+
+- We limit 1 example per session per pattern, so if the report says "happened 15 times" you can be sure it happened in 15 different sessions
+- We calculate detailed pattern statistics: occurrence count, affected sessions, percentage of total, severity
+- The default report shows only issues with blocking errors by default, but you can show other types if you want to dig deeper
+
+### Results should be easily checked
+
+And the last, even if we picked the pattern right, and attached proper examples, it's LLMs, right? You can't trust them right away. Seeing "Users experience checkout timeouts" is useful. Seeing "Users experience checkout timeouts - here are 5 specific sessions where it happened, with timestamps and video clips" is actionable.
+
+To make it work, we needed a way to easily display the whole story to the user and give them the tools to validate the issue themselves. So we did.
+
+{{ screenshot of a specific issue modal }}
+
+> (under the image text) _TODO_
+
+Our approach:
+
+- We display not just the issue, but also the segment that issue was part of, what happened before the issue, and what happened after
+- Timestamp and event type of the issue is clear, and easy to validate
+- Even easier, as we load the video of the session at the moment it happened (actually, a couple of seconds before)
+
+---
+
+Not all sessions will summarize successfully
+
+When you're making 100+ LLM calls, some will fail. Timeouts, rate limits, malformed responses, hallucinated output that fails validation. If we fail the entire report because one session errored, the
+feature becomes unusable.
+
+Our approach:
+
+- We set failure thresholds instead of failing on first error:
+- Session summaries: if less than 50% succeed, abort. Otherwise, continue with what we have.
+- Pattern extraction: if less than 75% of chunks succeed, abort.
+- Pattern assignment: same 75% threshold.
+- This means a report might be based on 85 sessions instead of 100, but that's usually good enough to find patterns. We surface this in the UI so users know.
