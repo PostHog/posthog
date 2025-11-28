@@ -100,7 +100,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             filters=HogQLFilters(dateRange=self.query.dateRange),
             settings=self.settings,
         )
-
         results = []
         for result in response.results:
             results.append(
@@ -118,6 +117,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     "resource_attributes": result[10],
                     "instrumentation_scope": result[11],
                     "event_name": result[12],
+                    "live_logs_checkpoint": result[13],
                 }
             )
 
@@ -161,7 +161,8 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 severity_text as level,
                 resource_attributes,
                 instrumentation_scope,
-                event_name
+                event_name,
+                (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint
             FROM logs where (_part_starting_offset+_part_offset) in ({query})
         """,
             placeholders={"query": query},
@@ -224,6 +225,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
         if self.query.filterGroup:
             exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
+
+        if self.query.liveLogsCheckpoint:
+            exprs.append(
+                parse_expr(
+                    "observed_timestamp >= {liveLogsCheckpoint}",
+                    placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
+                )
+            )
 
         return ast.And(exprs=exprs)
 

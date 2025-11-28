@@ -28,6 +28,7 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -233,7 +234,9 @@ function LogsTable({
                 size="small"
                 embedded
                 rowKey="uuid"
-                rowStatus={(record) => (record.uuid === highlightedLogId ? 'highlighted' : null)}
+                rowStatus={(record) =>
+                    record.uuid === highlightedLogId ? 'highlighted' : record.new ? 'highlight-new' : null
+                }
                 rowClassName={(record) =>
                     isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
                 }
@@ -412,8 +415,8 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 }
 
 const Filters = (): JSX.Element => {
-    const { logsLoading } = useValues(logsLogic)
-    const { runQuery, zoomDateRange } = useActions(logsLogic)
+    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsLogic)
+    const { runQuery, zoomDateRange, setLiveTailRunning } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
@@ -441,9 +444,19 @@ const Filters = (): JSX.Element => {
                         icon={<IconRefresh />}
                         type="secondary"
                         onClick={() => runQuery()}
-                        loading={logsLoading}
+                        loading={logsLoading || liveTailRunning}
+                        disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
                     >
-                        {logsLoading ? 'Loading...' : 'Search'}
+                        {liveTailRunning ? 'Tailing...' : logsLoading ? 'Loading...' : 'Search'}
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type={liveTailRunning ? 'primary' : 'secondary'}
+                        icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
+                        onClick={() => setLiveTailRunning(!liveTailRunning)}
+                        disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
+                    >
+                        Live tail
                     </LemonButton>
                 </div>
             </div>
