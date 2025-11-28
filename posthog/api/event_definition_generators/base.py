@@ -38,24 +38,12 @@ class EventDefinitionGenerator(ABC):
         """
         pass
 
-    @abstractmethod
-    def map_property_type(self, property_type: str) -> str:
-        """
-        Map PostHog property types to target language types.
-        Implement this in subclasses for language-specific type mappings.
-        """
-        pass
-
-    @staticmethod
     def calculate_schema_hash(
-        generator_version: str,
+        self,
         event_definitions: QuerySet[EventDefinition],
         schema_map: dict[str, list[SchemaPropertyGroupProperty]],
     ) -> str:
         """
-        Note: This is a `staticmethod` temporarily only until the typescript generator has been migrated to this
-        setup as well.
-
         Calculate a deterministic hash of the event schemas and generator version.
         The hash is used by clients to know when to regenerate their code.
         """
@@ -71,41 +59,32 @@ class EventDefinitionGenerator(ABC):
 
         # Include generator version to force regeneration on structural changes
         hash_input = {
-            "version": generator_version,
+            "version": self.generator_version(),
             "schemas": schema_data,
         }
 
         return hashlib.sha256(orjson.dumps(hash_input, option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
 
-    @staticmethod
-    def record_report_generation(
-        language_name: str, generator_version: str, user, team_id: int, project_id: int
-    ) -> None:
+    def record_report_generation(self, user, team_id: int, project_id: int) -> None:
         """
-        Note: This is a `staticmethod` temporarily only until the typescript generator has been migrated to this
-        setup as well.
-
         A convenience method to structurally report telemetry for code generation.
         """
         report_user_action(
             user,
             "event definitions generated",
             {
-                "language": language_name,
-                "generator_version": generator_version,
+                "language": self.language_name(),
+                "generator_version": self.generator_version(),
                 "team_id": team_id,
                 "project_id": project_id,
             },
         )
 
-    @staticmethod
     def fetch_event_definitions_and_schemas(
+        self,
         project_id: int,
     ) -> tuple[QuerySet[EventDefinition], dict[str, list[SchemaPropertyGroupProperty]]]:
         """
-        Note: This is a `staticmethod` temporarily only until the typescript generator has been migrated to this
-        setup as well.
-
         Fetch event definitions and build schema map. The key of `schema_map` references a EventDefinition.ID
         from the returned event_definitions set.
         """

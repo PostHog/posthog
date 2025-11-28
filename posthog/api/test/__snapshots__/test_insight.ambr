@@ -75,7 +75,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_global_filters
@@ -152,7 +153,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_local_filters
@@ -229,7 +231,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown
@@ -273,7 +276,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized
@@ -317,7 +321,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters
@@ -347,7 +352,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters.1
@@ -394,7 +400,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized
@@ -424,7 +431,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized.1
@@ -471,7 +479,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters
@@ -518,7 +527,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters_materialized
@@ -565,7 +575,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1

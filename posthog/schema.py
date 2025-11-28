@@ -4608,6 +4608,8 @@ class LogMessage(BaseModel):
     event_name: str
     instrumentation_scope: str
     level: LogSeverityLevel
+    live_logs_checkpoint: AwareDatetime | None = None
+    new: bool | None = None
     observed_timestamp: AwareDatetime
     resource_attributes: Any
     severity_number: float
@@ -12994,6 +12996,10 @@ class MaxRecordingUniversalFilters(BaseModel):
     duration: list[RecordingDurationFilter]
     filter_group: MaxOuterUniversalFiltersGroup
     filter_test_accounts: bool | None = None
+    limit: int | None = Field(
+        default=None,
+        description="How many recordings the user requested to use. Skip if user did not indicate preference.",
+    )
     order: RecordingOrder | None = RecordingOrder.START_TIME
     order_direction: RecordingOrderDirection | None = Field(
         default=RecordingOrderDirection.DESC,
@@ -14142,6 +14148,7 @@ class LogsQuery(BaseModel):
     filterGroup: PropertyGroupFilter
     kind: Literal["LogsQuery"] = "LogsQuery"
     limit: int | None = None
+    liveLogsCheckpoint: str | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy3 | None = None

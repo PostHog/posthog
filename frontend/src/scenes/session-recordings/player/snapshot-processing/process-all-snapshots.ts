@@ -1,9 +1,9 @@
 import posthog, { PostHog } from 'posthog-js'
 
-import posthogEE from '@posthog/ee/exports'
 import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
 
 import { isEmptyObject, isObject } from 'lib/utils'
+import { transformEventToWeb } from 'scenes/session-recordings/mobile-replay'
 import {
     type DecompressionMode,
     getDecompressionWorkerManager,
@@ -28,8 +28,6 @@ import {
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
 } from '~/types'
-
-import { PostHogEE } from '../../../../../@posthog/ee/types'
 
 export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
 
@@ -465,8 +463,6 @@ function processAllSnapshotsSync(
     return context.result
 }
 
-let postHogEEModule: PostHogEE
-
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
@@ -505,7 +501,7 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
 function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId)
-    return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
+    return transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
 }
 
 function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
@@ -620,10 +616,6 @@ export const parseEncodedSnapshots = async (
 ): Promise<RecordingSnapshot[]> => {
     const startTime = performance.now()
     const enableYielding = decompressionMode === 'yielding' || decompressionMode === 'worker_and_yielding'
-
-    if (!postHogEEModule) {
-        postHogEEModule = await posthogEE()
-    }
 
     // Check if we received binary data (ArrayBuffer or Uint8Array)
     if (items instanceof ArrayBuffer || items instanceof Uint8Array) {
