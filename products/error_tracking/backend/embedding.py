@@ -30,13 +30,14 @@ CREATE TABLE IF NOT EXISTS {table_name}
 """
 
 
-def DOCUMENT_EMBEDDINGS_TABLE_ENGINE():
-    return ReplacingMergeTree(
-        SHARDED_DOCUMENT_EMBEDDINGS, ver="inserted_at", replication_scheme=ReplicationScheme.SHARDED
-    )
+# The flow of this table set, as per other sharded tables, is:
+# - Kafka table exposes messages from Kafka topic
+# - Materialized view reads from Kafka table, writes to writable table, moving the kafka offset
+# - Writable table distributes writes to sharded tables
+# - Distributed table distributes reads to sharded tables
 
 
-def DOCUMENT_EMBEDDINGS_DATA_TABLE_SQL():
+def DOCUMENT_EMBEDDINGS_TABLE_SQL():
     return (
         DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL
         + """
@@ -49,7 +50,9 @@ def DOCUMENT_EMBEDDINGS_DATA_TABLE_SQL():
     """
     ).format(
         table_name=SHARDED_DOCUMENT_EMBEDDINGS,
-        engine=DOCUMENT_EMBEDDINGS_TABLE_ENGINE(),
+        engine=ReplacingMergeTree(
+            SHARDED_DOCUMENT_EMBEDDINGS, ver="inserted_at", replication_scheme=ReplicationScheme.SHARDED
+        ),
         default_clause=" DEFAULT ''",
         extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -58,6 +61,8 @@ def DOCUMENT_EMBEDDINGS_DATA_TABLE_SQL():
     )
 
 
+# The sharding keys of this and the table below are chosen mostly at random - as far as I could tell,
+# there isn't much to be gained from trying to get clever here, and it's best just to keep spread even
 def DISTRIBUTED_DOCUMENT_EMBEDDINGS_TABLE_SQL():
     return DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=DISTRIBUTED_DOCUMENT_EMBEDDINGS,
@@ -122,7 +127,3 @@ FROM {database}.{kafka_table}
 
 def TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_DOCUMENT_EMBEDDINGS} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-
-
-# Backwards compatibility alias for old migrations (0155, 0174)
-DOCUMENT_EMBEDDINGS_TABLE_SQL = DOCUMENT_EMBEDDINGS_DATA_TABLE_SQL
