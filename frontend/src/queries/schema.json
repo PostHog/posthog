@@ -17835,7 +17835,8 @@
                 "CPC",
                 "CTR",
                 "Reported Conversion",
-                "Reported Conversion Value"
+                "Reported Conversion Value",
+                "Reported ROAS"
             ],
             "type": "string"
         },

@@ -1947,6 +1947,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     CTR = "CTR"
     REPORTED_CONVERSION = "Reported Conversion"
     REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
+    REPORTED_ROAS = "Reported ROAS"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):

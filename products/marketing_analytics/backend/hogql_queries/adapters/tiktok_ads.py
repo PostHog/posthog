@@ -56,25 +56,38 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(
-            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "impressions"])])]
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "impressions"])]),
+                ast.Constant(value=0),
+            ],
         )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_clicks_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(
-            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "clicks"])])]
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "clicks"])]),
+                ast.Constant(value=0),
+            ],
         )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         base_currency = self.context.base_currency
 
-        # Get cost
+        # Get cost - use ifNull(toFloat(...), 0) to handle both numeric types and NULLs
         spend_field = ast.Field(chain=[stats_table_name, "spend"])
-        spend_float = ast.Call(name="toFloatOrZero", args=[spend_field])
+        spend_float = ast.Call(
+            name="ifNull",
+            args=[ast.Call(name="toFloat", args=[spend_field]), ast.Constant(value=0)],
+        )
 
         # Check if currency column exists in campaign_stats table
         try:
@@ -100,9 +113,14 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(
-            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "conversion"])])]
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversion"])]),
+                ast.Constant(value=0),
+            ],
         )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
@@ -112,15 +130,17 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
         try:
             columns = getattr(self.config.stats_table, "columns", None)
             if columns and hasattr(columns, "__contains__") and "total_complete_payment_value" in columns:
-                sum = ast.Call(
-                    name="SUM",
+                field_as_float = ast.Call(
+                    name="ifNull",
                     args=[
                         ast.Call(
-                            name="toFloatOrZero",
+                            name="toFloat",
                             args=[ast.Field(chain=[stats_table_name, "total_complete_payment_value"])],
-                        )
+                        ),
+                        ast.Constant(value=0),
                     ],
                 )
+                sum = ast.Call(name="SUM", args=[field_as_float])
                 return ast.Call(name="toFloat", args=[sum])
         except (TypeError, AttributeError, KeyError):
             pass

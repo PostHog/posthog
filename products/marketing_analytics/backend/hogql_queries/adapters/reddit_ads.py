@@ -54,12 +54,26 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "impressions"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "impressions"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_clicks_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "clicks"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "clicks"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
@@ -97,18 +111,36 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
     def _get_reported_conversion_field(self) -> ast.Expr:
         """Get conversion count (number of conversions)"""
         stats_table_name = self.config.stats_table.name
-        # Use key_conversion_total_count for total conversion count
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "key_conversion_total_count"])])
+        field_as_float = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "key_conversion_total_count"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         """Get conversion value (monetary value of conversions)"""
         stats_table_name = self.config.stats_table.name
         # Sum purchase value and signup value for total conversion value
-        sum_purchase = ast.Call(
-            name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_purchase_total_value"])]
+        purchase_field = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversion_purchase_total_value"])]),
+                ast.Constant(value=0),
+            ],
         )
-        sum_signup = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_signup_total_value"])])
+        sum_purchase = ast.Call(name="SUM", args=[purchase_field])
+        signup_field = ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversion_signup_total_value"])]),
+                ast.Constant(value=0),
+            ],
+        )
+        sum_signup = ast.Call(name="SUM", args=[signup_field])
         sum = ast.ArithmeticOperation(left=sum_purchase, op=ast.ArithmeticOperationOp.Add, right=sum_signup)
         return ast.Call(name="toFloat", args=[sum])
 
