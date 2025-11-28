@@ -1,8 +1,10 @@
 # How we built user behavior analysis with multi-modal LLMs in 7 not-so-easy steps
 
-We have tons of user behavior data - what pages they visit, what buttons they click, and so. And by a lot I mean billions of events and terabytes of stored Replay snapshots. The problem is obvious - there are too many user sessions to watch manually. So, we created a tool to watch them for you and highlight the issues. It's called Session summaries, we release it in beta today, and you can use it right now for free with PostHog AI.
+We have tons of user behavior data - what pages they visit, what buttons they click, and so, stored as sessions. And by tons I mean billions of events and terabytes of stored Replay snapshots. The problem is obvious - there are too many user sessions to watch manually. So, we created a tool to watch them for you and highlight the issues. It's called Session summaries, we release it in beta today, and you can use it right now for free with PostHog AI.
 
 Here I'll list step-by-step what we learned, where we messed up, and lots of practical tips on how to make user behavior analysis to work in production.
+
+> The steps below assume that you use (or develop) a user behavior analytics service (like PostHog, Hotjar, Microsoft Clarity, and similar), so you have access to user-generated events, and recordings of what the user did on your website.
 
 ## Step 1: "Analyzing a single user session should be easy"
 
@@ -46,20 +48,50 @@ Fast-growing products (startups specifically) have a bad habit of generating lot
 
 ## Step 2: See what the user sees
 
-Even if you find a great way to reduce noise, thec ore problem remained - we can't be sure if the issues that LLM highlighted actually impacted users. We can see TypeError in logs, but the retry happened in 200ms, so it didn't affect the user journey one beat. But what if we generate a video of the session? Then we can see what the user saw.
+Even if you find a great way to reduce noise, thec ore problem remained - we can't be sure if the issues that LLM highlighted actually impacted users. We can see TypeError in logs, but the retry happened in 200ms, so it didn't affect the user journey one beat. But what if we generate a video of the session? Then we can see what the user saw clearly, without a need to guess.
 
 {{ scheme/graph of the video validation logic }}
 > (under the image text) *For each blocking issue, we generate a short video clip and ask the multi-modal LLM to verify what actually happened*
 
 When the single-session summary flags something as a "blocking error" - an exception that supposedly prevented the user from completing their goal - we don't trust it blindly. Instead, we:
 
-1. Generate a ~10-second video clip, starting a couple seconds before the flagged event
-2. Send the clip to a multi-modal LLM to either comfirm or deny the issue
-3. Transcribe what happened, and update the summary
+- Generate a ~10-second video clip, starting a couple seconds before the flagged event
+- Send the clip to a multi-modal LLM to transcribe the video
+- Comfirm or deny the issue, and update the summary
 
-## Why not to use video
+And it works pretty well. But also leads to the question - why not to use only video? Why to use events at all?
 
-At the first glance using just the video seems like a perfect solution. With Gemini multi-modal models pricing (especially if running batches) you can transcribe multiple ours of user sessions for less than a cent. You can go even lower, if you can use open-source models.
+### Video explains the issue, but not the reason
+
+If you use only video - you can see that the user visited the page, waited for 5 seconds, and left. But you don't see Clickhouse timeout error. Or outdated Redis cache being hit. Or malformed query parameter in the user URL. So, you know what happened, but you can't generate a proper issue, as it will require lots of manual investigation - then why read the summary in the first place?
+
+**Our approach:**
+
+- Option #1 (current): Combine videos with issues highlighted by LLM from the events, to triage them before surfacing
+- Option #2 (in progress): Transcribe all the videos of user sessions and combine them with events, creating complete blobs of data that will never hallucinate when summarized
+
+Option #2 is in progress (and not in production yet) mostly because...
+
+### Videos are heavy
+
+At the first glance, transcribing all the user session videos seems like a no-brainer. For example, Gemini Flash multi-modal models cost 10-20 times cheaper than frontier thinking LLMs from Anthropic or OpenAI (or even Gemini's own thinking models). You can go even lower if you can use open-source models. And you'll get a proper transcription what the user sees (most of the time, at least).
+
+However, let's try basic math, using numbers from now (end of 2025). One frame of video in a good-enough resolution costs 258 tokens of Gemini Flash. If `1 frame per second * 60 seconds in a minute * 60 minutes in a hour * 258 tokens = 929k tokens`. Meaning, you analyzed just 1 large-ish session, but already used a million tokens. You can use even ligher models and even worse resolution, but at some moment the quality drop will be too much.
+
+Another downside, if that these models are this cheap not because of magic, but because they aren't exactly clever. You can ask it to transcribe what's on the screen well enough, but it won't be able to make meaningful conclusions, like a proper thinking model will do. So, either you need to use way more expensive model from the start, or you need another model to analyze transcription after that.
+
+**Our approach:**
+
+- Don't analyze the whole video - there are surely at least 40-50-60% of inactivity that you can skip, and pay to transcribe only parts where the user did something. Though, you will need either events or snapshots to find these parts.
+-
+
+### Videos are still heavy
+
+---
+
+At the first glance using just the video seems like a perfect solution.
+
+However, it comes with it's own limitations. Without track
 
 LLMs don't need 30fps
 
