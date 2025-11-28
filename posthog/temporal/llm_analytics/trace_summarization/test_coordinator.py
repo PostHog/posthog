@@ -35,10 +35,10 @@ class TestQueryTeamsWithTraces:
 
             assert result == [1, 2, 5]
             mock_execute.assert_called_once()
-            # sync_execute is called with (query, params_dict) as positional args
             params = mock_execute.call_args[0][1]
             assert params["lookback_hours"] == 24
             assert params["reference_time"] == reference_time
+            assert params["allowed_team_ids"] == []
 
     @pytest.mark.django_db(transaction=True)
     def test_returns_empty_list_when_no_teams(self):
@@ -51,6 +51,25 @@ class TestQueryTeamsWithTraces:
 
             assert result == []
 
+    @pytest.mark.django_db(transaction=True)
+    def test_filters_by_allowed_team_ids(self):
+        """Test that allowed_team_ids is passed to query for efficient filtering."""
+        with patch("posthog.clickhouse.client.sync_execute") as mock_execute:
+            mock_execute.return_value = [(1,), (3,)]
+            reference_time = datetime(2025, 1, 15, 12, 0, 0)
+            allowed_teams = [1, 3, 5]
+
+            result = query_teams_with_traces(
+                lookback_hours=24, reference_time=reference_time, allowed_team_ids=allowed_teams
+            )
+
+            assert result == [1, 3]
+            params = mock_execute.call_args[0][1]
+            assert params["allowed_team_ids"] == allowed_teams
+            # Verify team filter is in query
+            query = mock_execute.call_args[0][0]
+            assert "team_id IN %(allowed_team_ids)s" in query
+
 
 class TestGetTeamsWithRecentTracesActivity:
     """Tests for get_teams_with_recent_traces_activity."""
@@ -58,7 +77,7 @@ class TestGetTeamsWithRecentTracesActivity:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_returns_teams_result(self):
-        """Test activity returns TeamsWithTracesResult with no allowlist filtering."""
+        """Test activity returns TeamsWithTracesResult."""
         inputs = BatchTraceSummarizationCoordinatorInputs(lookback_hours=24)
         reference_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC)
 
@@ -77,11 +96,12 @@ class TestGetTeamsWithRecentTracesActivity:
 
             assert isinstance(result, TeamsWithTracesResult)
             assert result.team_ids == [1, 2, 3]
+            mock_query.assert_called_once_with(24, reference_time, None)
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
-    async def test_filters_by_allowlist_when_configured(self):
-        """Test activity filters teams by allowlist."""
+    async def test_passes_allowlist_to_query(self):
+        """Test activity passes allowlist to query for efficient filtering."""
         inputs = BatchTraceSummarizationCoordinatorInputs(lookback_hours=24)
         reference_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC)
 
@@ -91,19 +111,20 @@ class TestGetTeamsWithRecentTracesActivity:
             ) as mock_query,
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.constants.ALLOWED_TEAM_IDS",
-                {1, 3},
+                [1, 3],
             ),
         ):
-            mock_query.return_value = [1, 2, 3, 4, 5]
+            mock_query.return_value = [1, 3]
 
             result = await get_teams_with_recent_traces_activity(inputs, reference_time)
 
             assert result.team_ids == [1, 3]
+            mock_query.assert_called_once_with(24, reference_time, [1, 3])
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
-    async def test_returns_all_teams_when_no_allowlist(self):
-        """Test activity returns all teams when allowlist is empty."""
+    async def test_passes_none_when_no_allowlist(self):
+        """Test activity passes None when allowlist is empty."""
         inputs = BatchTraceSummarizationCoordinatorInputs(lookback_hours=24)
         reference_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=UTC)
 
@@ -113,7 +134,7 @@ class TestGetTeamsWithRecentTracesActivity:
             ) as mock_query,
             patch(
                 "posthog.temporal.llm_analytics.trace_summarization.constants.ALLOWED_TEAM_IDS",
-                set(),
+                [],
             ),
         ):
             mock_query.return_value = [1, 2, 3]
@@ -121,6 +142,7 @@ class TestGetTeamsWithRecentTracesActivity:
             result = await get_teams_with_recent_traces_activity(inputs, reference_time)
 
             assert result.team_ids == [1, 2, 3]
+            mock_query.assert_called_once_with(24, reference_time, None)
 
 
 class TestBatchTraceSummarizationCoordinatorWorkflow:

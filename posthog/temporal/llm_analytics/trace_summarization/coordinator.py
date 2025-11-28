@@ -48,7 +48,11 @@ class TeamsWithTracesResult:
     team_ids: list[int]
 
 
-def query_teams_with_traces(lookback_hours: int, reference_time: datetime) -> list[int]:
+def query_teams_with_traces(
+    lookback_hours: int,
+    reference_time: datetime,
+    allowed_team_ids: list[int] | None = None,
+) -> list[int]:
     """
     Query ClickHouse for teams that have LLM trace events in the lookback window.
 
@@ -57,11 +61,17 @@ def query_teams_with_traces(lookback_hours: int, reference_time: datetime) -> li
     Args:
         lookback_hours: How many hours back to look from reference_time
         reference_time: Reference timestamp to query from
+        allowed_team_ids: Optional list of team IDs to filter by (uses sorting key for efficiency)
     """
     from posthog.clickhouse.client import sync_execute
 
+    # Build team filter clause - filtering by team_id uses the sorting key efficiently
+    team_filter = ""
+    if allowed_team_ids:
+        team_filter = "AND team_id IN %(allowed_team_ids)s"
+
     result = sync_execute(
-        """
+        f"""
         SELECT DISTINCT team_id
         FROM events
         WHERE event IN (
@@ -69,9 +79,14 @@ def query_teams_with_traces(lookback_hours: int, reference_time: datetime) -> li
             '$ai_embedding', '$ai_metric', '$ai_feedback'
         )
           AND timestamp >= %(reference_time)s - INTERVAL %(lookback_hours)s HOUR
+          {team_filter}
         ORDER BY team_id
         """,
-        {"lookback_hours": lookback_hours, "reference_time": reference_time},
+        {
+            "lookback_hours": lookback_hours,
+            "reference_time": reference_time,
+            "allowed_team_ids": allowed_team_ids or [],
+        },
     )
     return [row[0] for row in result]
 
@@ -89,24 +104,20 @@ async def get_teams_with_recent_traces_activity(
     """
     from posthog.temporal.llm_analytics.trace_summarization.constants import ALLOWED_TEAM_IDS
 
+    # Pass allowlist to query for efficient filtering via sorting key
+    allowed_teams = ALLOWED_TEAM_IDS if ALLOWED_TEAM_IDS else None
+
     @database_sync_to_async
     def get_teams():
-        return query_teams_with_traces(inputs.lookback_hours, reference_time)
+        return query_teams_with_traces(inputs.lookback_hours, reference_time, allowed_teams)
 
     team_ids = await get_teams()
 
-    # Filter by allowlist if configured
-    if ALLOWED_TEAM_IDS:
-        original_count = len(team_ids)
-        team_ids = [team_id for team_id in team_ids if team_id in ALLOWED_TEAM_IDS]
-        logger.info(
-            "Filtered teams by allowlist",
-            original_count=original_count,
-            filtered_count=len(team_ids),
-            allowed_teams=ALLOWED_TEAM_IDS,
-        )
-    else:
-        logger.info("Found teams with recent trace activity", team_count=len(team_ids))
+    logger.info(
+        "Found teams with recent trace activity",
+        team_count=len(team_ids),
+        filtered_by_allowlist=allowed_teams is not None,
+    )
 
     return TeamsWithTracesResult(team_ids=team_ids)
 
