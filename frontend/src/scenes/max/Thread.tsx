@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useLayoutEffect, useMemo, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import {
@@ -72,7 +72,6 @@ import { InsightShortId } from '~/types'
 import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
-import { feedbackPromptLogic } from './feedbackPromptLogic'
 import { ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
@@ -80,6 +79,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
+import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
     isAssistantMessage,
@@ -95,58 +95,8 @@ import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, traceId, retryCount, cancelCount } = useValues(maxThreadLogic)
-
-    // Only use feedback logic when we have a valid conversationId
-    const feedbackLogicProps = useMemo(() => (conversationId ? { conversationId } : null), [conversationId])
-    const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible } = useValues(
-        feedbackLogicProps ? feedbackPromptLogic(feedbackLogicProps) : feedbackPromptLogic.build({ conversationId: '' })
-    )
-    const { checkShouldShowPrompt, implicitDismissPrompt, implicitDismissDetailedFeedback } = useActions(
-        feedbackLogicProps ? feedbackPromptLogic(feedbackLogicProps) : feedbackPromptLogic.build({ conversationId: '' })
-    )
-
-    const prevMessageCountRef = useRef(threadGrouped.length)
-    const prevStreamingActiveRef = useRef(streamingActive)
-
-    useEffect(() => {
-        if (!conversationId) {
-            return
-        }
-
-        const humanMessageCount = threadGrouped.filter((m) => m.type === 'human').length
-        const wasStreaming = prevStreamingActiveRef.current
-        const prevCount = prevMessageCountRef.current
-
-        // Trigger feedback check when streaming completes
-        if (wasStreaming && !streamingActive && humanMessageCount > 0) {
-            checkShouldShowPrompt(humanMessageCount, retryCount, cancelCount)
-        }
-
-        // If prompt is visible and user sends a new message (count increased), trigger implicit dismiss
-        if (isPromptVisible && humanMessageCount > prevCount && streamingActive) {
-            implicitDismissPrompt()
-        }
-
-        // If detailed feedback form is visible and user sends a new message, submit "bad" rating and dismiss
-        if (isDetailedFeedbackVisible && humanMessageCount > prevCount && streamingActive) {
-            implicitDismissDetailedFeedback()
-        }
-
-        prevMessageCountRef.current = humanMessageCount
-        prevStreamingActiveRef.current = streamingActive
-    }, [
-        threadGrouped,
-        streamingActive,
-        checkShouldShowPrompt,
-        isPromptVisible,
-        isDetailedFeedbackVisible,
-        implicitDismissPrompt,
-        implicitDismissDetailedFeedback,
-        conversationId,
-        retryCount,
-        cancelCount,
-    ])
+    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     return (
         <div
