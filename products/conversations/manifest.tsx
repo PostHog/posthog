@@ -22,12 +22,6 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'app-container',
         },
-        ConversationsAnalytics: {
-            name: 'Resolution analytics',
-            import: () => import('./frontend/scenes/analytics/ConversationsAnalyticsScene'),
-            projectBased: true,
-            layout: 'app-container',
-        },
         ConversationsContent: {
             name: 'Knowledge content',
             import: () => import('./frontend/scenes/content/ConversationsContentScene'),
@@ -63,7 +57,6 @@ export const manifest: ProductManifest = {
         '/conversations': ['ConversationsDashboard', 'conversationsDashboard'],
         '/conversations/tickets': ['ConversationsTickets', 'conversationsTickets'],
         '/conversations/tickets/:ticketId': ['ConversationsTicketDetail', 'conversationsTicketDetail'],
-        '/conversations/analytics': ['ConversationsAnalytics', 'conversationsAnalytics'],
         '/conversations/content': ['ConversationsContent', 'conversationsContent'],
         '/conversations/content/:contentId': ['ConversationsContentItem', 'conversationsContentItem'],
         '/conversations/guidance': ['ConversationsGuidance', 'conversationsGuidance'],
@@ -75,7 +68,6 @@ export const manifest: ProductManifest = {
         conversationsDashboard: (): string => '/conversations',
         conversationsTickets: (): string => '/conversations/tickets',
         conversationsTicketDetail: (ticketId: string | number): string => `/conversations/tickets/${ticketId}`,
-        conversationsAnalytics: (): string => '/conversations/analytics',
         conversationsContent: (): string => '/conversations/content',
         conversationsContentItem: (contentId: string | number): string => `/conversations/content/${contentId}`,
         conversationsGuidance: (): string => '/conversations/guidance',

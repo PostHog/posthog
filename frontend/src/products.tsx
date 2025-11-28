@@ -46,8 +46,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/conversations/frontend/scenes/tickets/ConversationsTicketsScene'),
     ConversationsTicketDetail: () =>
         import('../../products/conversations/frontend/scenes/ticket/ConversationsTicketScene'),
-    ConversationsAnalytics: () =>
-        import('../../products/conversations/frontend/scenes/analytics/ConversationsAnalyticsScene'),
     ConversationsContent: () =>
         import('../../products/conversations/frontend/scenes/content/ConversationsContentScene'),
     ConversationsContentItem: () =>
@@ -117,7 +115,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/conversations': ['ConversationsDashboard', 'conversationsDashboard'],
     '/conversations/tickets': ['ConversationsTickets', 'conversationsTickets'],
     '/conversations/tickets/:ticketId': ['ConversationsTicketDetail', 'conversationsTicketDetail'],
-    '/conversations/analytics': ['ConversationsAnalytics', 'conversationsAnalytics'],
     '/conversations/content': ['ConversationsContent', 'conversationsContent'],
     '/conversations/content/:contentId': ['ConversationsContentItem', 'conversationsContentItem'],
     '/conversations/guidance': ['ConversationsGuidance', 'conversationsGuidance'],
@@ -224,15 +221,19 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Action',
         iconType: 'action',
     },
-    ConversationsDashboard: { name: 'Conversations overview', projectBased: true },
-    ConversationsTickets: { name: 'Ticket list', projectBased: true },
-    ConversationsTicketDetail: { name: 'Ticket detail', projectBased: true },
-    ConversationsAnalytics: { name: 'Resolution analytics', projectBased: true },
-    ConversationsContent: { name: 'Knowledge content', projectBased: true },
-    ConversationsContentItem: { name: 'Content item', projectBased: true },
-    ConversationsGuidance: { name: 'Guidance + guardrails', projectBased: true },
-    ConversationsPlayground: { name: 'Playground', projectBased: true },
-    ConversationsSettings: { name: 'Conversations settings', projectBased: true },
+    ConversationsDashboard: {
+        name: 'Conversations overview',
+        projectBased: true,
+        iconType: 'chat',
+        layout: 'app-container',
+    },
+    ConversationsTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
+    ConversationsTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
+    ConversationsContent: { name: 'Knowledge content', projectBased: true, layout: 'app-container' },
+    ConversationsContentItem: { name: 'Content item', projectBased: true, layout: 'app-container' },
+    ConversationsGuidance: { name: 'Guidance + guardrails', projectBased: true, layout: 'app-container' },
+    ConversationsPlayground: { name: 'Playground', projectBased: true, layout: 'app-container' },
+    ConversationsSettings: { name: 'Conversations settings', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -446,7 +447,6 @@ export const productUrls = {
     conversationsDashboard: (): string => '/conversations',
     conversationsTickets: (): string => '/conversations/tickets',
     conversationsTicketDetail: (ticketId: string | number): string => `/conversations/tickets/${ticketId}`,
-    conversationsAnalytics: (): string => '/conversations/analytics',
     conversationsContent: (): string => '/conversations/content',
     conversationsContentItem: (contentId: string | number): string => `/conversations/content/${contentId}`,
     conversationsGuidance: (): string => '/conversations/guidance',

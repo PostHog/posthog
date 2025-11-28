@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconBrowser, IconClock, IconComment } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDivider, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -14,7 +14,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { configChanges } from '../../data/configChanges'
 import { escalationTickets } from '../../data/escalations'
 import { conversationsKpis } from '../../data/kpis'
 import { ticketPods } from '../../data/ticketPods'
@@ -87,7 +86,7 @@ export function ConversationsDashboardScene(): JSX.Element {
                 ))}
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-5">
+            <div className="grid gap-4 lg:grid-cols-3">
                 <div className="lg:col-span-3 rounded border border-light bg-bg-light p-4">
                     <div className="mb-3 flex items-center justify-between">
                         <div>
@@ -143,37 +142,6 @@ export function ConversationsDashboardScene(): JSX.Element {
                         ]}
                     />
                 </div>
-
-                <LemonCard className="lg:col-span-2" hoverEffect={false}>
-                    <div className="mb-3">
-                        <h3 className="text-lg font-semibold">Recent content & guidance changes</h3>
-                        <p className="text-sm text-muted-alt">What the AI learned or had toggled in the last 24h.</p>
-                    </div>
-                    <div className="space-y-3">
-                        {configChanges.map((change) => (
-                            <div key={change.id}>
-                                <div className="flex items-center gap-2 text-sm">
-                                    <LemonTag
-                                        type={
-                                            change.type === 'guidance'
-                                                ? 'success'
-                                                : change.type === 'channel'
-                                                  ? 'warning'
-                                                  : 'default'
-                                        }
-                                        size="small"
-                                    >
-                                        {change.type}
-                                    </LemonTag>
-                                    <span className="font-medium">{change.actor}</span>
-                                    <span className="text-muted-alt text-xs">{change.timestamp}</span>
-                                </div>
-                                <div className="text-muted-alt text-sm">{change.description}</div>
-                                <LemonDivider dashed className="my-3" />
-                            </div>
-                        ))}
-                    </div>
-                </LemonCard>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-3">

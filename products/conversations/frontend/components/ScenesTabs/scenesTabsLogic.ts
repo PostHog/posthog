@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import type { scenesTabsLogicType } from './scenesTabsLogicType'
 
-export type SceneTabKey = 'dashboard' | 'tickets' | 'analytics' | 'content' | 'guidance' | 'playground' | 'settings'
+export type SceneTabKey = 'dashboard' | 'tickets' | 'content' | 'guidance' | 'playground' | 'settings'
 
 export type SceneTabConfig = {
     key: SceneTabKey
@@ -23,11 +23,6 @@ export const SCENE_TABS: SceneTabConfig[] = [
         key: 'tickets',
         label: 'Tickets',
         href: urls.conversationsTickets(),
-    },
-    {
-        key: 'analytics',
-        label: 'Analytics',
-        href: urls.conversationsAnalytics(),
     },
     {
         key: 'content',
@@ -81,7 +76,6 @@ export const scenesTabsLogic = kea<scenesTabsLogicType>([
             '/conversations': () => actions.setActiveTab('dashboard'),
             '/conversations/tickets': () => actions.setActiveTab('tickets'),
             '/conversations/tickets/:ticketId': () => actions.setActiveTab('tickets'),
-            '/conversations/analytics': () => actions.setActiveTab('analytics'),
             '/conversations/content': () => actions.setActiveTab('content'),
             '/conversations/guidance': () => actions.setActiveTab('guidance'),
             '/conversations/playground': () => actions.setActiveTab('playground'),

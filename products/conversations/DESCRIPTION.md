@@ -18,11 +18,10 @@ Conversations is an AI-first support hub that ingests every customer exchange (s
 
 ## Scenes
 
-- `/conversations` – ops landing page with KPIs (AI containment, escalation %, SLA breaches), urgent queues, and recent config changes.
+- `/conversations` – ops landing page with KPIs (AI containment, escalation %, SLA breaches) and urgent queues.
   - KPI tiles with comparison deltas (AI containment rate, time-to-first-response, escalation %, SLA breach count)
   - Escalation firehose showing blocked items
   - Ticket pods (last 10 escalated, last 10 SLA breaches, last 10 awaiting reply) with “view all” jumping into `/conversations/tickets` prefiltered
-  - Recent content/guidance edits with quick revert
 - `/conversations/tickets` – unified ticket list with status/funnel filters and per-ticket KPIs.
   - Saved filter presets + search by customer/source
   - Bulk actions (assign, snooze, reopen)
@@ -32,11 +31,6 @@ Conversations is an AI-first support hub that ingests every customer exchange (s
   - Threaded conversation with attribution (AI/human)
   - Context cards: customer profile, journey, SLAs, recent events, relevant session recording, historical tickets
   - Inline actions (reply, summarize, escalate)
-- `/conversations/analytics` – resolution insights showing containment rate, escalation triggers, and channel drilldowns.
-  - Containment trend charts by channel/queue
-  - Escalation reason breakdown and alerting
-  - Exportable leaderboard for agent + AI performance
-  - Graphs: AI containment over time, escalations by reason/channel, SLA breach funnel, median time-to-first-response vs resolution time, ticket volume stacked by source, agent vs AI CSAT
 - `/conversations/content` – library manager for articles/snippets with audience targeting toggles and version history.
   - Audience scoping (geo, plan, segment)
   - Draft/published states with approvals
