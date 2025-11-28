@@ -1,6 +1,6 @@
-// TypeScript types for precalculated person property events
+// TypeScript types for precalculated person properties events
 
-export type PreCalculatedPersonProperty = {
+export type PreCalculatedPersonProperties = {
     person_id: string // UUID
     team_id: number
     evaluation_timestamp: string // ClickHouse DateTime64(6) format
@@ -9,7 +9,7 @@ export type PreCalculatedPersonProperty = {
     source: string // e.g., "cohort_filter_{conditionHash}"
 }
 
-export type ProducedPersonPropertyEvent = {
+export type ProducedPersonPropertiesEvent = {
     key: string // person_id
-    payload: PreCalculatedPersonProperty
+    payload: PreCalculatedPersonProperties
 }

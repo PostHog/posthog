@@ -9,8 +9,8 @@ from posthog.hogql.database.models import (
 )
 
 
-class PrecalculatedPersonPropertyTable(Table):
-    """Table for precalculated person property evaluations populated by CdpPersonPropertyEventsConsumer."""
+class PrecalculatedPersonPropertiesTable(Table):
+    """Table for precalculated person properties evaluations populated by CdpPersonPropertyEventsConsumer."""
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -25,7 +25,7 @@ class PrecalculatedPersonPropertyTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "precalculated_person_property"
+        return "precalculated_person_properties"
 
     def to_printed_hogql(self):
-        return "precalculated_person_property"
+        return "precalculated_person_properties"

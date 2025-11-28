@@ -83,7 +83,7 @@ from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable,
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
-from posthog.hogql.database.schema.precalculated_person_property import PrecalculatedPersonPropertyTable
+from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -179,8 +179,8 @@ class Database(BaseModel):
             "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
             "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable()),
             "precalculated_events": TableNode(name="precalculated_events", table=PrecalculatedEventsTable()),
-            "precalculated_person_property": TableNode(
-                name="precalculated_person_property", table=PrecalculatedPersonPropertyTable()
+            "precalculated_person_properties": TableNode(
+                name="precalculated_person_properties", table=PrecalculatedPersonPropertiesTable()
             ),
             "log_entries": TableNode(name="log_entries", table=LogEntriesTable()),
             "query_log": TableNode(name="query_log", table=QueryLogArchiveTable()),
