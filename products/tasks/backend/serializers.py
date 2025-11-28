@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.utils import timezone
 
 from rest_framework import serializers
@@ -11,7 +13,9 @@ from .services.title_generator import generate_task_title
 
 
 class TaskSerializer(serializers.ModelSerializer):
-    repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    # Computed fields for repository information
+    repository_list = serializers.SerializerMethodField()
+    primary_repository = serializers.SerializerMethodField()
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
@@ -26,9 +30,13 @@ class TaskSerializer(serializers.ModelSerializer):
             "title",
             "description",
             "origin_product",
-            "repository",
+            "position",
+            # Repository fields
             "github_integration",
-            "json_schema",
+            "repository_config",
+            # Computed fields
+            "repository_list",
+            "primary_repository",
             "latest_run",
             "created_at",
             "updated_at",
@@ -41,8 +49,16 @@ class TaskSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "created_by",
+            "repository_list",
+            "primary_repository",
             "latest_run",
         ]
+
+    def get_repository_list(self, obj):
+        return obj.repository_list
+
+    def get_primary_repository(self, obj):
+        return obj.primary_repository
 
     def get_latest_run(self, obj):
         latest_run = obj.latest_run
@@ -56,16 +72,25 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Integration must belong to the same team")
         return value
 
-    def validate_repository(self, value):
+    def validate_repository_config(self, value):
         """Validate repository configuration"""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Repository config must be a dictionary")
+
+        # If repository_config is empty, that's fine for new tasks
         if not value:
             return value
 
-        parts = value.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        # If organization is provided, repository must also be provided (and vice versa)
+        has_org = bool(value.get("organization"))
+        has_repo = bool(value.get("repository"))
 
-        return value.lower()
+        if has_org and not has_repo:
+            raise serializers.ValidationError("'repository' is required when 'organization' is specified")
+        if has_repo and not has_org:
+            raise serializers.ValidationError("'organization' is required when 'repository' is specified")
+
+        return value
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
@@ -87,6 +112,26 @@ class TaskSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class RepositoryConfigSerializer(serializers.Serializer):
+    """Serializer for repository configuration"""
+
+    integration_id = serializers.IntegerField(required=False)
+    organization = serializers.CharField(max_length=255)
+    repository = serializers.CharField(max_length=255)
+
+    def validate_integration_id(self, value):
+        """Validate that the integration exists and is a GitHub integration"""
+        if value:
+            try:
+                integration = Integration.objects.get(id=value, kind="github")
+                if "team" in self.context and integration.team_id != self.context["team"].id:
+                    raise serializers.ValidationError("Integration must belong to the same team")
+                return value
+            except Integration.DoesNotExist:
+                raise serializers.ValidationError("GitHub integration not found")
+        return value
+
+
 class AgentDefinitionSerializer(serializers.Serializer):
     """Serializer for agent definitions"""
 
@@ -98,23 +143,43 @@ class AgentDefinitionSerializer(serializers.Serializer):
     is_active = serializers.BooleanField(default=True)
 
 
-class TaskRunUpdateSerializer(serializers.Serializer):
+class TaskUpdatePositionRequestSerializer(serializers.Serializer):
+    position = serializers.IntegerField(help_text="New position for the task")
+
+
+class TaskBulkReorderRequestSerializer(serializers.Serializer):
+    columns = serializers.DictField(
+        child=serializers.ListField(child=serializers.UUIDField()),
+        help_text="Object mapping stage keys to arrays of task UUIDs in the desired order",
+    )
+
+
+class TaskBulkReorderResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tasks that were updated")
+    tasks = serializers.ListField(
+        child=serializers.DictField(), help_text="Array of updated tasks with their new positions and stages"
+    )
+
+
+class TaskRunResponseSerializer(serializers.Serializer):
+    has_run = serializers.BooleanField(help_text="Whether run information is available")
+    id = serializers.UUIDField(required=False, help_text="Run ID")
     status = serializers.ChoiceField(
-        choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+        choices=["started", "in_progress", "completed", "failed"],
         required=False,
         help_text="Current execution status",
     )
-    branch = serializers.CharField(
-        required=False, allow_null=True, help_text="Git branch name to associate with the task"
+    stage = serializers.CharField(required=False, help_text="Current stage of the run")
+    branch = serializers.CharField(required=False, help_text="Branch name for the run")
+    created_at = serializers.DateTimeField(required=False, help_text="When run was created")
+    updated_at = serializers.DateTimeField(required=False, help_text="When run was last updated")
+    completed_at = serializers.DateTimeField(required=False, help_text="When run was completed")
+    log = serializers.ListField(
+        required=False, child=serializers.DictField(), help_text="Live output from Claude Code execution"
     )
-    stage = serializers.CharField(
-        required=False, allow_null=True, help_text="Current stage of the run (e.g. research, plan, build)"
-    )
-    output = serializers.JSONField(required=False, allow_null=True, help_text="Output from the run")
+    error_message = serializers.CharField(required=False, help_text="Error message if run failed")
+    output = serializers.JSONField(required=False, help_text="Output from the run")
     state = serializers.JSONField(required=False, help_text="State of the run")
-    error_message = serializers.CharField(
-        required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
-    )
 
 
 class TaskRunArtifactResponseSerializer(serializers.Serializer):
@@ -124,6 +189,32 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     content_type = serializers.CharField(required=False, allow_blank=True, help_text="Optional MIME type")
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+
+
+class TaskRunUpdateSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Run ID")
+    status = serializers.ChoiceField(
+        choices=["started", "in_progress", "completed", "failed"], help_text="Current execution status"
+    )
+    log = serializers.ListField(child=serializers.DictField(), help_text="Live output from Claude Code execution")
+    error_message = serializers.CharField(help_text="Error message if run failed")
+    output = serializers.JSONField(help_text="Output from the run")
+    state = serializers.JSONField(help_text="State of the run")
+    updated_at = serializers.DateTimeField(help_text="When run was last updated")
+
+
+class TaskRunStreamResponseSerializer(serializers.Serializer):
+    progress_updates = TaskRunUpdateSerializer(many=True, help_text="Array of recent progress updates")
+    server_time = serializers.DateTimeField(help_text="Current server time in ISO format")
+
+
+class TaskSetBranchRequestSerializer(serializers.Serializer):
+    branch = serializers.CharField(help_text="Git branch name to associate with the task")
+
+
+class TaskAttachPullRequestRequestSerializer(serializers.Serializer):
+    pr_url = serializers.URLField(help_text="Pull request URL")
+    branch = serializers.CharField(required=False, allow_blank=True, help_text="Optional branch name")
 
 
 class TaskRunDetailSerializer(serializers.ModelSerializer):
@@ -138,7 +229,6 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "stage",
             "branch",
             "status",
-            "environment",
             "log_url",
             "error_message",
             "output",
@@ -157,14 +247,12 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "completed_at",
         ]
 
-    def get_log_url(self, obj: TaskRun) -> str:
+    def get_log_url(self, obj: TaskRun) -> Optional[str]:
         """Return presigned S3 URL for log access."""
-        presigned_url = object_storage.get_presigned_url(obj.log_url, expiration=3600)
 
-        if not presigned_url:
-            raise serializers.ValidationError("Unable to generate presigned URL for logs")
-
-        return presigned_url
+        if obj.log_storage_path:
+            return object_storage.get_presigned_url(obj.log_storage_path, expiration=3600)
+        return None
 
     def validate_task(self, value):
         team = self.context.get("team")

@@ -54,20 +54,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> str:
         loaded = json.loads(inputs[0])
-        return loaded["run_id"]
+        return loaded["task_id"]
 
     @temporalio.workflow.run
-    async def run(self, run_id: str) -> ProcessTaskOutput:
+    async def run(self, task_id: str) -> ProcessTaskOutput:
         sandbox_id = None
         personal_api_key_id = None
 
         try:
-            self._task_details = await self._get_task_details(run_id)
+            self._task_details = await self._get_task_details(task_id)
 
             await self._track_workflow_event(
                 "process_task_workflow_started",
                 {
-                    "run_id": run_id,
                     "task_id": self.task_details.task_id,
                     "repository": self.task_details.repository,
                     "team_id": self.task_details.team_id,
@@ -104,7 +103,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._track_workflow_event(
                     "process_task_workflow_failed",
                     {
-                        "run_id": run_id,
                         "task_id": self.task_details.task_id,
                         "error_type": type(e).__name__,
                         "error_message": str(e)[:500],
@@ -125,10 +123,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
 
-    async def _get_task_details(self, run_id: str) -> TaskDetails:
+    async def _get_task_details(self, task_id: str) -> TaskDetails:
         return await workflow.execute_activity(
             get_task_details,
-            run_id,
+            task_id,
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -171,7 +169,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             repository=self.task_details.repository,
             github_integration_id=self.task_details.github_integration_id,
             task_id=self.task_details.task_id,
-            run_id=self.task_details.run_id,
             distinct_id=self.task_details.distinct_id,
         )
         await workflow.execute_activity(
@@ -294,7 +291,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         execute_input = ExecuteTaskInput(
             sandbox_id=sandbox_id,
             task_id=self.task_details.task_id,
-            run_id=self.task_details.run_id,
             repository=self.task_details.repository,
             distinct_id=self.task_details.distinct_id,
         )
