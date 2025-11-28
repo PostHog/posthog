@@ -765,7 +765,7 @@ describe('process all snapshots', () => {
             expect(fullSnapshot?.timestamp).toBe(1999)
         })
 
-        it('handles multiple mobile events correctly (only first gets synthetic)', async () => {
+        it('handles multiple mobile events correctly - each gets synthetic full but only first gets meta', async () => {
             const sessionId = 'test-mobile-session'
 
             const snapshotJson = JSON.stringify({
@@ -801,14 +801,150 @@ describe('process all snapshots', () => {
                 sessionId
             )
 
+            // Each mobile incremental gets a synthetic full snapshot
             const fullSnapshots = results.filter((r) => r.type === 2)
-            expect(fullSnapshots).toHaveLength(1)
+            expect(fullSnapshots).toHaveLength(2)
             expect(fullSnapshots[0].timestamp).toBe(999)
+            expect(fullSnapshots[1].timestamp).toBe(1999)
 
             const incrementalSnapshots = results.filter((r) => r.type === 3)
             expect(incrementalSnapshots).toHaveLength(2)
             expect(incrementalSnapshots[0].timestamp).toBe(1000)
             expect(incrementalSnapshots[1].timestamp).toBe(2000)
+
+            // Only one meta event should be created per window (regression test for the fix)
+            const metaEvents = results.filter((r) => r.type === 4)
+            expect(metaEvents).toHaveLength(1)
+            expect(metaEvents[0].windowId).toBe('1')
+        })
+
+        it('creates meta event only once per window for multiple mobile incrementals (regression test)', async () => {
+            const sessionId = 'test-regression-meta'
+
+            // This test verifies the fix: meta should only be patched once per window,
+            // even when multiple mobile incremental screenshots arrive
+            const snapshotJson = JSON.stringify({
+                window_id: 'window-A',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot', width: 400, height: 800 } }],
+                        },
+                    },
+                    {
+                        type: 3,
+                        timestamp: 2000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot', width: 400, height: 800 } }],
+                        },
+                    },
+                    {
+                        type: 3,
+                        timestamp: 3000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot', width: 400, height: 800 } }],
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            // 3 mobile incrementals should produce 3 synthetic full snapshots
+            const fullSnapshots = results.filter((r) => r.type === 2)
+            expect(fullSnapshots).toHaveLength(3)
+
+            // But only 1 meta event should be created (the fix prevents duplicate metas)
+            const metaEvents = results.filter((r) => r.type === 4)
+            expect(metaEvents).toHaveLength(1)
+            expect(metaEvents[0].windowId).toBe('window-A')
+            expect(metaEvents[0].timestamp).toBe(999) // timestamp of first synthetic full - 1
+        })
+
+        it('creates meta event only once across all windows when processing multiple windows', async () => {
+            const sessionId = 'test-multi-window'
+
+            // This test documents the current behavior: only ONE meta event is created
+            // across all windows because hasSeenMeta is a global flag.
+            // Each window still tracks seenFullByWindow independently for the synthetic full logic.
+            const snapshotJsonWindowA = JSON.stringify({
+                window_id: 'window-A',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot', width: 400, height: 800 } }],
+                        },
+                    },
+                    {
+                        type: 3,
+                        timestamp: 2000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot', width: 400, height: 800 } }],
+                        },
+                    },
+                ],
+            })
+            const snapshotJsonWindowB = JSON.stringify({
+                window_id: 'window-B',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1500,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot', width: 400, height: 800 } }],
+                        },
+                    },
+                    {
+                        type: 3,
+                        timestamp: 2500,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot', width: 400, height: 800 } }],
+                        },
+                    },
+                ],
+            })
+
+            const parsedA = await parseEncodedSnapshots([snapshotJsonWindowA], sessionId)
+            const parsedB = await parseEncodedSnapshots([snapshotJsonWindowB], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: [...parsedA, ...parsedB] } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            // 4 mobile incrementals should produce 4 synthetic full snapshots
+            const fullSnapshots = results.filter((r) => r.type === 2)
+            expect(fullSnapshots).toHaveLength(4)
+
+            // Only 1 meta event total (hasSeenMeta is global, not per-window)
+            // The first window to be processed gets the meta event
+            const metaEvents = results.filter((r) => r.type === 4)
+            expect(metaEvents).toHaveLength(1)
+            expect(metaEvents[0].windowId).toBe('window-A') // First processed by timestamp
         })
 
         it('transforms mobile event data during parsing', async () => {
