@@ -5723,6 +5723,7 @@ class SurveyQuestionSchema(BaseModel):
     display: Display1 | None = None
     hasOpenChoice: bool | None = None
     id: str | None = None
+    isNpsQuestion: bool | None = None
     link: str | None = None
     lowerBoundLabel: str | None = None
     optional: bool | None = None
