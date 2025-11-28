@@ -4,6 +4,7 @@
 
 - I need your help to propose potential takeaways/title for a technical article
 - Analyze all the context below, and propose takeaways/title variants that would allow to deliver this context to the target audience.
+- I'm having issues how to balance "what we did" with "what's useful for PostHog users" with "what's useful for engineers"
 - Don't write the article itself
 
 ### Audience/goal of the article
