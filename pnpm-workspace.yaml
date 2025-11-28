@@ -18,3 +18,4 @@ packages:
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
     - posthog-js
+    - node-forge
