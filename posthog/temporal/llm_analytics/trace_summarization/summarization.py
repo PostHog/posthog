@@ -148,7 +148,6 @@ async def generate_and_save_summary_activity(
     summary_result = await summarize(
         text_repr=text_repr,
         team_id=team_id,
-        trace_id=trace_id,
         mode=mode,
         model=model,
     )

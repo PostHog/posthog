@@ -85,7 +85,6 @@ def _prepare_user_param(team_id: int) -> str:
 async def summarize(
     text_repr: str,
     team_id: int,
-    trace_id: str | None = None,
     mode: str = "minimal",
     model: str | None = None,
 ) -> SummarizationResponse:
@@ -95,7 +94,6 @@ async def summarize(
     Args:
         text_repr: Line-numbered text representation to summarize
         team_id: Team ID for cost tracking and analytics
-        trace_id: Optional trace ID for linking LLM call to source trace/event
         mode: Summary detail level ('minimal' or 'detailed')
         model: LLM model to use (defaults to SUMMARIZATION_MODEL constant)
 
