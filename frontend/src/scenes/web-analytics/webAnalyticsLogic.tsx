@@ -154,7 +154,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
         setActiveHoursTab: (tab: string) => ({ tab }),
-        setDomainFilter: (domain: string | null) => ({ domain }),
+        setDomainFilter: (domains: string[] | null) => ({ domains }),
         setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
         clearTablesOrderBy: () => true,
         setTablesOrderBy: (orderBy: WebAnalyticsOrderByFields, direction: WebAnalyticsOrderByDirection) => ({
@@ -366,12 +366,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         domainFilter: [
-            null as string | null,
+            null as string[] | null,
             persistConfig,
             {
-                setDomainFilter: (_: string | null, payload: { domain: string | null }) => {
-                    const { domain } = payload
-                    return domain
+                setDomainFilter: (_: string[] | null, payload: { domains: string[] | null }) => {
+                    const { domains } = payload
+                    return domains && domains.length > 0 ? domains : null
                 },
                 togglePropertyFilter: (state, { key }) => {
                     // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
@@ -638,21 +638,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
-                domainFilter: string | null,
+                domainFilter: string[] | null,
                 deviceTypeFilter: DeviceType | null
             ) => {
                 let filters = rawWebAnalyticsFilters
 
                 // Add domain filter if set
-                if (domainFilter && domainFilter !== 'all') {
+                if (domainFilter && domainFilter.length > 0) {
                     // Remove the leading protocol if it exists
-                    const value = domainFilter.replace(/^https?:\/\//, '')
+                    const values = domainFilter.map((domain) => domain.replace(/^https?:\/\//, ''))
 
                     filters = [
                         ...filters,
                         {
                             key: '$host',
-                            value: value,
+                            value: values,
                             operator: PropertyOperator.Exact,
                             type: PropertyFilterType.Event,
                         },
@@ -2283,8 +2283,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
-            if (domainFilter) {
-                urlParams.set('domain', domainFilter)
+            if (domainFilter && domainFilter.length > 0) {
+                urlParams.set('domain', JSON.stringify(domainFilter))
+            } else {
+                urlParams.delete('domain')
             }
             if (deviceTypeFilter) {
                 urlParams.set('device_type', deviceTypeFilter)
@@ -2428,8 +2430,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (percentile && percentile !== values.webVitalsPercentile) {
                 actions.setWebVitalsPercentile(percentile as WebVitalsPercentile)
             }
-            if (domain && domain !== values.domainFilter) {
-                actions.setDomainFilter(domain === 'all' ? null : domain)
+            if (domain) {
+                try {
+                    const parsedDomains = Array.isArray(domain) ? domain : JSON.parse(domain)
+                    const normalizedDomains = Array.isArray(parsedDomains) ? parsedDomains : [parsedDomains]
+                    if (JSON.stringify(normalizedDomains) !== JSON.stringify(values.domainFilter)) {
+                        actions.setDomainFilter(normalizedDomains)
+                    }
+                } catch {
+                    // Handle legacy single domain format or 'all'
+                    const domains = domain === 'all' ? null : [domain]
+                    if (JSON.stringify(domains) !== JSON.stringify(values.domainFilter)) {
+                        actions.setDomainFilter(domains)
+                    }
+                }
+            } else if (values.domainFilter !== null) {
+                actions.setDomainFilter(null)
             }
             if (device_type && device_type !== values.deviceTypeFilter) {
                 actions.setDeviceTypeFilter(device_type)
