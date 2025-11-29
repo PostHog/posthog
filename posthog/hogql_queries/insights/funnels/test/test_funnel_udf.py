@@ -18,7 +18,6 @@ from posthog.schema import (
 )
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
-from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_group_test_factory,
@@ -67,7 +66,7 @@ class TestFunnelGroupBreakdownUDF(
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
-class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_person)):  # type: ignore
+class TestFOSSFunnelUDF(funnel_test_factory(_create_event, _create_person)):  # type: ignore
     def test_assert_flag_is_on(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
@@ -86,25 +85,6 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
         results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
 
         self.assertTrue(results.isUdf)
-
-    def test_assert_trends_flag_is_off(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "hour",
-            "date_from": "2021-05-01 00:00:00",
-            "funnel_window_interval": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
-
-        self.assertFalse(results.isUdf)
 
     # Old style funnels fails on this (not sure why)
     def test_events_same_timestamp_no_exclusions(self):

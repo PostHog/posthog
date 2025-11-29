@@ -4,20 +4,26 @@ import json
 from datetime import datetime
 from pathlib import Path
 from tempfile import mkstemp
-from urllib.parse import urlparse
+from urllib import parse
 from uuid import uuid4
 
 import pytz
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.schema import RecordingsQuery
+
+from posthog.models import Team
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import (
     RecordingBlock,
     RecordingBlockListing,
     build_block_list,
 )
+from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.storage import session_recording_v2_object_storage
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.delete_recordings.metrics import (
@@ -32,6 +38,7 @@ from posthog.temporal.delete_recordings.types import (
     Recording,
     RecordingBlockGroup,
     RecordingsWithPersonInput,
+    RecordingsWithQueryInput,
     RecordingWithBlocks,
 )
 
@@ -104,7 +111,7 @@ async def group_recording_blocks(input: RecordingWithBlocks) -> list[RecordingBl
     block_map: dict[str, RecordingBlockGroup] = {}
 
     for block in input.blocks:
-        _, _, path, _, query, _ = urlparse(block.url)
+        _, _, path, _, query, _ = parse.urlparse(block.url)
         path = path.lstrip("/")
 
         match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
@@ -225,4 +232,44 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[
 
     session_ids: list[str] = _parse_session_recording_list_response(raw_response)
     logger.info(f"Successfully loaded {len(session_ids)} session IDs")
+    return session_ids
+
+
+@activity.defn(name="load-recordings-with-query")
+async def load_recordings_with_query(input: RecordingsWithQueryInput) -> list[str]:
+    logger = LOGGER.bind()
+    logger.info(f"Loading all sessions matching query")
+
+    query_dict = dict(parse.parse_qsl(input.query))
+    query_dict.pop("add_events_to_property_queries", None)
+    parsed_query = filter_from_params_to_query(query_dict)
+
+    team = (
+        await Team.objects.select_related("organization")
+        .only("id", "organization__available_product_features")
+        .aget(id=input.team_id)
+    )
+
+    session_ids = []
+
+    async def get_session_ids(query: RecordingsQuery) -> tuple[bool, str | None]:
+        query_instance = SessionRecordingListFromQuery(
+            query=query,
+            team=team,
+            hogql_query_modifiers=None,
+        )
+        query_results = await database_sync_to_async(query_instance.run)()
+        session_ids.extend([session["session_id"] for session in query_results.results])
+
+        return query_results.has_more_recording, query_results.next_cursor
+
+    has_more_recording, next_cursor = await get_session_ids(parsed_query)
+    while has_more_recording:
+        if next_cursor is None:
+            break
+
+        parsed_query.after = next_cursor
+        has_more_recording, next_cursor = await get_session_ids(parsed_query)
+
+    logger.info(f"Finished loading sessions to be deleted", session_ids=session_ids)
     return session_ids

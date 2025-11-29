@@ -23,6 +23,14 @@ class RecordingsWithPersonInput:
 
 
 @dataclass(frozen=True)
+class RecordingsWithQueryInput:
+    query: str
+    team_id: int
+    dry_run: bool = False
+    batch_size: int = 100
+
+
+@dataclass(frozen=True)
 class RecordingBlockGroup:
     recording: Recording
     path: str

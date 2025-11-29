@@ -56,7 +56,7 @@ def get_postgres_row_count(
         user=user,
         password=password,
         sslmode="prefer",
-        connect_timeout=5,
+        connect_timeout=15,
         sslrootcert="/tmp/no.txt",
         sslcert="/tmp/no.txt",
         sslkey="/tmp/no.txt",
@@ -113,7 +113,7 @@ def get_schemas(
         user=user,
         password=password,
         sslmode="prefer",
-        connect_timeout=5,
+        connect_timeout=15,
         sslrootcert="/tmp/no.txt",
         sslcert="/tmp/no.txt",
         sslkey="/tmp/no.txt",
@@ -325,7 +325,9 @@ def _has_duplicate_primary_keys(
 def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
-            SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
+            SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
+                SELECT pg_column_size(t) as row_size FROM ({}) as t
+            ) as subquery
         """).format(inner_query)
 
         _explain_query(cursor, query, logger)
@@ -639,7 +641,7 @@ def postgres_source(
             user=user,
             password=password,
             sslmode=sslmode,
-            connect_timeout=5,
+            connect_timeout=15,
             sslrootcert="/tmp/no.txt",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
@@ -727,7 +729,7 @@ def postgres_source(
                     user=user,
                     password=password,
                     sslmode=sslmode,
-                    connect_timeout=5,
+                    connect_timeout=15,
                     sslrootcert="/tmp/no.txt",
                     sslcert="/tmp/no.txt",
                     sslkey="/tmp/no.txt",
@@ -790,7 +792,7 @@ def postgres_source(
 
                             successive_errors = 0
                     except psycopg.errors.SerializationFailure as e:
-                        if "terminating connection due to conflict with recovery" not in "".join(e.args):
+                        if "due to conflict with recovery" not in "".join(e.args):
                             raise
 
                         # This error happens when the read replica is out of sync with the primary

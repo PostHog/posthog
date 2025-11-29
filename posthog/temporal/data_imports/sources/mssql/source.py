@@ -38,6 +38,9 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MSSQL
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {"Adaptive Server connection failed": None, "Login failed for user": None}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

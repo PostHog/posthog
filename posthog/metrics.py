@@ -30,6 +30,12 @@ KLUDGES_COUNTER = Counter(
     labelnames=["kludge"],
 )
 
+TOMBSTONE_COUNTER = Counter(
+    "posthog_tombstone_total",
+    "Rare anomalous events that should almost never occur. Used to track edge cases, cleanup operations finding stale data, and other scenarios that indicate potential bugs or race conditions.",
+    labelnames=["namespace", "operation", "component"],
+)
+
 
 def _push(settings, job, registry):
     push_to_gateway(settings, job, registry)

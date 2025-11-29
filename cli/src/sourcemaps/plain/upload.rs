@@ -1,30 +1,25 @@
-use std::path::PathBuf;
-
 use anyhow::{Context, Result};
 use tracing::{info, warn};
 
 use crate::{
     api::symbol_sets::{self, SymbolSetUpload},
     invocation_context::context,
-    sourcemaps::{plain::inject::is_javascript_file, source_pairs::read_pairs},
-    utils::files::delete_files,
+    sourcemaps::{
+        args::FileSelectionArgs, plain::inject::is_javascript_file, source_pairs::read_pairs,
+    },
+    utils::files::{delete_files, FileSelection},
 };
 
 #[derive(clap::Args, Clone)]
 pub struct Args {
-    /// The directory containing the bundled chunks
-    #[arg(short, long)]
-    pub directory: PathBuf,
+    #[clap(flatten)]
+    pub file_selection: FileSelectionArgs,
 
     /// If your bundler adds a public path prefix to sourcemap URLs,
     /// we need to ignore it while searching for them
     /// For use alongside e.g. esbuilds "publicPath" config setting.
     #[arg(short, long)]
     pub public_path_prefix: Option<String>,
-
-    /// One or more directory glob patterns to ignore
-    #[arg(short, long)]
-    pub ignore: Vec<String>,
 
     /// Whether to delete the source map files after uploading them
     #[arg(long, default_value = "false")]
@@ -61,12 +56,10 @@ pub fn upload(args: &Args) -> Result<()> {
         warn!("`--project` and `--version` are deprecated and do nothing. Set project and version during `inject` instead.");
     }
 
-    let pairs = read_pairs(
-        &args.directory,
-        &args.ignore,
-        is_javascript_file,
-        &args.public_path_prefix,
-    )?;
+    let selection = FileSelection::from(args.file_selection.clone()).filter(is_javascript_file);
+
+    let pairs = read_pairs(selection, &args.public_path_prefix)?;
+
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.inner.path.clone())

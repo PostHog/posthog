@@ -1,5 +1,3 @@
-import { expect } from 'vitest'
-
 import { ApiClient } from '@/api/client'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
@@ -104,9 +102,9 @@ export async function cleanupResources(
 }
 
 export function parseToolResponse(result: any): any {
-    expect(result.content).toBeTruthy()
-    expect(result.content[0].type).toBe('text')
-    return JSON.parse(result.content[0].text)
+    // Tool handlers now return plain JSON objects directly
+    // The MCP server wraps them with formatResponse, but tests call handlers directly
+    return result
 }
 
 export function generateUniqueKey(prefix: string): string {

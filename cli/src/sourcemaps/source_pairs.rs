@@ -1,14 +1,11 @@
-use std::path::PathBuf;
-
 use crate::{
     api::symbol_sets::SymbolSetUpload,
     sourcemaps::content::{MinifiedSourceFile, SourceMapFile},
+    utils::files::FileSelection,
 };
-use anyhow::{anyhow, bail, Context, Result};
-use globset::{Glob, GlobSetBuilder};
+use anyhow::{anyhow, Context, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
-use tracing::{info, warn};
-use walkdir::{DirEntry, WalkDir};
+use tracing::{debug, info, warn};
 
 // Source pairs are the fundamental unit of a frontend symbol set
 pub struct SourcePair {
@@ -82,53 +79,36 @@ impl SourcePair {
     }
 }
 
-pub fn read_pairs(
-    directory: &PathBuf,
-    ignore_globs: &[String],
-    matcher: impl Fn(&DirEntry) -> bool,
-    prefix: &Option<String>,
-) -> Result<Vec<SourcePair>> {
-    // Make sure the directory exists
-    if !directory.exists() {
-        bail!("Directory does not exist");
-    }
-
-    let mut builder = GlobSetBuilder::new();
-    for glob in ignore_globs {
-        builder.add(Glob::new(glob)?);
-    }
-    let set: globset::GlobSet = builder.build()?;
-
-    let mut pairs = Vec::new();
-
-    for entry_path in WalkDir::new(directory)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(matcher)
-        .map(|e| e.path().canonicalize())
-    {
-        let entry_path = entry_path?;
-
-        if set.is_match(&entry_path) {
-            info!("skip [ignored]: {}", entry_path.display());
-            continue;
-        }
-
-        let source = MinifiedSourceFile::load(&entry_path)?;
-        let sourcemap_path = source.get_sourcemap_path(prefix)?;
-
-        let Some(path) = sourcemap_path else {
-            warn!("skip [no sourcemap]: {}", entry_path.display());
-            continue;
-        };
-
-        info!("new pair: {}", entry_path.display());
-        let sourcemap = SourceMapFile::load(&path).context(format!("reading {path:?}"))?;
-        pairs.push(SourcePair { source, sourcemap });
-    }
+pub fn read_pairs(selection: FileSelection, prefix: &Option<String>) -> Result<Vec<SourcePair>> {
+    let pairs = selection
+        .try_into_iter()?
+        .filter_map(|entry| {
+            let path = entry.path();
+            let entry_path = path
+                .canonicalize()
+                .context("failed to canonicalize path")
+                .map_err(|e| warn!("skip: {e:?}"))
+                .ok()?;
+            let source = MinifiedSourceFile::load(&entry_path)
+                .context("failed to read source")
+                .map_err(|e| warn!("skip: {e:?}"))
+                .ok()?;
+            let sourcemap_path = source
+                .get_sourcemap_path(prefix)
+                .context("no sourcemap found")
+                .map_err(|e| info!("skip: {e:?}"))
+                .ok()
+                .flatten()?;
+            let sourcemap = SourceMapFile::load(&sourcemap_path)
+                .context("failed to read sourcemap")
+                .map_err(|e| warn!("skip: {e:?}"))
+                .ok()?;
+            debug!("adding pair for {}", entry_path.display());
+            Some(SourcePair { source, sourcemap })
+        })
+        .collect::<Vec<SourcePair>>();
 
     info!("found {} pairs", pairs.len());
-
     Ok(pairs)
 }
 

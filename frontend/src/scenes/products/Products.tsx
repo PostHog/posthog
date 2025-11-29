@@ -15,7 +15,8 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { OnboardingProduct, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingProduct } from '~/types'
 
 import { productsLogic } from './productsLogic'
 

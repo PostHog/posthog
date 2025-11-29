@@ -15,6 +15,7 @@ import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelSdkDoctorLogic } from './panels/sidePanelSdkDoctorLogic'
+import { sidePanelStatusIncidentIoLogic } from './panels/sidePanelStatusIncidentIoLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -54,6 +55,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['unreadCount'],
             sidePanelStatusLogic,
             ['status'],
+            sidePanelStatusIncidentIoLogic,
+            ['status as incidentioStatus'],
             sidePanelSdkDoctorLogic,
             ['needsAttention'],
             userLogic,
@@ -79,44 +82,45 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
+                // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                 if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
-                    // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
-                }
-                tabs.push(SidePanelTab.Notebooks)
-                tabs.push(SidePanelTab.Docs)
-                if (isCloudOrDev) {
-                    tabs.push(SidePanelTab.Support)
-                }
-                tabs.push(SidePanelTab.Activity)
-
-                if (currentTeam?.created_at) {
-                    const teamCreatedAt = dayjs(currentTeam.created_at)
-
-                    if (dayjs().diff(teamCreatedAt, 'day') < 30) {
-                        tabs.push(SidePanelTab.Activation)
-                    }
-                }
-
-                tabs.push(SidePanelTab.Discussion)
-
-                if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
-                    tabs.push(SidePanelTab.AccessControl)
-                }
-                tabs.push(SidePanelTab.Exports)
-                tabs.push(SidePanelTab.Settings)
-
-                if (featureFlags[FEATURE_FLAGS.SDK_DOCTOR_BETA]) {
-                    tabs.push(SidePanelTab.SdkDoctor)
                 }
 
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Status)
                 }
 
+                // Quick start is shown in the sidebar for the first 90 days of a team's existence
+                if (currentTeam?.created_at) {
+                    const teamCreatedAt = dayjs(currentTeam.created_at)
+
+                    if (dayjs().diff(teamCreatedAt, 'day') < 90) {
+                        tabs.push(SidePanelTab.Activation)
+                    }
+                }
+
+                tabs.push(SidePanelTab.Notebooks)
+                tabs.push(SidePanelTab.Docs)
+                if (isCloudOrDev) {
+                    tabs.push(SidePanelTab.Support)
+                }
+
+                tabs.push(SidePanelTab.Activity)
+                tabs.push(SidePanelTab.Discussion)
+
+                if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
+                    tabs.push(SidePanelTab.AccessControl)
+                }
+
+                tabs.push(SidePanelTab.Exports)
+                tabs.push(SidePanelTab.Settings)
+                tabs.push(SidePanelTab.SdkDoctor)
+
                 if (!currentTeam) {
                     return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
                 }
+
                 return tabs
             },
         ],
@@ -128,6 +132,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.sidePanelOpen,
                 s.unreadCount,
                 s.status,
+                s.incidentioStatus,
                 s.needsAttention,
                 s.hasAvailableFeature,
                 s.shouldShowActivationTab,
@@ -138,6 +143,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 sidePanelOpen,
                 unreadCount,
                 status,
+                incidentioStatus,
                 needsAttention,
                 hasAvailableFeature,
                 shouldShowActivationTab
@@ -155,7 +161,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                         return true
                     }
 
-                    if (tab === SidePanelTab.Status && status !== 'operational') {
+                    if (
+                        tab === SidePanelTab.Status &&
+                        (status !== 'operational' || incidentioStatus !== 'operational')
+                    ) {
                         return true
                     }
 

@@ -68,6 +68,12 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
     if (math === 'unique_group' && mathGroupTypeIndex != undefined) {
         return <LemonTag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
     }
+    if (math === 'weekly_active' && mathGroupTypeIndex != undefined) {
+        return <LemonTag>Weekly active {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
+    }
+    if (math === 'monthly_active' && mathGroupTypeIndex != undefined) {
+        return <LemonTag>Monthly active {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
+    }
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p75', 'p90', 'p95', 'p99'].includes(math)) {
         return (
             <>

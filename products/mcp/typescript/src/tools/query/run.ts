@@ -20,7 +20,7 @@ export const queryRunHandler: ToolBase<typeof schema>['handler'] = async (contex
         throw new Error(`Failed to query insight: ${queryResult.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(queryResult.data.results) }] }
+    return queryResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({

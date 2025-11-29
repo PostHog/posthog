@@ -311,7 +311,7 @@ function SessionSummaryKeyActions({
     segmentName?: string | null
     onSeekToTime: (time: number) => void
 }): JSX.Element {
-    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
+    const timeToSeekTo = (ms: number): number => Math.max(ms - 4000, 0)
     return (
         <>
             {keyActions.events?.map((event: SessionKeyAction, eventIndex: number, events: SessionKeyAction[]) =>
@@ -329,7 +329,7 @@ function SessionSummaryKeyActions({
                             if (!isValidTimestamp(event.milliseconds_since_start)) {
                                 return
                             }
-                            onSeekToTime(timeToSeeekTo(event.milliseconds_since_start))
+                            onSeekToTime(timeToSeekTo(event.milliseconds_since_start))
                         }}
                     >
                         <div className="flex flex-row gap-2">

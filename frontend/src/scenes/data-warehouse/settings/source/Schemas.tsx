@@ -21,18 +21,16 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { SyncTypeLabelMap, defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
+import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSourceSchema,
-    ProductKey,
 } from '~/types'
 
 import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
@@ -60,9 +58,9 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                         tooltip="This source is feeding data into our Revenue analytics product - currently in beta."
                         onClick={() => {
                             addProductIntentForCrossSell({
-                                from: ProductKey.PRODUCT_ANALYTICS,
-                                to: ProductKey.DATA_WAREHOUSE,
-                                intent_context: ProductIntentContext.DATA_WAREHOUSE_SOURCES_TABLE,
+                                from: ProductKey.DATA_WAREHOUSE,
+                                to: ProductKey.REVENUE_ANALYTICS,
+                                intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
                             })
                             router.actions.push(urls.revenueAnalytics())
                         }}

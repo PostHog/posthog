@@ -5,14 +5,15 @@ use common_types::{CapturedEvent, RawEvent};
 use rdkafka::message::OwnedHeaders;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
-use rdkafka::{ClientConfig, Message};
+use rdkafka::ClientConfig;
 use serde_json;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::duplicate_event::DuplicateEvent;
-use crate::kafka::message::{AckableMessage, MessageProcessor};
+use crate::kafka::batch_message::KafkaMessage;
+use crate::kafka::message::MessageProcessor;
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
     DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
@@ -441,8 +442,8 @@ impl DeduplicationProcessor {
     async fn process_raw_event(
         &self,
         raw_event: RawEvent,
-        original_payload: &[u8],
-        original_headers: Option<&OwnedHeaders>,
+        original_payload: Vec<u8>,
+        original_headers: OwnedHeaders,
         ctx: MessageContext<'_>,
     ) -> Result<bool> {
         // Get the store for this partition
@@ -506,8 +507,8 @@ impl DeduplicationProcessor {
                 return self
                     .publish_event(
                         producer,
-                        original_payload,
-                        original_headers,
+                        &original_payload,
+                        Some(&original_headers),
                         ctx.key,
                         output_topic,
                     )
@@ -563,154 +564,109 @@ impl DeduplicationProcessor {
 
 #[async_trait]
 impl MessageProcessor for DeduplicationProcessor {
-    async fn process_message(&self, message: AckableMessage) -> Result<()> {
-        let topic = message.kafka_message().topic().to_string();
-        let partition = message.kafka_message().partition();
-        let offset = message.kafka_message().offset();
+    async fn process_message(&self, message: KafkaMessage<CapturedEvent>) -> Result<()> {
+        let topic = message.get_topic_partition().topic().to_string();
+        let partition = message.get_topic_partition().partition_number();
+        let offset = message.get_offset();
 
         debug!(
             "Processing message from topic {} partition {} offset {}",
             topic, partition, offset
         );
 
-        // Get the message payload
-        let payload = match message.kafka_message().payload() {
-            Some(payload) => payload,
+        // Parse the captured event and extract the raw event from it
+        let captured_event = match message.get_message() {
+            Some(captured_event) => captured_event,
             None => {
-                warn!(
-                    "Received message with no payload at {}:{} offset {}",
+                // This should never fail since batch consumer catches errors
+                // of this sort upstream when unpacking the batch. As with stateful
+                // consumer, let's report but not fail on this if it does happen
+                error!(
+                    "Failed to extract CapturedEvent from KafkaMessage at {}:{} offset {}",
                     topic, partition, offset
                 );
-                message.ack().await;
                 return Ok(());
             }
         };
 
-        // Parse the captured event and extract the raw event from it
-        let raw_event = match serde_json::from_slice::<CapturedEvent>(payload) {
-            Ok(captured_event) => {
-                // extract well-validated values from the CapturedEvent that
-                // may or may not be present in the wrapped RawEvent
-                let now = captured_event.now.clone();
-                let extracted_distinct_id = captured_event.distinct_id.clone();
-                let extracted_token = captured_event.token.clone();
-                let extracted_uuid = captured_event.uuid;
+        // extract well-validated values from the CapturedEvent that
+        // may or may not be present in the wrapped RawEvent
+        let now = captured_event.now.clone();
+        let extracted_distinct_id = captured_event.distinct_id.clone();
+        let extracted_token = captured_event.token.clone();
+        let extracted_uuid = captured_event.uuid;
 
-                // The RawEvent is serialized in the data field
-                match serde_json::from_str::<RawEvent>(&captured_event.data) {
-                    Ok(mut raw_event) => {
-                        // Validate timestamp: if it's None or unparseable, use CapturedEvent.now
-                        // This ensures we always have a valid timestamp for deduplication
-                        match raw_event.timestamp {
-                            None => {
-                                debug!("No timestamp in RawEvent, using CapturedEvent.now");
-                                raw_event.timestamp = Some(now);
-                            }
-                            Some(ref ts) if !timestamp::is_valid_timestamp(ts) => {
-                                // Don't log the invalid timestamp directly as it may contain
-                                // non-ASCII characters that could cause issues with logging
-                                debug!(
-                                    "Invalid timestamp detected at {}:{} offset {}, replacing with CapturedEvent.now",
-                                    topic, partition, offset
-                                );
-                                raw_event.timestamp = Some(now);
-                            }
-                            _ => {
-                                // Timestamp exists and is valid, keep it
-                            }
-                        }
-
-                        // if RawEvent is missing any of the core values
-                        // extracted by capture into the CapturedEvent
-                        // wrapper, use those values for downstream analysis
-                        if raw_event.uuid.is_none() {
-                            raw_event.uuid = Some(extracted_uuid);
-                        }
-                        if raw_event.distinct_id.is_none() && !extracted_distinct_id.is_empty() {
-                            raw_event.distinct_id =
-                                Some(serde_json::Value::String(extracted_distinct_id));
-                        }
-                        if raw_event.token.is_none() && !extracted_token.is_empty() {
-                            raw_event.token = Some(extracted_token);
-                        }
-
-                        raw_event
+        // The RawEvent is serialized in the data field
+        let raw_event = match serde_json::from_str::<RawEvent>(&captured_event.data) {
+            Ok(mut raw_event) => {
+                // Validate timestamp: if it's None or unparseable, use CapturedEvent.now
+                // This ensures we always have a valid timestamp for deduplication
+                match raw_event.timestamp {
+                    None => {
+                        debug!("No timestamp in RawEvent, using CapturedEvent.now");
+                        raw_event.timestamp = Some(now);
                     }
-                    Err(e) => {
-                        error!(
-                            "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
-                            topic, partition, offset, e
+                    Some(ref ts) if !timestamp::is_valid_timestamp(ts) => {
+                        // Don't log the invalid timestamp directly as it may contain
+                        // non-ASCII characters that could cause issues with logging
+                        debug!(
+                            "Invalid timestamp detected at {}:{} offset {}, replacing with CapturedEvent.now",
+                            topic, partition, offset
                         );
-                        message
-                            .nack(format!("Failed to parse RawEvent from data field: {e}"))
-                            .await;
-                        return Err(anyhow::anyhow!(
-                            "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
-                            topic,
-                            partition,
-                            offset,
-                            e
-                        ));
+                        raw_event.timestamp = Some(now);
+                    }
+                    _ => {
+                        // Timestamp exists and is valid, keep it
                     }
                 }
+
+                // if RawEvent is missing any of the core values
+                // extracted by capture into the CapturedEvent
+                // wrapper, use those values for downstream analysis
+                if raw_event.uuid.is_none() {
+                    raw_event.uuid = Some(extracted_uuid);
+                }
+                if raw_event.distinct_id.is_none() && !extracted_distinct_id.is_empty() {
+                    raw_event.distinct_id = Some(serde_json::Value::String(extracted_distinct_id));
+                }
+                if raw_event.token.is_none() && !extracted_token.is_empty() {
+                    raw_event.token = Some(extracted_token);
+                }
+
+                raw_event
             }
             Err(e) => {
-                // TODO: When DLQ is implemented, send unparseable messages there
-                // For now, we just log and skip messages we can't parse (e.g., those with null ip field)
-                warn!(
-                    "Failed to parse CapturedEvent from {}:{} offset {}: {}. Skipping message.",
+                error!(
+                    "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
                     topic, partition, offset, e
                 );
-                // Ack the message to continue processing
-                message.ack().await;
-                return Ok(());
-
-                // Original error handling - keeping for reference when DLQ is implemented:
-                // error!(
-                //     "Failed to parse CapturedEvent from {}:{} offset {}: {}",
-                //     topic, partition, offset, e
-                // );
-                // // Nack the message so it can be handled by error recovery/DLQ
-                // message
-                //     .nack(format!("Failed to parse CapturedEvent JSON: {e}"))
-                //     .await;
-                // return Err(anyhow::anyhow!(
-                //     "Failed to parse CapturedEvent from {}:{} offset {}: {}",
-                //     topic,
-                //     partition,
-                //     offset,
-                //     e
-                // ));
+                return Err(anyhow::anyhow!(
+                    "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
+                    topic,
+                    partition,
+                    offset,
+                    e
+                ));
             }
         };
 
         // Get the original message key for publishing
-        let key = match message.kafka_message().key() {
-            Some(key_bytes) => match std::str::from_utf8(key_bytes) {
+        let key = match message.key_as_str() {
+            Some(key_result) => match key_result {
                 Ok(key_str) => key_str.to_string(),
                 Err(e) => {
                     error!(
                         "Invalid UTF-8 in message key at {}:{} offset {}: {}",
                         topic, partition, offset, e
                     );
-                    message
-                        .nack("Invalid UTF-8 in message key".to_string())
-                        .await;
-                    return Err(anyhow::anyhow!(
-                        "Invalid UTF-8 in message key at {}:{} offset {}: {}",
-                        topic,
-                        partition,
-                        offset,
-                        e
-                    ));
+                    String::new()
                 }
             },
             None => String::new(), // Empty key is acceptable
         };
 
         // Get the original headers to preserve them when publishing
-        let headers = message.kafka_message().headers();
-
+        let (orig_payload, orig_headers) = message.to_original_contents();
         // Create message context
         let ctx = MessageContext {
             topic: &topic,
@@ -721,7 +677,7 @@ impl MessageProcessor for DeduplicationProcessor {
 
         // Process the event through deduplication, passing the original payload and headers for publishing
         match self
-            .process_raw_event(raw_event, payload, headers, ctx)
+            .process_raw_event(raw_event, orig_payload, orig_headers, ctx)
             .await
         {
             Ok(published) => {
@@ -736,7 +692,6 @@ impl MessageProcessor for DeduplicationProcessor {
                         topic, partition, offset
                     );
                 }
-                message.ack().await;
                 Ok(())
             }
             Err(e) => {
@@ -744,7 +699,6 @@ impl MessageProcessor for DeduplicationProcessor {
                     "Failed to process event from {}:{} offset {}: {}",
                     topic, partition, offset, e
                 );
-                message.nack(format!("Processing failed: {e}")).await;
                 Err(e)
             }
         }

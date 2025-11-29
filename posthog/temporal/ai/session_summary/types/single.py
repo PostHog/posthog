@@ -9,6 +9,7 @@ class SingleSessionSummaryInputs:
 
     session_id: str
     user_id: int
+    user_distinct_id_to_log: str | None = None
     team_id: int
     redis_key_base: str
     model_to_use: str

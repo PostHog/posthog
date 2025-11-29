@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.util import NonRetryableException
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
@@ -262,9 +263,25 @@ def _run(
     shutdown_monitor: ShutdownMonitor,
     resumable_source_manager: ResumableSourceManager | None,
 ):
-    pipeline = PipelineNonDLT(
-        source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
-    )
-    pipeline.run()
-    logger.debug("Finished running pipeline")
-    del pipeline
+    try:
+        pipeline = PipelineNonDLT(
+            source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
+        )
+        pipeline.run()
+        logger.debug("Finished running pipeline")
+        del pipeline
+    except Exception as e:
+        source_cls = SourceRegistry.get_source(job_inputs.job_type)
+        non_retryable_errors = source_cls.get_non_retryable_errors()
+        error_msg = str(e)
+        is_non_retryable_error = any(
+            non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
+        )
+        if is_non_retryable_error:
+            logger.debug(f"Encountered non-retryable error during import_data_activity_sync. error={error_msg}")
+            raise NonRetryableException() from e
+        else:
+            logger.debug(
+                "Error encountered during import_data_activity_sync - re-raising",
+            )
+            raise

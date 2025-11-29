@@ -20,7 +20,7 @@ import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
@@ -42,8 +42,8 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { QuerySchema } from '~/queries/schema/schema-general'
-import { InsightLogicProps, ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
@@ -124,7 +124,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                     })
                 }}
             >
-                Open as new Insight
+                Open as new insight
             </LemonButton>
         ) : null,
         tile.canOpenModal ? (
@@ -583,12 +583,12 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 <LemonButton
                     type="secondary"
                     size="small"
-                    icon={<IconShare />}
+                    icon={<IconShare fontSize="16" />}
+                    tooltip="Share"
+                    tooltipPlacement="top"
                     onClick={handleShare}
                     data-attr="web-analytics-share-button"
-                >
-                    Share
-                </LemonButton>
+                />
             }
         />
     )

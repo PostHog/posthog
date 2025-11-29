@@ -1,14 +1,12 @@
 import snappyInit, { decompress_raw } from 'snappy-wasm'
 
-// Initialize snappy-wasm
-let snappyInitialized = false
+let snappyInitPromise: Promise<unknown> | null = null
 
 async function initSnappy(): Promise<void> {
-    if (snappyInitialized) {
-        return
+    if (!snappyInitPromise) {
+        snappyInitPromise = snappyInit()
     }
-    await snappyInit()
-    snappyInitialized = true
+    await snappyInitPromise
 }
 
 export interface DecompressionRequest {

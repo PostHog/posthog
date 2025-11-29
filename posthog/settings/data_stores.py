@@ -19,6 +19,13 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.AutoField"
 # Configuration for sqlcommenter
 SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 
+# Person table configuration
+# Controls which PostgreSQL table the Person model uses.
+# Default: "posthog_person" (legacy non-partitioned table)
+# For partitioned table: set PERSON_TABLE_NAME=posthog_person_new
+# Note: posthog_person_new must exist (created by Rust sqlx migrations)
+PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
+
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
@@ -126,6 +133,12 @@ if not persons_db_writer_url and DEBUG and not TEST:
     # A default is needed for generate_demo_data to properly populate the correct databases
     # with the demo data
     persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_persons"
+elif not persons_db_writer_url and TEST:
+    # In test mode, use a placeholder database name that will be updated by conftest
+    # pytest-django adds test_ prefix which isn't known at settings import time
+    # conftest.py django_db_setup fixture will update the NAME with the correct test database name
+    test_persons_db = PG_DATABASE + "_persons"
+    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{test_persons_db}"
 
 if persons_db_writer_url:
     DATABASES["persons_db_writer"] = dj_database_url.config(
@@ -178,6 +191,7 @@ CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
 CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
+CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
@@ -394,7 +408,6 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
 
-
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
@@ -405,6 +418,12 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
+# Rust feature flags service URL
+# This is used to proxy flag evaluation requests to the Rust feature flags service
+FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
+FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
+FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
 
 CACHES = {
     "default": {
@@ -440,3 +459,7 @@ if FLAGS_REDIS_URL:
 
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+
+# Cache timeout for materialized columns metadata (in seconds)
+MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
+MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", False, type_cast=str_to_bool)

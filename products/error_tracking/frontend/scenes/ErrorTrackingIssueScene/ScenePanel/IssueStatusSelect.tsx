@@ -8,7 +8,6 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
-import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { StatusIndicator } from '../../../components/Indicators'
@@ -21,16 +20,16 @@ export const IssueStatusSelect = ({
     onChange: (status: ErrorTrackingIssue['status']) => void
 }): JSX.Element => {
     return (
-        <ScenePanelLabel title="Status">
+        <div className="w-34">
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <ButtonPrimitive fullWidth className="flex justify-between" variant="panel" menuItem>
+                    <ButtonPrimitive className="flex justify-between" variant="panel" fullWidth>
                         <StatusIndicator status={status} withTooltip={true} />
                         <DropdownMenuOpenIndicator />
                     </ButtonPrimitive>
                 </DropdownMenuTrigger>
 
-                <DropdownMenuContent loop matchTriggerWidth>
+                <DropdownMenuContent loop align="end" side="bottom" matchTriggerWidth>
                     <DropdownMenuGroup>
                         {status === 'active' ? (
                             <>
@@ -55,6 +54,6 @@ export const IssueStatusSelect = ({
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
-        </ScenePanelLabel>
+        </div>
     )
 }

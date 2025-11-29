@@ -29,9 +29,7 @@ export const listErrorsHandler: ToolBase<typeof schema>['handler'] = async (cont
         throw new Error(`Failed to list errors: ${errorsResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(errorsResult.data.results) }],
-    }
+    return errorsResult.data.results
 }
 
 const tool = (): ToolBase<typeof schema> => ({

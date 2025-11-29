@@ -20,7 +20,8 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType, AvailableFeature, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 import { AccessDenied } from '../AccessDenied'
 import MonacoDiffEditor from '../MonacoDiffEditor'

@@ -6,12 +6,12 @@
          countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM events AS event
   LEFT OUTER JOIN
-    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
+     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
   JOIN
     (SELECT aggregation_target AS actor_id,
             (matched_events_array[1][1]).1 AS timestamp,
@@ -48,12 +48,12 @@
                   if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -102,12 +102,12 @@
                   if(and(equals(e.event, 'paid'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -122,7 +122,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties
@@ -170,12 +171,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -237,12 +238,12 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -257,7 +258,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.1
@@ -306,12 +308,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -343,7 +345,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.2
@@ -360,7 +363,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.3
@@ -409,12 +413,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -446,7 +450,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.4
@@ -463,7 +468,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.5
@@ -512,12 +518,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -549,7 +555,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.6
@@ -566,7 +573,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.7
@@ -615,12 +623,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
@@ -652,7 +660,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.8
@@ -669,7 +678,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized
@@ -717,12 +727,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -784,12 +794,12 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -804,7 +814,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.1
@@ -853,12 +864,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -890,7 +901,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.2
@@ -907,7 +919,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.3
@@ -956,12 +969,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -993,7 +1006,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.4
@@ -1010,7 +1024,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.5
@@ -1059,12 +1074,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -1096,7 +1111,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.6
@@ -1113,7 +1129,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.7
@@ -1162,12 +1179,12 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
                 (SELECT person.id AS id,
                         nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
@@ -1199,7 +1216,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.8
@@ -1216,7 +1234,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_event_properties_and_groups
@@ -1328,7 +1347,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_event_properties_and_groups_materialized
@@ -1440,7 +1460,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups
@@ -1545,7 +1566,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.1
@@ -1613,7 +1635,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.2
@@ -1681,7 +1704,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.3
@@ -1749,7 +1773,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.4
@@ -1817,7 +1842,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.5
@@ -1862,7 +1888,7 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1917,7 +1943,7 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -1938,7 +1964,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.6
@@ -2006,7 +2033,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.7
@@ -2074,7 +2102,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2
@@ -2179,7 +2208,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.1
@@ -2247,7 +2277,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.2
@@ -2315,7 +2346,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.3
@@ -2383,7 +2415,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.4
@@ -2451,7 +2484,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.5
@@ -2496,7 +2530,7 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -2551,7 +2585,7 @@
                   if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            LEFT JOIN
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+             (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
                      groups.group_key AS key
               FROM groups
@@ -2572,7 +2606,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.6
@@ -2640,7 +2675,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.7
@@ -2708,7 +2744,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups
@@ -2764,7 +2801,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -2828,7 +2865,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.1
@@ -2875,7 +2913,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -2903,7 +2941,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.2
@@ -2950,7 +2989,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -2978,7 +3017,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.3
@@ -3025,7 +3065,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3053,7 +3093,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.4
@@ -3100,7 +3141,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3128,7 +3169,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.5
@@ -3184,7 +3226,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -3248,7 +3290,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized
@@ -3304,7 +3347,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -3368,7 +3411,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.1
@@ -3415,7 +3459,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3443,7 +3487,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.2
@@ -3490,7 +3535,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3518,7 +3563,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.3
@@ -3565,7 +3611,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3593,7 +3639,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.4
@@ -3640,7 +3687,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3668,7 +3715,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.5
@@ -3724,7 +3772,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -3788,7 +3836,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events
@@ -3844,7 +3893,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -3908,7 +3957,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.1
@@ -3955,7 +4005,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -3983,7 +4033,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.2
@@ -4030,7 +4081,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4058,7 +4109,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.3
@@ -4105,7 +4157,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4133,7 +4185,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.4
@@ -4180,7 +4233,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4208,7 +4261,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.5
@@ -4264,7 +4318,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4328,7 +4382,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
@@ -4384,7 +4439,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4448,7 +4503,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
@@ -4495,7 +4551,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4523,7 +4579,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
@@ -4570,7 +4627,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4598,7 +4655,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
@@ -4645,7 +4703,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4673,7 +4731,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
@@ -4720,7 +4779,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -4748,7 +4807,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
@@ -4804,7 +4864,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4868,7 +4928,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
@@ -4924,7 +4985,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -4988,7 +5049,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
@@ -5035,7 +5097,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5063,7 +5125,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
@@ -5110,7 +5173,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5138,7 +5201,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
@@ -5185,7 +5249,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5213,7 +5277,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
@@ -5260,7 +5325,7 @@
                      if(equals(e.event, 'paid'), 1, 0) AS step_1
               FROM events AS e
               LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                         groups.group_type_index AS index,
                         groups.group_key AS key
                  FROM groups
@@ -5288,7 +5353,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
@@ -5344,7 +5410,7 @@
        (SELECT groups.key AS key,
                groups.properties AS properties
         FROM
-          (SELECT argMax(groups.group_properties, toTimeZone(groups._timestamp, 'UTC')) AS properties,
+          (SELECT tupleElement(argMax(tuple(groups.group_properties), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties,
                   groups.group_type_index AS index,
                   groups.group_key AS key
            FROM groups
@@ -5408,6 +5474,7 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---

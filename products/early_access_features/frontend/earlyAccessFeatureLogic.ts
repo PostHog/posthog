@@ -33,6 +33,7 @@ export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     stage: EarlyAccessFeatureStage.Draft,
     documentation_url: '',
     feature_flag_id: undefined,
+    payload: {},
 }
 
 export interface EarlyAccessFeatureLogicProps {
@@ -132,10 +133,18 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 name: !payload.name ? 'Feature name must be set' : undefined,
             }),
             submit: async (payload) => {
+                const parsedPayload = {
+                    ...payload,
+                    payload: payload.payload && typeof payload.payload === 'string' ? JSON.parse(payload.payload) : {},
+                }
+
                 if (props.id && props.id !== 'new') {
-                    actions.saveEarlyAccessFeature(payload)
+                    actions.saveEarlyAccessFeature(parsedPayload)
                 } else {
-                    actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: 'Unfiled/Early Access Features' })
+                    actions.saveEarlyAccessFeature({
+                        ...parsedPayload,
+                        _create_in_folder: 'Unfiled/Early Access Features',
+                    })
                 }
             },
         },
