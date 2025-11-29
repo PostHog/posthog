@@ -24,10 +24,10 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
             <FilterBar
                 top={tabs}
                 left={
-                    <>
+                    <div className="flex items-center gap-4">
                         <ReloadAll />
                         <ConversionGoalFilterButton />
-                    </>
+                    </div>
                 }
                 right={
                     <>

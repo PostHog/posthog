@@ -1,26 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { useCallback } from 'react'
 
 import { IconBookmark, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
 export function ConversionGoalFilterButton(): JSX.Element {
-    const { draftConversionGoal, conversionGoalInput, uniqueConversionGoalName } = useValues(marketingAnalyticsLogic)
-    const { showConversionGoalModal, resetConversionGoalInput, saveDraftConversionGoal } =
-        useActions(marketingAnalyticsLogic)
-    const { addOrUpdateConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
-
-    const handleSaveConversionGoal = useCallback((): void => {
-        addOrUpdateConversionGoal({ ...conversionGoalInput, conversion_goal_name: uniqueConversionGoalName })
-        saveDraftConversionGoal()
-    }, [conversionGoalInput, addOrUpdateConversionGoal, saveDraftConversionGoal, uniqueConversionGoalName])
-
-    const handleClearConversionGoal = useCallback((): void => {
-        resetConversionGoalInput()
-    }, [resetConversionGoalInput])
+    const { draftConversionGoal } = useValues(marketingAnalyticsLogic)
+    const { showConversionGoalModal, saveConversionGoal, clearConversionGoal } = useActions(marketingAnalyticsLogic)
 
     if (!draftConversionGoal) {
         return (
@@ -42,14 +29,14 @@ export function ConversionGoalFilterButton(): JSX.Element {
             <LemonButton
                 icon={<IconBookmark />}
                 size="xsmall"
-                onClick={handleSaveConversionGoal}
+                onClick={saveConversionGoal}
                 tooltip="Save conversion goal"
                 type="tertiary"
             />
             <LemonButton
                 icon={<IconTrash />}
                 size="xsmall"
-                onClick={handleClearConversionGoal}
+                onClick={clearConversionGoal}
                 tooltip="Clear conversion goal"
                 type="tertiary"
             />

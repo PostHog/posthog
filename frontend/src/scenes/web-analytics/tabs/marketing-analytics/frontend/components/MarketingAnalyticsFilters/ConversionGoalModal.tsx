@@ -1,17 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { objectsEqual, uuid } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 import {
     conversionGoalDescription,
@@ -21,72 +20,26 @@ import {
 } from '../settings/constants'
 
 export function ConversionGoalModal(): JSX.Element {
-    const { conversionGoalModalVisible, draftConversionGoal, conversionGoalInput, uniqueConversionGoalName } =
+    const { conversionGoalModalVisible, draftConversionGoal, conversionGoalInput, conversion_goals } =
         useValues(marketingAnalyticsLogic)
     const {
         hideConversionGoalModal,
-        setDraftConversionGoal,
         setConversionGoalInput,
-        resetConversionGoalInput,
-        saveDraftConversionGoal,
+        applyConversionGoal,
+        saveConversionGoal,
+        clearConversionGoal,
+        loadConversionGoal,
     } = useActions(marketingAnalyticsLogic)
-    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
-    const { addOrUpdateConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
 
     const [configuredGoalsExpanded, setConfiguredGoalsExpanded] = useState(false)
 
-    const handleConversionGoalChange = useCallback(
-        (filter: ConversionGoalFilter): void => {
-            setConversionGoalInput({
-                ...filter,
-                conversion_goal_name:
-                    conversionGoalInput?.conversion_goal_name || filter.custom_name || filter.name || 'No name',
-            })
-        },
-        [conversionGoalInput?.conversion_goal_name, setConversionGoalInput]
-    )
-
-    const handleApplyConversionGoal = useCallback((): void => {
-        if (conversionGoalInput) {
-            setDraftConversionGoal({ ...conversionGoalInput, conversion_goal_name: uniqueConversionGoalName })
-            setConversionGoalInput({
-                ...conversionGoalInput,
-                conversion_goal_name: uniqueConversionGoalName,
-            })
-        }
-        hideConversionGoalModal()
-    }, [
-        conversionGoalInput,
-        setDraftConversionGoal,
-        setConversionGoalInput,
-        uniqueConversionGoalName,
-        hideConversionGoalModal,
-    ])
-
-    const handleSaveConversionGoal = useCallback((): void => {
-        addOrUpdateConversionGoal({ ...conversionGoalInput, conversion_goal_name: uniqueConversionGoalName })
-        saveDraftConversionGoal()
-        hideConversionGoalModal()
-    }, [
-        conversionGoalInput,
-        addOrUpdateConversionGoal,
-        saveDraftConversionGoal,
-        uniqueConversionGoalName,
-        hideConversionGoalModal,
-    ])
-
-    const handleClearConversionGoal = useCallback((): void => {
-        resetConversionGoalInput()
-        hideConversionGoalModal()
-    }, [resetConversionGoalInput, hideConversionGoalModal])
-
-    const handleLoadConfiguredGoal = useCallback(
-        (goal: ConversionGoalFilter): void => {
-            // Generate a new ID so changes are always detected when applying
-            setConversionGoalInput({ ...goal, conversion_goal_id: uuid() })
-        },
-        [setConversionGoalInput]
-    )
+    const handleConversionGoalChange = (filter: ConversionGoalFilter): void => {
+        setConversionGoalInput({
+            ...filter,
+            conversion_goal_name:
+                conversionGoalInput?.conversion_goal_name || filter.custom_name || filter.name || 'No name',
+        })
+    }
 
     const hasEvent = conversionGoalInput?.name !== defaultConversionGoalFilter.name
     const hasChanges = conversionGoalInput && !objectsEqual(conversionGoalInput, draftConversionGoal) && hasEvent
@@ -102,7 +55,7 @@ export function ConversionGoalModal(): JSX.Element {
                 <div className="flex justify-between items-center w-full">
                     <LemonButton
                         type="secondary"
-                        onClick={handleClearConversionGoal}
+                        onClick={clearConversionGoal}
                         disabledReason={!hasAppliedGoal ? 'No active goal to clear' : undefined}
                     >
                         Clear
@@ -110,7 +63,7 @@ export function ConversionGoalModal(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
-                            onClick={handleSaveConversionGoal}
+                            onClick={saveConversionGoal}
                             disabledReason={
                                 !hasAppliedGoal
                                     ? 'Apply first to verify your conversion goal works correctly'
@@ -121,7 +74,7 @@ export function ConversionGoalModal(): JSX.Element {
                         </LemonButton>
                         <LemonButton
                             type="primary"
-                            onClick={handleApplyConversionGoal}
+                            onClick={applyConversionGoal}
                             disabledReason={!hasChanges ? 'No changes to apply' : undefined}
                         >
                             Apply
@@ -179,7 +132,7 @@ export function ConversionGoalModal(): JSX.Element {
                                     <div
                                         key={goal.conversion_goal_id}
                                         className="flex items-center justify-between px-3 py-2 hover:bg-bg-light cursor-pointer border-b last:border-b-0"
-                                        onClick={() => handleLoadConfiguredGoal(goal)}
+                                        onClick={() => loadConversionGoal(goal)}
                                     >
                                         <div className="flex flex-col">
                                             <span className="font-medium">{goal.conversion_goal_name}</span>
