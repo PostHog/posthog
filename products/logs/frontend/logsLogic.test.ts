@@ -240,4 +240,73 @@ describe('logsLogic', () => {
             expect(logic.values.parsedLogs).toHaveLength(0)
         })
     })
+
+    describe('log pinning', () => {
+        const mockLogs = [createMockLog('log-1'), createMockLog('log-2'), createMockLog('log-3')]
+
+        it('pins a log via togglePinLog', async () => {
+            logic.actions.fetchLogsSuccess(mockLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.togglePinLog('log-1')
+            }).toDispatchActions(['togglePinLog', 'pinLog'])
+
+            expect(logic.values.pinnedLogIds.has('log-1')).toBe(true)
+            expect(logic.values.isPinned('log-1')).toBe(true)
+            expect(logic.values.pinnedLogs).toHaveLength(1)
+        })
+
+        it('unpins a log via togglePinLog', async () => {
+            logic.actions.fetchLogsSuccess(mockLogs)
+            logic.actions.pinLog(mockLogs[0])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isPinned('log-1')).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.togglePinLog('log-1')
+            }).toDispatchActions(['togglePinLog', 'unpinLog'])
+
+            expect(logic.values.pinnedLogIds.has('log-1')).toBe(false)
+            expect(logic.values.isPinned('log-1')).toBe(false)
+            expect(logic.values.pinnedLogs).toHaveLength(0)
+        })
+
+        it('does nothing when toggling non-existent log', async () => {
+            logic.actions.fetchLogsSuccess(mockLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.togglePinLog('non-existent')
+            })
+                .toDispatchActions(['togglePinLog'])
+                .toNotHaveDispatchedActions(['pinLog', 'unpinLog'])
+        })
+
+        it('supports multiple pinned logs', async () => {
+            logic.actions.fetchLogsSuccess(mockLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.togglePinLog('log-1')
+            logic.actions.togglePinLog('log-3')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.pinnedLogs).toHaveLength(2)
+            expect(logic.values.isPinned('log-1')).toBe(true)
+            expect(logic.values.isPinned('log-2')).toBe(false)
+            expect(logic.values.isPinned('log-3')).toBe(true)
+        })
+
+        it('pinnedParsedLogs contains parsed log data', async () => {
+            const logWithJson = { ...createMockLog('json-log'), body: '{"key": "value"}' }
+            logic.actions.fetchLogsSuccess([logWithJson])
+            logic.actions.pinLog(logWithJson)
+            await expectLogic(logic).toFinishAllListeners()
+
+            const pinnedJsonLog = logic.values.pinnedParsedLogs.find((l) => l.uuid === 'json-log')
+            expect(pinnedJsonLog).toBeTruthy()
+            expect(pinnedJsonLog?.parsedBody).toEqual({ key: 'value' })
+        })
+    })
 })

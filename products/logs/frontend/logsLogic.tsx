@@ -835,13 +835,12 @@ export const logsLogic = kea<logsLogicType>([
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
         },
         togglePinLog: ({ logId }) => {
-            const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
-            if (isPinned) {
+            if (values.pinnedLogIds.has(logId)) {
                 actions.unpinLog(logId)
             } else {
-                const logToPin = values.logs.find((log) => log.uuid === logId)
-                if (logToPin) {
-                    actions.pinLog(logToPin)
+                const index = values.logIndexByUuid.get(logId)
+                if (index !== undefined) {
+                    actions.pinLog(values.parsedLogs[index])
                 }
             }
         },
