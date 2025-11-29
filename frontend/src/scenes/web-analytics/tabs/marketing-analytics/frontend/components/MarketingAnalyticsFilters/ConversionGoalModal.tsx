@@ -63,10 +63,7 @@ export function ConversionGoalModal(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
-                            onClick={() => {
-                                saveConversionGoal()
-                                hideConversionGoalModal()
-                            }}
+                            onClick={saveConversionGoal}
                             disabledReason={
                                 !hasAppliedGoal
                                     ? 'Apply first to verify your conversion goal works correctly'
