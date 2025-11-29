@@ -36,13 +36,13 @@ import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage, ProductKey } from '~/queries/schema/schema-general'
 import { PropertyOperator } from '~/types'
 
+import { KeyboardShortcuts } from 'products/logs/frontend/components/KeyboardShortcuts'
 import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
 
@@ -579,17 +579,3 @@ const DisplayOptions = (): JSX.Element => {
         </div>
     )
 }
-
-const KeyboardShortcuts = (): JSX.Element => (
-    <>
-        <KeyboardShortcut arrowup />
-        <KeyboardShortcut arrowdown />
-        <span className="mx-1 text-muted">or</span>
-        <KeyboardShortcut j />
-        <KeyboardShortcut k />
-        <span className="text-muted">navigate</span>
-        <span className="mx-1">·</span>
-        <KeyboardShortcut enter />
-        <span className="text-muted">expand</span>
-    </>
-)
