@@ -114,12 +114,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                 label="Selector"
                                                 caption="CSS selector that uniquely identifies your element"
                                             />
-                                            <div className="mb-2">
-                                                <SelectorQualityWarning
-                                                    selector={step?.selector}
-                                                    minSeverity="warning"
-                                                />
-                                            </div>
+                                            <SelectorQualityWarning selector={step?.selector} />
                                             <div className="flex flex-row justify-end mb-2">
                                                 <LemonButton
                                                     size="small"

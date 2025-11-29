@@ -13,7 +13,7 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
-import { analyzeSelectorQualityCached } from '../utils/selectorQuality'
+import { checkSelectorFragilityCached } from '../utils/selectorQuality'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
 
@@ -391,7 +391,7 @@ export const elementsLogic = kea<elementsLogicType>([
                         const actions = actionsForElementMap.get(selectedElement)
                         const actionStep = elementToActionStep(meta.element, dataAttributes)
                         const selectorQuality = actionStep?.selector
-                            ? analyzeSelectorQualityCached(actionStep.selector)
+                            ? checkSelectorFragilityCached(actionStep.selector)
                             : null
 
                         return {
@@ -415,7 +415,7 @@ export const elementsLogic = kea<elementsLogicType>([
                         const actions = actionsForElementMap.get(hoverElement)
                         const actionStep = elementToActionStep(meta.element, dataAttributes)
                         const selectorQuality = actionStep?.selector
-                            ? analyzeSelectorQualityCached(actionStep.selector)
+                            ? checkSelectorFragilityCached(actionStep.selector)
                             : null
 
                         return {
@@ -444,7 +444,7 @@ export const elementsLogic = kea<elementsLogicType>([
                         const actions = actionsForElementMap.get(highlightElement)
                         const actionStep = elementToActionStep(meta.element, dataAttributes)
                         const selectorQuality = actionStep?.selector
-                            ? analyzeSelectorQualityCached(actionStep.selector)
+                            ? checkSelectorFragilityCached(actionStep.selector)
                             : null
 
                         return {
@@ -514,7 +514,7 @@ export const elementsLogic = kea<elementsLogicType>([
 
             // Get selector quality for analytics
             const actionStep = element ? elementToActionStep(element, toolbarConfigLogic.values.dataAttributes) : null
-            const selectorQuality = actionStep?.selector ? analyzeSelectorQualityCached(actionStep.selector) : null
+            const selectorQuality = actionStep?.selector ? checkSelectorFragilityCached(actionStep.selector) : null
 
             toolbarPosthogJS.capture('toolbar selected HTML element', {
                 element_tag: element?.tagName.toLowerCase() ?? null,
@@ -526,8 +526,7 @@ export const elementsLogic = kea<elementsLogicType>([
                 has_data_attr: data_attributes.includes('data-attr'),
                 data_attributes: data_attributes,
                 attribute_length: element?.attributes.length ?? null,
-                // New: selector quality metrics
-                selector_quality: selectorQuality?.quality ?? null,
+                selector_quality: selectorQuality?.isFragile ? 'fragile' : 'good',
                 selector_has_position_selectors: actionStep?.selector?.includes(':nth-') ?? false,
                 selector_depth: actionStep?.selector
                     ? (actionStep.selector.match(/>/g) || []).length + actionStep.selector.split(/\s+/).length - 1

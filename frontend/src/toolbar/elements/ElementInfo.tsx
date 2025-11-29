@@ -31,14 +31,7 @@ export function ElementInfo(): JSX.Element | null {
                 <h1 className="section-title">Selected Element</h1>
                 <ActionStep actionStep={actionStep} />
 
-                <div className="mt-2">
-                    <SelectorQualityWarning
-                        selector={actionStep?.selector}
-                        element={element}
-                        compact={true}
-                        minSeverity="fragile"
-                    />
-                </div>
+                <SelectorQualityWarning selector={actionStep?.selector} compact />
             </div>
 
             {position ? (
