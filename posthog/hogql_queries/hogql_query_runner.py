@@ -14,6 +14,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -85,6 +86,16 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def _calculate(self) -> HogQLQueryResponse:
         query = self.to_query()
+
+        if (
+            app_settings.API_QUERIES_OFFSET_BLOCKED_TEAMS
+            and self.team.pk in app_settings.API_QUERIES_OFFSET_BLOCKED_TEAMS
+            and _has_offset_clause(query)
+        ):
+            raise ExposedHogQLError(
+                "OFFSET clause is not allowed for this team. Please use cursor-based (i.e. timestamp) pagination or LIMIT without OFFSET."
+            )
+
         paginator = None
         if isinstance(query, ast.SelectQuery) and not query.limit:
             paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
@@ -131,3 +142,24 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         if dashboard_filter.properties:
             self.query.filters.properties = (self.query.filters.properties or []) + dashboard_filter.properties
+
+
+def _has_offset_clause(query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
+    """
+    Recursively check if a query or any of its subqueries contains an OFFSET clause.
+
+    Args:
+        query: The parsed SelectQuery or SelectSetQuery to check
+
+    Returns:
+        True if any OFFSET clause is found, False otherwise
+    """
+    if isinstance(query, ast.SelectQuery):
+        if query.offset is not None:
+            return True
+    elif isinstance(query, ast.SelectSetQuery):
+        # Check all constituent queries in a UNION/INTERSECT/EXCEPT
+        for subquery in query.select_queries():
+            if _has_offset_clause(subquery):
+                return True
+    return False

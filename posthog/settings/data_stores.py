@@ -266,6 +266,11 @@ with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_ON_ONLINE_CLUSTER", "[]"))
     API_QUERIES_ON_ONLINE_CLUSTER = {int(v) for v in as_json}
 
+API_QUERIES_OFFSET_BLOCKED_TEAMS: Optional[set[int]] = None
+with suppress(Exception):
+    as_json = json.loads(get_from_env("API_QUERIES_OFFSET_BLOCKED_TEAMS"))
+    API_QUERIES_OFFSET_BLOCKED_TEAMS = {int(v) for v in as_json}
+
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:

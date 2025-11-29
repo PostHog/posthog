@@ -14,6 +14,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
@@ -179,9 +180,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_event(distinct_id=f"id-{self.random_uuid}-3", event="clicky-3", team=self.team)
         flush_persons_and_events()
 
-        query = (
-            "select count() from events where " "{variables.bar ? sql(event = 'clicky-3') : sql(event = 'clicky-4')}"
-        )
+        query = "select count() from events where {variables.bar ? sql(event = 'clicky-3') : sql(event = 'clicky-4')}"
 
         runner_true = self._create_runner(
             HogQLQuery(
@@ -204,3 +203,54 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result_false = runner_false.calculate()
         self.assertEqual(result_false.results[0][0], 1)
+
+    def test_offset_blocked_for_specific_team(self):
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_OFFSET_BLOCKED_TEAMS", {self.team.pk}
+        ):
+            runner = self._create_runner(HogQLQuery(query="select event from events limit 5 offset 10"))
+
+            with self.assertRaises(ExposedHogQLError) as context:
+                runner.calculate()
+
+            self.assertIn("OFFSET clause is not allowed", str(context.exception))
+
+    def test_offset_allowed_for_non_blocked_team(self):
+        other_team = self.organization.teams.create(name="Other Team")
+
+        for i in range(10):
+            _create_event(distinct_id=f"user-{i}", event=f"event-{i}", team=other_team)
+        flush_persons_and_events()
+
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_OFFSET_BLOCKED_TEAMS", {self.team.pk}
+        ):
+            runner = HogQLQueryRunner(
+                team=other_team, query=HogQLQuery(query="select event from events limit 5 offset 5")
+            )
+            response = runner.calculate()
+
+            assert response.results is not None
+            self.assertEqual(len(response.results), 5)
+
+    def test_queries_without_offset_allowed_for_blocked_team(self):
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_OFFSET_BLOCKED_TEAMS", {self.team.pk}
+        ):
+            runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
+            response = runner.calculate()
+
+            assert response.results is not None
+            self.assertEqual(len(response.results), 5)
+
+    @patch("posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_OFFSET_BLOCKED_TEAMS", None)
+    def test_offset_allowed_when_blocklist_disabled(self):
+        for i in range(10):
+            _create_event(distinct_id=f"user-{i}", event=f"event-{i}", team=self.team)
+        flush_persons_and_events()
+
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 5 offset 5"))
+        response = runner.calculate()
+
+        assert response.results is not None
+        self.assertEqual(len(response.results), 5)
