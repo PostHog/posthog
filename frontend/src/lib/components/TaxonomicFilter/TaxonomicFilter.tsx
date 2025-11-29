@@ -140,9 +140,12 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
-    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange'> &
+    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus'> &
         Pick<TooltipProps, 'docLink'>
->(function UniversalSearchInput({ searchInputRef, onClose, onChange, docLink, ...props }, ref): JSX.Element {
+>(function UniversalSearchInput(
+    { searchInputRef, onClose, onChange, docLink, autoFocus = true, ...props },
+    ref
+): JSX.Element {
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
@@ -226,7 +229,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
             }}
             inputRef={searchInputRef}
             onChange={_onChange}
-            autoFocus
+            autoFocus={autoFocus}
         />
     )
 })
