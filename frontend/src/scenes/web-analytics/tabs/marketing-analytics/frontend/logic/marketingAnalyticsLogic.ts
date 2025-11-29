@@ -178,13 +178,21 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['loadSources', 'loadSourcesSuccess'],
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
+            marketingAnalyticsSettingsLogic,
+            ['addOrUpdateConversionGoal'],
         ],
     })),
     actions({
+        // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
         setConversionGoalInput: (goal: ConversionGoalFilter) => ({ goal }),
-        resetConversionGoalInput: () => true,
-        saveDraftConversionGoal: () => true,
+
+        // User intent actions (used by components)
+        applyConversionGoal: true,
+        saveConversionGoal: true,
+        clearConversionGoal: true,
+        loadConversionGoal: (goal: ConversionGoalFilter) => ({ goal }),
+
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
@@ -196,6 +204,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
+        showConversionGoalModal: true,
+        hideConversionGoalModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
     }),
@@ -207,22 +217,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         conversionGoalInput: [
-            (() => {
-                return {
-                    ...defaultConversionGoalFilter,
-                    conversion_goal_id: uuid(),
-                    conversion_goal_name: '',
-                }
-            })() as ConversionGoalFilter,
+            {
+                ...defaultConversionGoalFilter,
+                conversion_goal_id: uuid(),
+                conversion_goal_name: '',
+            } as ConversionGoalFilter,
             {
                 setConversionGoalInput: (_, { goal }) => goal,
-                resetConversionGoalInput: () => {
-                    return {
-                        ...defaultConversionGoalFilter,
-                        conversion_goal_id: uuid(),
-                        conversion_goal_name: '',
-                    }
-                },
             },
         ],
         compareFilter: [
@@ -292,6 +293,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             {
                 showColumnConfigModal: () => true,
                 hideColumnConfigModal: () => false,
+            },
+        ],
+        conversionGoalModalVisible: [
+            false,
+            {
+                showConversionGoalModal: () => true,
+                hideConversionGoalModal: () => false,
             },
         ],
         chartDisplayType: [
@@ -623,13 +631,43 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        saveDraftConversionGoal: () => {
-            // Create a new local conversion goal with new id
-            actions.resetConversionGoalInput()
+        applyConversionGoal: () => {
+            const goal = {
+                ...values.conversionGoalInput,
+                conversion_goal_name: values.uniqueConversionGoalName,
+            }
+            actions.setDraftConversionGoal(goal)
+            actions.setConversionGoalInput(goal)
+            actions.hideConversionGoalModal()
         },
-        resetConversionGoalInput: () => {
-            // Clear the draft goal when resetting local goal
+        saveConversionGoal: () => {
+            actions.addOrUpdateConversionGoal({
+                ...values.conversionGoalInput,
+                conversion_goal_name: values.uniqueConversionGoalName,
+            })
+            // Reset input for new goal, but keep the draft applied
+            actions.setConversionGoalInput({
+                ...defaultConversionGoalFilter,
+                conversion_goal_id: uuid(),
+                conversion_goal_name: '',
+            })
+            actions.hideConversionGoalModal()
+        },
+        clearConversionGoal: () => {
             actions.setDraftConversionGoal(null)
+            actions.setConversionGoalInput({
+                ...defaultConversionGoalFilter,
+                conversion_goal_id: uuid(),
+                conversion_goal_name: '',
+            })
+            actions.hideConversionGoalModal()
+        },
+        loadConversionGoal: ({ goal }) => {
+            // Generate new ID so changes are always detected when applying
+            actions.setConversionGoalInput({
+                ...goal,
+                conversion_goal_id: uuid(),
+            })
         },
         loadSourcesSuccess: () => {
             // Clean up integrationFilter if it contains IDs of sources that no longer exist
