@@ -242,10 +242,12 @@ function LogsTable({
 
     useEffect(() => {
         if (!loading && highlightedLogId && tableRef.current) {
-            const highlightedRow = tableRef.current?.querySelector(`[data-row-key="${highlightedLogId}"]`)
-            if (highlightedRow) {
-                highlightedRow.scrollIntoView({ behavior: 'instant', block: 'center' })
-            }
+            requestAnimationFrame(() => {
+                const highlightedRow = tableRef.current?.querySelector(`[data-row-key="${highlightedLogId}"]`)
+                if (highlightedRow) {
+                    highlightedRow.scrollIntoView({ behavior: 'instant', block: 'center' })
+                }
+            })
         }
     }, [loading, highlightedLogId])
 
