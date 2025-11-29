@@ -19,7 +19,8 @@ export function SelectorQualityWarning({ selector, compact = false }: SelectorQu
         return (
             <div className="text-xs mt-1 text-primary">
                 <IconX className="inline mr-1 text-danger" />
-                {result.reason}. Add a <code>data-posthog</code> attribute for stable tracking.
+                {result.reason} <code>{result.fragileSelector}</code>. Add a <code>data-posthog</code> attribute for
+                stable tracking.
             </div>
         )
     }
@@ -27,7 +28,8 @@ export function SelectorQualityWarning({ selector, compact = false }: SelectorQu
     return (
         <LemonBanner type="error">
             <div className="text-sm">
-                <strong>Fragile selector:</strong> {result.reason}. <strong>Recommendation:</strong> Add a{' '}
+                <strong>Fragile selector:</strong> {result.reason}{' '}
+                <code className="text-xs">{result.fragileSelector}</code>. <strong>Recommendation:</strong> Add a{' '}
                 <code className="text-xs">data-posthog</code> attribute for stable tracking.{' '}
                 <button
                     onClick={() => window.open('https://posthog.com/docs/toolbar#2-element-filters', '_blank')}

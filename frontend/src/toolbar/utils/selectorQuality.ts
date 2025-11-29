@@ -1,6 +1,7 @@
 export interface FragileSelectorResult {
     isFragile: boolean
     reason: string | null
+    fragileSelector: string | null
 }
 
 /**
@@ -8,21 +9,21 @@ export interface FragileSelectorResult {
  */
 export function checkSelectorFragility(selector: string | null | undefined): FragileSelectorResult {
     if (!selector || selector.trim() === '') {
-        return { isFragile: false, reason: null }
+        return { isFragile: false, reason: null, fragileSelector: null }
     }
 
     // Check for position-based selectors (most fragile)
     const nthTypeMatch = selector.match(/:nth-of-type\((\d+)\)/)
     if (nthTypeMatch) {
-        return { isFragile: true, reason: `Uses position-based matching (${nthTypeMatch[0]})` }
+        return { isFragile: true, reason: 'Uses position-based matching', fragileSelector: nthTypeMatch[0] }
     }
 
     const nthChildMatch = selector.match(/:nth-child\((\d+)\)/)
     if (nthChildMatch) {
-        return { isFragile: true, reason: `Uses position-based matching (${nthChildMatch[0]})` }
+        return { isFragile: true, reason: 'Uses position-based matching', fragileSelector: nthChildMatch[0] }
     }
 
-    return { isFragile: false, reason: null }
+    return { isFragile: false, reason: null, fragileSelector: null }
 }
 
 // Simple cache

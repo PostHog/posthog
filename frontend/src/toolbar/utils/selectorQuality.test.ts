@@ -5,13 +5,13 @@ describe('checkSelectorFragility', () => {
         it('flags nth-of-type as fragile', () => {
             const result = checkSelectorFragility('.toolbar > button:nth-of-type(4)')
             expect(result.isFragile).toBe(true)
-            expect(result.reason).toContain(':nth-of-type(4)')
+            expect(result.fragileSelector).toBe(':nth-of-type(4)')
         })
 
         it('flags nth-child as fragile', () => {
             const result = checkSelectorFragility('.container > div:nth-child(2)')
             expect(result.isFragile).toBe(true)
-            expect(result.reason).toContain(':nth-child(2)')
+            expect(result.fragileSelector).toBe(':nth-child(2)')
         })
 
         it('handles null selector as not fragile (no warning before selection)', () => {
@@ -34,7 +34,7 @@ describe('checkSelectorFragility', () => {
         it('accepts data-posthog attribute', () => {
             const result = checkSelectorFragility('[data-posthog="export-button"]')
             expect(result.isFragile).toBe(false)
-            expect(result.reason).toBeNull()
+            expect(result.fragileSelector).toBeNull()
         })
 
         it('accepts id selector', () => {
