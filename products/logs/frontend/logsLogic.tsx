@@ -589,7 +589,13 @@ export const logsLogic = kea<logsLogicType>([
         parsedLogs: [
             (s) => [s.logs],
             (logs: LogMessage[]): ParsedLogMessage[] => {
-                return logs.map((log: LogMessage) => {
+                const seen = new Set<string>()
+                const result: ParsedLogMessage[] = []
+                for (const log of logs) {
+                    if (seen.has(log.uuid)) {
+                        continue
+                    }
+                    seen.add(log.uuid)
                     const cleanBody = colors.unstyle(log.body)
                     let parsedBody: JsonType | null = null
                     try {
@@ -597,8 +603,9 @@ export const logsLogic = kea<logsLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    return { ...log, cleanBody, parsedBody }
-                })
+                    result.push({ ...log, cleanBody, parsedBody })
+                }
+                return result
             },
         ],
         pinnedParsedLogs: [
@@ -616,10 +623,11 @@ export const logsLogic = kea<logsLogicType>([
                 })
             },
         ],
-        isPinned: [
+        pinnedLogIds: [
             (s) => [s.pinnedLogs],
-            (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
+            (pinnedLogs: LogMessage[]): Set<string> => new Set(pinnedLogs.map((log) => log.uuid)),
         ],
+        isPinned: [(s) => [s.pinnedLogIds], (pinnedLogIds: Set<string>) => (logId: string) => pinnedLogIds.has(logId)],
         visibleLogsTimeRange: [
             (s) => [s.parsedLogs, s.orderBy],
             (
@@ -723,6 +731,16 @@ export const logsLogic = kea<logsLogicType>([
         logsRemainingToLoad: [
             (s) => [s.totalLogsMatchingFilters, s.logs],
             (totalLogsMatchingFilters, logs): number => totalLogsMatchingFilters - logs.length,
+        ],
+        logIndexByUuid: [
+            (s) => [s.parsedLogs],
+            (parsedLogs: ParsedLogMessage[]): Map<string, number> => {
+                const map = new Map<string, number>()
+                for (let i = 0; i < parsedLogs.length; i++) {
+                    map.set(parsedLogs[i].uuid, i)
+                }
+                return map
+            },
         ],
     }),
 
@@ -847,7 +865,7 @@ export const logsLogic = kea<logsLogicType>([
             }
 
             const currentIndex = values.highlightedLogId
-                ? logs.findIndex((log) => log.uuid === values.highlightedLogId)
+                ? (values.logIndexByUuid.get(values.highlightedLogId) ?? -1)
                 : -1
 
             if (currentIndex === -1) {
@@ -865,7 +883,7 @@ export const logsLogic = kea<logsLogicType>([
             }
 
             const currentIndex = values.highlightedLogId
-                ? logs.findIndex((log) => log.uuid === values.highlightedLogId)
+                ? (values.logIndexByUuid.get(values.highlightedLogId) ?? -1)
                 : -1
 
             if (currentIndex === -1) {
