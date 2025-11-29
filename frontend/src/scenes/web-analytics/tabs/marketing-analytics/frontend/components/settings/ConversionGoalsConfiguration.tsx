@@ -17,7 +17,12 @@ import {
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
-import { defaultConversionGoalFilter } from './constants'
+import {
+    conversionGoalDescription,
+    conversionGoalNamePlaceholder,
+    defaultConversionGoalFilter,
+    getConfiguredConversionGoalsLabel,
+} from './constants'
 
 interface ConversionGoalFormState {
     filter: ConversionGoalFilter
@@ -86,11 +91,7 @@ export function ConversionGoalsConfiguration({
     return (
         <SceneSection
             title={!hideTitle ? 'Conversion goals' : undefined}
-            description={
-                !hideDescription
-                    ? 'Define conversion goals by selecting events or data warehouse tables. These goals can be used to track and analyze user conversions in your marketing analytics.'
-                    : undefined
-            }
+            description={!hideDescription ? conversionGoalDescription : undefined}
         >
             {validationWarnings.length > 0 && (
                 <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
@@ -105,7 +106,7 @@ export function ConversionGoalsConfiguration({
                         <LemonInput
                             value={formState.name}
                             onChange={(value) => setFormState((prev) => ({ ...prev, name: value }))}
-                            placeholder="Conversion goal name, e.g. purchase, sign up, download"
+                            placeholder={conversionGoalNamePlaceholder}
                         />
                     </div>
 
@@ -143,7 +144,7 @@ export function ConversionGoalsConfiguration({
 
             {/* Existing Conversion Goals Table */}
             <div>
-                <h3 className="font-bold mb-4">Configured conversion goals ({conversion_goals.length})</h3>
+                <h3 className="font-bold mb-4">{getConfiguredConversionGoalsLabel(conversion_goals.length)}</h3>
 
                 <LemonTable
                     rowKey={(item) => item.conversion_goal_id}
