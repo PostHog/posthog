@@ -8,18 +8,48 @@
         &--right {
             --scale: scaleX(3);
 
+            top: 0;
+            bottom: 0;
+            width: var(--resizer-thickness);
             cursor: col-resize;
 
-            @include orientation-mapping(width, top, bottom, left);
+            .Resizer__handle {
+                top: 0;
+                bottom: 0;
+                left: calc(var(--resizer-thickness) / 2);
+                width: 1px;
+
+                &::before,
+                &::after {
+                    top: 0;
+                    bottom: 0;
+                    width: 1px;
+                }
+            }
         }
 
         &--top,
         &--bottom {
             --scale: scaleY(3);
 
+            right: 0;
+            left: 0;
+            height: var(--resizer-thickness);
             cursor: row-resize;
 
-            @include orientation-mapping(height, left, right, top);
+            .Resizer__handle {
+                top: calc(var(--resizer-thickness) / 2);
+                right: 0;
+                left: 0;
+                height: 1px;
+
+                &::before,
+                &::after {
+                    right: 0;
+                    left: 0;
+                    height: 1px;
+                }
+            }
         }
 
         .Resizer[aria-hidden='true'] & {
@@ -77,26 +107,6 @@
         &--resizing .Resizer__handle::before,
         &--resizing .Resizer__handle::after {
             cursor: grabbing;
-        }
-    }
-
-    @mixin orientation-mapping($width, $top, $bottom, $left) {
-        #{$width}: var(--resizer-thickness);
-        #{$top}: 0;
-        #{$bottom}: 0;
-
-        .Resizer__handle {
-            #{$top}: 0;
-            #{$bottom}: 0;
-            #{$width}: 1px;
-            #{$left}: calc(var(--resizer-thickness) / 2);
-
-            &::before,
-            &::after {
-                #{$top}: 0;
-                #{$bottom}: 0;
-                #{$width}: 1px;
-            }
         }
     }
 }
