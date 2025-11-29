@@ -14203,6 +14203,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "Supabase",
                 "CustomerIO",
                 "Github",
                 "Stripe",
