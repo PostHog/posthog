@@ -254,3 +254,44 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results is not None
         self.assertEqual(len(response.results), 5)
+
+    def test_offset_blocked_in_nested_subquery(self):
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_OFFSET_BLOCKED_TEAMS", {self.team.pk}
+        ):
+            runner = self._create_runner(
+                HogQLQuery(query="select * from events where event in (select event from events offset 10)")
+            )
+
+            with self.assertRaises(ExposedHogQLError) as context:
+                runner.calculate()
+
+            self.assertIn("OFFSET clause is not allowed", str(context.exception))
+
+    def test_offset_blocked_in_cte(self):
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_OFFSET_BLOCKED_TEAMS", {self.team.pk}
+        ):
+            runner = self._create_runner(
+                HogQLQuery(
+                    query="with subquery as (select event from events offset 5) select * from subquery limit 10"
+                )
+            )
+
+            with self.assertRaises(ExposedHogQLError) as context:
+                runner.calculate()
+
+            self.assertIn("OFFSET clause is not allowed", str(context.exception))
+
+    def test_offset_blocked_in_from_clause(self):
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_OFFSET_BLOCKED_TEAMS", {self.team.pk}
+        ):
+            runner = self._create_runner(
+                HogQLQuery(query="select * from (select event from events limit 10 offset 5)")
+            )
+
+            with self.assertRaises(ExposedHogQLError) as context:
+                runner.calculate()
+
+            self.assertIn("OFFSET clause is not allowed", str(context.exception))

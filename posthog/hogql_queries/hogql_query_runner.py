@@ -21,6 +21,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql.variables import replace_variables
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
@@ -144,6 +145,18 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             self.query.filters.properties = (self.query.filters.properties or []) + dashboard_filter.properties
 
 
+class OffsetChecker(TraversingVisitor):
+    """Visitor that checks if any SelectQuery in the AST has an OFFSET clause."""
+
+    def __init__(self):
+        self.has_offset = False
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        if node.offset is not None:
+            self.has_offset = True
+        super().visit_select_query(node)
+
+
 def _has_offset_clause(query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
     """
     Recursively check if a query or any of its subqueries contains an OFFSET clause.
@@ -154,12 +167,6 @@ def _has_offset_clause(query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
     Returns:
         True if any OFFSET clause is found, False otherwise
     """
-    if isinstance(query, ast.SelectQuery):
-        if query.offset is not None:
-            return True
-    elif isinstance(query, ast.SelectSetQuery):
-        # Check all constituent queries in a UNION/INTERSECT/EXCEPT
-        for subquery in query.select_queries():
-            if _has_offset_clause(subquery):
-                return True
-    return False
+    checker = OffsetChecker()
+    checker.visit(query)
+    return checker.has_offset
