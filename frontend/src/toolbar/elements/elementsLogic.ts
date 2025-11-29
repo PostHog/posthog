@@ -528,7 +528,8 @@ export const elementsLogic = kea<elementsLogicType>([
                 selector_quality: selectorQuality?.isFragile ? 'fragile' : 'good',
                 selector_has_position_selectors: actionStep?.selector?.includes(':nth-') ?? false,
                 selector_depth: actionStep?.selector
-                    ? (actionStep.selector.match(/>/g) || []).length + actionStep.selector.split(/\s+/).length - 1
+                    ? actionStep.selector.split(/\s+/).filter((part) => part !== '>' && part !== '+' && part !== '~')
+                          .length
                     : null,
             })
         },
