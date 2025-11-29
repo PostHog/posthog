@@ -512,7 +512,6 @@ export const elementsLogic = kea<elementsLogicType>([
                 }
             }
 
-            // Get selector quality for analytics
             const actionStep = element ? elementToActionStep(element, toolbarConfigLogic.values.dataAttributes) : null
             const selectorQuality = actionStep?.selector ? checkSelectorFragilityCached(actionStep.selector) : null
 
