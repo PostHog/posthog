@@ -48,6 +48,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
@@ -56,6 +57,8 @@ import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -102,6 +105,7 @@ import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
+import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
@@ -147,13 +151,32 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { reportUserFeedbackButtonClicked } = useActions(eventUsageLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
+    const [quickSurveyVariantKey, setQuickSurveyVariantKey] = useState<string | null>(null)
 
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
+
+    const handleGetFeedback = (variantKey?: string): void => {
+        const hasVariantSurvey = variantKey
+            ? !!getSurveyForFeatureFlagVariant(variantKey, featureFlag.surveys ?? [])
+            : featureFlag.surveys && featureFlag.surveys.length > 0
+
+        reportUserFeedbackButtonClicked(SURVEY_CREATED_SOURCE.FEATURE_FLAGS, {
+            existingSurvey: hasVariantSurvey,
+        })
+
+        if (hasVariantSurvey) {
+            setActiveTab(FeatureFlagsTab.FEEDBACK)
+        } else {
+            setIsQuickSurveyModalOpen(true)
+            setQuickSurveyVariantKey(variantKey ?? null)
+        }
+    }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
@@ -199,7 +222,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             content: (
                 <>
                     <div className="flex flex-col gap-4">
-                        <FeatureFlagRollout readOnly />
+                        <FeatureFlagRollout readOnly onGetFeedback={handleGetFeedback} />
                         {!featureFlag.is_remote_configuration && (
                             <>
                                 <SceneDivider />
@@ -414,7 +437,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </LemonField>
                             </div>
                             <SceneDivider />
-                            <FeatureFlagRollout />
+                            <FeatureFlagRollout onGetFeedback={handleGetFeedback} />
                             <SceneDivider />
                             {!featureFlag.is_remote_configuration && (
                                 <>
@@ -754,7 +777,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <ButtonPrimitive
                                     menuItem
                                     data-attr={`${RESOURCE_TYPE}-create-survey`}
-                                    onClick={() => setIsQuickSurveyModalOpen(true)}
+                                    onClick={() => handleGetFeedback()}
                                 >
                                     <IconPlusSmall />
                                     Create survey
@@ -858,7 +881,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             <QuickSurveyModal
                 flag={featureFlag}
                 isOpen={isQuickSurveyModalOpen}
-                onClose={() => setIsQuickSurveyModalOpen(false)}
+                onClose={() => {
+                    setIsQuickSurveyModalOpen(false)
+                    setQuickSurveyVariantKey(null)
+                }}
+                initialVariantKey={quickSurveyVariantKey}
             />
         </>
     )
@@ -967,7 +994,13 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
     )
 }
 
-function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
+function FeatureFlagRollout({
+    readOnly,
+    onGetFeedback,
+}: {
+    readOnly?: boolean
+    onGetFeedback?: (variantKey?: string) => void
+}): JSX.Element {
     const {
         multivariateEnabled,
         variants,
@@ -1202,6 +1235,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                         })
                                     }}
+                                    onGetFeedback={onGetFeedback}
+                                    surveys={featureFlag.surveys ?? []}
                                     variantErrors={variantErrors}
                                 />
                             </SceneSection>
@@ -1449,31 +1484,47 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </SceneSection>
 
                             {readOnly && !featureFlag.is_remote_configuration && (
-                                <SceneSection
-                                    title="Recordings"
-                                    description="Watch recordings of people who have been exposed to the feature flag."
-                                >
-                                    <div className="inline-block">
-                                        <LemonButton
-                                            onClick={() => {
-                                                reportViewRecordingsClicked()
-                                                router.actions.push(
-                                                    urls.replay(ReplayTabs.Home, recordingFilterForFlag)
-                                                )
-                                                addProductIntentForCrossSell({
-                                                    from: ProductKey.FEATURE_FLAGS,
-                                                    to: ProductKey.SESSION_REPLAY,
-                                                    intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                                })
-                                            }}
-                                            icon={<IconRewindPlay />}
-                                            type="secondary"
-                                            size="small"
+                                <>
+                                    <SceneDivider />
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <SceneSection
+                                            title="Recordings"
+                                            description="Watch recordings of people who have been exposed to the feature flag."
                                         >
-                                            View recordings
-                                        </LemonButton>
+                                            <div className="inline-block">
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        reportViewRecordingsClicked()
+                                                        router.actions.push(
+                                                            urls.replay(ReplayTabs.Home, recordingFilterForFlag)
+                                                        )
+                                                        addProductIntentForCrossSell({
+                                                            from: ProductKey.FEATURE_FLAGS,
+                                                            to: ProductKey.SESSION_REPLAY,
+                                                            intent_context:
+                                                                ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                                        })
+                                                    }}
+                                                    icon={<IconRewindPlay />}
+                                                    type="secondary"
+                                                    size="small"
+                                                >
+                                                    View recordings
+                                                </LemonButton>
+                                            </div>
+                                        </SceneSection>
+
+                                        {featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL] && onGetFeedback && (
+                                            <>
+                                                <SceneDivider className="md:hidden" />
+                                                <UserFeedbackSection
+                                                    featureFlag={featureFlag}
+                                                    onGetFeedback={onGetFeedback}
+                                                />
+                                            </>
+                                        )}
                                     </div>
-                                </SceneSection>
+                                </>
                             )}
                         </>
                     )}
@@ -1522,6 +1573,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             },
                                         })
                                     }}
+                                    onGetFeedback={onGetFeedback}
+                                    surveys={featureFlag.surveys ?? []}
                                     variantErrors={variantErrors}
                                 />
                             </SceneSection>
@@ -1650,28 +1703,36 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     {readOnly && !featureFlag.is_remote_configuration && (
                         <>
                             <SceneDivider />
-                            <SceneSection
-                                title="Recordings"
-                                description="Watch recordings of people who have been exposed to the feature flag."
-                            >
-                                <LemonButton
-                                    onClick={() => {
-                                        reportViewRecordingsClicked()
-                                        router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
-                                        addProductIntentForCrossSell({
-                                            from: ProductKey.FEATURE_FLAGS,
-                                            to: ProductKey.SESSION_REPLAY,
-                                            intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                        })
-                                    }}
-                                    icon={<IconRewindPlay />}
-                                    type="secondary"
-                                    size="small"
-                                    className="w-fit"
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <SceneSection
+                                    title="Recordings"
+                                    description="Watch recordings of people who have been exposed to the feature flag."
                                 >
-                                    View recordings
-                                </LemonButton>
-                            </SceneSection>
+                                    <LemonButton
+                                        onClick={() => {
+                                            reportViewRecordingsClicked()
+                                            router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
+                                            addProductIntentForCrossSell({
+                                                from: ProductKey.FEATURE_FLAGS,
+                                                to: ProductKey.SESSION_REPLAY,
+                                                intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                            })
+                                        }}
+                                        icon={<IconRewindPlay />}
+                                        type="secondary"
+                                        size="small"
+                                        className="w-fit"
+                                    >
+                                        View recordings
+                                    </LemonButton>
+                                </SceneSection>
+                                {onGetFeedback && (
+                                    <>
+                                        <SceneDivider className="md:hidden" />
+                                        <UserFeedbackSection featureFlag={featureFlag} onGetFeedback={onGetFeedback} />
+                                    </>
+                                )}
+                            </div>
                         </>
                     )}
                 </div>
