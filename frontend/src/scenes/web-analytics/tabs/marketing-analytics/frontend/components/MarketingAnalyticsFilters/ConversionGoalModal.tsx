@@ -63,7 +63,10 @@ export function ConversionGoalModal(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
-                            onClick={saveConversionGoal}
+                            onClick={() => {
+                                saveConversionGoal()
+                                hideConversionGoalModal()
+                            }}
                             disabledReason={
                                 !hasAppliedGoal
                                     ? 'Apply first to verify your conversion goal works correctly'
@@ -109,6 +112,7 @@ export function ConversionGoalModal(): JSX.Element {
                 <div>
                     <label className="text-sm font-medium mb-1 block">Event or table</label>
                     <ConversionGoalDropdown
+                        key={conversionGoalInput?.conversion_goal_id || 'default'}
                         value={conversionGoalInput || defaultConversionGoalFilter}
                         onChange={handleConversionGoalChange}
                         typeKey="conversion-goal-modal"
