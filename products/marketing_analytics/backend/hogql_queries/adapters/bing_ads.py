@@ -1,6 +1,13 @@
 # Bing Ads Marketing Source Adapter
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.hogql import ast
+
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    INTEGRATION_DEFAULT_SOURCES,
+    INTEGRATION_PRIMARY_SOURCE,
+)
 
 from .base import BingAdsConfig, MarketingSourceAdapter, ValidationResult
 
@@ -13,10 +20,13 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
     - stats_table: DataWarehouse table with campaign performance report
     """
 
+    _source_type = NativeMarketingSource.BING_ADS
+
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
-        """Bing Ads campaigns typically use 'bing' as the UTM source"""
-        return {"bing": ["bing"]}
+        primary = INTEGRATION_PRIMARY_SOURCE[cls._source_type]
+        sources = INTEGRATION_DEFAULT_SOURCES[cls._source_type]
+        return {primary: list(sources)}
 
     def get_source_type(self) -> str:
         return "BingAds"
@@ -50,6 +60,11 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
+
+    def _get_campaign_id_field(self) -> ast.Expr:
+        campaign_table_name = self.config.campaign_table.name
+        field_expr = ast.Field(chain=[campaign_table_name, "id"])
+        return ast.Call(name="toString", args=[field_expr])
 
     def _get_source_name_field(self) -> ast.Expr:
         return ast.Call(name="toString", args=[ast.Constant(value="bing")])
@@ -157,5 +172,5 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
         return conditions
 
     def _get_group_by(self) -> list[ast.Expr]:
-        """Build GROUP BY expressions"""
-        return [self._get_campaign_name_field()]
+        """Build GROUP BY expressions - group by both name and ID"""
+        return [self._get_campaign_name_field(), self._get_campaign_id_field()]

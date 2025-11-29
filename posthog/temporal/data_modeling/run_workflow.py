@@ -16,12 +16,14 @@ import pyarrow as pa
 import deltalake
 import asyncstdlib
 import pyarrow.compute as pc
+import temporalio.common
+import temporalio.activity
+import temporalio.workflow
+import temporalio.exceptions
 from deltalake import DeltaTable
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
-from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, CancelledError
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -43,6 +45,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
+from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.models import (
@@ -55,6 +58,11 @@ from products.data_warehouse.backend.models.data_modeling_job import DataModelin
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 LOGGER = get_logger(__name__)
+
+
+def _build_model_table_uri(team_id: int, model_label: str, normalized_name: str) -> str:
+    return f"{settings.BUCKET_URL}/team_{team_id}_model_{model_label}/modeling/{normalized_name}"
+
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -133,14 +141,15 @@ class QueueMessage:
     status: ModelStatus
     label: str
     error: str | None = None
+    ducklake_model: DuckLakeCopyModelInput | None = None
 
 
-Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_failed"))
+Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_failed", "ducklake_models"))
 
 NullablePattern = re.compile(r"Nullable\((.*)\)")
 
 
-@activity.defn
+@temporalio.activity.defn
 async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     """A Temporal activity to run a data modeling DAG.
 
@@ -178,6 +187,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     completed = set()
     ancestor_failed = set()
     failed = set()
+    ducklake_models: list[DuckLakeCopyModelInput] = []
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
 
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
@@ -212,7 +222,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
 
-                case QueueMessage(status=ModelStatus.COMPLETED, label=label):
+                case QueueMessage(status=ModelStatus.COMPLETED, label=label, ducklake_model=ducklake_model):
                     await logger.adebug(f"Handling queue message COMPLETED. label={label}")
                     node = inputs.dag[label]
                     completed.add(node.label)
@@ -229,6 +239,9 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
                     task = asyncio.create_task(put_models_in_queue(to_queue, queue))
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
+
+                    if ducklake_model is not None:
+                        ducklake_models.append(ducklake_model)
 
                     queue.task_done()
 
@@ -262,7 +275,7 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
         await logger.adebug(
             f"run_dag_activity finished. completed={len(completed)}. failed={len(failed)}. ancestor_failed={len(ancestor_failed)}"
         )
-        return Results(completed, failed, ancestor_failed)
+        return Results(completed, failed, ancestor_failed, ducklake_models)
 
 
 async def put_models_in_queue(models: collections.abc.Iterable[ModelNode], queue: asyncio.Queue[QueueMessage]) -> None:
@@ -309,13 +322,22 @@ async def handle_model_ready(
         queue: The execution queue where we will report back results.
     """
 
+    ducklake_model: DuckLakeCopyModelInput | None = None
+    job: DataModelingJob | None = None
+
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             saved_query = await get_saved_query(team, model.label)
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
-            await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
+            _, delta_table, _ = await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
+            ducklake_model = DuckLakeCopyModelInput(
+                model_label=model.label,
+                saved_query_id=str(saved_query.id),
+                table_uri=_build_model_table_uri(team.pk, model.label, saved_query.normalized_name),
+                file_uris=delta_table.file_uris(),
+            )
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s", logger)
@@ -333,13 +355,13 @@ async def handle_model_ready(
         await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s", logger)
     else:
         await logger.ainfo("Materialized model %s", model.label)
-        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
+        await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label, ducklake_model=ducklake_model))
     finally:
         queue.task_done()
 
 
 async def handle_error(
-    job: DataModelingJob,
+    job: DataModelingJob | None,
     model: ModelNode,
     queue: asyncio.Queue[QueueMessage],
     error: Exception,
@@ -356,7 +378,7 @@ async def handle_error(
 
 
 async def handle_cancelled(
-    job: DataModelingJob,
+    job: DataModelingJob | None,
     model: ModelNode,
     queue: asyncio.Queue[QueueMessage],
     error: Exception,
@@ -432,7 +454,7 @@ async def materialize_model(
     try:
         row_count = 0
 
-        table_uri = f"{settings.BUCKET_URL}/team_{team.pk}_model_{model_label}/modeling/{saved_query.normalized_name}"
+        table_uri = _build_model_table_uri(team.pk, model_label, saved_query.normalized_name)
         storage_options = _get_credentials()
 
         await logger.adebug(f"Delta table URI = {table_uri}")
@@ -1035,7 +1057,7 @@ class InvalidSelector(Exception):
         super().__init__(f"invalid selector: '{invalid_input}'")
 
 
-@activity.defn
+@temporalio.activity.defn
 async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     """Construct a DAG from provided selector inputs."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1171,7 +1193,7 @@ class CreateJobModelInputs:
     select: list[Selector]
 
 
-@activity.defn
+@temporalio.activity.defn
 async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
@@ -1179,8 +1201,8 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     await logger.adebug(f"Creating DataModelingJob for {[selector.label for selector in inputs.select]}")
 
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
-    workflow_id = activity.info().workflow_id
-    workflow_run_id = activity.info().workflow_run_id
+    workflow_id = temporalio.activity.info().workflow_id
+    workflow_run_id = temporalio.activity.info().workflow_run_id
 
     if len(inputs.select) != 0:
         label = inputs.select[0].label
@@ -1197,7 +1219,7 @@ class CleanupRunningJobsActivityInputs:
     team_id: int
 
 
-@activity.defn
+@temporalio.activity.defn
 async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
     """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
     Since only one job can run at a time per team, any existing RUNNING jobs
@@ -1220,7 +1242,7 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
         await logger.adebug("No orphaned jobs found")
 
 
-@activity.defn
+@temporalio.activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1256,7 +1278,7 @@ class FinishRunActivityInputs:
         }
 
 
-@activity.defn
+@temporalio.activity.defn
 async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
     """Activity that finishes a run by updating statuses of associated models."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1322,7 +1344,7 @@ class FailJobsActivityInputs:
     team_id: int
 
 
-@activity.defn
+@temporalio.activity.defn
 async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     """Activity to cancel data modeling jobs."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1336,7 +1358,7 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     )
 
 
-@activity.defn
+@temporalio.activity.defn
 async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     """Activity to fail data modeling jobs."""
     bind_contextvars(team_id=inputs.team_id)
@@ -1366,7 +1388,7 @@ class RunWorkflowInputs:
         }
 
 
-@workflow.defn(name="data-modeling-run")
+@temporalio.workflow.defn(name="data-modeling-run")
 class RunWorkflow(PostHogWorkflow):
     """A Temporal Workflow to run PostHog data models.
 
@@ -1374,37 +1396,39 @@ class RunWorkflow(PostHogWorkflow):
     makes up the model, and the path or paths to the model through all of its ancestors.
     """
 
+    ducklake_copy_inputs: DataModelingDuckLakeCopyInputs | None = None
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunWorkflowInputs:
         """Parse inputs from the management command CLI."""
         loaded = json.loads(inputs[0])
         return RunWorkflowInputs(**loaded)
 
-    @workflow.run
+    @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
-        await workflow.execute_activity(
+        await temporalio.workflow.execute_activity(
             cleanup_running_jobs_activity,
             CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            start_to_close_timeout=dt.timedelta(minutes=20),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
 
-        job_id = await workflow.execute_activity(
+        job_id = await temporalio.workflow.execute_activity(
             create_job_model_activity,
             CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
+            start_to_close_timeout=dt.timedelta(minutes=20),
+            retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
             ),
         )
 
         build_dag_inputs = BuildDagActivityInputs(team_id=inputs.team_id, select=inputs.select)
-        dag = await workflow.execute_activity(
+        dag = await temporalio.workflow.execute_activity(
             build_dag_activity,
             build_dag_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=20),
             heartbeat_timeout=dt.timedelta(minutes=1),
-            retry_policy=RetryPolicy(
+            retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
@@ -1414,11 +1438,11 @@ class RunWorkflow(PostHogWorkflow):
         run_at = dt.datetime.now(dt.UTC).isoformat()
 
         start_run_activity_inputs = StartRunActivityInputs(dag=dag, run_at=run_at, team_id=inputs.team_id)
-        await workflow.execute_activity(
+        await temporalio.workflow.execute_activity(
             start_run_activity,
             start_run_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
+            start_to_close_timeout=dt.timedelta(minutes=20),
+            retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
@@ -1428,64 +1452,73 @@ class RunWorkflow(PostHogWorkflow):
         # Run the DAG
         run_model_activity_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag, job_id=job_id)
         try:
-            results = await workflow.execute_activity(
+            results = await temporalio.workflow.execute_activity(
                 run_dag_activity,
                 run_model_activity_inputs,
                 start_to_close_timeout=dt.timedelta(hours=1),
-                # 10 minutes is the clickhouse max execution time, so we set something higher here
-                # so clickhouse will error first on execptionally large or slow queries
-                heartbeat_timeout=dt.timedelta(minutes=15),
-                # workers shutting down should be retryable and is the number one cause of failures here.
-                retry_policy=RetryPolicy(
-                    maximum_attempts=3,
+                heartbeat_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=1,
                 ),
-                cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
+                cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
-        except ActivityError as e:
-            if isinstance(e.cause, CancelledError):
-                workflow_id = workflow.info().workflow_id
-                workflow_run_id = workflow.info().run_id
+        except temporalio.exceptions.ActivityError as e:
+            if isinstance(e.cause, temporalio.exceptions.CancelledError):
+                workflow_id = temporalio.workflow.info().workflow_id
+                workflow_run_id = temporalio.workflow.info().run_id
                 try:
-                    await workflow.execute_activity(
+                    await temporalio.workflow.execute_activity(
                         cancel_jobs_activity,
                         CancelJobsActivityInputs(
                             workflow_id=workflow_id, workflow_run_id=workflow_run_id, team_id=inputs.team_id
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
-                        retry_policy=RetryPolicy(
+                        retry_policy=temporalio.common.RetryPolicy(
                             maximum_attempts=3,
                         ),
                     )
                 except Exception as cancel_err:
                     capture_exception(cancel_err)
-                    workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
+                    temporalio.workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
                     raise
                 raise
 
             capture_exception(e)
-            workflow.logger.error(f"Activity failed during model run: {str(e)}")
+            temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
 
-            await workflow.execute_activity(
+            await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
+                start_to_close_timeout=dt.timedelta(minutes=20),
+                retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,
                 ),
             )
             raise
         except Exception as e:
-            await workflow.execute_activity(
+            await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=str(e), team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
+                start_to_close_timeout=dt.timedelta(minutes=20),
+                retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,
                 ),
             )
             raise
 
-        completed, failed, ancestor_failed = results
+        completed, failed, ancestor_failed, ducklake_models = results
+
+        self.ducklake_copy_inputs = DataModelingDuckLakeCopyInputs(
+            team_id=inputs.team_id,
+            job_id=job_id,
+            models=ducklake_models,
+        )
+        temporalio.workflow.logger.debug(
+            "Prepared DuckLake copy inputs",
+            team_id=self.ducklake_copy_inputs.team_id,
+            job_id=self.ducklake_copy_inputs.job_id,
+            models=len(self.ducklake_copy_inputs.models),
+        )
 
         # publish metrics
         if failed or ancestor_failed:
@@ -1499,15 +1532,37 @@ class RunWorkflow(PostHogWorkflow):
             run_at=run_at,
             team_id=inputs.team_id,
         )
-        await workflow.execute_activity(
+        await temporalio.workflow.execute_activity(
             finish_run_activity,
             finish_run_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
+            start_to_close_timeout=dt.timedelta(minutes=20),
+            retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
             ),
         )
+
+        if (
+            settings.DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED
+            and self.ducklake_copy_inputs
+            and self.ducklake_copy_inputs.models
+        ):
+            temporalio.workflow.logger.info(
+                "Triggering DuckLake copy child workflow",
+                job_id=job_id,
+                models=len(self.ducklake_copy_inputs.models),
+            )
+            await temporalio.workflow.start_child_workflow(
+                workflow="ducklake-copy.data-modeling",
+                arg=dataclasses.asdict(self.ducklake_copy_inputs),
+                id=f"ducklake-copy-data-modeling-{job_id}",
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=1,
+                    non_retryable_error_types=["NondeterminismError"],
+                ),
+            )
 
         return results

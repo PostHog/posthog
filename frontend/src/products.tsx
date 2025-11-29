@@ -41,13 +41,16 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
+    CustomerAnalyticsConfiguration: () =>
+        import(
+            '../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'
+        ),
     DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
     EndpointsUsage: () => import('../../products/endpoints/frontend/EndpointsUsage'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
-    EndpointNew: () => import('../../products/endpoints/frontend/EndpointScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -97,13 +100,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
+    '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
-    '/endpoints/new': ['EndpointNew', 'endpointNew'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
@@ -203,6 +206,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
     },
+    CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     DataWarehouse: {
         name: 'Data warehouse',
         projectBased: true,
@@ -211,6 +215,14 @@ export const productConfiguration: Record<string, any> = {
         description:
             'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
         iconType: 'data_warehouse',
+    },
+    SQLEditor: {
+        projectBased: true,
+        name: 'SQL editor',
+        defaultDocsPath: '/docs/cdp/sources',
+        layout: 'app-raw-no-header',
+        hideProjectNotice: true,
+        description: 'Write and execute SQL queries against your data warehouse',
     },
     EarlyAccessFeatures: {
         name: 'Early access features',
@@ -241,7 +253,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
-    EndpointNew: { projectBased: true, name: 'EndpointNew', activityScope: 'Endpoint' },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -400,6 +411,7 @@ export const productUrls = {
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
     customerAnalytics: (): string => '/customer_analytics',
+    customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -902,7 +914,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['alpha'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics'],
+        sceneKeys: ['CustomerAnalytics', 'CustomerAnalyticsConfiguration'],
     },
     {
         path: 'Dashboards',
@@ -934,7 +946,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         sceneKey: 'DataWarehouse',
-        sceneKeys: ['DataWarehouse'],
+        sceneKeys: ['DataWarehouse', 'SQLEditor'],
     },
     {
         path: 'Early access features',
@@ -961,7 +973,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene', 'EndpointNew'],
+        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {
         path: 'Error tracking',
@@ -1060,7 +1072,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Logs',
         intents: [ProductKey.LOGS],
-        category: 'Unreleased',
+        category: 'Tools',
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
@@ -1242,7 +1254,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
         tags: ['alpha'],
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene', 'EndpointNew'],
+        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {
         path: 'Event definitions',
@@ -1267,7 +1279,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        sceneKeys: ['DataWarehouse'],
+        sceneKeys: ['DataWarehouse', 'SQLEditor'],
     },
     {
         path: 'Marketing settings',
