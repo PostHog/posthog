@@ -123,6 +123,7 @@ class SimClient(ABC):
     """An abstract PostHog client."""
 
     LIB_NAME: str  # Used for `$lib` property
+    LIB_VERSION: str  # Used for `$lib_version` property
 
     matrix: "Matrix"
 
@@ -135,6 +136,7 @@ class SimClient(ABC):
         timestamp = person.cluster.simulation_time
         combined_properties: Properties = {
             "$lib": self.LIB_NAME,
+            "$lib_version": self.LIB_VERSION,
             "$timestamp": timestamp.isoformat(),
             "$time": timestamp.timestamp(),
         }
@@ -148,6 +150,7 @@ class SimServerClient(SimClient):
     """A Python server client for simulating server-side tracking."""
 
     LIB_NAME = "posthog-python"
+    LIB_VERSION = "7.0.0"
 
     def __init__(self, matrix: "Matrix"):
         self.matrix = matrix
@@ -240,6 +243,7 @@ class SimBrowserClient(SimClient):
     """A browser client for simulating client-side tracking."""
 
     LIB_NAME = "web"
+    LIB_VERSION = "1.298.0"  # we don't talk about 1.297.3
 
     # Parent
     person: "SimPerson"

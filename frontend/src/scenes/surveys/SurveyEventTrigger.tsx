@@ -1,15 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { PropertyMatchType } from 'posthog-js'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
@@ -21,13 +19,13 @@ import {
     SurveyEventsWithProperties,
 } from '~/types'
 
+import { AddEventButton } from './AddEventButton'
 import { surveyLogic } from './surveyLogic'
 
 export function SurveyEventTrigger(): JSX.Element {
     const { survey, surveyRepeatedActivationAvailable } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
-    const [addEventPopoverOpen, setAddEventPopoverOpen] = useState(false)
 
     // Only include operators supported by the SDK's property matching system
     // Exclude is_set and is_not_set as they're not supported
@@ -232,45 +230,10 @@ export function SurveyEventTrigger(): JSX.Element {
                     />
                 )}
 
-                <Popover
-                    className="mt-2"
-                    overlay={
-                        <TaxonomicFilter
-                            groupType={TaxonomicFilterGroupType.Events}
-                            value=""
-                            onChange={(_, value) => {
-                                if (typeof value === 'string') {
-                                    const eventName = value
-                                    const currentEventNames = events.map((e) => e.name)
-
-                                    // Only add if not already selected
-                                    if (!currentEventNames.includes(eventName)) {
-                                        addEvent(eventName)
-                                    }
-                                    setAddEventPopoverOpen(false)
-                                }
-                            }}
-                            allowNonCapturedEvents
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.CustomEvents,
-                                TaxonomicFilterGroupType.Events,
-                            ]}
-                        />
-                    }
-                    visible={addEventPopoverOpen}
-                    onClickOutside={() => setAddEventPopoverOpen(false)}
-                    placement="bottom-start"
-                >
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        onClick={() => setAddEventPopoverOpen(!addEventPopoverOpen)}
-                        size="small"
-                        className="w-fit"
-                    >
-                        Add event
-                    </LemonButton>
-                </Popover>
+                <AddEventButton
+                    onEventSelect={(eventName) => addEvent(eventName)}
+                    excludedEvents={events.map((e) => e.name)}
+                />
             </>
         </LemonField.Pure>
     )

@@ -22,13 +22,14 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.group.group import Group
     from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.insight_caching_state import InsightCachingState
-    from posthog.models.person import Person, PersonDistinctId
+    from posthog.models.person import Person, PersonDistinctId, PersonlessDistinctId
 
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
     # Get cohort_ids from the default database first to avoid cross-database join

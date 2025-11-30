@@ -24,10 +24,11 @@ async def validate_llm_single_session_summary_with_videos_activity(
         extra_summary_context=inputs.extra_summary_context,
     )
     if not summary_row:
-        raise ApplicationError(
-            f"Summary not found in the database for session {inputs.session_id} when validating session summary with videos",
-            non_retryable=True,
+        msg = f"Summary not found in the database for session {inputs.session_id} when validating session summary with videos"
+        temporalio.activity.logger.error(
+            msg, extra={"session_id": inputs.session_id, "signals_type": "session-summaries"}
         )
+        raise ApplicationError(msg, non_retryable=True)
     # If the summary was already validated with videos, return
     run_metadata = cast(dict[str, Any], summary_row.run_metadata)
     if run_metadata and run_metadata.get("visual_confirmation"):
@@ -37,10 +38,9 @@ async def validate_llm_single_session_summary_with_videos_activity(
     try:
         user = await User.objects.aget(id=inputs.user_id)
     except User.DoesNotExist:
-        raise ApplicationError(
-            f"User not found in the database for user {inputs.user_id} when validating session summary with videos",
-            non_retryable=True,
-        )
+        msg = f"User not found in the database for user {inputs.user_id} when validating session summary with videos"
+        temporalio.activity.logger.error(msg, extra={"user_id": inputs.user_id, "signals_type": "session-summaries"})
+        raise ApplicationError(msg, non_retryable=True)
     summary = SessionSummarySerializer(data=summary_row.summary)
     summary.is_valid(raise_exception=True)
     # Validate the session summary with videos

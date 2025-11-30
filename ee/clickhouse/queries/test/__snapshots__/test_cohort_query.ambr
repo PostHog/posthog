@@ -103,7 +103,8 @@
                                                                                                                                           max_bytes_before_external_group_by=0,
                                                                                                                                           transform_null_in=1,
                                                                                                                                           optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                                                                          allow_experimental_join_condition=1
+                                                                                                                                          allow_experimental_join_condition=1,
+                                                                                                                                          use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_basic_query.1
@@ -229,7 +230,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.2
@@ -467,7 +469,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.10
@@ -476,6 +479,7 @@
      (SELECT persons.id AS id
       FROM
         (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
                 person.id AS id
          FROM person
          WHERE and(equals(person.team_id, 99999), in(id,
@@ -483,6 +487,7 @@
                                                         FROM person AS where_optimization
                                                         WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
          GROUP BY person.id
+         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
          HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
       WHERE ifNull(equals(persons.properties___name, 'test'), 0)
       ORDER BY persons.id ASC
@@ -503,6 +508,7 @@
                            FROM events AS e
                            LEFT OUTER JOIN
                              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                      person_distinct_id_overrides.distinct_id AS distinct_id
                               FROM person_distinct_id_overrides
                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
@@ -521,7 +527,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.11
@@ -569,6 +576,7 @@
      (SELECT persons.id AS id
       FROM
         (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
                 person.id AS id
          FROM person
          WHERE and(equals(person.team_id, 99999), in(id,
@@ -576,6 +584,7 @@
                                                         FROM person AS where_optimization
                                                         WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0)))))
          GROUP BY person.id
+         HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
          HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
       WHERE ifNull(equals(persons.properties___name, 'test'), 0)
       ORDER BY persons.id ASC
@@ -596,6 +605,7 @@
                            FROM events AS e
                            LEFT OUTER JOIN
                              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                      person_distinct_id_overrides.distinct_id AS distinct_id
                               FROM person_distinct_id_overrides
                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
@@ -614,7 +624,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.13
@@ -813,7 +824,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.5
@@ -906,7 +918,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.7
@@ -999,7 +1012,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.9
@@ -1076,7 +1090,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_poe_override.1
@@ -1160,7 +1175,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence.1
@@ -1278,7 +1294,8 @@
                                 max_bytes_before_external_group_by=0,
                                 transform_null_in=1,
                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                allow_experimental_join_condition=1
+                                allow_experimental_join_condition=1,
+                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence_and_clause_with_additional_event.1
@@ -1415,7 +1432,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence_with_person_properties.1
@@ -1517,7 +1535,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_with_event_filters_and_explicit_date.1
@@ -1599,7 +1618,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_person.1
@@ -1692,7 +1712,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_person_materialized.1
@@ -1854,7 +1875,8 @@
                                                                                                                                           max_bytes_before_external_group_by=0,
                                                                                                                                           transform_null_in=1,
                                                                                                                                           optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                                                                          allow_experimental_join_condition=1
+                                                                                                                                          allow_experimental_join_condition=1,
+                                                                                                                                          use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_person_properties_with_pushdowns.1
@@ -1983,7 +2005,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_person_props_only.1
@@ -2054,7 +2077,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
@@ -2093,7 +2117,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
@@ -2135,7 +2160,8 @@
                                 max_bytes_before_external_group_by=0,
                                 transform_null_in=1,
                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                allow_experimental_join_condition=1
+                                allow_experimental_join_condition=1,
+                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter.1
@@ -2199,7 +2225,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.1
@@ -2284,7 +2311,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.3
@@ -2384,7 +2412,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.2

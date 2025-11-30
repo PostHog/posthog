@@ -92,7 +92,7 @@ def populate_user_product_list(context: dagster.OpExecutionContext, config: Popu
     context.log.info(f"Starting populate for {len(config.product_paths)} products: {config.product_paths}")
 
     # Build user queryset with filters
-    users = User.objects.all()
+    users = User.objects.all().order_by("date_joined")
 
     # Filter by creation date if specified
     if config.user_created_before is not None:
