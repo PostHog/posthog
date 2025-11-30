@@ -285,6 +285,7 @@ class SimBrowserClient(SimClient):
     def __exit__(self, exc_type, exc_value, exc_traceback):
         """End session within client. Handles `$pageleave` event."""
         if self.current_url is not None:
+            assert self.current_url_timestamp is not None
             prev_pageview_duration = (self.person.cluster.simulation_time - self.current_url_timestamp).total_seconds()
             prev_pageview_path = urlparse(self.current_url).path
             self.capture(
@@ -362,6 +363,7 @@ class SimBrowserClient(SimClient):
         prev_pageview_duration: Optional[float] = None
         prev_pageview_path: Optional[str] = None
         if self.current_url is not None:
+            assert self.current_url_timestamp is not None
             prev_pageview_duration = (self.person.cluster.simulation_time - self.current_url_timestamp).total_seconds()
             prev_pageview_path = urlparse(self.current_url).path
             self.capture(
