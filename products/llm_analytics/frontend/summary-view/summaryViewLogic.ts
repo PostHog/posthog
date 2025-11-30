@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { getCookie } from 'lib/api'
@@ -31,6 +31,7 @@ export interface SummaryViewLogicProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
     tree?: any[]
+    autoGenerate?: boolean
 }
 
 export const summaryViewLogic = kea<summaryViewLogicType>([
@@ -156,4 +157,9 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
             }
         },
     })),
+    afterMount(({ props, actions, values }) => {
+        if (props.autoGenerate && values.dataProcessingAccepted) {
+            actions.generateSummary({ mode: values.summaryMode, forceRefresh: false })
+        }
+    }),
 ])

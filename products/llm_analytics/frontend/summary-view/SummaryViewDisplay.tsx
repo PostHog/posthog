@@ -21,6 +21,7 @@ export interface SummaryViewDisplayProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
     tree?: any[]
+    autoGenerate?: boolean
 }
 
 interface SummaryViewLogicValues {
@@ -30,8 +31,8 @@ interface SummaryViewLogicValues {
     summaryDataFailure?: Error | string | unknown
 }
 
-export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayProps): JSX.Element {
-    const logic = summaryViewLogic({ trace, event, tree })
+export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: SummaryViewDisplayProps): JSX.Element {
+    const logic = summaryViewLogic({ trace, event, tree, autoGenerate })
     const { summaryData, summaryDataLoading, summaryMode } = useValues(logic)
     const { generateSummary, setSummaryMode, regenerateSummary } = useActions(logic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)

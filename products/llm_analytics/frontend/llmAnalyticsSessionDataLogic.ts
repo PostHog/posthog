@@ -68,7 +68,7 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
         loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         loadFullTraceFailure: (traceId: string) => ({ traceId }),
         summarizeAllTraces: true,
-        summarizeTrace: (traceId: string) => ({ traceId }),
+        summarizeTrace: (traceId: string, forceRefresh: boolean = false) => ({ traceId, forceRefresh }),
         summarizeTraceSuccess: (traceId: string, title: string) => ({ traceId, title }),
         summarizeTraceFailure: (traceId: string, error: string) => ({ traceId, error }),
         clearTraceSummaries: true,
@@ -206,12 +206,13 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 return
             }
 
+            const hasSummaries = Object.keys(values.traceSummaries).length > 0
             const traces = values.traces
             for (const trace of traces) {
-                actions.summarizeTrace(trace.id)
+                actions.summarizeTrace(trace.id, hasSummaries)
             }
         },
-        summarizeTrace: async ({ traceId }) => {
+        summarizeTrace: async ({ traceId, forceRefresh }) => {
             const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
             if (!teamId) {
                 actions.summarizeTraceFailure(traceId, 'Team ID not available')
@@ -240,7 +241,7 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 const payload = {
                     summarize_type: 'trace',
                     mode: 'minimal',
-                    force_refresh: false,
+                    force_refresh: forceRefresh,
                     data: {
                         trace: fullTrace,
                         hierarchy,

@@ -27,6 +27,13 @@ export enum DisplayOption {
     TextView = 'text_view',
 }
 
+export enum TraceViewMode {
+    Conversation = 'conversation',
+    Raw = 'raw',
+    Summary = 'summary',
+    Evals = 'evals',
+}
+
 export interface LLMAnalyticsTraceDataNodeLogicParams {
     traceId: string
     query: DataTableNode
@@ -82,6 +89,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         copyLinePermalink: (lineNumber: number) => ({ lineNumber }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
         loadCommentCount: true,
+        setViewMode: (viewMode: TraceViewMode) => ({ viewMode }),
     }),
 
     reducers({
@@ -89,6 +97,24 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         lineNumber: [null as number | null, { setLineNumber: (_, { lineNumber }) => lineNumber }],
         initialTab: [null as string | null, { setInitialTab: (_, { tab }) => tab }],
+        viewMode: [
+            TraceViewMode.Conversation as TraceViewMode,
+            {
+                setViewMode: (_, { viewMode }) => viewMode,
+                setInitialTab: (_, { tab }) => {
+                    if (tab === 'summary') {
+                        return TraceViewMode.Summary
+                    }
+                    if (tab === 'raw') {
+                        return TraceViewMode.Raw
+                    }
+                    if (tab === 'evals') {
+                        return TraceViewMode.Evals
+                    }
+                    return TraceViewMode.Conversation
+                },
+            },
+        ],
         dateRange: [
             null as { dateFrom: string | null; dateTo: string | null } | null,
             {

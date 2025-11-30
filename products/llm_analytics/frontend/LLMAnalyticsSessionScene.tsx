@@ -57,7 +57,7 @@ function SessionSceneWrapper(): JSX.Element {
     } = useValues(llmAnalyticsSessionDataLogic)
     const hasSummaries = Object.keys(traceSummaries).length > 0
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
-    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces, clearTraceSummaries } =
+    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces } =
         useActions(llmAnalyticsSessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -110,16 +110,6 @@ function SessionSceneWrapper(): JSX.Element {
                             )}
                         </header>
                         <div className="flex gap-2">
-                            {hasSummaries && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={clearTraceSummaries}
-                                    data-attr="llm-session-clear-summaries"
-                                >
-                                    Clear summaries
-                                </LemonButton>
-                            )}
                             {!dataProcessingAccepted ? (
                                 <AIConsentPopoverWrapper
                                     showArrow
