@@ -60,6 +60,11 @@ function SessionSceneWrapper(): JSX.Element {
     const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces } =
         useActions(llmAnalyticsSessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const showSessionSummarization =
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSION_SUMMARIZATION] ||
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
     // Calculate session aggregates
     const sessionStats = traces.reduce(
@@ -109,35 +114,37 @@ function SessionSceneWrapper(): JSX.Element {
                                 </Suspense>
                             )}
                         </header>
-                        <div className="flex gap-2">
-                            {!dataProcessingAccepted ? (
-                                <AIConsentPopoverWrapper
-                                    showArrow
-                                    onApprove={summarizeAllTraces}
-                                    hidden={summariesLoading}
-                                >
+                        {showSessionSummarization && (
+                            <div className="flex gap-2">
+                                {!dataProcessingAccepted ? (
+                                    <AIConsentPopoverWrapper
+                                        showArrow
+                                        onApprove={summarizeAllTraces}
+                                        hidden={summariesLoading}
+                                    >
+                                        <LemonButton
+                                            type="primary"
+                                            size="small"
+                                            loading={summariesLoading}
+                                            disabledReason="AI data processing must be approved to summarize traces"
+                                            data-attr="llm-session-summarize-all"
+                                        >
+                                            Summarize all traces
+                                        </LemonButton>
+                                    </AIConsentPopoverWrapper>
+                                ) : (
                                     <LemonButton
                                         type="primary"
                                         size="small"
+                                        onClick={summarizeAllTraces}
                                         loading={summariesLoading}
-                                        disabledReason="AI data processing must be approved to summarize traces"
                                         data-attr="llm-session-summarize-all"
                                     >
                                         Summarize all traces
                                     </LemonButton>
-                                </AIConsentPopoverWrapper>
-                            ) : (
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={summarizeAllTraces}
-                                    loading={summariesLoading}
-                                    data-attr="llm-session-summarize-all"
-                                >
-                                    Summarize all traces
-                                </LemonButton>
-                            )}
-                        </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                     <div className="bg-surface-primary border rounded p-4">
                         <h3 className="font-semibold text-sm mb-3">Traces in this session</h3>
@@ -194,7 +201,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                         View full trace →
                                                     </Link>
                                                 </div>
-                                                {summary && (
+                                                {showSessionSummarization && summary && (
                                                     <div className="flex items-center gap-2 mb-2">
                                                         {summary.loading ? (
                                                             <div className="flex items-center gap-2 text-muted text-sm">
