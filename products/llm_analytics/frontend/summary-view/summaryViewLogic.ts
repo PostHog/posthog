@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { getCookie } from 'lib/api'
@@ -56,6 +56,7 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
         toggleFlowExpanded: true,
         toggleSummaryExpanded: true,
         toggleNotesExpanded: true,
+        loadCachedSummary: true,
     }),
     reducers({
         summaryMode: [
@@ -80,6 +81,20 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
             true,
             {
                 toggleNotesExpanded: (state) => !state,
+            },
+        ],
+    }),
+    selectors({
+        entityId: [
+            () => [(_, props) => props],
+            (props: SummaryViewLogicProps): string | null => {
+                if (props.trace) {
+                    return props.trace.id
+                }
+                if (props.event) {
+                    return props.event.id
+                }
+                return null
             },
         ],
     }),
@@ -146,6 +161,21 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
+        loadCachedSummary: async () => {
+            // Try to load cached summary - requires consent since we're hitting the summarization API
+            // which will return cached data if available (forceRefresh: false)
+            if (!values.dataProcessingAccepted) {
+                return
+            }
+
+            const entityId = values.entityId
+            if (!entityId) {
+                return
+            }
+
+            // Use generateSummary with forceRefresh: false - backend returns cached data if available
+            actions.generateSummary({ mode: values.summaryMode, forceRefresh: false })
+        },
         regenerateSummary: () => {
             // Regenerate with current mode but force refresh to bust cache
             actions.generateSummary({ mode: values.summaryMode, forceRefresh: true })
@@ -159,7 +189,11 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
     })),
     afterMount(({ props, actions, values }) => {
         if (props.autoGenerate && values.dataProcessingAccepted) {
+            // Auto-generate was requested (e.g., from URL param)
             actions.generateSummary({ mode: values.summaryMode, forceRefresh: false })
+        } else if (values.dataProcessingAccepted) {
+            // Try to load cached summary on mount (will use cache if available)
+            actions.loadCachedSummary()
         }
     }),
 ])
