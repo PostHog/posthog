@@ -21,13 +21,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 
 from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.context import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import build_insight_url
+from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import ArtifactMessage
+from ee.hogai.utils.types.base import ArtifactRefMessage
 
 from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
@@ -38,7 +38,7 @@ from .prompts import (
 )
 
 logger = structlog.get_logger(__name__)
-# Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
+# Silence Pydantic serializer warnings for creation of Query execution
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic serializer.*")
 
 TIMING_LOG_PREFIX = "[INSIGHT_SEARCH]"
@@ -662,7 +662,7 @@ class InsightSearchNode(AssistantNode):
             return None
 
     @timing_logger("InsightSearchNode._create_visualization_message_for_insight")
-    async def _create_visualization_message_for_insight(self, insight: InsightDict) -> ArtifactMessage | None:
+    async def _create_artifact_ref_message_for_insight(self, insight: InsightDict) -> ArtifactRefMessage | None:
         """Create an ArtifactMessage to render the insight UI."""
         try:
             for step in ["Executing insight query...", "Processing query parameters", "Running data analysis"]:
@@ -674,7 +674,7 @@ class InsightSearchNode(AssistantNode):
                 return None
 
             # Reference the existing insight instead of creating an artifact
-            return ArtifactMessage(
+            return ArtifactRefMessage(
                 content_type=ArtifactContentType.VISUALIZATION,
                 artifact_id=insight["short_id"],
                 source=ArtifactSource.INSIGHT,
@@ -815,7 +815,7 @@ class InsightSearchNode(AssistantNode):
 
         for _, selection in self._evaluation_selections.items():
             insight = selection["insight"]
-            visualization_message = await self._create_visualization_message_for_insight(insight)
+            visualization_message = await self._create_artifact_ref_message_for_insight(insight)
             if visualization_message:
                 visualization_messages.append(visualization_message)
 

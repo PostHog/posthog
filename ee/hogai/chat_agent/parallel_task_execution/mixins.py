@@ -6,18 +6,13 @@ import structlog
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
-from posthog.schema import (
-    AssistantToolCall,
-    AssistantToolCallMessage,
-    HumanMessage,
-    TaskExecutionStatus,
-    VisualizationArtifactContent,
-)
+from posthog.schema import AssistantToolCall, AssistantToolCallMessage, HumanMessage, TaskExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.insights.nodes import InsightSearchNode
 from ee.hogai.chat_agent.parallel_task_execution.prompts import AGENT_TASK_PROMPT_TEMPLATE
 from ee.hogai.context import AssistantContextManager
@@ -33,7 +28,6 @@ from ee.hogai.utils.types import (
     TaskArtifact,
     TaskResult,
 )
-from ee.models import AgentArtifact
 
 logger = structlog.get_logger(__name__)
 
@@ -42,7 +36,7 @@ class WithInsightCreationTaskExecution:
     _team: Team
     _user: User
     _parent_tool_call_id: str | None
-    _context_manager: AssistantContextManager
+    _context_manager: AssistantContextManager | None
 
     @property
     def dispatcher(self) -> AssistantDispatcher:
@@ -129,7 +123,7 @@ class WithInsightCreationTaskExecution:
 
         response = last_message.content
 
-        artifacts = self._extract_artifacts(subgraph_result_messages, task)
+        artifacts = await self._extract_artifacts(subgraph_result_messages, task)
         if len(artifacts) == 0:
             response += "\n\nNo artifacts were generated."
             logger.warning("Task failed: no artifacts extracted", task_id=task.id)
@@ -147,17 +141,20 @@ class WithInsightCreationTaskExecution:
             status=TaskExecutionStatus.COMPLETED,
         )
 
-    def _extract_artifacts(
+    async def _extract_artifacts(
         self, subgraph_result_messages: list[AssistantMessageUnion], tool_call: AssistantToolCall
     ) -> Sequence[InsightArtifact]:
         """Extract artifacts from insights subgraph execution results."""
+        assert self._context_manager is not None
 
         task_artifacts: list[InsightArtifact] = []
-        artifacts = self._context_manager.artifacts.get_from_messages(
-            subgraph_result_messages, filter_by_type=AgentArtifact.Type.VISUALIZATION
+        artifact_messages = await self._context_manager.artifacts.aenrich_messages(
+            subgraph_result_messages, artifacts_only=True
         )
-        for artifact in artifacts:
-            visualization_content = VisualizationArtifactContent.model_validate(artifact.data)
+        for artifact in artifact_messages:
+            visualization_content = unwrap_visualization_artifact_content(artifact)
+            if visualization_content is None:
+                continue
             task_artifacts.append(
                 InsightArtifact(
                     task_id=tool_call.id,

@@ -17,7 +17,6 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    VisualizationArtifactMessage,
 )
 
 from posthog.hogql.ai import SCHEMA_MESSAGE
@@ -26,6 +25,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.models.group_type_mapping import GroupTypeMapping
 
+from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.core.mixins import TaxonomyUpdateDispatcherNodeMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
@@ -210,9 +210,9 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
         enriched_messages = async_to_sync(self.context_manager.artifacts.aenrich_messages)(state.messages)
         history_messages = []
         for message in enriched_messages:
-            if isinstance(message, VisualizationArtifactMessage):
-                query = message.content.name or "_No query description provided._"
-                plan = message.content.description or "_No generated plan._"
+            if content := unwrap_visualization_artifact_content(message):
+                query = content.name or "_No query description provided._"
+                plan = content.description or "_No generated plan._"
                 history_messages.extend([("human", query), ("assistant", plan)])
         conversation = ChatPromptTemplate(
             [

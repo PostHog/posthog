@@ -1,14 +1,26 @@
 from typing import cast
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, StateGraph
+from parameterized import parameterized
 
-from posthog.schema import AssistantMessage
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactMessage,
+    ArtifactSource,
+    AssistantMessage,
+    AssistantTrendsQuery,
+    TrendsQuery,
+    VisualizationArtifactContent,
+    VisualizationMessage,
+)
 
+from ee.hogai.artifacts.utils import is_visualization_artifact_message, unwrap_visualization_artifact_content
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, add_and_merge_messages
-from ee.hogai.utils.types.base import ReplaceMessages
+from ee.hogai.utils.types.base import ArtifactRefMessage, ReplaceMessages
 
 
 class TestAssistantTypes(BaseTest):
@@ -98,3 +110,122 @@ class TestAssistantTypes(BaseTest):
 
         # Should return a PartialAssistantState instance
         self.assertIsInstance(reset_state, PartialAssistantState)
+
+
+class TestArtifactRefMessage(BaseTest):
+    def test_creates_with_all_required_fields(self):
+        message = ArtifactRefMessage(
+            id=str(uuid4()),
+            content_type=ArtifactContentType.VISUALIZATION,
+            artifact_id="abc123",
+            source=ArtifactSource.ARTIFACT,
+        )
+        self.assertEqual(message.artifact_id, "abc123")
+        self.assertEqual(message.content_type, ArtifactContentType.VISUALIZATION)
+
+
+class TestIsVisualizationArtifactMessage(BaseTest):
+    def test_returns_true_for_visualization_artifact_message(self):
+        content = VisualizationArtifactContent(
+            query=AssistantTrendsQuery(series=[]),
+            name="Test",
+        )
+        message = ArtifactMessage(
+            id=str(uuid4()),
+            artifact_id="abc123",
+            source=ArtifactSource.ARTIFACT,
+            content=content,
+        )
+        self.assertTrue(is_visualization_artifact_message(message))
+
+    @parameterized.expand(
+        [
+            ("string", "not a message"),
+            ("none", None),
+            ("dict", {"content_type": "visualization"}),
+            ("assistant_message", AssistantMessage(content="Hello")),
+        ]
+    )
+    def test_returns_false_for_non_artifact_messages(self, _name: str, value):
+        self.assertFalse(is_visualization_artifact_message(value))
+
+
+class TestConvertVisualizationMessagesToArtifacts(BaseTest):
+    def test_converts_visualization_message_with_id_to_artifact_ref_message(self):
+        viz_message = VisualizationMessage(
+            id="viz-123",
+            query="test query",
+            answer=TrendsQuery(series=[]),
+            plan="test plan",
+        )
+        state = AssistantState(messages=[viz_message])
+
+        # After validation: VisualizationMessage first, then ArtifactRefMessage
+        self.assertEqual(len(state.messages), 2)
+        original_viz = state.messages[0]
+        artifact_msg = state.messages[1]
+
+        self.assertIsInstance(original_viz, VisualizationMessage)
+        self.assertIsInstance(artifact_msg, ArtifactRefMessage)
+
+    def test_does_not_convert_visualization_message_without_id(self):
+        viz_message = VisualizationMessage(
+            query="test query",
+            answer=TrendsQuery(series=[]),
+            plan="test plan",
+        )
+        state = AssistantState(messages=[viz_message])
+
+        # Messages without IDs are not converted (just passed through)
+        self.assertEqual(len(state.messages), 1)
+        self.assertIsInstance(state.messages[0], VisualizationMessage)
+
+    def test_handles_mixed_messages(self):
+        assistant_msg = AssistantMessage(id=str(uuid4()), content="Hello")
+        viz_message = VisualizationMessage(
+            id="viz-456",
+            query="test query",
+            answer=TrendsQuery(series=[]),
+            plan="test plan",
+        )
+        state = AssistantState(messages=[assistant_msg, viz_message])
+
+        # Order: assistant_msg, VisualizationMessage, ArtifactRefMessage
+        self.assertEqual(len(state.messages), 3)
+        self.assertEqual(state.messages[0], assistant_msg)
+        self.assertIsInstance(state.messages[1], VisualizationMessage)
+        self.assertIsInstance(state.messages[2], ArtifactRefMessage)
+
+
+class TestUnwrapVisualizationArtifactContent(BaseTest):
+    def test_returns_content_for_visualization_artifact_message(self):
+        content = VisualizationArtifactContent(
+            query=AssistantTrendsQuery(series=[]),
+            name="Test Chart",
+            description="A test chart",
+        )
+        message = ArtifactMessage(
+            id=str(uuid4()),
+            artifact_id="abc123",
+            source=ArtifactSource.ARTIFACT,
+            content=content,
+        )
+
+        result = unwrap_visualization_artifact_content(message)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.name, "Test Chart")
+        self.assertEqual(result.description, "A test chart")
+
+    @parameterized.expand(
+        [
+            ("string", "not a message"),
+            ("none", None),
+            ("dict", {"content": {"content_type": "visualization"}}),
+            ("assistant_message", AssistantMessage(content="Hello")),
+        ]
+    )
+    def test_returns_none_for_non_artifact_messages(self, _name: str, value):
+        result = unwrap_visualization_artifact_content(value)
+        self.assertIsNone(result)

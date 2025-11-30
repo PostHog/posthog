@@ -763,10 +763,50 @@
                 }
             ]
         },
+        "ArtifactContent": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/VisualizationArtifactContent"
+                },
+                {
+                    "$ref": "#/definitions/NotebookArtifactContent"
+                }
+            ]
+        },
         "ArtifactContentType": {
             "description": "Type of artifact content",
             "enum": ["visualization", "notebook"],
             "type": "string"
+        },
+        "ArtifactMessage": {
+            "additionalProperties": false,
+            "description": "Frontend artifact message containing enriched content field. Do not use in the backend.",
+            "properties": {
+                "artifact_id": {
+                    "description": "The ID of the artifact (short_id for both drafts and saved insights)",
+                    "type": "string"
+                },
+                "content": {
+                    "$ref": "#/definitions/ArtifactContent",
+                    "description": "Content of artifact"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/ArtifactSource",
+                    "description": "Source of artifact - determines which model to fetch from"
+                },
+                "type": {
+                    "const": "ai/artifact",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id", "source", "content"],
+            "type": "object"
         },
         "ArtifactSource": {
             "description": "Source of artifact - determines which model to fetch from",
@@ -19829,6 +19869,18 @@
             ],
             "type": "string"
         },
+        "NotebookArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "content_type": {
+                    "const": "notebook",
+                    "description": "Notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["content_type"],
+            "type": "object"
+        },
         "NotebookInfo": {
             "$ref": "#/definitions/DeepResearchNotebook"
         },
@@ -26662,7 +26714,7 @@
                     "$ref": "#/definitions/MultiVisualizationMessage"
                 },
                 {
-                    "$ref": "#/definitions/VisualizationArtifactMessage"
+                    "$ref": "#/definitions/ArtifactMessage"
                 },
                 {
                     "$ref": "#/definitions/ReasoningMessage"
@@ -29975,6 +30027,11 @@
         "VisualizationArtifactContent": {
             "additionalProperties": false,
             "properties": {
+                "content_type": {
+                    "const": "visualization",
+                    "description": "Visualization artifact (chart, graph, etc.)",
+                    "type": "string"
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -29992,40 +30049,7 @@
                     ]
                 }
             },
-            "required": ["query"],
-            "type": "object"
-        },
-        "VisualizationArtifactMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "artifact_id": {
-                    "description": "The ID of the artifact (short_id for both drafts and saved insights)",
-                    "type": "string"
-                },
-                "content": {
-                    "$ref": "#/definitions/VisualizationArtifactContent"
-                },
-                "content_type": {
-                    "const": "visualization",
-                    "description": "Type of artifact content",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "parent_tool_call_id": {
-                    "type": "string"
-                },
-                "source": {
-                    "$ref": "#/definitions/ArtifactSource",
-                    "description": "Source of artifact - determines which model to fetch from"
-                },
-                "type": {
-                    "const": "ai/artifact",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "artifact_id", "source", "content_type", "content"],
+            "required": ["content_type", "query"],
             "type": "object"
         },
         "VisualizationBlock": {

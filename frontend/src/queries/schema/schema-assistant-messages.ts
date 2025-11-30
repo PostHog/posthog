@@ -262,26 +262,33 @@ export interface MultiVisualizationMessage extends BaseAssistantMessage {
 }
 
 export interface VisualizationArtifactContent {
+    content_type: ArtifactContentType.Visualization
     query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
     name?: string | null
     description?: string | null
 }
 
-export interface VisualizationArtifactMessage extends BaseAssistantMessage {
+export interface NotebookArtifactContent {
+    content_type: ArtifactContentType.Notebook
+}
+
+export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent
+
+/** Frontend artifact message containing enriched content field. Do not use in the backend. */
+export interface ArtifactMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Artifact
     /** The ID of the artifact (short_id for both drafts and saved insights) */
     artifact_id: string
     /** Source of artifact - determines which model to fetch from */
     source: ArtifactSource
-    /** Type of artifact content */
-    content_type: ArtifactContentType.Visualization
-    content: VisualizationArtifactContent
+    /** Content of artifact */
+    content: ArtifactContent
 }
 
 export type RootAssistantMessage =
     | VisualizationMessage
     | MultiVisualizationMessage
-    | VisualizationArtifactMessage
+    | ArtifactMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage

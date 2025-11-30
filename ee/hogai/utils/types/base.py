@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from posthog.schema import (
     AgentMode,
     ArtifactContentType,
+    ArtifactMessage,
     ArtifactSource,
     AssistantEventType,
     AssistantFunnelsQuery,
@@ -25,6 +26,7 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     AssistantUpdateEvent,
+    BaseAssistantMessage,
     ContextMessage,
     FailureMessage,
     FunnelsQuery,
@@ -43,17 +45,15 @@ from posthog.schema import (
     TaskExecutionMessage,
     TaskExecutionStatus,
     TrendsQuery,
-    VisualizationArtifactMessage,
     VisualizationMessage,
 )
 
 from ee.models import Conversation
 
 
-class ArtifactMessage(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    id: str
-    parent_tool_call_id: Optional[str] = None
+class ArtifactRefMessage(BaseAssistantMessage):
+    """Backend-only artifact message without the enriched content field."""
+
     content_type: ArtifactContentType
     artifact_id: str
     source: ArtifactSource
@@ -61,8 +61,8 @@ class ArtifactMessage(BaseModel):
 
 AIMessageUnion = Union[
     AssistantMessage,
-    VisualizationMessage,
-    ArtifactMessage,
+    VisualizationMessage,  # IMPORTANT: Keep it here for backwards compatibility with old states, as they're persisted in the database
+    ArtifactRefMessage,
     FailureMessage,
     AssistantToolCallMessage,
     MultiVisualizationMessage,
@@ -70,14 +70,13 @@ AIMessageUnion = Union[
     PlanningMessage,
     TaskExecutionMessage,
 ]
-AssistantMessageUnion = Union[
-    HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage, VisualizationArtifactMessage
-]
-AssistantResultUnion = Union[AssistantMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
+AssistantStreamedMessageUnion = Union[AssistantMessageUnion, ArtifactMessage]
+AssistantResultUnion = Union[AssistantStreamedMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
-    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
+    | tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]
     | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusEvent]
     | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent]
 )
@@ -101,8 +100,7 @@ ASSISTANT_MESSAGE_TYPES = (
     NotebookUpdateMessage,
     AssistantMessage,
     VisualizationMessage,
-    ArtifactMessage,
-    VisualizationArtifactMessage,
+    ArtifactRefMessage,
     FailureMessage,
     AssistantToolCallMessage,
     MultiVisualizationMessage,
@@ -277,31 +275,32 @@ class BaseStateWithMessages(BaseState):
         cls, messages: Sequence[AssistantMessageUnion]
     ) -> Sequence[AssistantMessageUnion]:
         """
-        Convert legacy VisualizationMessage to ArtifactMessage with State source.
+        Convert legacy VisualizationMessage to ArtifactRefMessage with State source.
         The original VisualizationMessage is kept in state for content lookup.
-        The ArtifactMessage's artifact_id references the VisualizationMessage's id.
+        The ArtifactRefMessage's artifact_id references the VisualizationMessage's id.
         """
+        # Collect existing ArtifactRefMessage artifact_ids to avoid duplicates when validator
+        # runs multiple times (e.g., during model_validate on already-converted state)
+        existing_artifact_ids = {msg.artifact_id for msg in messages if isinstance(msg, ArtifactRefMessage)}
+
         converted: list[AssistantMessageUnion] = []
         for message in messages:
-            if isinstance(message, VisualizationMessage):
-                message_id = message.id or str(uuid.uuid4())
-                # Ensure the original message has an ID for lookup
-                if message.id is None:
-                    message.id = message_id
-                # Create ArtifactMessage that references the VisualizationMessage
-                converted.append(
-                    ArtifactMessage(
-                        id=str(uuid.uuid4()),  # New ID for the artifact message
-                        parent_tool_call_id=message.parent_tool_call_id,
-                        content_type=ArtifactContentType.VISUALIZATION,
-                        artifact_id=message_id,  # References the VisualizationMessage ID
-                        source=ArtifactSource.STATE,
+            # If a message doesn't have an ID, it should have not been persisted.
+            # Pass through it as is.
+            converted.append(message)
+
+            if message.id and isinstance(message, VisualizationMessage):
+                # Only create ArtifactRefMessage if one doesn't already exist for this VisualizationMessage
+                if message.id not in existing_artifact_ids:
+                    # Create ArtifactRefMessage that references the VisualizationMessage
+                    converted.append(
+                        ArtifactRefMessage(
+                            id=message.id,  # TRICKY: Keep this ID stable, so we don't save artifacts multiple times.
+                            content_type=ArtifactContentType.VISUALIZATION,
+                            artifact_id=message.id,  # References the VisualizationMessage ID
+                            source=ArtifactSource.STATE,
+                        )
                     )
-                )
-                # Keep the original VisualizationMessage for content lookup
-                converted.append(message)
-            else:
-                converted.append(message)
         return converted
 
     @property

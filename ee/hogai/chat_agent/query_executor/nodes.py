@@ -5,24 +5,19 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage
 
-from ee.hogai.artifacts.utils import is_visualization_artifact_message
+from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, ArtifactMessage
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, ArtifactRefMessage
 
 
 class QueryExecutorNode(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        last_message = state.messages[-1]
-        if isinstance(last_message, FailureMessage):
-            return None  # Exit early - something failed earlier
-
-        if not is_visualization_artifact_message(last_message):
+        query = await self._extract_query(state)
+        if not query:
             return None
-
-        query = await self._extract_query(last_message)
 
         tool_call_id = state.root_tool_call_id
         if not tool_call_id:
@@ -53,8 +48,21 @@ class QueryExecutorNode(AssistantNode):
             rag_context=None,
         )
 
-    async def _extract_query(self, message: ArtifactMessage) -> AnyAssistantGeneratedQuery:
-        if not message.artifact_id:
-            raise ValueError("ArtifactMessage must have a artifact_id")
-        content = await self.context_manager.artifacts.aget_content_by_short_id(message.artifact_id)
+    async def _extract_query(self, state: AssistantState) -> AnyAssistantGeneratedQuery | None:
+        last_message = state.messages[-1]
+        if isinstance(last_message, FailureMessage):
+            return None  # Exit early - something failed earlier
+
+        if not isinstance(last_message, ArtifactRefMessage):
+            raise ValueError("Expected an ArtifactRefMessage, found <class 'posthog.schema.HumanMessage'>")
+
+        enriched_messages = await self.context_manager.artifacts.aenrich_messages(state.messages, artifacts_only=True)
+        if not enriched_messages:
+            raise ValueError("No messages found")
+        enriched_message = next(message for message in enriched_messages if message.id == last_message.id)
+        if not enriched_message:
+            raise ValueError("No enriched message found")
+        content = unwrap_visualization_artifact_content(enriched_message)
+        if not content:
+            raise ValueError("Content must be a VisualizationArtifactContent")
         return cast(AnyAssistantGeneratedQuery, content.query)

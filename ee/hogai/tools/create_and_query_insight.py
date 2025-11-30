@@ -200,7 +200,7 @@ class CreateAndQueryInsightTool(MaxTool):
         if self.is_editing_mode(self._context_manager):
             tool_call_message = AssistantToolCallMessage(
                 content=tool_call_message.content,
-                ui_payload={self.get_name(): visualization_content.model_dump(exclude_none=True)},
+                ui_payload={self.get_name(): visualization_content.query.model_dump(exclude_none=True)},
                 id=tool_call_message.id,
                 tool_call_id=tool_call_message.tool_call_id,
             )
