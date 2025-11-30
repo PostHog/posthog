@@ -27,7 +27,7 @@ from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import ArtifactMessage
+from ee.hogai.utils.types.base import ArtifactRefMessage
 
 from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
@@ -662,7 +662,7 @@ class InsightSearchNode(AssistantNode):
             return None
 
     @timing_logger("InsightSearchNode._create_visualization_message_for_insight")
-    async def _create_visualization_message_for_insight(self, insight: InsightDict) -> ArtifactMessage | None:
+    async def _create_visualization_message_for_insight(self, insight: InsightDict) -> ArtifactRefMessage | None:
         """Create an ArtifactMessage to render the insight UI."""
         try:
             for step in ["Executing insight query...", "Processing query parameters", "Running data analysis"]:
@@ -674,7 +674,7 @@ class InsightSearchNode(AssistantNode):
                 return None
 
             # Reference the existing insight instead of creating an artifact
-            return ArtifactMessage(
+            return ArtifactRefMessage(
                 content_type=ArtifactContentType.VISUALIZATION,
                 artifact_id=insight["short_id"],
                 source=ArtifactSource.INSIGHT,

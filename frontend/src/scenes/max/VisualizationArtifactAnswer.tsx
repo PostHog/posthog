@@ -19,9 +19,9 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import {
+    ArtifactMessage,
     ArtifactSource,
-    VisualizationArtifactMessage,
-    VisualizationMessage,
+    VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
@@ -29,10 +29,11 @@ import { InsightShortId } from '~/types'
 
 import { MessageStatus } from './maxLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
-import { castAssistantQuery, isVisualizationArtifactMessage } from './utils'
+import { castAssistantQuery } from './utils'
 
 interface VisualizationArtifactAnswerProps {
-    message: (VisualizationArtifactMessage | VisualizationMessage) & { status?: MessageStatus }
+    message: ArtifactMessage & { status?: MessageStatus }
+    content: VisualizationArtifactContent
     status?: MessageStatus
     isEditingInsight: boolean
     activeTabId?: string | null
@@ -67,13 +68,13 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
 
 export const VisualizationArtifactAnswer = React.memo(function VisualizationArtifactAnswer({
     message,
+    content,
     status,
     isEditingInsight,
     activeTabId,
     activeSceneId,
 }: VisualizationArtifactAnswerProps): JSX.Element | null {
-    const isArtifact = isVisualizationArtifactMessage(message)
-    const isSavedInsight = isArtifact && (message as VisualizationArtifactMessage).source === ArtifactSource.Insight
+    const isSavedInsight = message.source === ArtifactSource.Insight
 
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
@@ -84,21 +85,12 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
 
     // Build query from either artifact content or inline visualization message
     const query = useMemo(() => {
-        let querySource
-        if (isArtifact) {
-            // VisualizationArtifactMessage has inline content
-            querySource = message.content.query
-        } else {
-            // VisualizationMessage has inline answer
-            querySource = message.answer
-        }
-
-        const source = castAssistantQuery(querySource)
+        const source = castAssistantQuery(content.query)
         if (isHogQLQuery(source)) {
             return { kind: NodeKind.DataVisualizationNode, source } satisfies DataVisualizationNode
         }
         return { kind: NodeKind.InsightVizNode, source, showHeader: false } satisfies InsightVizNode
-    }, [isArtifact, message])
+    }, [content])
 
     const queryWithShowHeader = useMemo(() => {
         if (query && isInsightVizNode(query)) {
@@ -108,7 +100,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
     }, [query])
 
     // Get the raw query for height calculation
-    const rawQuery = isArtifact ? message.content.query : (message as VisualizationMessage).answer
+    const rawQuery = content.query
 
     if (status !== 'completed') {
         return null
@@ -159,10 +151,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                         <LemonButton
                             to={
                                 isSavedInsight
-                                    ? urls.insightView(
-                                          (message as VisualizationArtifactMessage)
-                                              .artifact_id as unknown as InsightShortId
-                                      )
+                                    ? urls.insightView(message.artifact_id as unknown as InsightShortId)
                                     : urls.insightNew({
                                           query: queryWithShowHeader as InsightVizNode | DataVisualizationNode,
                                       })

@@ -4,6 +4,7 @@ import structlog
 from langchain_core.messages import AIMessageChunk
 
 from posthog.schema import (
+    ArtifactMessage,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantUpdateEvent,
@@ -18,11 +19,11 @@ from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.utils.helpers import normalize_ai_message, should_output_assistant_message
 from ee.hogai.utils.state import is_message_update, is_state_update, merge_message_chunk
 from ee.hogai.utils.types.base import (
-    ArtifactMessage,
+    ArtifactRefMessage,
     AssistantDispatcherEvent,
     AssistantGraphName,
-    AssistantMessageUnion,
     AssistantResultUnion,
+    AssistantStreamedMessageUnion,
     BaseStateWithMessages,
     LangGraphUpdateEvent,
     MessageAction,
@@ -38,11 +39,12 @@ from ee.hogai.utils.types.composed import MaxNodeName
 logger = structlog.get_logger(__name__)
 
 
-MESSAGE_TYPE_TUPLE = get_args(AssistantMessageUnion)
-
-
 def find_subgraph(node_path: tuple[NodePath, ...]) -> bool:
     return bool(next((path for path in node_path if path.name in AssistantGraphName), None))
+
+
+StreamedMessageUnion = AssistantResultUnion | ArtifactMessage
+MESSAGE_TYPE_TUPLE = get_args(AssistantStreamedMessageUnion)
 
 
 class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateType]):
@@ -147,30 +149,34 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         return None
 
     async def _handle_message(
-        self, action: AssistantDispatcherEvent, message: AssistantMessageUnion
-    ) -> AssistantResultUnion | None:
+        self, action: AssistantDispatcherEvent, message: StreamedMessageUnion
+    ) -> StreamedMessageUnion | None:
         """Handle a message from a node."""
         node_name = cast(MaxNodeName, action.node_name)
-        produced_message: AssistantResultUnion | None = None
+        produced_message: StreamedMessageUnion | None = None
 
-        # ArtifactMessage must always be enriched with content, regardless of nesting level
-        if isinstance(message, ArtifactMessage):
+        # ArtifactRefMessage must always be enriched with content, regardless of nesting level
+        if isinstance(message, ArtifactRefMessage):
             try:
-                produced_message = await self._artifact_manager.aget_enriched_message(message)
+                enriched_message = await self._artifact_manager.aget_enriched_message(message)
             except Exception as e:
-                # Skip the message if we fail to enrich it.
                 logger.exception("Failed to enrich ArtifactMessage", error=str(e))
+                enriched_message = None
+            # If the message is not enriched, return None.
+            if not enriched_message:
                 return None
+            message = enriched_message
+
         # Output all messages from the top-level graph.
-        elif not self._is_message_from_nested_node_or_graph(action.node_path or ()):
+        if not self._is_message_from_nested_node_or_graph(action.node_path or ()):
             produced_message = self._handle_root_message(message, node_name)
         # Other message types with parents (viz, notebook, failure, tool call)
         else:
-            produced_message = await self._handle_special_child_message(message, node_name)
+            produced_message = self._handle_special_child_message(message)
 
         # Messages with existing IDs must be deduplicated.
         # Messages WITHOUT IDs must be streamed because they're progressive.
-        if isinstance(produced_message, MESSAGE_TYPE_TUPLE) and produced_message.id is not None:
+        if (isinstance(produced_message, MESSAGE_TYPE_TUPLE)) and produced_message.id is not None:
             if produced_message.id in self._streamed_update_ids:
                 return None
             self._streamed_update_ids.add(produced_message.id)
@@ -190,8 +196,8 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         return False
 
     def _handle_root_message(
-        self, message: AssistantMessageUnion, node_name: MaxNodeName
-    ) -> AssistantMessageUnion | None:
+        self, message: StreamedMessageUnion, node_name: MaxNodeName
+    ) -> StreamedMessageUnion | None:
         """Handle messages with no parent (root messages)."""
         if node_name not in self._verbose_nodes or not should_output_assistant_message(message):
             return None
@@ -218,23 +224,21 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
         return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
 
-    async def _handle_special_child_message(
-        self, message: AssistantMessageUnion, node_name: MaxNodeName
-    ) -> AssistantMessageUnion | None:
+    def _handle_special_child_message(self, message: StreamedMessageUnion) -> StreamedMessageUnion | None:
         """
         Handle special message types that have parents.
 
         These messages are returned as-is regardless of where in the nesting hierarchy they are.
         """
         # These message types are always returned as-is
-        if isinstance(message, NotebookUpdateMessage | FailureMessage):
+        if isinstance(message, NotebookUpdateMessage | FailureMessage | ArtifactMessage):
             return message
 
         return None
 
     def _handle_message_stream(
         self, event: AssistantDispatcherEvent, message: AIMessageChunk
-    ) -> AssistantResultUnion | None:
+    ) -> StreamedMessageUnion | None:
         """
         Process LLM chunks from "messages" stream mode.
 
@@ -257,11 +261,11 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
     async def _handle_node_end(
         self, event: AssistantDispatcherEvent, action: NodeEndAction
-    ) -> list[AssistantResultUnion] | None:
+    ) -> list[StreamedMessageUnion] | None:
         """Handle the end of a node. Reset the streaming chunks."""
         if not isinstance(action.state, BaseStateWithMessages):
             return None
-        results: list[AssistantResultUnion] = []
+        results: list[StreamedMessageUnion] = []
         for message in action.state.messages:
             if new_event := await self.process(
                 AssistantDispatcherEvent(
