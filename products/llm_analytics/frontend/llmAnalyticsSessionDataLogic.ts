@@ -1,8 +1,9 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import api, { getCookie } from 'lib/api'
+import api from 'lib/api'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -59,6 +60,8 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
             ['response', 'responseLoading', 'responseError'],
             maxGlobalLogic,
             ['dataProcessingAccepted'],
+            teamLogic,
+            ['currentTeamId'],
         ],
     })),
 
@@ -195,35 +198,22 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 return
             }
 
-            const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
+            const teamId = values.currentTeamId
             if (!teamId) {
                 return
             }
 
             try {
-                const url = `/api/environments/${teamId}/llm_analytics/summarization/batch_check/`
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                    },
-                    body: JSON.stringify({
-                        trace_ids: traceIds,
-                        mode: 'minimal',
-                    }),
-                    credentials: 'include',
+                const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/batch_check/`, {
+                    trace_ids: traceIds,
+                    mode: 'minimal',
                 })
 
-                if (response.ok) {
-                    const data = await response.json()
-                    if (data.summaries && data.summaries.length > 0) {
-                        actions.loadCachedSummariesSuccess(data.summaries)
-                    }
+                if (data.summaries && data.summaries.length > 0) {
+                    actions.loadCachedSummariesSuccess(data.summaries)
                 }
-            } catch (error) {
-                // Silently fail - this is just an optimization
-                console.warn('Failed to load cached summaries:', error)
+            } catch {
+                // Silently fail - this is just a cache optimization
             }
         },
         toggleTraceExpanded: async ({ traceId }) => {
@@ -264,7 +254,7 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
             }
         },
         summarizeTrace: async ({ traceId, forceRefresh }) => {
-            const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
+            const teamId = values.currentTeamId
             if (!teamId) {
                 actions.summarizeTraceFailure(traceId, 'Team ID not available')
                 return
@@ -289,7 +279,7 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 // Build the hierarchy tree from full trace events
                 const hierarchy = restoreTree(fullTrace.events || [], traceId)
 
-                const payload = {
+                const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, {
                     summarize_type: 'trace',
                     mode: 'minimal',
                     force_refresh: forceRefresh,
@@ -297,25 +287,8 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                         trace: fullTrace,
                         hierarchy,
                     },
-                }
-
-                const url = `/api/environments/${teamId}/llm_analytics/summarization/`
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                    },
-                    body: JSON.stringify(payload),
-                    credentials: 'include',
                 })
 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}))
-                    throw new Error(errorData.detail || errorData.error || 'Failed to generate summary')
-                }
-
-                const data = await response.json()
                 actions.summarizeTraceSuccess(traceId, data.summary?.title || 'Untitled trace')
             } catch (error) {
                 actions.summarizeTraceFailure(traceId, error instanceof Error ? error.message : 'Unknown error')

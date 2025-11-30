@@ -13,6 +13,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import { EnrichedTraceTreeNode } from '../llmAnalyticsTraceDataLogic'
 import { SummaryRenderer } from './components/SummaryRenderer'
 import { TextReprDisplay } from './components/TextReprDisplay'
 import { summaryViewLogic } from './summaryViewLogic'
@@ -20,7 +21,7 @@ import { summaryViewLogic } from './summaryViewLogic'
 export interface SummaryViewDisplayProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
-    tree?: any[]
+    tree?: EnrichedTraceTreeNode[]
     autoGenerate?: boolean
 }
 

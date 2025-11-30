@@ -1,11 +1,13 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { getCookie } from 'lib/api'
+import api from 'lib/api'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import { EnrichedTraceTreeNode } from '../llmAnalyticsTraceDataLogic'
 import type { summaryViewLogicType } from './summaryViewLogicType'
 
 export type SummaryMode = 'minimal' | 'detailed'
@@ -30,7 +32,7 @@ export interface StructuredSummary {
 export interface SummaryViewLogicProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
-    tree?: any[]
+    tree?: EnrichedTraceTreeNode[]
     autoGenerate?: boolean
 }
 
@@ -38,7 +40,7 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'summary-view', 'summaryViewLogic']),
     props({} as SummaryViewLogicProps),
     connect({
-        values: [maxGlobalLogic, ['dataProcessingAccepted']],
+        values: [maxGlobalLogic, ['dataProcessingAccepted'], teamLogic, ['currentTeamId']],
     }),
     key((props) => {
         // Use trace ID or event ID as the key
@@ -131,28 +133,13 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                       }
 
                 // Call the summarization API endpoint
-                const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
+                const teamId = values.currentTeamId
                 if (!teamId) {
                     throw new Error('Team ID not available')
                 }
 
-                const url = `/api/environments/${teamId}/llm_analytics/summarization/`
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                    },
-                    body: JSON.stringify(payload),
-                    credentials: 'include',
-                })
+                const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, payload)
 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}))
-                    throw new Error(errorData.detail || errorData.error || 'Failed to generate summary')
-                }
-
-                const data = await response.json()
                 return {
                     summary: data.summary,
                     text_repr: data.text_repr,
