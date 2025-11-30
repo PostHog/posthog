@@ -259,6 +259,7 @@ class SimBrowserClient(SimClient):
     active_session_id: Optional[str]
     super_properties: Properties
     current_url: Optional[str]
+    current_url_timestamp: Optional[dt.datetime]
     is_logged_in: bool
 
     def __init__(self, person: "SimPerson"):
@@ -274,6 +275,7 @@ class SimBrowserClient(SimClient):
         self.active_session_id = None
         self.super_properties = {}
         self.current_url = None
+        self.current_url_timestamp = None
         self.is_logged_in = False
 
     def __enter__(self):
@@ -283,8 +285,17 @@ class SimBrowserClient(SimClient):
     def __exit__(self, exc_type, exc_value, exc_traceback):
         """End session within client. Handles `$pageleave` event."""
         if self.current_url is not None:
-            self.capture(EVENT_PAGELEAVE)
+            prev_pageview_duration = (self.person.cluster.simulation_time - self.current_url_timestamp).total_seconds()
+            prev_pageview_path = urlparse(self.current_url).path
+            self.capture(
+                EVENT_PAGELEAVE,
+                {
+                    "$prev_pageview_duration": prev_pageview_duration,
+                    "$prev_pageview_pathname": prev_pageview_path,
+                },
+            )
             self.current_url = None
+            self.current_url_timestamp = None
 
     def _get_person(self, _: str):
         return self.person
@@ -348,11 +359,26 @@ class SimBrowserClient(SimClient):
         referrer: Optional[str] = None,
     ):
         """Capture a $pageview event. $pageleave is handled implicitly."""
+        prev_pageview_duration: Optional[float] = None
+        prev_pageview_path: Optional[str] = None
         if self.current_url is not None:
-            self.capture(EVENT_PAGELEAVE)
+            prev_pageview_duration = (self.person.cluster.simulation_time - self.current_url_timestamp).total_seconds()
+            prev_pageview_path = urlparse(self.current_url).path
+            self.capture(
+                EVENT_PAGELEAVE,
+                {
+                    "$prev_pageview_duration": prev_pageview_duration,
+                    "$prev_pageview_pathname": prev_pageview_path,
+                },
+            )
         self.person.advance_timer(self.person.cluster.random.uniform(0.02, 0.1))  # A page doesn't load instantly
         self.current_url = current_url
-        self.capture(EVENT_PAGEVIEW, properties)
+        self.current_url_timestamp = self.person.cluster.simulation_time
+        pageview_properties = dict(properties) if properties else {}
+        if prev_pageview_duration is not None:
+            pageview_properties["$prev_pageview_duration"] = prev_pageview_duration
+            pageview_properties["$prev_pageview_pathname"] = prev_pageview_path
+        self.capture(EVENT_PAGEVIEW, pageview_properties if pageview_properties else None)
 
     def identify(self, distinct_id: Optional[str], set_properties: Optional[Properties] = None):
         """Identify person in active client. Similar to JS `posthog.identify()`.
