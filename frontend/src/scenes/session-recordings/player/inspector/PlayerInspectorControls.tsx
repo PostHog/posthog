@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import {
     BaseIcon,
@@ -10,7 +10,6 @@ import {
     IconDashboard,
     IconGear,
     IconInfo,
-    IconSearch,
     IconStethoscope,
     IconTerminal,
 } from '@posthog/icons'
@@ -279,11 +278,8 @@ export function PlayerInspectorControls(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const [showSearch, setShowSearch] = useState(false)
-
     useEffect(() => {
         if (!window.IMPERSONATED_SESSION && !featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
-            // ensure we've not left the doctor active
             setMiniFilter('doctor', false)
         }
     }, [featureFlags, setMiniFilter])
@@ -306,43 +302,24 @@ export function PlayerInspectorControls(): JSX.Element {
                             onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
                         />
                     )}
-                <LemonButton
-                    data-attr="player-inspector-search-toggle"
-                    icon={<IconSearch />}
-                    size="xsmall"
-                    onClick={() => {
-                        const newState = !showSearch
-                        setShowSearch(newState)
-                        if (!newState) {
-                            // clear the search when we're hiding the search bar
-                            setSearchQuery('')
-                        }
-                    }}
-                    status={showSearch ? 'danger' : 'default'}
-                    title="Search"
-                    className="rounded-[0px]"
-                />
             </SettingsBar>
-            {showSearch && (
-                <div className="flex px-2 py-1">
-                    <LemonInput
-                        data-attr="player-inspector-search-input"
-                        size="xsmall"
-                        autoFocus={true}
-                        onChange={(e) => setSearchQuery(e)}
-                        placeholder="Search..."
-                        type="search"
-                        value={searchQuery}
-                        fullWidth
-                        className="min-w-60"
-                        suffix={
-                            <Tooltip title={<InspectorSearchInfo />}>
-                                <IconInfo />
-                            </Tooltip>
-                        }
-                    />
-                </div>
-            )}
+            <div className="flex px-2 py-1">
+                <LemonInput
+                    data-attr="player-inspector-search-input"
+                    size="xsmall"
+                    onChange={(e) => setSearchQuery(e)}
+                    placeholder="Search..."
+                    type="search"
+                    value={searchQuery}
+                    fullWidth
+                    className="min-w-60"
+                    suffix={
+                        <Tooltip title={<InspectorSearchInfo />}>
+                            <IconInfo />
+                        </Tooltip>
+                    }
+                />
+            </div>
         </div>
     )
 }

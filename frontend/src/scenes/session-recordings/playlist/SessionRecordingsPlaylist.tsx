@@ -1,35 +1,30 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
-import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { Playlist, PlaylistSection } from 'scenes/session-recordings/playlist/Playlist'
+import { cn } from 'lib/utils/css-classes'
+import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
-import {
-    RecordingsUniversalFiltersEmbed,
-    RecordingsUniversalFiltersEmbedButton,
-} from '../filters/RecordingsUniversalFiltersEmbed'
-import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
-import { SessionRecordingPreview } from './SessionRecordingPreview'
-import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
+import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
+import { PurePlayer } from '../player/PurePlayer'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
+import { PlayerSidebarContent } from '../player/sidebar/PlayerSidebarContent'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export function SessionRecordingsPlaylist({
     showContent = true,
-    canMixFiltersAndPinned = true,
-    type = 'filters',
-    isSynthetic = false,
-    description,
-    ...props
-}: SessionRecordingPlaylistLogicProps & {
-    showContent?: boolean
     /**
      * Historically we allowed playlists to mix filters and pinned recordings.
      * But we don't want to... however, some users might use playlists with pinned recordings
@@ -38,6 +33,13 @@ export function SessionRecordingsPlaylist({
      * This prop allows us to allow that case or not.
      * Eventually this will be removed, and we'll only allow one or the other.
      */
+    canMixFiltersAndPinned = true,
+    type = 'filters',
+    isSynthetic = false,
+    description,
+    ...props
+}: SessionRecordingPlaylistLogicProps & {
+    showContent?: boolean
     canMixFiltersAndPinned?: boolean
     type?: 'filters' | 'collection'
     isSynthetic?: boolean
@@ -47,142 +49,116 @@ export function SessionRecordingsPlaylist({
         ...props,
         autoPlay: props.autoPlay ?? true,
     }
-    const playlistLogic = sessionRecordingsPlaylistLogic(logicProps)
+    const thePlaylistLogic = sessionRecordingsPlaylistLogic(logicProps)
     const {
         filters,
         pinnedRecordings,
         matchingEventsMatchType,
-        sessionRecordingsResponseLoading,
         otherRecordings,
         activeSessionRecordingId,
-        hasNext,
         allowHogQLFilters,
         allowReplayGroupsFilters,
         totalFiltersCount,
-    } = useValues(playlistLogic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
+    } = useValues(thePlaylistLogic)
+    const { setSelectedRecordingId, setFilters, resetFilters, loadAllRecordings } = useActions(thePlaylistLogic)
 
-    const notebookNode = useNotebookNode()
-    const sections: PlaylistSection[] = []
+    const { isFiltersExpanded } = useValues(playlistFiltersLogic)
+    const { sidebarOpen, isVerticallyStacked } = useValues(playerSettingsLogic)
+    const { setSidebarOpen } = useActions(playerSettingsLogic)
 
-    if (type === 'collection' || pinnedRecordings.length > 0) {
-        sections.push({
-            key: 'pinned',
-            title: (
-                <div className="flex flex-row deprecated-space-x-1 items-center">
-                    <span>Pinned recordings</span>
-                    <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
-                </div>
-            ),
-            items: pinnedRecordings,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
-            initiallyOpen: true,
-        })
-    } else {
-        sections.push({
-            key: 'other',
-            title: (
-                <div className="flex flex-row deprecated-space-x-1 items-center">
-                    <span>Results</span>
-                    <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
-                </div>
-            ),
-            items: otherRecordings,
-            initiallyOpen: !pinnedRecordings.length,
-            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
-            footer: (
-                <div className="p-4">
-                    <div className="h-10 flex items-center justify-center gap-2 text-secondary">
-                        {sessionRecordingsResponseLoading ? (
-                            <>
-                                <Spinner textColored /> Loading older recordings
-                            </>
-                        ) : hasNext ? (
-                            <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
-                        ) : (
-                            'No more results'
-                        )}
-                    </div>
-                </div>
-            ),
-        })
+    const playlistPanelRef = useRef<HTMLDivElement>(null)
+    const playerPanelRef = useRef<HTMLDivElement>(null)
+    const activityPanelRef = useRef<HTMLDivElement>(null)
+
+    const playlistResizerLogicProps: ResizerLogicProps = {
+        logicKey: `playlist-list-resizer-${isVerticallyStacked ? 'vertical' : 'horizontal'}`,
+        containerRef: isVerticallyStacked ? playerPanelRef : playlistPanelRef,
+        persistent: true,
+        closeThreshold: 100,
+        placement: isVerticallyStacked ? 'bottom' : 'right',
     }
+
+    const activityResizerLogicProps: ResizerLogicProps = {
+        logicKey: `playlist-activity-resizer-${isVerticallyStacked ? 'vertical' : 'horizontal'}`,
+        containerRef: activityPanelRef,
+        persistent: true,
+        closeThreshold: 100,
+        placement: isVerticallyStacked ? 'top' : 'left',
+        onToggleClosed: (shouldBeClosed) => setSidebarOpen(!shouldBeClosed),
+    }
+
+    const { desiredSize: playlistDesiredSize } = useValues(resizerLogic(playlistResizerLogicProps))
+    const { desiredSize: activityDesiredSize } = useValues(resizerLogic(activityResizerLogicProps))
+
+    const activeRecording = [...pinnedRecordings, ...otherRecordings].find((r) => r.id === activeSessionRecordingId)
+
+    const playerLogicProps: SessionRecordingPlayerLogicProps = {
+        sessionRecordingId: activeSessionRecordingId ?? '',
+        playerKey: props.logicKey ?? 'playlist',
+        matchingEventsMatchType,
+        autoPlay: logicProps.autoPlay,
+        onRecordingDeleted: () => {
+            loadAllRecordings()
+            setSelectedRecordingId(null)
+        },
+        pinned: !!pinnedRecordings.find((x) => x.id === activeSessionRecordingId),
+        setPinned: props.onPinnedChange
+            ? (pinned) => {
+                  if (!activeSessionRecordingId || !activeRecording) {
+                      return
+                  }
+                  props.onPinnedChange?.(activeRecording, pinned)
+              }
+            : undefined,
+    }
+
+    const hasActiveRecording = showContent && activeSessionRecordingId
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className="h-full deprecated-space-y-2">
-                <Playlist
-                    data-attr="session-recordings-playlist"
-                    notebooksHref={urls.replay(ReplayTabs.Home, filters)}
-                    embedded={!!notebookNode}
-                    sections={sections}
-                    headerActions={
-                        <SessionRecordingsPlaylistTopSettings
-                            filters={filters}
-                            setFilters={setFilters}
-                            type={type}
-                            shortId={props.logicKey}
-                        />
+            <div className={cn('w-full flex', isVerticallyStacked ? 'flex-col-reverse' : 'flex-row h-full')}>
+                {/* Playlist Panel */}
+                <div
+                    ref={isVerticallyStacked ? undefined : playlistPanelRef}
+                    className={cn('flex flex-col shrink-0', isVerticallyStacked ? 'w-full' : 'h-full')}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={
+                        isVerticallyStacked
+                            ? { height: 300, maxHeight: 300 }
+                            : { width: playlistDesiredSize ?? 320, minWidth: '16rem' }
                     }
-                    filterActions={
-                        notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
-                            <RecordingsUniversalFiltersEmbedButton
-                                filters={filters}
-                                setFilters={setFilters}
-                                totalFiltersCount={totalFiltersCount}
-                                currentSessionRecordingId={activeSessionRecordingId}
-                            />
-                        )
-                    }
-                    loading={sessionRecordingsResponseLoading}
-                    onScrollListEdge={(edge) => {
-                        if (edge === 'top') {
-                            maybeLoadSessionRecordings('newer')
-                        } else {
-                            maybeLoadSessionRecordings('older')
+                >
+                    <Playlist
+                        type={type}
+                        shortId={props.logicKey}
+                        canMixFiltersAndPinned={canMixFiltersAndPinned}
+                        logicKey={logicProps.logicKey}
+                        showFilters
+                        listEmptyState={
+                            type === 'collection' ? (
+                                <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
+                            ) : (
+                                <ListEmptyState />
+                            )
                         }
-                    }}
-                    listEmptyState={
-                        type === 'collection' ? (
-                            <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
-                        ) : (
-                            <ListEmptyState />
-                        )
-                    }
-                    onSelect={(item) => setSelectedRecordingId(item.id)}
-                    activeItemId={activeSessionRecordingId}
-                    content={({ activeItem }) =>
-                        showContent && activeItem ? (
-                            <SessionRecordingPlayer
-                                playerKey={props.logicKey ?? 'playlist'}
-                                sessionRecordingId={activeItem.id}
-                                matchingEventsMatchType={matchingEventsMatchType}
-                                playlistLogic={playlistLogic}
-                                noBorder
-                                pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
-                                setPinned={
-                                    props.onPinnedChange
-                                        ? (pinned) => {
-                                              if (!activeItem.id) {
-                                                  return
-                                              }
-                                              props.onPinnedChange?.(activeItem, pinned)
-                                          }
-                                        : undefined
-                                }
-                            />
-                        ) : (
-                            <div className="mt-20">
-                                <EmptyMessage
-                                    title="No recording selected"
-                                    description="Please select a recording from the list on the left"
-                                    buttonText="Learn more about recordings"
-                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
-                                />
-                            </div>
-                        )
-                    }
-                    filterContent={
+                    />
+                </div>
+
+                {/* Resizer between Playlist and Player */}
+                <div className={cn('relative shrink-0', isVerticallyStacked ? 'h-2 w-full' : 'w-2 h-full')}>
+                    <Resizer
+                        logicKey={playlistResizerLogicProps.logicKey}
+                        placement={isVerticallyStacked ? 'bottom' : 'right'}
+                        containerRef={isVerticallyStacked ? playerPanelRef : playlistPanelRef}
+                        closeThreshold={100}
+                        offset="50%"
+                        className={cn('Playlist__resizer', isVerticallyStacked ? 'mx-1' : 'my-1')}
+                    />
+                </div>
+
+                {/* Player and Activity Panel */}
+                {isFiltersExpanded ? (
+                    <div className="flex-1 min-w-0 min-h-0 h-full bg-surface-primary p-2 border border-primary rounded overflow-auto">
                         <RecordingsUniversalFiltersEmbed
                             resetFilters={resetFilters}
                             filters={filters}
@@ -191,8 +167,84 @@ export function SessionRecordingsPlaylist({
                             allowReplayHogQLFilters={allowHogQLFilters}
                             allowReplayGroupsFilters={allowReplayGroupsFilters}
                         />
-                    }
-                />
+                    </div>
+                ) : hasActiveRecording ? (
+                    <BindLogic
+                        logic={sessionRecordingPlayerLogic}
+                        props={playerLogicProps}
+                        key={activeSessionRecordingId}
+                    >
+                        <div
+                            ref={playerPanelRef}
+                            className={cn(
+                                'min-w-0 flex',
+                                isVerticallyStacked ? 'flex-col w-full shrink-0' : 'flex-row h-full flex-1'
+                            )}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={
+                                isVerticallyStacked
+                                    ? { height: Math.max(playlistDesiredSize ?? 500, 400), minHeight: 400 }
+                                    : undefined
+                            }
+                        >
+                            <div
+                                className={cn('flex-1 min-w-0', isVerticallyStacked ? 'w-full' : 'h-full')}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={isVerticallyStacked ? { minHeight: 200 } : undefined}
+                            >
+                                <PurePlayer noBorder />
+                            </div>
+
+                            {sidebarOpen && (
+                                <>
+                                    <div
+                                        className={cn(
+                                            'relative shrink-0',
+                                            isVerticallyStacked ? 'h-2 w-full' : 'w-2 h-full'
+                                        )}
+                                    >
+                                        <Resizer
+                                            logicKey={activityResizerLogicProps.logicKey}
+                                            placement={isVerticallyStacked ? 'top' : 'left'}
+                                            containerRef={activityPanelRef}
+                                            closeThreshold={100}
+                                            offset="50%"
+                                            className={cn(
+                                                'SessionRecordingPlayer__resizer',
+                                                isVerticallyStacked ? 'mx-1' : 'my-1'
+                                            )}
+                                        />
+                                    </div>
+
+                                    <div
+                                        ref={activityPanelRef}
+                                        className={cn(
+                                            'shrink-0 flex flex-col overflow-hidden bg-surface-primary border border-primary rounded',
+                                            isVerticallyStacked ? 'w-full' : 'h-full'
+                                        )}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={
+                                            isVerticallyStacked
+                                                ? { height: activityDesiredSize ?? 300, minHeight: 210 }
+                                                : { width: activityDesiredSize ?? 400, minWidth: 320 }
+                                        }
+                                    >
+                                        <PlayerSidebarContent />
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </BindLogic>
+                ) : (
+                    <div className="flex-1 min-w-0 min-h-0 h-full flex items-center justify-center border border-primary rounded bg-surface-primary">
+                        <EmptyMessage
+                            title="No recording selected"
+                            description="Please select a recording from the list on the left"
+                            buttonText="Learn more about recordings"
+                            buttonTo="https://posthog.com/docs/user-guides/recordings"
+                        />
+                    </div>
+                )}
             </div>
         </BindLogic>
     )
@@ -208,9 +260,7 @@ const ListEmptyState = (): JSX.Element => {
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
-                <div className="flex flex-col gap-2">
-                    <SessionRecordingsPlaylistTroubleshooting />
-                </div>
+                <SessionRecordingsPlaylistTroubleshooting />
             )}
         </div>
     )
@@ -250,9 +300,6 @@ const CollectionEmptyState = ({
     )
 }
 
-/**
- * TODO add docs on how to enrich custom events with session_id and link to it from here
- */
 const UnusableEventsWarning = (props: { unusableEventsInFilter: string[] }): JSX.Element => {
     return (
         <LemonBanner type="warning">

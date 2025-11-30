@@ -1,256 +1,250 @@
 import './Playlist.scss'
 
-import clsx from 'clsx'
-import { useValues } from 'kea'
-import { ReactNode, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
-import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonCollapse, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { urls } from 'scenes/urls'
 
-import { SessionRecordingType } from '~/types'
+import { ReplayTabs, SessionRecordingType } from '~/types'
 
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { playlistLogic } from './playlistLogic'
+import { RecordingsUniversalFiltersEmbedButton } from '../filters/RecordingsUniversalFiltersEmbed'
+import { SessionRecordingPreview } from './SessionRecordingPreview'
+import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
-type PlaylistSectionBase = {
-    key: string
-    title?: ReactNode
-    initiallyOpen?: boolean
+export type PlaylistProps = {
+    listEmptyState: JSX.Element
+    title?: string
+    footerActions?: JSX.Element
+    pinnedRecordings?: SessionRecordingType[]
+    otherRecordings?: SessionRecordingType[]
+    loading?: boolean
+    hasNext?: boolean
+    activeItemId?: string | null
+    type?: 'filters' | 'collection'
+    shortId?: string
+    canMixFiltersAndPinned?: boolean
+    logicKey?: string
+    showFilters?: boolean
 }
 
-export type PlaylistRecordingPreviewBlock = PlaylistSectionBase & {
+type Section = {
+    key: string
+    title: JSX.Element
     items: SessionRecordingType[]
-    render: ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }) => JSX.Element
+    initiallyOpen: boolean
     footer?: JSX.Element
 }
 
-export type PlaylistContentBlock = PlaylistSectionBase & {
-    content: ReactNode
-}
+function buildSections(
+    pinnedRecordings: SessionRecordingType[],
+    otherRecordings: SessionRecordingType[],
+    loading: boolean,
+    hasNext: boolean,
+    onLoadMore?: () => void
+): Section[] {
+    const sections: Section[] = []
 
-export type PlaylistSection = PlaylistRecordingPreviewBlock | PlaylistContentBlock
+    if (pinnedRecordings.length > 0) {
+        sections.push({
+            key: 'pinned',
+            title: (
+                <span className="flex gap-1 items-center">
+                    Pinned recordings
+                    <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
+                </span>
+            ),
+            items: pinnedRecordings,
+            initiallyOpen: true,
+        })
+    }
 
-export type PlaylistProps = {
-    sections: PlaylistSection[]
-    listEmptyState: JSX.Element
-    content: ReactNode | (({ activeItem }: { activeItem: SessionRecordingType | null }) => JSX.Element) | null
-    title?: string
-    notebooksHref?: string
-    embedded?: boolean
-    loading?: boolean
-    headerActions?: JSX.Element
-    footerActions?: JSX.Element
-    filterActions?: JSX.Element | null
-    onScrollListEdge?: (edge: 'top' | 'bottom') => void
-    // Optionally select the first item in the list. Only works in controlled mode
-    selectInitialItem?: boolean
-    onSelect?: (item: SessionRecordingType) => void
-    onChangeSections?: (activeKeys: string[]) => void
-    'data-attr'?: string
-    activeItemId?: string
-    isCollapsed?: boolean
-    filterContent?: ReactNode | (({ activeItem }: { activeItem: SessionRecordingType | null }) => JSX.Element) | null
+    sections.push({
+        key: 'other',
+        title: (
+            <span className="flex gap-1 items-center">
+                Results
+                <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
+            </span>
+        ),
+        items: otherRecordings,
+        initiallyOpen: pinnedRecordings.length === 0,
+        footer: (
+            <div className="p-4 h-10 flex items-center justify-center gap-2 text-secondary">
+                {loading ? (
+                    <>
+                        <Spinner textColored /> Loading older recordings
+                    </>
+                ) : hasNext ? (
+                    <LemonButton onClick={() => onLoadMore?.()}>Load more</LemonButton>
+                ) : (
+                    'No more results'
+                )}
+            </div>
+        ),
+    })
+
+    return sections
 }
 
 export function Playlist({
     title,
-    notebooksHref,
-    loading,
-    embedded = false,
-    activeItemId: propsActiveItemId,
-    content,
-    sections,
-    headerActions,
     footerActions,
-    filterActions,
-    onScrollListEdge,
     listEmptyState,
-    selectInitialItem,
-    onSelect,
-    onChangeSections,
-    'data-attr': dataAttr,
-    filterContent,
+    pinnedRecordings: propsPinnedRecordings,
+    otherRecordings: propsOtherRecordings,
+    loading: propsLoading,
+    hasNext: propsHasNext,
+    activeItemId: propsActiveItemId,
+    type = 'filters',
+    shortId,
+    canMixFiltersAndPinned = true,
+    logicKey,
+    showFilters = false,
 }: PlaylistProps): JSX.Element {
-    const { isFiltersExpanded } = useValues(playlistLogic)
-    const { isCinemaMode } = useValues(playerSettingsLogic)
+    const {
+        pinnedRecordings: logicPinnedRecordings,
+        otherRecordings: logicOtherRecordings,
+        sessionRecordingsResponseLoading,
+        hasNext: logicHasNext,
+        activeSessionRecordingId,
+        filters,
+        totalFiltersCount,
+    } = useValues(sessionRecordingsPlaylistLogic)
+    const { maybeLoadSessionRecordings, setFilters } = useActions(sessionRecordingsPlaylistLogic)
 
-    const firstItem = sections
-        .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
-        ?.find((s) => s.items.length > 0)?.items[0]
+    const notebookNode = useNotebookNode()
+    const embedded = !!notebookNode
 
-    const [controlledActiveItemId, setControlledActiveItemId] = useState<SessionRecordingType['id'] | null>(
-        selectInitialItem && firstItem ? firstItem.id : null
+    const headerActions = (
+        <SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} type={type} shortId={shortId} />
     )
 
-    const playlistListRef = useRef<HTMLDivElement>(null)
+    const filterActions =
+        !showFilters || notebookNode || (!canMixFiltersAndPinned && !!logicKey) ? null : (
+            <RecordingsUniversalFiltersEmbedButton
+                filters={filters}
+                setFilters={setFilters}
+                totalFiltersCount={totalFiltersCount}
+                currentSessionRecordingId={activeSessionRecordingId}
+            />
+        )
+
+    const pinnedRecordings = propsPinnedRecordings ?? logicPinnedRecordings
+    const otherRecordings = propsOtherRecordings ?? logicOtherRecordings
+    const loading = propsLoading ?? sessionRecordingsResponseLoading
+    const hasNext = propsHasNext ?? logicHasNext
+    const activeItemId = (propsActiveItemId === undefined ? activeSessionRecordingId : propsActiveItemId) ?? null
+
+    const onLoadMore = (): void => {
+        maybeLoadSessionRecordings('older')
+    }
+
+    const sections = buildSections(pinnedRecordings, otherRecordings, !!loading, hasNext, onLoadMore)
+
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
         750: 'medium',
     })
 
-    const onChangeActiveItem = (item: SessionRecordingType): void => {
-        setControlledActiveItemId(item.id)
-        onSelect?.(item)
-    }
-
     const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
-    const [openSections, setOpenSections] = useState<string[]>(initiallyOpenSections)
-
-    const onChangeOpenSections = (activeKeys: string[]): void => {
-        setOpenSections(activeKeys)
-        onChangeSections?.(activeKeys)
-    }
-
-    const activeItemId = propsActiveItemId === undefined ? controlledActiveItemId : propsActiveItemId
-
-    const activeItem =
-        sections
-            .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
-            .flatMap((s) => s.items)
-            .find((i) => i.id === activeItemId) || null
 
     const lastScrollPositionRef = useRef(0)
-    const contentRef = useRef<HTMLDivElement | null>(null)
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
-        // If we are scrolling down then check if we are at the bottom of the list
-        if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
-            const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
-            if (e.currentTarget.scrollHeight - scrollPosition < SCROLL_TRIGGER_OFFSET) {
-                onScrollListEdge?.('bottom')
-            }
+        const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+        const scrollingDown = scrollTop > lastScrollPositionRef.current
+
+        if (scrollingDown && scrollHeight - scrollTop - clientHeight < SCROLL_TRIGGER_OFFSET) {
+            maybeLoadSessionRecordings('older')
+        } else if (!scrollingDown && scrollTop < SCROLL_TRIGGER_OFFSET) {
+            maybeLoadSessionRecordings('newer')
         }
 
-        // Same again but if scrolling to the top
-        if (e.currentTarget.scrollTop < lastScrollPositionRef.current) {
-            if (e.currentTarget.scrollTop < SCROLL_TRIGGER_OFFSET) {
-                onScrollListEdge?.('top')
-            }
-        }
-
-        lastScrollPositionRef.current = e.currentTarget.scrollTop
+        lastScrollPositionRef.current = scrollTop
     }
 
-    const sectionCount = sections.length
-    const itemsCount = sections
-        .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
-        .flatMap((s) => s.items).length
+    const sectionsWithItems = sections.filter((s) => s.items.length > 0)
+    const sectionCount = sectionsWithItems.length
+    const itemsCount = sections.flatMap((s) => s.items).length
 
-    const showCinemaMode = isCinemaMode && itemsCount > 0 && activeItemId !== null
     return (
-        <>
+        <div className="flex flex-col h-full">
+            {filterActions && (
+                <DraggableToNotebook className="mb-2" href={urls.replay(ReplayTabs.Home, filters)}>
+                    {filterActions}
+                </DraggableToNotebook>
+            )}
             <div
-                className={clsx('w-full gap-2 h-full', {
-                    'flex flex-col xl:flex-row order-last': !showCinemaMode,
+                ref={playlistRef}
+                data-attr="session-recordings-playlist"
+                className={cn('Playlist w-full h-full overflow-hidden', {
+                    'Playlist--wide': size !== 'small',
+                    'Playlist--embedded': embedded,
                 })}
             >
-                <div
-                    className={clsx('Playlist w-full min-w-96', {
-                        'h-full min-h-96 lg:min-w-[560px] order-first xl:order-none': !showCinemaMode,
-                        'order-first mb-2': showCinemaMode,
-                        'Playlist--wide': size !== 'small',
-                        'Playlist--embedded': embedded,
-                    })}
-                >
-                    {!isFiltersExpanded && content && (
-                        <div className="Playlist__main h-full">
-                            {' '}
-                            {typeof content === 'function' ? content({ activeItem }) : content}
-                        </div>
-                    )}
-
-                    {isFiltersExpanded && filterContent && (
-                        <div className="bg-surface-primary p-2 w-full min-h-full">{filterContent}</div>
-                    )}
-                </div>
-                <div
-                    className={clsx('flex flex-col min-w-60', {
-                        'xl:max-w-80 xl:min-w-80 order-first mt-2': !showCinemaMode,
-                    })}
-                >
-                    {filterActions && (
-                        <DraggableToNotebook className="mb-2" href={notebooksHref}>
-                            {filterActions}
-                        </DraggableToNotebook>
-                    )}
-                    <div
-                        ref={playlistRef}
-                        data-attr={dataAttr}
-                        className={clsx('Playlist w-full min-w-60', {
-                            'min-h-96': !showCinemaMode,
-                            'h-96': showCinemaMode,
-                            'Playlist--wide': size !== 'small',
-                            'Playlist--embedded': embedded,
-                        })}
-                    >
-                        <div
-                            ref={playlistListRef}
-                            className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
-                        >
-                            <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
-                                <DraggableToNotebook href={notebooksHref}>
-                                    <div className="flex flex-col gap-1">
-                                        <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
-                                            {title && <TitleWithCount title={title} count={itemsCount} />}
-                                            {headerActions}
-                                        </div>
-                                        <LemonTableLoader loading={loading} />
-                                    </div>
-                                </DraggableToNotebook>
-                                <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
-                                    {sectionCount > 1 ? (
-                                        <LemonCollapse
-                                            defaultActiveKeys={openSections}
-                                            panels={sections.map((s) => {
-                                                return {
-                                                    key: s.key,
-                                                    header: s.title ?? '',
-                                                    content: (
-                                                        <SectionContent
-                                                            section={s}
-                                                            loading={!!loading}
-                                                            setActiveItemId={onChangeActiveItem}
-                                                            activeItemId={activeItemId}
-                                                            emptyState={listEmptyState}
-                                                        />
-                                                    ),
-                                                    className: 'p-0',
-                                                }
-                                            })}
-                                            onChange={onChangeOpenSections}
-                                            multiple
-                                            embedded
-                                            size="small"
-                                        />
-                                    ) : sectionCount === 1 ? (
-                                        <SectionContent
-                                            section={sections[0]}
-                                            loading={!!loading}
-                                            setActiveItemId={onChangeActiveItem}
-                                            activeItemId={activeItemId}
-                                            emptyState={listEmptyState}
-                                        />
-                                    ) : loading ? (
-                                        <LoadingState />
-                                    ) : (
-                                        listEmptyState
-                                    )}
+                <div className="Playlist__list flex flex-col relative overflow-hidden h-full w-full">
+                    <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list border border-primary rounded">
+                        <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
+                            <div className="flex flex-col gap-1">
+                                <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                                    {title && <TitleWithCount title={title} count={itemsCount} />}
+                                    {headerActions}
                                 </div>
-                                <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
-                                    {footerActions}
-                                </div>
+                                <LemonTableLoader loading={loading} />
                             </div>
+                        </DraggableToNotebook>
+                        <div className="overflow-y-auto flex-1" onScroll={handleScroll}>
+                            {sectionCount > 1 ? (
+                                <LemonCollapse
+                                    defaultActiveKeys={initiallyOpenSections}
+                                    panels={sectionsWithItems.map((s) => ({
+                                        key: s.key,
+                                        header: s.title,
+                                        content: (
+                                            <SectionContent
+                                                section={s}
+                                                loading={!!loading}
+                                                activeItemId={activeItemId}
+                                                emptyState={listEmptyState}
+                                            />
+                                        ),
+                                        className: 'p-0',
+                                    }))}
+                                    multiple
+                                    embedded
+                                    size="small"
+                                />
+                            ) : sectionCount === 1 ? (
+                                <SectionContent
+                                    section={sectionsWithItems[0]}
+                                    loading={!!loading}
+                                    activeItemId={activeItemId}
+                                    emptyState={listEmptyState}
+                                />
+                            ) : loading ? (
+                                <LoadingState />
+                            ) : (
+                                listEmptyState
+                            )}
+                        </div>
+                        <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
+                            {footerActions}
                         </div>
                     </div>
                 </div>
             </div>
-        </>
+        </div>
     )
 }
 
@@ -285,19 +279,17 @@ function SectionContent({
     section,
     loading,
     activeItemId,
-    setActiveItemId,
     emptyState,
 }: {
-    section: PlaylistSection
+    section: Section
     loading: boolean
     activeItemId: SessionRecordingType['id'] | null
-    setActiveItemId: (item: SessionRecordingType) => void
     emptyState: PlaylistProps['listEmptyState']
 }): JSX.Element {
-    return 'content' in section ? (
-        <>{section.content}</>
-    ) : 'items' in section && !!section.items.length ? (
-        <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} />
+    const { setSelectedRecordingId } = useActions(sessionRecordingsPlaylistLogic)
+
+    return section.items.length > 0 ? (
+        <ListSection {...section} onClick={(item) => setSelectedRecordingId(item.id)} activeItemId={activeItemId} />
     ) : loading ? (
         <LoadingState />
     ) : (
@@ -305,25 +297,22 @@ function SectionContent({
     )
 }
 
-export function ListSection({
+function ListSection({
     items,
-    render,
     footer,
     onClick,
     activeItemId,
-}: PlaylistRecordingPreviewBlock & {
+}: Section & {
     onClick: (item: SessionRecordingType) => void
     activeItemId: SessionRecordingType['id'] | null
 }): JSX.Element {
     return (
         <>
-            {items.length > 0
-                ? items.map((item) => (
-                      <div key={item.id} className="border-b" onClick={() => onClick(item)}>
-                          {render({ item, isActive: item.id === activeItemId })}
-                      </div>
-                  ))
-                : null}
+            {items.map((item) => (
+                <div key={item.id} className="border-b" onClick={() => onClick(item)}>
+                    <SessionRecordingPreview recording={item} isActive={item.id === activeItemId} selectable />
+                </div>
+            ))}
             {footer}
         </>
     )
@@ -333,7 +322,7 @@ const LoadingState = (): JSX.Element => {
     return (
         <>
             {range(5).map((i) => (
-                <div key={i} className="p-4 deprecated-space-y-2">
+                <div key={i} className="p-4 flex flex-col gap-2">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton className="w-1/3 h-4" />
                 </div>

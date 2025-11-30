@@ -114,7 +114,10 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playerKey: string
     sessionRecordingData?: SessionPlayerData
     matchingEventsMatchType?: MatchingEventsMatchType
+    /** @deprecated Use onRecordingDeleted callback instead */
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
+    /** Callback when a recording is deleted. If provided, this is called instead of navigating away. */
+    onRecordingDeleted?: () => void
     autoPlay?: boolean
     noInspector?: boolean
     mode?: SessionRecordingPlayerMode
@@ -1639,9 +1642,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: async () => {
             await deleteRecording(props.sessionRecordingId)
 
-            if (props.playlistLogic) {
+            if (props.onRecordingDeleted) {
+                // Use the callback if provided
+                props.onRecordingDeleted()
+            } else if (props.playlistLogic) {
+                // Deprecated: use onRecordingDeleted callback instead
                 props.playlistLogic.actions.loadAllRecordings()
-                // Reset selected recording to first one in the list
                 props.playlistLogic.actions.setSelectedRecordingId(null)
             } else if (router.values.location.pathname.includes('/replay')) {
                 // On a page that displays a single recording `replay/:id` that doesn't contain a list
