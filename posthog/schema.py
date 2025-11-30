@@ -20,7 +20,6 @@ class AIEventType(StrEnum):
     FIELD_AI_TRACE = "$ai_trace"
     FIELD_AI_METRIC = "$ai_metric"
     FIELD_AI_FEEDBACK = "$ai_feedback"
-    FIELD_AI_EVALUATION = "$ai_evaluation"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -1576,6 +1575,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
+    FEED = "feed"
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
@@ -3285,6 +3285,7 @@ class WebAnalyticsOrderByDirection(StrEnum):
 class WebAnalyticsOrderByFields(StrEnum):
     VISITORS = "Visitors"
     VIEWS = "Views"
+    AVG_TIME_ON_PAGE = "AvgTimeOnPage"
     CLICKS = "Clicks"
     BOUNCE_RATE = "BounceRate"
     AVERAGE_SCROLL_PERCENTAGE = "AverageScrollPercentage"
@@ -12478,6 +12479,7 @@ class WebStatsTableQuery(BaseModel):
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
+    includeAvgTimeOnPage: Optional[bool] = None
     includeBounceRate: Optional[bool] = None
     includeRevenue: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None

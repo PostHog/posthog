@@ -1957,6 +1957,7 @@ export type WebAnalyticsOrderByDirection = 'ASC' | 'DESC'
 export enum WebAnalyticsOrderByFields {
     Visitors = 'Visitors',
     Views = 'Views',
+    AvgTimeOnPage = 'AvgTimeOnPage',
     Clicks = 'Clicks',
     BounceRate = 'BounceRate',
     AverageScrollPercentage = 'AverageScrollPercentage',
@@ -2051,6 +2052,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    includeAvgTimeOnPage?: boolean
     limit?: integer
     offset?: integer
 }

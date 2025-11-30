@@ -29412,6 +29412,7 @@
             "enum": [
                 "Visitors",
                 "Views",
+                "AvgTimeOnPage",
                 "Clicks",
                 "BounceRate",
                 "AverageScrollPercentage",
@@ -30024,6 +30025,9 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeAvgTimeOnPage": {
                     "type": "boolean"
                 },
                 "includeBounceRate": {

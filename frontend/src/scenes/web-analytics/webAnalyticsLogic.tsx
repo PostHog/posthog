@@ -1078,6 +1078,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         'visitors',
                         'views',
                         source?.includeBounceRate ? 'bounce_rate' : null,
+                        source?.includeAvgTimeOnPage ? 'avg_time_on_page' : null,
                         'cross_sell',
                     ].filter(isNotNil)
 
@@ -1380,6 +1381,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeScrollDepth: false, // TODO needs some perf work before it can be enabled
                                               includeBounceRate: true,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              includeAvgTimeOnPage: true,
                                           },
                                           {
                                               docs: {
@@ -1423,6 +1425,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeBounceRate: true,
                                               includeScrollDepth: false,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              includeAvgTimeOnPage: true,
                                           },
                                           {
                                               docs: {
