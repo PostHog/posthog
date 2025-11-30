@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import api, { getCookie } from 'lib/api'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -67,6 +68,8 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
         loadFullTrace: (traceId: string) => ({ traceId }),
         loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         loadFullTraceFailure: (traceId: string) => ({ traceId }),
+        loadCachedSummaries: (traceIds: string[]) => ({ traceIds }),
+        loadCachedSummariesSuccess: (summaries: Array<{ trace_id: string; title: string }>) => ({ summaries }),
         summarizeAllTraces: true,
         summarizeTrace: (traceId: string, forceRefresh: boolean = false) => ({ traceId, forceRefresh }),
         summarizeTraceSuccess: (traceId: string, title: string) => ({ traceId, title }),
@@ -131,6 +134,18 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
         traceSummaries: [
             {} as Record<string, TraceSummary>,
             {
+                loadCachedSummariesSuccess: (state, { summaries }) => {
+                    const newState = { ...state }
+                    for (const summary of summaries) {
+                        newState[summary.trace_id] = {
+                            traceId: summary.trace_id,
+                            title: summary.title,
+                            loading: false,
+                            error: null,
+                        }
+                    }
+                    return newState
+                },
                 summarizeTrace: (state, { traceId }) => ({
                     ...state,
                     [traceId]: { traceId, title: '', loading: true, error: null },
@@ -175,6 +190,42 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     }),
 
     listeners(({ actions, values }) => ({
+        loadCachedSummaries: async ({ traceIds }) => {
+            if (traceIds.length === 0) {
+                return
+            }
+
+            const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
+            if (!teamId) {
+                return
+            }
+
+            try {
+                const url = `/api/environments/${teamId}/llm_analytics/summarization/batch_check/`
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                    },
+                    body: JSON.stringify({
+                        trace_ids: traceIds,
+                        mode: 'minimal',
+                    }),
+                    credentials: 'include',
+                })
+
+                if (response.ok) {
+                    const data = await response.json()
+                    if (data.summaries && data.summaries.length > 0) {
+                        actions.loadCachedSummariesSuccess(data.summaries)
+                    }
+                }
+            } catch (error) {
+                // Silently fail - this is just an optimization
+                console.warn('Failed to load cached summaries:', error)
+            }
+        },
         toggleTraceExpanded: async ({ traceId }) => {
             if (
                 values.expandedTraceIds.has(traceId) &&
@@ -268,6 +319,16 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 actions.summarizeTraceSuccess(traceId, data.summary?.title || 'Untitled trace')
             } catch (error) {
                 actions.summarizeTraceFailure(traceId, error instanceof Error ? error.message : 'Unknown error')
+            }
+        },
+    })),
+
+    subscriptions(({ actions, values }) => ({
+        traces: (traces: LLMTrace[]) => {
+            // Load cached summaries when traces are loaded
+            if (traces.length > 0 && Object.keys(values.traceSummaries).length === 0) {
+                const traceIds = traces.map((t) => t.id)
+                actions.loadCachedSummaries(traceIds)
             }
         },
     })),
