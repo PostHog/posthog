@@ -17,6 +17,7 @@ import { InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsSessionDataLogicType } from './llmAnalyticsSessionDataLogicType'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
+import { restoreTree } from './llmAnalyticsTraceDataLogic'
 
 export interface TraceSummary {
     title: string
@@ -217,13 +218,16 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 return
             }
 
+            // Build the hierarchy tree from trace events (same as trace view does)
+            const hierarchy = restoreTree(trace.events || [], traceId)
+
             const payload = {
                 summarize_type: 'trace',
                 mode: 'minimal',
                 force_refresh: false,
                 data: {
                     trace,
-                    hierarchy: [],
+                    hierarchy,
                 },
             }
 
