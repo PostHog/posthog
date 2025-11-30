@@ -39,10 +39,10 @@ from ee.hogai.utils.helpers import extract_stream_update
 from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
-    AssistantMessageUnion,
     AssistantMode,
     AssistantOutput,
     AssistantResultUnion,
+    AssistantStreamedMessageUnion,
     LangGraphUpdateEvent,
 )
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
@@ -150,20 +150,20 @@ class BaseAgentRunner(ABC):
         """The state of the graph after a resume."""
         pass
 
-    async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
+    async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]]:
         """Returns all messages at once without streaming."""
-        messages: list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]] = []
+        messages: list[tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]] = []
 
         async for event_type, message in self.astream(
             stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
         ):
             messages.append(
-                (cast(Literal[AssistantEventType.MESSAGE], event_type), cast(AssistantMessageUnion, message))
+                (cast(Literal[AssistantEventType.MESSAGE], event_type), cast(AssistantStreamedMessageUnion, message))
             )
         return messages
 
     @async_to_sync
-    async def invoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
+    async def invoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]]:
         """Sync method. Returns all messages in once without streaming."""
         return await self.ainvoke()
 
@@ -198,8 +198,8 @@ class BaseAgentRunner(ABC):
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
-                            if isinstance(message, get_args(AssistantMessageUnion)):
-                                message = cast(AssistantMessageUnion, message)
+                            if isinstance(message, get_args(AssistantStreamedMessageUnion)):
+                                message = cast(AssistantStreamedMessageUnion, message)
                                 yield AssistantEventType.MESSAGE, message
 
                             if stream_only_assistant_messages:

@@ -21,7 +21,7 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
-from ee.hogai.utils.types.base import ArtifactMessage
+from ee.hogai.utils.types.base import ArtifactRefMessage
 
 from .parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from .prompts import (
@@ -191,7 +191,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
         """
         # Only process the last five artifact messages.
-        artifact_messages = [message for message in state.messages if isinstance(message, ArtifactMessage)][-5:]
+        artifact_messages = await self.context_manager.artifacts.aenrich_messages(
+            [message for message in state.messages if isinstance(message, ArtifactRefMessage)][-5:]
+        )
         generated_plan = state.plan
 
         # Add the group mapping prompt to the beginning of the conversation.

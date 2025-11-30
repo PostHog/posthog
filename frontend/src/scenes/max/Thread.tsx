@@ -69,8 +69,8 @@ import { Region } from '~/types'
 import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
-import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
+import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
@@ -81,6 +81,7 @@ import { MAX_SLASH_COMMANDS } from './slash-commands'
 import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
+    isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isDeepResearchReportCompletion,
@@ -88,8 +89,7 @@ import {
     isHumanMessage,
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
-    isVisualizationArtifactMessage,
-    isVisualizationMessage,
+    isVisualizationArtifactContent,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
@@ -358,11 +358,16 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 isFinalGroup={isFinal}
                             />
                         )
-                    } else if (isVisualizationMessage(message) || isVisualizationArtifactMessage(message)) {
+                    } else if (isArtifactMessage(message)) {
+                        if (!isVisualizationArtifactContent(message.content)) {
+                            return null
+                        }
+
                         return (
                             <VisualizationArtifactAnswer
                                 key={key}
                                 message={message}
+                                content={message.content}
                                 status={message.status}
                                 isEditingInsight={editInsightToolRegistered}
                                 activeTabId={activeTabId}

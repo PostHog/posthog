@@ -3,17 +3,18 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from posthog.schema import (
+    ArtifactMessage,
     AssistantEventType,
     AssistantMessage,
     HumanMessage,
     MaxBillingContext,
     VisualizationArtifactContent,
-    VisualizationArtifactMessage,
     VisualizationMessage,
 )
 
 from posthog.models import Team, User
 
+from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.core.runner import BaseAgentRunner
@@ -103,14 +104,14 @@ class InsightsAssistant(BaseAgentRunner):
             stream_message_chunks, stream_subgraphs, False, stream_only_assistant_messages
         ):
             path, message = stream_event
-            if isinstance(message, VisualizationArtifactMessage):
-                last_artifact_content = message.content
+            if isinstance(message, ArtifactMessage) and (
+                last_artifact_content := unwrap_visualization_artifact_content(message)
+            ):
                 # for backwards compatibility with the MCP
                 legacy_visualization_message = VisualizationMessage(
                     id=message.id,
-                    parent_tool_call_id=message.parent_tool_call_id,
-                    answer=message.content.query,
-                    plan=message.content.description,
+                    answer=last_artifact_content.query,
+                    plan=last_artifact_content.description,
                 )
                 path = cast(Literal[AssistantEventType.MESSAGE], path)
                 yield (path, legacy_visualization_message)

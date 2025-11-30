@@ -2419,6 +2419,13 @@ class NodeKind(StrEnum):
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
 
 
+class NotebookArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+
+
 class PageURL(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15239,34 +15246,25 @@ class VisualizationArtifactContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    description: Optional[str] = None
-    name: Optional[str] = None
-    query: Union[
-        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery],
-        Union[
-            TrendsQuery,
-            FunnelsQuery,
-            RetentionQuery,
-            HogQLQuery,
-            RevenueAnalyticsGrossRevenueQuery,
-            RevenueAnalyticsMetricsQuery,
-            RevenueAnalyticsMRRQuery,
-            RevenueAnalyticsTopCustomersQuery,
-        ],
-    ]
-
-
-class VisualizationArtifactMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
+    content_type: Literal["visualization"] = Field(
+        default="visualization", description="Visualization artifact (chart, graph, etc.)"
     )
-    artifact_id: str = Field(..., description="The ID of the artifact (short_id for both drafts and saved insights)")
-    content: VisualizationArtifactContent
-    content_type: Literal["visualization"] = Field(default="visualization", description="Type of artifact content")
-    id: Optional[str] = None
-    parent_tool_call_id: Optional[str] = None
-    source: ArtifactSource = Field(..., description="Source of artifact - determines which model to fetch from")
-    type: Literal["ai/artifact"] = "ai/artifact"
+    description: str | None = None
+    name: str | None = None
+    query: (
+        AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+    )
 
 
 class VisualizationItem(BaseModel):
@@ -15319,8 +15317,20 @@ class VisualizationMessage(BaseModel):
     type: Literal["ai/viz"] = "ai/viz"
 
 
-class AgentArtifactContent(RootModel[Union[DocumentArtifactContent, VisualizationArtifactContent]]):
-    root: Union[DocumentArtifactContent, VisualizationArtifactContent]
+class AgentArtifactContent(RootModel[DocumentArtifactContent | VisualizationArtifactContent]):
+    root: DocumentArtifactContent | VisualizationArtifactContent
+
+
+class ArtifactMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., description="The ID of the artifact (short_id for both drafts and saved insights)")
+    content: VisualizationArtifactContent | NotebookArtifactContent = Field(..., description="Content of artifact")
+    id: str | None = None
+    parent_tool_call_id: str | None = None
+    source: ArtifactSource = Field(..., description="Source of artifact - determines which model to fetch from")
+    type: Literal["ai/artifact"] = "ai/artifact"
 
 
 class DatabaseSchemaQueryResponse(BaseModel):
@@ -16544,34 +16554,32 @@ class QueryUpgradeResponse(BaseModel):
 
 class RootAssistantMessage(
     RootModel[
-        Union[
-            VisualizationMessage,
-            MultiVisualizationMessage,
-            VisualizationArtifactMessage,
-            ReasoningMessage,
-            AssistantMessage,
-            HumanMessage,
-            FailureMessage,
-            NotebookUpdateMessage,
-            PlanningMessage,
-            TaskExecutionMessage,
-            AssistantToolCallMessage,
-        ]
+        VisualizationMessage
+        | MultiVisualizationMessage
+        | ArtifactMessage
+        | ReasoningMessage
+        | AssistantMessage
+        | HumanMessage
+        | FailureMessage
+        | NotebookUpdateMessage
+        | PlanningMessage
+        | TaskExecutionMessage
+        | AssistantToolCallMessage
     ]
 ):
-    root: Union[
-        VisualizationMessage,
-        MultiVisualizationMessage,
-        VisualizationArtifactMessage,
-        ReasoningMessage,
-        AssistantMessage,
-        HumanMessage,
-        FailureMessage,
-        NotebookUpdateMessage,
-        PlanningMessage,
-        TaskExecutionMessage,
-        AssistantToolCallMessage,
-    ]
+    root: (
+        VisualizationMessage
+        | MultiVisualizationMessage
+        | ArtifactMessage
+        | ReasoningMessage
+        | AssistantMessage
+        | HumanMessage
+        | FailureMessage
+        | NotebookUpdateMessage
+        | PlanningMessage
+        | TaskExecutionMessage
+        | AssistantToolCallMessage
+    )
 
 
 class SourceConfig(BaseModel):

@@ -1,5 +1,5 @@
 from collections.abc import Coroutine
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 import structlog
 
@@ -9,8 +9,10 @@ from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantResultU
 
 logger = structlog.get_logger(__name__)
 
+T = TypeVar("T", bound=AssistantResultUnion)
 
-class AssistantStreamProcessorProtocol(Protocol):
+
+class AssistantStreamProcessorProtocol(Protocol[T]):
     """Protocol defining the interface for assistant stream processors."""
 
     _team: Team
@@ -20,13 +22,11 @@ class AssistantStreamProcessorProtocol(Protocol):
     _streamed_update_ids: set[str]
     """Tracks the IDs of messages that have been streamed."""
 
-    def process(self, event: AssistantDispatcherEvent) -> Coroutine[Any, Any, list[AssistantResultUnion] | None]:
+    def process(self, event: AssistantDispatcherEvent) -> Coroutine[Any, Any, list[T] | None]:
         """Process a dispatcher event and return a result or None."""
         ...
 
-    def process_langgraph_update(
-        self, event: LangGraphUpdateEvent
-    ) -> Coroutine[Any, Any, list[AssistantResultUnion] | None]:
+    def process_langgraph_update(self, event: LangGraphUpdateEvent) -> Coroutine[Any, Any, list[T] | None]:
         """Process a LangGraph update event and return a list of results or None."""
         ...
 
