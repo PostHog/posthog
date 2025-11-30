@@ -131,7 +131,7 @@ DROP TRIGGER IF EXISTS detect_dag_mismatch_on_update ON posthog_datamodelingedge
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_modeling", "0002_alter_node_dag_id_alter_node_saved_query_and_more"),
+        ("data_modeling", "0002_edge_edge_unique_within_dag"),
     ]
 
     operations = [
