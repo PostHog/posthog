@@ -68,7 +68,7 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
         loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
         loadFullTraceFailure: (traceId: string) => ({ traceId }),
         summarizeAllTraces: true,
-        summarizeTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
+        summarizeTrace: (traceId: string) => ({ traceId }),
         summarizeTraceSuccess: (traceId: string, title: string) => ({ traceId, title }),
         summarizeTraceFailure: (traceId: string, error: string) => ({ traceId, error }),
         clearTraceSummaries: true,
@@ -208,30 +208,45 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
 
             const traces = values.traces
             for (const trace of traces) {
-                actions.summarizeTrace(trace.id, trace)
+                actions.summarizeTrace(trace.id)
             }
         },
-        summarizeTrace: async ({ traceId, trace }) => {
+        summarizeTrace: async ({ traceId }) => {
             const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
             if (!teamId) {
                 actions.summarizeTraceFailure(traceId, 'Team ID not available')
                 return
             }
 
-            // Build the hierarchy tree from trace events (same as trace view does)
-            const hierarchy = restoreTree(trace.events || [], traceId)
-
-            const payload = {
-                summarize_type: 'trace',
-                mode: 'minimal',
-                force_refresh: false,
-                data: {
-                    trace,
-                    hierarchy,
-                },
-            }
-
             try {
+                // First fetch the full trace with all events (session query only has direct children)
+                let fullTrace: LLMTrace | undefined = values.fullTraces[traceId]
+                if (!fullTrace) {
+                    const traceQuery: TraceQuery = {
+                        kind: NodeKind.TraceQuery,
+                        traceId,
+                    }
+                    const traceResponse = await api.query(traceQuery)
+                    if (traceResponse.results && traceResponse.results[0]) {
+                        fullTrace = traceResponse.results[0]
+                    } else {
+                        throw new Error('Failed to load full trace')
+                    }
+                }
+
+                // Build the hierarchy tree from full trace events
+                const hierarchy = restoreTree(fullTrace.events || [], traceId)
+
+                const payload = {
+                    summarize_type: 'trace',
+                    mode: 'minimal',
+                    force_refresh: false,
+                    data: {
+                        trace: fullTrace,
+                        hierarchy,
+                    },
+                }
+
                 const url = `/api/environments/${teamId}/llm_analytics/summarization/`
                 const response = await fetch(url, {
                     method: 'POST',
