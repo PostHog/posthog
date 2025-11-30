@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Suspense, lazy } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconSparkles } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -129,7 +129,6 @@ function SessionSceneWrapper(): JSX.Element {
                                     <LemonButton
                                         type="primary"
                                         size="small"
-                                        icon={<IconSparkles />}
                                         loading={summariesLoading}
                                         disabledReason="AI data processing must be approved to summarize traces"
                                         data-attr="llm-session-summarize-all"
@@ -141,7 +140,6 @@ function SessionSceneWrapper(): JSX.Element {
                                 <LemonButton
                                     type="primary"
                                     size="small"
-                                    icon={<IconSparkles />}
                                     onClick={summarizeAllTraces}
                                     loading={summariesLoading}
                                     data-attr="llm-session-summarize-all"
@@ -226,9 +224,8 @@ function SessionSceneWrapper(): JSX.Element {
                                                                     tab: 'summary',
                                                                 })}
                                                                 onClick={(e) => e.stopPropagation()}
-                                                                className="text-sm font-medium flex items-center gap-1"
+                                                                className="text-sm font-medium"
                                                             >
-                                                                <IconSparkles className="text-warning" />
                                                                 {summary.title}
                                                             </Link>
                                                         )}
