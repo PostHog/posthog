@@ -89,6 +89,7 @@ const TEAM_COLUMNS: &str = "
     session_recording_masking_config,
     session_replay_config,
     survey_config,
+    extra_settings,
     session_recording_url_trigger_config,
     session_recording_url_blocklist_config,
     session_recording_event_trigger_config,
