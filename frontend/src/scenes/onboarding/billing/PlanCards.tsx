@@ -9,11 +9,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { HeartHog } from 'lib/components/hedgehogs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
-import { type BillingProductV2Type } from '~/types'
+import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { FreeTierLimits } from './FreeTierLimits'
@@ -52,6 +53,8 @@ type PlanCardProps = {
 export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight, hogPosition = 'top-right' }) => {
     const { billing } = useValues(billingLogic)
     const { billingProductLoading } = useValues(billingProductLogic({ product }))
+    const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
+
     const [isHovering, setIsHovering] = useState<boolean | undefined>(undefined)
     const { goToNextStep } = useActions(onboardingLogic)
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
@@ -163,7 +166,10 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                             fullWidth
                             center
                             status={highlight ? 'alt' : undefined}
-                            onClick={() => goToNextStep()}
+                            onClick={() => {
+                                reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
+                                goToNextStep()
+                            }}
                         >
                             {planData.ctaText}
                         </LemonButton>

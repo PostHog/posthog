@@ -29,11 +29,7 @@ export const OnboardingUpgradeStep = ({ product, stepKey }: Props): JSX.Element 
     }
 
     return (
-        <OnboardingStep
-            title="Select a plan"
-            stepKey={stepKey}
-            continueOverride={!product.subscribed ? <></> : undefined}
-        >
+        <OnboardingStep title="Select a plan" stepKey={stepKey} showContinue={!!product.subscribed}>
             {!product.subscribed && <PlanCards product={product} />}
             {product.subscribed && <ProductSubscribed product={product} />}
         </OnboardingStep>

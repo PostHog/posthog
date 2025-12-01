@@ -51,6 +51,7 @@ import {
     HelpType,
     InsightShortId,
     MultipleSurveyQuestion,
+    OnboardingStepKey,
     PersonType,
     QueryBasedInsightModel,
     type SDK,
@@ -605,7 +606,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-        reportOnboardingStarted: (entryPoint: string) => ({ entryPoint }),
+        reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
+        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey) => ({ stepKey }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
@@ -1501,9 +1504,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
-        reportOnboardingStarted: ({ entryPoint }) => {
+        reportOnboardingStarted: ({ entrypoint }) => {
             posthog.capture('onboarding started', {
-                entry_point: entryPoint,
+                entry_point: entrypoint,
+            })
+        },
+        reportOnboardingStepCompleted: ({ stepKey }) => {
+            posthog.capture('onboarding step completed', {
+                step_key: stepKey,
+            })
+        },
+        reportOnboardingStepSkipped: ({ stepKey }) => {
+            posthog.capture('onboarding step skipped', {
+                step_key: stepKey,
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
