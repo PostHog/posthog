@@ -883,7 +883,9 @@ class ConversionGoalProcessor:
             ),
             ast.Alias(
                 alias=self.config.id_field,
-                expr=ast.Constant(value="-"),  # No campaign ID available for direct queries
+                # Events only have UTM parameters - campaign IDs are platform-specific (Meta, Google, etc.)
+                # and don't flow through UTM tracking, so we use a placeholder for schema consistency
+                expr=ast.Constant(value="-"),
             ),
             ast.Alias(
                 alias=self.config.source_field,

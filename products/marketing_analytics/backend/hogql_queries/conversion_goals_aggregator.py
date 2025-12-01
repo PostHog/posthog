@@ -112,8 +112,9 @@ class ConversionGoalsAggregator:
             ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
             ast.Alias(alias=self.config.id_field, expr=mapped_id_expr),
             ast.Alias(alias=self.config.source_field, expr=source_field_expr),
-            # match_key for UCG is the campaign value (utm_campaign from events)
-            # This will be matched against campaign_costs.match_key (which adapters set based on team prefs)
+            # match_key for conversion goals is always utm_campaign - UTM tracking has no campaign ID param.
+            # Users who prefer campaign_id matching must put IDs in their utm_campaign parameter.
+            # Ad adapters output their match_key based on team prefs; this enables the JOIN to work.
             ast.Alias(alias=self.config.match_key_field, expr=mapped_campaign_expr),
         ]
 
@@ -135,7 +136,8 @@ class ConversionGoalsAggregator:
 
         # GROUP BY the mapped expressions (same expressions used in SELECT)
         # This ensures rows with the same mapped values are consolidated in a single pass
-        # Note: match_key = mapped_campaign, so no need to add it separately to GROUP BY
+        # Note: For conversion goals, match_key is derived from utm_campaign (same as mapped_campaign)
+        # since events don't have platform-specific campaign IDs
         final_query = ast.SelectQuery(
             select=final_select,
             select_from=ast.JoinExpr(table=union_query, alias=subquery_alias),
