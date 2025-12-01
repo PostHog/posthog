@@ -63,7 +63,7 @@ from posthog.models.feature_flag.flag_status import FeatureFlagStatus, FeatureFl
 from posthog.models.feature_flag.local_evaluation import (
     DATABASE_FOR_LOCAL_EVALUATION,
     _get_flag_properties_from_filters,
-    get_flags_response_for_local_evaluation,
+    get_flags_response_if_none_match,
 )
 from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import Property
@@ -85,6 +85,31 @@ LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
     "Local evaluation API requests",
     labelnames=["send_cohorts"],
 )
+
+LOCAL_EVALUATION_ETAG_COUNTER = Counter(
+    "posthog_local_evaluation_etag_total",
+    "Local evaluation ETag cache results",
+    labelnames=["result"],  # "hit" (304), "miss" (200), "none" (no client etag)
+)
+
+
+def extract_etag_from_header(header_value: str | None) -> str | None:
+    """
+    Extract ETag value from an If-None-Match header.
+
+    Handles both strong ETags ("abc123") and weak ETags (W/"abc123") per RFC 7232.
+    Returns None if the header is empty or None.
+    """
+    if not header_value:
+        return None
+
+    etag = header_value.strip()
+    if etag.startswith('W/"'):
+        etag = etag[2:]  # Remove W/ prefix
+    etag = etag.strip('"')
+
+    return etag if etag else None
+
 
 # Reusable session for proxying to the flags service with connection pooling
 _FLAGS_SERVICE_SESSION = requests.Session()
@@ -1649,6 +1674,9 @@ class FeatureFlagViewSet(
 
         include_cohorts = "send_cohorts" in request.GET
 
+        # Extract client ETag from If-None-Match header
+        client_etag = extract_etag_from_header(request.headers.get("If-None-Match"))
+
         # Track send_cohorts parameter usage
         LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
 
@@ -1677,7 +1705,19 @@ class FeatureFlagViewSet(
                     "has_send_cohorts": include_cohorts,
                 },
             )
-            response_data = get_flags_response_for_local_evaluation(self.team, include_cohorts)
+
+            response_data, etag, modified = get_flags_response_if_none_match(self.team, include_cohorts, client_etag)
+
+            # Track ETag effectiveness
+            result = "none" if not client_etag else ("hit" if not modified else "miss")
+            LOCAL_EVALUATION_ETAG_COUNTER.labels(result=result).inc()
+
+            # Return 304 Not Modified if client's ETag matches
+            if not modified and etag:
+                response = Response(status=status.HTTP_304_NOT_MODIFIED)
+                response["ETag"] = f'"{etag}"'
+                response["Cache-Control"] = "private, must-revalidate"
+                return response
 
             if not response_data:
                 raise Exception("No response data")
@@ -1690,7 +1730,11 @@ class FeatureFlagViewSet(
             ):
                 increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
-            return Response(response_data)
+            response = Response(response_data)
+            if etag:
+                response["ETag"] = f'"{etag}"'
+                response["Cache-Control"] = "private, must-revalidate"
+            return response
 
         except Exception as e:
             duration = time.time() - start_time
