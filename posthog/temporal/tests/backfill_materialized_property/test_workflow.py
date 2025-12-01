@@ -49,7 +49,6 @@ class TestBackfillMaterializedPropertyWorkflow:
                 workflows=[BackfillMaterializedPropertyWorkflow],
                 activities=[mock_backfill, mock_update_state],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-                debug_mode=True,
             ):
                 await env.client.execute_workflow(
                     BackfillMaterializedPropertyWorkflow.run,
@@ -94,7 +93,6 @@ class TestBackfillMaterializedPropertyWorkflow:
                 workflows=[BackfillMaterializedPropertyWorkflow],
                 activities=[mock_backfill, mock_update_state],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-                debug_mode=True,
             ):
                 with pytest.raises(Exception):
                     await env.client.execute_workflow(
@@ -141,7 +139,6 @@ class TestBackfillMaterializedPropertyWorkflow:
                 workflows=[BackfillMaterializedPropertyWorkflow],
                 activities=[mock_backfill, mock_update_state],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-                debug_mode=True,
             ):
                 with pytest.raises(Exception) as exc_info:
                     await env.client.execute_workflow(
@@ -204,7 +201,6 @@ class TestBackfillMaterializedPropertyWorkflow:
                 workflows=[BackfillMaterializedPropertyWorkflow],
                 activities=[mock_backfill, mock_update_state],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-                debug_mode=True,
             ):
                 await env.client.execute_workflow(
                     BackfillMaterializedPropertyWorkflow.run,
