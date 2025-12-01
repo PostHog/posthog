@@ -12529,7 +12529,7 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer",
-                    "description": "Number of rows to skip before returning rows"
+                    "description": "Number of rows to skip before returning rows. Offsets bigger than 100000 will fail to run. Read about paging: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
                 },
                 "orderBy": {
                     "description": "Columns to order by",
@@ -26961,7 +26961,7 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer",
-                    "description": "Number of rows to skip before returning rows"
+                    "description": "Number of rows to skip before returning rows. Offsets bigger than 100000 will fail to run. Read about paging: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
                 },
                 "orderBy": {
                     "description": "Columns to order by",

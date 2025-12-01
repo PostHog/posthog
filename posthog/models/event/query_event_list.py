@@ -2,6 +2,7 @@ from datetime import datetime, time, timedelta
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.parser import isoparse
@@ -66,7 +67,7 @@ def query_events_list(
     unbounded_date_from: bool = False,
     limit: int = DEFAULT_RETURNED_ROWS,
     offset: int = 0,
-) -> list:
+) -> tuple[list, bool]:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
     hogql_context = HogQLContext(within_non_hogql_query=True, team_id=team.pk, enable_select_queries=True)
@@ -86,7 +87,10 @@ def query_events_list(
 
     if request_get_query_dict.get("after"):
         request_get_query_dict["after"] = parse_timestamp(request_get_query_dict["after"], team.timezone_info)
+    elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
+        request_get_query_dict["after"] = now() - timedelta(hours=24)
 
+    bound_to_same_day = False
     if (
         not unbounded_date_from
         and order == "DESC"
@@ -97,6 +101,7 @@ def query_events_list(
     ):
         # If this is the first try, and after is not the same day as before, only load the current day, regardless of whether "after" is specified to reduce the amount of data we load
         request_get_query_dict["after"] = datetime.combine(request_get_query_dict["before"], time.min)
+        bound_to_same_day = True
 
     request_get_query_dict["before"] = request_get_query_dict["before"].strftime("%Y-%m-%d %H:%M:%S.%f")
     if request_get_query_dict.get("after"):
@@ -146,7 +151,7 @@ def query_events_list(
             query_type="events_list",
             workload=Workload.OFFLINE,
             team_id=team.pk,
-        )
+        ), bound_to_same_day
     else:
         return insight_query_with_columns(
             SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
@@ -160,4 +165,4 @@ def query_events_list(
             query_type="events_list",
             workload=Workload.OFFLINE,
             team_id=team.pk,
-        )
+        ), bound_to_same_day
