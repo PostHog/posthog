@@ -15,7 +15,6 @@ export const navPanelAdvertisementRecommendedLogic = kea<navPanelAdvertisementRe
     path(['lib', 'components', 'NavPanelAdvertisement', 'navPanelAdvertisementRecommendedLogic']),
     connect(() => ({
         values: [customProductsLogic, ['customProducts']],
-        actions: [customProductsLogic, ['loadCustomProducts']],
     })),
     selectors({
         recommendedProducts: [
