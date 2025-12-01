@@ -264,9 +264,8 @@ class FunnelEventQuery:
 
         # exclusion cols
         for index, exclusions in enumerate(self.exclusions_by_index):
-            if exclusions:
-                exclusion_col_expr = self._get_exclusions_col(source_kind, table_name, exclusions, index)
-                cols.append(exclusion_col_expr)
+            exclusion_col_expr = self._get_exclusions_col(source_kind, table_name, exclusions, index)
+            cols.append(exclusion_col_expr)
 
         # breakdown (attribution) col
         cols.extend(self._get_breakdown_select_prop())
@@ -293,7 +292,7 @@ class FunnelEventQuery:
         exclusions: list[ExclusionEntityNode],
         index: int,
     ) -> ast.Expr:
-        if is_data_warehouse_source(source_kind):
+        if is_data_warehouse_source(source_kind) or len(exclusions) == 0:
             return parse_expr(f"0 as exclusion_{index}")
         conditions = [self._build_step_query(source_kind, table_name, exclusion, index) for exclusion in exclusions]
         return parse_expr(
