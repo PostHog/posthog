@@ -52,6 +52,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/conversations/frontend/scenes/content/ConversationsContentItemScene'),
     ConversationsGuidance: () =>
         import('../../products/conversations/frontend/scenes/guidance/ConversationsGuidanceScene'),
+    ConversationsGuidanceItem: () =>
+        import('../../products/conversations/frontend/scenes/guidance/ConversationsGuidanceItemScene'),
     ConversationsPlayground: () =>
         import('../../products/conversations/frontend/scenes/playground/ConversationsPlaygroundScene'),
     ConversationsSettings: () =>
@@ -118,6 +120,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/conversations/content': ['ConversationsContent', 'conversationsContent'],
     '/conversations/content/:contentId': ['ConversationsContentItem', 'conversationsContentItem'],
     '/conversations/guidance': ['ConversationsGuidance', 'conversationsGuidance'],
+    '/conversations/guidance/:guidanceId': ['ConversationsGuidanceItem', 'conversationsGuidanceItem'],
     '/conversations/playground': ['ConversationsPlayground', 'conversationsPlayground'],
     '/conversations/settings': ['ConversationsSettings', 'conversationsSettings'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
@@ -232,6 +235,7 @@ export const productConfiguration: Record<string, any> = {
     ConversationsContent: { name: 'Knowledge content', projectBased: true, layout: 'app-container' },
     ConversationsContentItem: { name: 'Content item', projectBased: true, layout: 'app-container' },
     ConversationsGuidance: { name: 'Guidance + guardrails', projectBased: true, layout: 'app-container' },
+    ConversationsGuidanceItem: { name: 'Guidance item', projectBased: true, layout: 'app-container' },
     ConversationsPlayground: { name: 'Playground', projectBased: true, layout: 'app-container' },
     ConversationsSettings: { name: 'Conversations settings', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
@@ -450,6 +454,7 @@ export const productUrls = {
     conversationsContent: (): string => '/conversations/content',
     conversationsContentItem: (contentId: string | number): string => `/conversations/content/${contentId}`,
     conversationsGuidance: (): string => '/conversations/guidance',
+    conversationsGuidanceItem: (guidanceId: string | number): string => `/conversations/guidance/${guidanceId}`,
     conversationsPlayground: (): string => '/conversations/playground',
     conversationsSettings: (): string => '/conversations/settings',
     customerAnalytics: (): string => '/customer_analytics',

@@ -9,7 +9,32 @@ Conversations is an AI-first support hub that ingests every customer exchange (s
 
 ## Knowledge + guidance rails
 
-- Content library for curated articles or bespoke snippets, each scoped by audience traits (geo, plan, segment) and individually toggleable.
+### Content (Knowledge base)
+
+**WHAT** the AI knows:
+
+- Facts, features, troubleshooting info
+- Articles that AI reads and synthesizes from
+- Example: "Widget connection troubleshooting" article about CSP headers
+
+### Guidance
+
+**HOW** the AI behaves - two main parts:
+
+1. **Tone & style** - Communication personality (professional, empathetic, etc.)
+2. **Escalation rules** - When to hand off to human (legal mentions, high-value refunds, manager requests)
+
+### Example in practice
+
+Customer: "Your widget keeps disconnecting! This is unacceptable!"
+
+1. AI checks **Content** → finds "Widget troubleshooting" article → synthesizes response about CSP/firewall
+2. AI follows **Guidance** → uses empathetic tone, acknowledges frustration
+3. AI checks **Guidance escalation rules** → if customer says "I want a manager" → escalates to human
+
+### Implementation notes
+
+- Content library for curated articles, each scoped by channels and individually toggleable.
 - Guidance controls for tone, policy reminders, and escalation rules so the AI knows when to defer; guidance packs can also be switched on/off to experiment safely.
 
 ## Playground + testing

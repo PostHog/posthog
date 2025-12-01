@@ -53,7 +53,10 @@ export function ConversationsContentScene(): JSX.Element {
                 }}
             />
             <ScenesTabs />
-
+            <p className="text-muted-alt mb-4">
+                Knowledge base articles that the AI reads and synthesizes from. Add facts, features, and troubleshooting
+                info that the AI can reference when responding to customers.
+            </p>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-2">
                     <LemonSelect

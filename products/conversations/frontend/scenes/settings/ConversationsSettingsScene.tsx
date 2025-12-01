@@ -1,4 +1,4 @@
-import { LemonButton, LemonCard, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonColorPicker, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -67,30 +67,30 @@ export function ConversationsSettingsScene(): JSX.Element {
 
                 <LemonCard hoverEffect={false}>
                     <h3 className="text-lg font-semibold">Widget defaults</h3>
-                    <div className="mt-3 space-y-2 text-sm">
-                        <div className="flex justify-between items-center">
-                            <span>Widget enabled</span>
-                            <LemonSwitch checked onChange={() => null} />
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span>Theme</span>
-                            <LemonSelect
-                                value="light"
-                                options={[
-                                    { label: 'Light', value: 'light' },
-                                    { label: 'Dark', value: 'dark' },
+                    <div className="mt-3 space-y-3">
+                        <div className="space-y-1">
+                            <label className="text-sm font-medium">Button color</label>
+                            <LemonColorPicker
+                                colors={[
+                                    '#1d4aff',
+                                    '#00aaff',
+                                    '#00cc44',
+                                    '#ffaa00',
+                                    '#ff4444',
+                                    '#9b59b6',
+                                    '#1abc9c',
+                                    '#000000',
                                 ]}
-                                onChange={() => null}
+                                selectedColor="#1d4aff"
+                                onSelectColor={() => null}
+                                showCustomColor
                             />
                         </div>
-                        <div className="flex justify-between items-center">
-                            <span>Greeting</span>
-                            <LemonSelect
-                                value="hello"
-                                options={[
-                                    { label: 'Default', value: 'hello' },
-                                    { label: 'Custom', value: 'custom' },
-                                ]}
+                        <div className="space-y-1">
+                            <label className="text-sm font-medium">Greeting message</label>
+                            <LemonInput
+                                value="Hey, how can I help you today?"
+                                placeholder="Enter greeting message"
                                 onChange={() => null}
                             />
                         </div>
@@ -99,12 +99,9 @@ export function ConversationsSettingsScene(): JSX.Element {
             </div>
 
             <LemonCard hoverEffect={false}>
-                <div className="flex items-center justify-between mb-3">
-                    <div>
-                        <h3 className="text-lg font-semibold">Channel policies</h3>
-                        <p className="text-sm text-muted-alt">Toggle AI assistance and escalations per channel.</p>
-                    </div>
-                    <LemonButton type="secondary">Add channel</LemonButton>
+                <div className="mb-3">
+                    <h3 className="text-lg font-semibold">Channel policies</h3>
+                    <p className="text-sm text-muted-alt">Toggle AI assistance and escalations per channel.</p>
                 </div>
                 <div className="space-y-2">
                     {channels.map((channel) => (
@@ -116,15 +113,8 @@ export function ConversationsSettingsScene(): JSX.Element {
                                 <div className="font-medium">{channel.name}</div>
                                 <div className="text-xs text-muted-alt">{channel.fallback}</div>
                             </div>
-                            <LemonSwitch
-                                checked={channel.status === 'enabled'}
-                                onChange={() => null}
-                                label="channel enabled"
-                            />
+                            <LemonSwitch checked={channel.status === 'enabled'} onChange={() => null} label="Enabled" />
                             <LemonSwitch checked={channel.ai} onChange={() => null} label="AI assistance" />
-                            <LemonButton size="small" type="secondary">
-                                Configure
-                            </LemonButton>
                         </div>
                     ))}
                 </div>

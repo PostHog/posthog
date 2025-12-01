@@ -40,6 +40,12 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'app-container',
         },
+        ConversationsGuidanceItem: {
+            name: 'Guidance item',
+            import: () => import('./frontend/scenes/guidance/ConversationsGuidanceItemScene'),
+            projectBased: true,
+            layout: 'app-container',
+        },
         ConversationsPlayground: {
             name: 'Playground',
             import: () => import('./frontend/scenes/playground/ConversationsPlaygroundScene'),
@@ -60,6 +66,7 @@ export const manifest: ProductManifest = {
         '/conversations/content': ['ConversationsContent', 'conversationsContent'],
         '/conversations/content/:contentId': ['ConversationsContentItem', 'conversationsContentItem'],
         '/conversations/guidance': ['ConversationsGuidance', 'conversationsGuidance'],
+        '/conversations/guidance/:guidanceId': ['ConversationsGuidanceItem', 'conversationsGuidanceItem'],
         '/conversations/playground': ['ConversationsPlayground', 'conversationsPlayground'],
         '/conversations/settings': ['ConversationsSettings', 'conversationsSettings'],
     },
@@ -71,6 +78,7 @@ export const manifest: ProductManifest = {
         conversationsContent: (): string => '/conversations/content',
         conversationsContentItem: (contentId: string | number): string => `/conversations/content/${contentId}`,
         conversationsGuidance: (): string => '/conversations/guidance',
+        conversationsGuidanceItem: (guidanceId: string | number): string => `/conversations/guidance/${guidanceId}`,
         conversationsPlayground: (): string => '/conversations/playground',
         conversationsSettings: (): string => '/conversations/settings',
     },

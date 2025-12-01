@@ -1,4 +1,7 @@
-import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+import { router } from 'kea-router'
+
+import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -12,7 +15,7 @@ import type { TicketChannel } from '../../data/tickets'
 type GuidancePack = {
     id: string
     title: string
-    status: 'active' | 'draft'
+    enabled: boolean
     channels: string[]
     rules: number
     updated: string
@@ -22,7 +25,7 @@ const guidancePacks: GuidancePack[] = [
     {
         id: 'guide-1',
         title: 'EU Compliance tone',
-        status: 'active',
+        enabled: true,
         channels: ['widget', 'email'],
         rules: 6,
         updated: '2d ago',
@@ -30,7 +33,7 @@ const guidancePacks: GuidancePack[] = [
     {
         id: 'guide-2',
         title: 'Escalation playbook · High ARR',
-        status: 'active',
+        enabled: true,
         channels: ['slack'],
         rules: 4,
         updated: '6h ago',
@@ -38,7 +41,7 @@ const guidancePacks: GuidancePack[] = [
     {
         id: 'guide-3',
         title: 'Billing empathy preset',
-        status: 'draft',
+        enabled: false,
         channels: ['email'],
         rules: 3,
         updated: 'Today',
@@ -50,6 +53,8 @@ export const scene: SceneExport = {
 }
 
 export function ConversationsGuidanceScene(): JSX.Element {
+    const { push } = useActions(router)
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -60,56 +65,39 @@ export function ConversationsGuidanceScene(): JSX.Element {
                 }}
             />
             <ScenesTabs />
+            <p className="text-muted-alt mb-4">
+                Control how the AI behaves. Set tone & style for communication personality, and define escalation rules
+                for when to hand off to a human (legal mentions, high-value refunds, manager requests).
+            </p>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-2">
                     <LemonInput className="max-w-xs" placeholder="Search guidance" size="small" />
                     <LemonSelect
                         value="all"
                         options={[
-                            { label: 'All statuses', value: 'all' },
-                            { label: 'Active', value: 'active' },
-                            { label: 'Draft', value: 'draft' },
+                            { label: 'All', value: 'all' },
+                            { label: 'Enabled', value: 'enabled' },
+                            { label: 'Disabled', value: 'disabled' },
                         ]}
                         onChange={() => null}
                         placeholder="Status"
                         size="small"
                     />
-                    <LemonSelect
-                        size="small"
-                        className="min-w-[200px]"
-                        placeholder="Channel"
-                        value={null}
-                        options={[
-                            { label: 'All channels', value: null },
-                            { label: 'Widget', value: 'widget' },
-                            { label: 'Slack', value: 'slack' },
-                            { label: 'Email', value: 'email' },
-                        ]}
-                        onChange={() => null}
-                    />
                 </div>
                 <div>
-                    <LemonButton type="secondary" size="small">
-                        New guidance
-                    </LemonButton>
+                    <LemonButton type="primary">New guidance</LemonButton>
                 </div>
             </div>
             <LemonTable
                 dataSource={guidancePacks}
                 rowKey="id"
+                onRow={(entry) => ({
+                    onClick: () => push(`/conversations/guidance/${entry.id}`),
+                })}
                 columns={[
                     {
                         title: 'Title',
                         dataIndex: 'title',
-                    },
-                    {
-                        title: 'Status',
-                        key: 'status',
-                        render: (_, record) => (
-                            <LemonTag type={record.status === 'active' ? 'success' : 'default'}>
-                                {record.status}
-                            </LemonTag>
-                        ),
                     },
                     {
                         title: 'Channels',
@@ -131,17 +119,13 @@ export function ConversationsGuidanceScene(): JSX.Element {
                         dataIndex: 'updated',
                     },
                     {
-                        title: 'Auto handoff',
-                        key: 'handoff',
+                        title: 'Enabled',
+                        key: 'enabled',
                         align: 'right',
                         render: (_, record) => (
-                            <>
-                                {record.status === 'active' ? (
-                                    <LemonTag type="success">Yes</LemonTag>
-                                ) : (
-                                    <LemonTag type="default">No</LemonTag>
-                                )}
-                            </>
+                            <div className="flex justify-end">
+                                <LemonSwitch checked={record.enabled} onChange={() => null} />
+                            </div>
                         ),
                     },
                 ]}
