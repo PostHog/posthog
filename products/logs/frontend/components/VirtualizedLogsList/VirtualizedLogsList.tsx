@@ -14,6 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LogTag } from 'products/logs/frontend/components/LogTag'
 import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { logsLogic } from 'products/logs/frontend/logsLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -42,6 +43,7 @@ export function VirtualizedLogsList({
 }: VirtualizedLogsListProps): JSX.Element {
     const { togglePinLog, setHighlightedLogId, fetchNextLogsPage } = useActions(logsLogic)
     const { highlightedLogId, hasMoreLogsToLoad, logsLoading } = useValues(logsLogic)
+    const { shouldLoadMore } = useValues(virtualizedLogsListLogic)
     const listRef = useRef<List>(null)
     const scrollTopRef = useRef<number>(0)
     const prevDataLengthRef = useRef<number>(0)
@@ -169,8 +171,7 @@ export function VirtualizedLogsList({
         if (disableInfiniteScroll) {
             return
         }
-        const threshold = 100 // Start loading next page when 100 rows from the end
-        if (hasMoreLogsToLoad && !logsLoading && stopIndex >= dataSource.length - threshold) {
+        if (shouldLoadMore(stopIndex, dataSource.length, hasMoreLogsToLoad, logsLoading)) {
             fetchNextLogsPage(250)
         }
     }
