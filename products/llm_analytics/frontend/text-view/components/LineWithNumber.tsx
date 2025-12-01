@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonMenu, LemonMenuItems, Popover, Spinner } from '@posthog/lemon-ui'
+import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -13,11 +11,8 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ActivityScope, SidePanelTab } from '~/types'
 
-import {
-    MAX_TRANSLATE_LENGTH,
-    SUPPORTED_LANGUAGES,
-    messageActionsMenuLogic,
-} from '../../ConversationDisplay/messageActionsMenuLogic'
+import { TranslatePopover } from '../../ConversationDisplay/TranslatePopover'
+import { messageActionsMenuLogic } from '../../ConversationDisplay/messageActionsMenuLogic'
 
 interface LineWithNumberProps {
     lineNumber: number
@@ -52,18 +47,8 @@ export function LineWithNumber({
 
     const lineText = `L${padding > 0 ? lineNumber.toString().padStart(padding, '0') : lineNumber}:${content}`
     const logic = messageActionsMenuLogic({ content: lineText })
-    const {
-        showTranslatePopover,
-        showConsentPopover,
-        targetLanguage,
-        translation,
-        translationLoading,
-        translationError,
-        isTooLong,
-        currentLanguageLabel,
-        dataProcessingAccepted,
-    } = useValues(logic)
-    const { setShowTranslatePopover, setShowConsentPopover, setTargetLanguage, translate } = useActions(logic)
+    const { showTranslatePopover, showConsentPopover, dataProcessingAccepted } = useValues(logic)
+    const { setShowTranslatePopover, setShowConsentPopover } = useActions(logic)
 
     useEffect(() => {
         if (isActive && lineRef.current) {
@@ -143,9 +128,6 @@ export function LineWithNumber({
             : []),
     ]
 
-    const translationText = translation?.translation
-    const isTranslatedForCurrentLanguage = translation?.targetLanguage === targetLanguage
-
     return (
         <span ref={lineRef}>
             <LemonMenu items={menuItems} placement="bottom-start">
@@ -164,73 +146,7 @@ export function LineWithNumber({
                     <span />
                 </AIConsentPopoverWrapper>
             )}
-            {showTranslatePopover && (
-                <Popover
-                    visible
-                    onClickOutside={() => setShowTranslatePopover(false)}
-                    placement="bottom"
-                    overlay={
-                        <div className="p-3 min-w-72 max-w-120">
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="font-semibold text-sm">Translate line</span>
-                                <LemonButton size="xsmall" onClick={() => setShowTranslatePopover(false)} noPadding>
-                                    <span className="text-lg leading-none">&times;</span>
-                                </LemonButton>
-                            </div>
-                            <div className="border-t pt-3">
-                                {isTooLong ? (
-                                    <div className="text-xs text-warning mb-2">
-                                        Text truncated to {MAX_TRANSLATE_LENGTH.toLocaleString()} characters for
-                                        translation
-                                    </div>
-                                ) : null}
-                                <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-sm text-muted">To:</span>
-                                    <LemonSelect
-                                        size="small"
-                                        value={targetLanguage}
-                                        onChange={(value) => value && setTargetLanguage(value)}
-                                        options={SUPPORTED_LANGUAGES.map((lang) => ({
-                                            value: lang.value,
-                                            label: lang.label,
-                                        }))}
-                                    />
-                                    <LemonButton
-                                        size="small"
-                                        type="primary"
-                                        onClick={translate}
-                                        loading={translationLoading}
-                                    >
-                                        {translationText && isTranslatedForCurrentLanguage
-                                            ? 'Re-translate'
-                                            : 'Translate'}
-                                    </LemonButton>
-                                </div>
-                                {translationLoading ? (
-                                    <div className="flex items-center justify-center py-4 gap-2">
-                                        <Spinner className="text-lg" />
-                                        <span className="text-muted">Translating to {currentLanguageLabel}...</span>
-                                    </div>
-                                ) : translationError ? (
-                                    <div className="text-center py-2">
-                                        <p className="text-danger mb-2">Translation failed. Please try again.</p>
-                                    </div>
-                                ) : translationText ? (
-                                    <div className="whitespace-pre-wrap text-sm bg-bg-light rounded p-2 max-h-80 overflow-y-auto">
-                                        {translationText}
-                                    </div>
-                                ) : (
-                                    <div className="text-center py-4 text-muted text-sm">
-                                        Select a language and click Translate
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    }
-                >
-                    <span />
-                </Popover>
-            )}
+            {showTranslatePopover && <TranslatePopover content={lineText} title="Translate line" />}
         </span>
     )
 }
