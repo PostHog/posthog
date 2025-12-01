@@ -143,20 +143,13 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 return 'move-to-cloud'
             },
         ],
-
-        scrollToProduct: [
-            (s) => [s.featureInfo, s.isAddonProduct],
-            (featureInfo, isAddonProduct) => {
-                return !(featureInfo?.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct)
-            },
-        ],
         ctaLink: [
-            (s) => [s.gateVariant, s.productWithFeature, s.featureInfo, s.scrollToProduct],
-            (gateVariant, productWithFeature, featureInfo, scrollToProduct) => {
+            (s) => [s.gateVariant, s.productWithFeature, s.featureInfo],
+            (gateVariant, productWithFeature, featureInfo) => {
                 // product activation is already handled in the startPaymentEntryFlow,
-                // and ctaLink is used only when isPaymentEntryFlow is false
+                // ctaLink is used only when isPaymentEntryFlow is false
                 if (gateVariant === 'add-card') {
-                    return `/organization/billing${scrollToProduct ? `?products=${productWithFeature?.type}` : ''}`
+                    return `/organization/billing${productWithFeature?.type ? `?products=${productWithFeature.type}` : ''}`
                 } else if (gateVariant === 'contact-sales') {
                     return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo?.name}`
                 } else if (gateVariant === 'move-to-cloud') {
@@ -166,8 +159,8 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         ctaLabel: [
-            (s) => [s.gateVariant, s.isAddonProduct, s.isPaymentEntryFlow],
-            (gateVariant, isAddonProduct, isPaymentEntryFlow) => {
+            (s) => [s.gateVariant, s.isPaymentEntryFlow],
+            (gateVariant, isPaymentEntryFlow) => {
                 if (gateVariant === 'contact-sales') {
                     return 'Contact sales'
                 }
@@ -177,7 +170,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 if (isPaymentEntryFlow) {
                     return 'Upgrade now'
                 }
-                if (gateVariant === 'add-card' && isAddonProduct) {
+                if (gateVariant === 'add-card') {
                     return 'View plans'
                 }
                 return 'Upgrade now'
