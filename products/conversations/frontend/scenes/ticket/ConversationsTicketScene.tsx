@@ -234,6 +234,11 @@ export function ConversationsTicketScene(): JSX.Element {
                                 </LemonTag>
                             </div>
                         </div>
+                        <div className="mt-3 pt-3 border-t">
+                            <LemonButton type="primary" size="small">
+                                Save changes
+                            </LemonButton>
+                        </div>
                     </LemonCard>
 
                     {/* AI insights */}
@@ -248,7 +253,7 @@ export function ConversationsTicketScene(): JSX.Element {
                         {isAiActive ? (
                             <>
                                 <p className="text-xs text-muted-alt mb-3">AI is actively handling this conversation</p>
-                                <LemonButton type="secondary" size="small" fullWidth onClick={handleEscalate}>
+                                <LemonButton type="secondary" size="small" onClick={handleEscalate}>
                                     Escalate to human
                                 </LemonButton>
                             </>
@@ -272,7 +277,7 @@ export function ConversationsTicketScene(): JSX.Element {
                                         {ticketDetail.aiInsights.suggestedReply}
                                     </div>
                                 </div>
-                                <LemonButton type="secondary" size="small" fullWidth onClick={handleReenableAi}>
+                                <LemonButton type="secondary" size="small" onClick={handleReenableAi}>
                                     Re-enable AI
                                 </LemonButton>
                             </>
@@ -350,7 +355,7 @@ export function ConversationsTicketScene(): JSX.Element {
                             Recording preview
                         </div>
                         <LemonButton
-                            className="mt-2 w-full"
+                            className="mt-2"
                             type="secondary"
                             size="small"
                             to={ticketDetail.sessionRecording.url}
@@ -376,7 +381,7 @@ export function ConversationsTicketScene(): JSX.Element {
                                 <div className="text-muted-alt mt-0.5">Resolved • 2 weeks ago</div>
                             </div>
                         </div>
-                        <LemonButton className="mt-2 w-full" type="secondary" size="small">
+                        <LemonButton className="mt-2" type="secondary" size="small">
                             View all tickets
                         </LemonButton>
                     </LemonCard>
