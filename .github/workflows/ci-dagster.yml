@@ -145,3 +145,21 @@ jobs:
             - name: Run Dagster tests
               run: |
                   pytest dags
+
+    # Job just to collate the status of the matrix jobs for requiring passing status
+    dagster_tests:
+        needs: [dagster]
+        name: Dagster Tests Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  # The `needs.dagster.result` will be 'success' only if all jobs in the matrix succeeded.
+                  # Otherwise, it will be 'failure'.
+                  if [[ "${{ needs.dagster.result }}" != "success" && "${{ needs.dagster.result }}" != "skipped" ]]; then
+                    echo "One or more jobs in the Dagster test matrix failed."
+                    exit 1
+                  fi
+
+                  echo "All checks passed."
