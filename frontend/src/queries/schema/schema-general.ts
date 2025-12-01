@@ -2761,6 +2761,10 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKeys?: string[]
     /** Product key(s) that generate interest in this item when intent is triggered */
     intents?: ProductKey[]
+    /** Reason for custom product suggestion (from UserProductList) */
+    reason?: UserProductListReason
+    /** Custom reason text for custom product suggestion (from UserProductList) */
+    reasonText?: string | null
 }
 
 export interface FileSystemViewLogEntry {

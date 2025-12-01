@@ -952,11 +952,21 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return function getCustomProductItems(searchTerm: string): TreeDataItem[] {
                     const allProducts = getDefaultTreeProducts()
                     const productMap = new Map<string, FileSystemImport>(allProducts.map((p) => [p.path, p]))
+                    const customProductMap = new Map(customProducts.map((item) => [item.product_path, item]))
 
                     const selectedProducts = customProducts
                         .map((item) => {
                             const product = productMap.get(item.product_path)
-                            return product || null
+                            if (!product) {
+                                return null
+                            }
+                            const customProduct = customProductMap.get(item.product_path)
+                            return {
+                                ...product,
+                                reason: customProduct?.reason,
+                                reasonText: customProduct?.reason_text,
+                                created_at: customProduct?.created_at, // Underscore because it comes from backend if it's an actual `FileSystemImport`
+                            } as FileSystemImport
                         })
                         .filter((p): p is FileSystemImport => p !== null)
 

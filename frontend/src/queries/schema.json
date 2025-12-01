@@ -14542,6 +14542,14 @@
                     "description": "Protocol of the item, defaults to \"project://\"",
                     "type": "string"
                 },
+                "reason": {
+                    "$ref": "#/definitions/UserProductListReason",
+                    "description": "Reason for custom product suggestion (from UserProductList)"
+                },
+                "reasonText": {
+                    "description": "Custom reason text for custom product suggestion (from UserProductList)",
+                    "type": ["string", "null"]
+                },
                 "ref": {
                     "description": "Object's ID or other unique reference",
                     "type": "string"
