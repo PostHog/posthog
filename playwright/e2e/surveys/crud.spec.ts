@@ -32,8 +32,15 @@ async function launchSurveyEvenIfDisabled(page: Page): Promise<void> {
     await page.locator('[data-attr="launch-survey"]').click()
     await expect(page.locator('.LemonModal__layout')).toBeVisible()
     await expect(page.getByText('Launch this survey?')).toBeVisible()
+    const launchResponsePromise = page.waitForResponse(
+        (resp) => resp.url().includes('/surveys') && resp.request().method() === 'PATCH'
+    )
     await page.locator('.LemonModal__footer').getByRole('button', { name: 'Launch' }).click()
+    await launchResponsePromise
 }
+
+// CI is too slow, these all fail when run in parallel, will try to find a better solution soon
+test.describe.configure({ mode: 'serial' })
 
 test.describe('CRUD Survey', () => {
     let name: string
@@ -103,7 +110,13 @@ test.describe('CRUD Survey', () => {
         await page.locator('div').filter({ hasText: /^%$/ }).getByRole('spinbutton').click()
         await page.locator('div').filter({ hasText: /^%$/ }).getByRole('spinbutton').fill('50')
 
-        await page.locator('[data-attr="save-survey"]').nth(0).click()
+        const saveButton = page.locator('[data-attr="save-survey"]').nth(0)
+        await expect(saveButton).toBeEnabled()
+        const saveResponsePromise = page.waitForResponse(
+            (resp) => resp.url().includes('/surveys') && resp.request().method() === 'POST'
+        )
+        await saveButton.click()
+        await saveResponsePromise
         await expectNoToastErrors(page)
 
         await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
@@ -144,7 +157,13 @@ test.describe('CRUD Survey', () => {
         await page.locator('[data-attr=survey-responses-limit-input]').fill('228')
         await page.locator('[data-attr="scene-title-textarea"]').click()
 
-        await page.locator('[data-attr=save-survey]').first().click()
+        const saveButton = page.locator('[data-attr=save-survey]').first()
+        await expect(saveButton).toBeEnabled()
+        const saveResponsePromise = page.waitForResponse(
+            (resp) => resp.url().includes('/surveys') && resp.request().method() === 'POST'
+        )
+        await saveButton.click()
+        await saveResponsePromise
 
         await expect(page.locator('button[data-attr="launch-survey"]')).toContainText('Launch')
 

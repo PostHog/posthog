@@ -119,6 +119,7 @@ export const defaultSurveyFieldValues = {
                 scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                isNpsQuestion: true,
                 buttonText: 'Submit',
             },
         ],
@@ -273,6 +274,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                isNpsQuestion: true,
                 skipSubmitButton: true,
             },
             {
