@@ -28,8 +28,8 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
         scope: ActivityScope.LLM_TRACE,
         item_id: traceId,
     }
-    const { richContentEditor } = useValues(commentsLogic(commentsLogicProps))
-    const { maybeLoadComments } = useActions(commentsLogic(commentsLogicProps))
+    const commentsLogicInstance = commentsLogic(commentsLogicProps)
+    const { maybeLoadComments } = useActions(commentsLogicInstance)
 
     const logic = messageActionsMenuLogic({ content })
     const {
@@ -50,10 +50,12 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
     }
 
     const insertQuoteIntoEditor = (quotedContent: string, retries = 0): void => {
-        if (richContentEditor) {
-            richContentEditor.clear()
-            richContentEditor.pasteContent(0, quotedContent + '\n\n')
-            richContentEditor.focus('end')
+        // Access editor via .values to get the latest value at retry time, not render time
+        const editor = commentsLogicInstance.values.richContentEditor
+        if (editor) {
+            editor.clear()
+            editor.pasteContent(0, quotedContent + '\n\n')
+            editor.focus('end')
         } else if (retries < 10) {
             setTimeout(() => insertQuoteIntoEditor(quotedContent, retries + 1), 100)
         }
