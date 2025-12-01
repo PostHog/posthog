@@ -2,7 +2,7 @@
 
 **1. Airbyte**
 
-Tested using Airbyte and their API (before my time on the team) - expensive
+Tested using Airbyte and their API - was pretty expensive
 
 **2. DLT**
 
