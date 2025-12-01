@@ -1793,6 +1793,9 @@ const api = {
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
+        async getSuggestions(id: number): Promise<any> {
+            return await new ApiRequest().insight(id).withAction('suggestions').get()
+        },
     },
 
     endpoint: {
