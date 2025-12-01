@@ -91,8 +91,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
     3. Copies the data to DuckLake (if enabled)
     4. Updates the node and job with completion status
 
-    This workflow is designed to be called directly for single-view materialization,
-    or as a child workflow by a DAG orchestration workflow.
+    This workflow is designed to be called directly for ad hoc materialization of a single view
+    (i.e. a user clicks 'materialize now' or something to that effect), or as a child workflow
+    from the DAG orchestrator workflow
     """
 
     @staticmethod

@@ -45,6 +45,7 @@ from products.data_modeling.backend.models import Node, NodeType
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.models import DataWarehouseTable, get_s3_client
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 # preserve casing since we are already coming from a sql dialect
@@ -76,6 +77,12 @@ class InvalidNodeTypeException(Exception):
 
 class NodeNotFoundException(Exception):
     """Exception raised when a node is not found."""
+
+    pass
+
+
+class NodeReferencesDeletedQueryException(Exception):
+    """Exception raised when a node's saved query has been marked deleted"""
 
     pass
 
@@ -604,9 +611,7 @@ async def create_materialization_job_activity(inputs: CreateJobInputs) -> str:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    await logger.adebug(f"Creating DataModelingJob for node {inputs.node_id}")
-
-    node = await database_sync_to_async(Node.objects.select_related("saved_query", "team").get)(
+    node = await database_sync_to_async(Node.objects.prefetch_related("saved_query").get)(
         id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
 
@@ -634,18 +639,22 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
-    node = await database_sync_to_async(Node.objects.select_related("saved_query", "team").get)(
+    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    node = await database_sync_to_async(Node.objects.prefetch_related("saved_query").get)(
         id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
-
     if node.type == NodeType.TABLE:
         raise InvalidNodeTypeException(f"Cannot materialize a TABLE node: {node.name}")
-
     if node.saved_query is None:
         raise InvalidNodeTypeException(f"Node {node.name} has no saved_query")
-
-    saved_query = node.saved_query
-    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    # we explicitly get the saved query to avoid sync_to_async issues later for things like folder_path
+    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.prefetch_related("team").get)(
+        id=node.saved_query.id, team_id=inputs.team_id, deleted=False
+    )
+    if not saved_query:
+        raise NodeReferencesDeletedQueryException(
+            f"Node {node.name} references saved query {saved_query.id} which has been marked deleted"
+        )
     job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
 
     await logger.adebug(f"Starting materialization for node {node.name}")
@@ -657,7 +666,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     hogql_query = saved_query.query["query"]
 
     row_count = 0
-    table_uri = _build_model_table_uri(team.pk, str(node.id), saved_query.normalized_name)
+    # Use saved_query.id.hex to match saved_query.folder_path format (UUID without hyphens)
+    table_uri = _build_model_table_uri(team.pk, saved_query.id.hex, saved_query.normalized_name)
     storage_options = _get_credentials()
 
     await logger.adebug(f"Delta table URI = {table_uri}")
