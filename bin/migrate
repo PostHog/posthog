@@ -68,7 +68,7 @@ while [ $MIGRATE_ATTEMPT -le $MIGRATE_MAX_RETRIES ]; do
     echo "[migrate] Django migration attempt $MIGRATE_ATTEMPT/$MIGRATE_MAX_RETRIES (lock_timeout=${MIGRATE_LOCK_TIMEOUT}ms)"
 
     # PGOPTIONS sets lock_timeout for this command only
-    if PGOPTIONS="-c lock_timeout=${MIGRATE_LOCK_TIMEOUT}" python manage.py migrate; then
+    if PGOPTIONS="-c lock_timeout=${MIGRATE_LOCK_TIMEOUT}" python manage.py migrate --noinput; then
         MIGRATE_SUCCESS=true
         break
     fi
