@@ -41,8 +41,9 @@ class TestQueryTeamsWithTraces:
             assert params["lookback_hours"] == 24
             assert params["reference_time"] == reference_time
             assert params["allowed_team_ids"] == []
-            # Verify AI events are passed from AIEventType enum
-            expected_ai_events = [event.value for event in AIEventType]
+            # Verify AI events are passed from AIEventType enum, excluding internal events
+            internal_events = {"$ai_trace_summary", "$ai_trace_clusters"}
+            expected_ai_events = [event.value for event in AIEventType if event.value not in internal_events]
             assert params["ai_events"] == expected_ai_events
 
     @pytest.mark.django_db(transaction=True)
