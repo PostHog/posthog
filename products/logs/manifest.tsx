@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Logs',
             activityScope: 'Logs',
-            layout: 'app-container',
+            layout: 'app-full-scene-height',
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',
             defaultDocsPath: '/docs/logs',
