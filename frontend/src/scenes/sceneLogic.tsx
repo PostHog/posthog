@@ -650,6 +650,22 @@ export const sceneLogic = kea<sceneLogicType>([
                     ...state,
                     [tabId]: scrollTop,
                 }),
+                removeTab: (state, { tab }) => {
+                    const { [tab.id]: removed, ...rest } = state
+                    return rest
+                },
+                setTabs: (state, { tabs }) => {
+                    // remove those no longer present
+                    return tabs.reduce(
+                        (acc, tab) => {
+                            if (state[tab.id] !== undefined) {
+                                acc[tab.id] = state[tab.id]
+                            }
+                            return acc
+                        },
+                        {} as Record<string, number>
+                    )
+                },
             },
         ],
     }),
