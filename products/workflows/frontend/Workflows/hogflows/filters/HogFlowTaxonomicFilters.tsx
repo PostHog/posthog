@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { IconCode } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
@@ -27,6 +28,7 @@ export const HogFlowTaxonomicFilters = ({
                     key={variable.key || variable.name}
                     size="small"
                     fullWidth
+                    icon={<IconCode />}
                     onClick={() =>
                         onChange(`variables.${variable.key}`, {
                             key: `variables.${variable.key}`,
