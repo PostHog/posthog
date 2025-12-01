@@ -130,9 +130,9 @@ def query_events_list(
         try:
             action = Action.objects.get(pk=action_id, team__project_id=team.project_id)
             if not action.steps:
-                return []
+                return [], bound_to_same_day
         except Action.DoesNotExist:
-            return []
+            return [], bound_to_same_day
 
         action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_context=hogql_context)
         prop_filters += " AND {}".format(action_query)
