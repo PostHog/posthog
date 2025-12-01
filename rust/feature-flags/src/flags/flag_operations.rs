@@ -85,11 +85,8 @@ impl DependencyProvider for FeatureFlag {
 #[cfg(test)]
 mod tests {
     use crate::{
-        flags::{
-            flag_models::*,
-            test_helpers::{
-                create_simple_flag, create_simple_property_filter, get_flags_from_redis,
-            },
+        flags::test_helpers::{
+            create_simple_flag, create_simple_property_filter, get_flags_from_redis,
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     };
@@ -913,17 +910,16 @@ mod tests {
         let redis_client = setup_redis_client(Some("redis://localhost:6379/".to_string())).await;
         let context = TestContext::new(None).await;
 
-        // Test malformed JSON in Redis
+        // Test malformed JSON in Redis (using Django-compatible hypercache key format)
         let team = context
             .insert_new_team(None)
             .await
             .expect("Failed to insert team in pg");
 
+        // Use Django-compatible key format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
+        let django_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
         redis_client
-            .set(
-                format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, team.id),
-                "not a json".to_string(),
-            )
+            .set(django_key, "not a json".to_string())
             .await
             .expect("Failed to set malformed JSON in Redis");
 

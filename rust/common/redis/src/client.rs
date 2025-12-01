@@ -295,6 +295,20 @@ impl Client for RedisClient {
         Ok(Self::try_decompress(raw_bytes))
     }
 
+    async fn set_bytes(
+        &self,
+        k: String,
+        v: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError> {
+        let mut conn = self.connection.clone();
+        match ttl_seconds {
+            Some(ttl) => conn.set_ex::<_, _, ()>(k, v, ttl).await?,
+            None => conn.set::<_, _, ()>(k, v).await?,
+        }
+        Ok(())
+    }
+
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
         self.set_with_format(k, v, self.format).await
     }
