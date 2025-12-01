@@ -30,9 +30,15 @@ export function CollapsibleFrameHeader({
     return (
         <div className={cn('flex justify-between items-center w-full h-7')}>
             <CollapsibleTrigger asChild>
-                <ButtonPrimitive className="flex justify-between items-center rounded-none w-full h-full">
-                    <div className="flex flex-wrap gap-x-1 items-center text-xs">
-                        {resolvedName ? <span>{resolvedName}</span> : null}
+                <ButtonPrimitive className="flex justify-between items-center rounded-none w-full h-full gap-x-10">
+                    <div className="flex flex-wrap gap-x-1 items-center text-xs w-full min-w-0">
+                        {resolvedName ? (
+                            <div className="flex min-w-0">
+                                <span className="truncate" title={resolvedName}>
+                                    {resolvedName}
+                                </span>
+                            </div>
+                        ) : null}
                         <div className="flex font-light">
                             <span>{source}</span>
                             {line ? (
