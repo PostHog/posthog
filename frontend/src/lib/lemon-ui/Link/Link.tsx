@@ -137,6 +137,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             tooltipCloseDelayMs,
             role,
             tabIndex,
+            skipContext,
             ...props
         },
         ref
