@@ -1044,6 +1044,12 @@ function DisplayOptionsSelect(): JSX.Element {
             : []),
     ]
 
+    const dataAttrMap: Record<DisplayOption, string> = {
+        [DisplayOption.ExpandAll]: 'llma-expand-all-selected',
+        [DisplayOption.CollapseExceptOutputAndLastInput]: 'llma-expand-last-selected',
+        [DisplayOption.TextView]: 'llma-text-view-selected',
+    }
+
     return (
         <LemonSelect
             size="xsmall"
@@ -1051,6 +1057,7 @@ function DisplayOptionsSelect(): JSX.Element {
             onChange={setDisplayOption}
             options={displayOptions}
             tooltip="Configure how generation conversation messages are displayed"
+            data-attr={dataAttrMap[displayOption]}
         />
     )
 }
