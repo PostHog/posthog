@@ -8,9 +8,11 @@ This is useful for determining which files need to trigger a rebuild of a worker
 
 Usage:
     python bin/find_python_dependencies.py posthog.temporal.subscriptions
+    # Output: {"dependencies": ["posthog/utils.py", ...]}
 
     # Check if any changed files affect a worker
-    python bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "posthog/utils.py posthog/api/query.py"
+    python bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "posthog/utils.py posthog/unrelated_file.py"
+    # Output: {"affected": true, "matching_files": ["posthog/utils.py"]}
 """
 
 import os

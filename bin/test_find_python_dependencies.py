@@ -166,7 +166,7 @@ class TestAnalyticsPlatformWorkerCoverage(unittest.TestCase):
             # ee/tasks/subscriptions/ - should trigger rebuild
             ("subscription_utils", "ee/tasks/subscriptions/subscription_utils.py", True),
             ("email_subscriptions", "ee/tasks/subscriptions/email_subscriptions.py", True),
-            # Transient dependencies - should trigger rebuild
+            # Transitive dependencies - should trigger rebuild
             ("utils", "posthog/utils.py", True),
             ("query_runner", "posthog/hogql_queries/query_runner.py", True),
             # Non-dependencies - should NOT trigger rebuild
