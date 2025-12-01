@@ -44,6 +44,7 @@ class ConversionGoalsAggregator:
 
             # Transform the query to include a column for this specific conversion goal
             # and zero columns for all other conversion goals
+            # Note: base_query schema is: [0]=campaign, [1]=id, [2]=source, [3]=match_key, [4]=conversion
             enhanced_select = [
                 # Keep campaign, id, and source
                 base_query.select[0],  # campaign
@@ -56,7 +57,8 @@ class ConversionGoalsAggregator:
                 if p.index == processor.index:
                     # This is the current processor - use the actual conversion value
                     # Extract the expression from the alias to avoid double aliasing
-                    conversion_expr = base_query.select[3]
+                    # Position [4] is the conversion value (after campaign, id, source, match_key)
+                    conversion_expr = base_query.select[4]
                     if isinstance(conversion_expr, ast.Alias):
                         conversion_expr = conversion_expr.expr
                     enhanced_select.append(
@@ -110,6 +112,9 @@ class ConversionGoalsAggregator:
             ast.Alias(alias=self.config.campaign_field, expr=mapped_campaign_expr),
             ast.Alias(alias=self.config.id_field, expr=mapped_id_expr),
             ast.Alias(alias=self.config.source_field, expr=source_field_expr),
+            # match_key for UCG is the campaign value (utm_campaign from events)
+            # This will be matched against campaign_costs.match_key (which adapters set based on team prefs)
+            ast.Alias(alias=self.config.match_key_field, expr=mapped_campaign_expr),
         ]
 
         # Add each conversion goal as a summed column
@@ -130,6 +135,7 @@ class ConversionGoalsAggregator:
 
         # GROUP BY the mapped expressions (same expressions used in SELECT)
         # This ensures rows with the same mapped values are consolidated in a single pass
+        # Note: match_key = mapped_campaign, so no need to add it separately to GROUP BY
         final_query = ast.SelectQuery(
             select=final_select,
             select_from=ast.JoinExpr(table=union_query, alias=subquery_alias),
