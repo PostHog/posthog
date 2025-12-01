@@ -1,3 +1,4 @@
+import os
 import json
 import asyncio
 import logging
@@ -9,7 +10,6 @@ from django.http import StreamingHttpResponse
 import litellm
 import posthoganalytics
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
-from litellm.llms.custom_httpx.http_handler import os
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -35,6 +35,24 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
+_litellm_configured = False
+
+
+# TRICKY: We only want to register the callback on the first request, once the PostHog api key and host are defined.
+def _setup_litellm():
+    global _litellm_configured
+    if _litellm_configured:
+        return
+    try:
+        if posthoganalytics.api_key and posthoganalytics.host:
+            os.environ["POSTHOG_API_KEY"] = posthoganalytics.api_key
+            os.environ["POSTHOG_API_URL"] = posthoganalytics.host
+            litellm.success_callback = ["posthog"]
+            litellm.failure_callback = ["posthog"]
+            _litellm_configured = True
+    except Exception:
+        pass
+
 
 class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
@@ -49,13 +67,6 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         response = await litellm.anthropic_messages(**data)
         async for chunk in response:
             yield chunk
-
-    def _setup_litellm(self):
-        os.environ["POSTHOG_API_KEY"] = posthoganalytics.api_key
-        os.environ["POSTHOG_API_URL"] = posthoganalytics.host
-
-        litellm.success_callback = ["posthog"]
-        litellm.failure_callback = ["posthog"]
 
     async def _openai_stream(self, data: dict) -> AsyncGenerator[bytes, None]:
         response = await litellm.acompletion(**data)
@@ -122,7 +133,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="v1/messages", required_scopes=["task:write"])
     def anthropic_messages(self, request: Request, *args, **kwargs):
-        self._setup_litellm()
+        _setup_litellm()
         serializer = AnthropicMessagesRequestSerializer(data=request.data)
 
         if not serializer.is_valid():
@@ -134,12 +145,15 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = dict(serializer.validated_data)
         is_streaming = data.get("stream", False)
 
-        trace_id = request.data.get("metadata", {}).get("user_id")
+        trace_id = request.data.get("metadata", {}).get(
+            "user_id"
+        )  # Claude Code passes a user_id in the metadata which is a concatenation of the user_id and the session_id
 
         data["metadata"] = {
             "user_id": str(request.user.distinct_id) if request.user else None,
             "team_id": str(self.team.id),
             "organization_id": str(self.organization.id),
+            "ai_product": "llm_gateway",
             **{
                 "$ai_trace_id": trace_id,
             },
@@ -207,7 +221,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["task:write"],
     )
     def chat_completions(self, request: Request, *args, **kwargs):
-        self._setup_litellm()
+        _setup_litellm()
         serializer = ChatCompletionRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -221,6 +235,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data["metadata"] = {
             "user_id": str(request.user.distinct_id) if request.user else None,
             "team_id": str(self.team.id),
+            "ai_product": "llm_gateway",
             "organization_id": str(self.organization.id),
         }
 
