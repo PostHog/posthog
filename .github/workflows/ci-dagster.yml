@@ -50,8 +50,10 @@ jobs:
                   filters: |
                       dagster:
                         - 'dags/**'
-                        # Dagster depends on code from the posthog package, so ensure we run on changes to it
+                        # Dagster depends on Python, so ensure we run on possible changes to it
                         - 'posthog/**/*'
+                        - 'ee/**/*'
+                        - 'products/**/*'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
                         # We use docker compose for tests, make sure we rerun on
