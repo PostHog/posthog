@@ -15578,13 +15578,7 @@ class SessionBatchEventsQuery(BaseModel):
     kind: Literal["SessionBatchEventsQuery"] = "SessionBatchEventsQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = Field(
-        default=None,
-        description=(
-            "Number of rows to skip before returning rows. Offsets bigger than 100000 will fail to run. Read about"
-            " paging: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
-        ),
-    )
+    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
     personId: str | None = Field(default=None, description="Show events for a given person")
     properties: (
@@ -15705,13 +15699,7 @@ class EventsQuery(BaseModel):
     kind: Literal["EventsQuery"] = "EventsQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = Field(
-        default=None,
-        description=(
-            "Number of rows to skip before returning rows. Offsets bigger than 100000 will fail to run. Read about"
-            " paging: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
-        ),
-    )
+    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
     personId: str | None = Field(default=None, description="Show events for a given person")
     properties: (

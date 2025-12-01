@@ -776,7 +776,7 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
      */
     limit?: integer
     /**
-     * Number of rows to skip before returning rows. Offsets bigger than 100000 will fail to run. Read about paging: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset
+     * Number of rows to skip before returning rows
      */
     offset?: integer
     /**
