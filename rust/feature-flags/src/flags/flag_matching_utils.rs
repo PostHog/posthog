@@ -387,6 +387,16 @@ fn should_retry_on_error(error: &FlagError) -> bool {
     }
 }
 
+/// Check if a FlagError contains a foreign key constraint violation
+fn flag_error_is_foreign_key_constraint(error: &FlagError) -> bool {
+    match error {
+        FlagError::DatabaseError(sqlx_error, _) => {
+            common_database::is_foreign_key_constraint_error(sqlx_error)
+        }
+        _ => false,
+    }
+}
+
 /// Classify and track database errors
 fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool) {
     let (error_type, timeout_subtype) = match error {
@@ -660,8 +670,9 @@ pub async fn set_feature_flag_hash_key_overrides(
         )
         .await;
 
+        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
-            Err(e) => {
+            Err(e) if flag_error_is_foreign_key_constraint(e) => {
                 // Track error classification
                 classify_and_track_error(e, "set_hash_key_overrides", true);
 
@@ -682,10 +693,17 @@ pub async fn set_feature_flag_hash_key_overrides(
                     team_id = %team_id,
                     distinct_ids = ?distinct_ids,
                     error = ?e,
-                    "Hash key override setting failed, will retry"
+                    "Hash key override setting failed due to a person deletion race condition, will retry"
                 );
 
                 // Return error to trigger retry
+                result
+            }
+            // For other errors, don't retry - return immediately to stop retrying
+            Err(e) => {
+                // Track error classification for non-retried errors
+                classify_and_track_error(e, "set_hash_key_overrides", false);
+
                 result
             }
             // Success case - return the result
@@ -723,10 +741,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 ON existing.person_id = p.person_id AND existing.team_id = p.team_id
             WHERE p.team_id = $1
                 AND p.distinct_id = ANY($2)
-                AND (
-                    EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
-                    OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
-                )
+                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
         "#;
 
     // Query 2: Get all active feature flags with experience continuity (non-person pool)
@@ -973,8 +988,9 @@ pub async fn should_write_hash_key_override(
     Retry::spawn(retry_strategy, || async {
         let result = try_should_write_hash_key_override(router, team_id, &distinct_ids).await;
 
+        // Only retry on foreign key constraint errors (person deletion race condition)
         match &result {
-            Err(e) => {
+            Err(e) if flag_error_is_foreign_key_constraint(e) => {
                 // Increment retry counter for monitoring
                 common_metrics::inc(
                     FLAG_HASH_KEY_RETRIES_COUNTER,
@@ -996,6 +1012,13 @@ pub async fn should_write_hash_key_override(
                 );
 
                 // Return error to trigger retry
+                result
+            }
+            // For other errors, don't retry - return immediately to stop retrying
+            Err(e) => {
+                // Track error classification for non-retried errors
+                classify_and_track_error(e, "should_write_hash_key_override", false);
+
                 result
             }
             // Success case - return the result
@@ -1022,10 +1045,7 @@ async fn try_should_write_hash_key_override(
             ON existing.person_id = p.person_id AND existing.team_id = p.team_id
         WHERE p.team_id = $1
             AND p.distinct_id = ANY($2)
-            AND (
-                EXISTS (SELECT 1 FROM posthog_person_new WHERE id = p.person_id AND team_id = p.team_id)
-                OR EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
-            )
+            AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
     "#;
 
     // Query 2: Get feature flags from non-person pool
