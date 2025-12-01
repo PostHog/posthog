@@ -1032,7 +1032,10 @@ export const sceneLogic = kea<sceneLogicType>([
 
             if (tabId !== lastTabId) {
                 const scrollTop = values.tabScrollDepths[tabId] ?? 0
-                restoreMainContentScrollTop(scrollTop)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop), 1)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop), 10)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop), 100)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop), 300)
             } else {
                 // if we clicked on a link, scroll to top
                 const previousScene = selectors.sceneId(previousState)
