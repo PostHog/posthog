@@ -10,6 +10,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { mswDecorator } from '~/mocks/browser'
 
 import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from '../../../../__mocks__/events'
+import { StyleVariables } from '../../../StyleVariables'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 
 const meta: Meta = {
@@ -22,9 +23,11 @@ const meta: Meta = {
         (Story: React.FC): JSX.Element => {
             sceneLogic.mount()
             return (
-                <LemonCard hoverEffect={false} className="p-2 px-3 w-[900px]">
-                    <Story />
-                </LemonCard>
+                <StyleVariables>
+                    <LemonCard hoverEffect={false} className="p-2 px-3 w-[900px]">
+                        <Story />
+                    </LemonCard>
+                </StyleVariables>
             )
         },
         mswDecorator({

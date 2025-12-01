@@ -14,7 +14,7 @@ export function ExceptionListRenderer({
     renderException,
 }: ExceptionListRendererProps): JSX.Element {
     return (
-        <div className={cn('space-y-2 mb-2', className)}>
+        <div className={cn('space-y-2', className)}>
             {exceptionList.map((exception) => (
                 <div key={exception.id}>{renderException(exception)}</div>
             ))}

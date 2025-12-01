@@ -3,12 +3,13 @@ import { useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
 
 import { ExceptionRenderer } from '../Exception/ExceptionRenderer'
+import { RawExceptionHeader } from '../Exception/RawExceptionHeader'
 import { RawFrame } from '../Frame/RawFrame'
 import { EmptyStackTrace } from '../StackTrace/EmptyStackTrace'
 import { StackTraceRenderer } from '../StackTrace/StackTraceRenderer'
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { ErrorTrackingStackFrame } from '../types'
-import { createFrameFilter, formatExceptionDisplay } from '../utils'
+import { createFrameFilter } from '../utils'
 import { ExceptionListRenderer } from './ExceptionListRenderer'
 
 export function RawExceptionList({
@@ -31,13 +32,11 @@ export function RawExceptionList({
                         <ExceptionRenderer
                             exception={exception}
                             frameFilter={createFrameFilter(showAllFrames)}
-                            renderExceptionHeader={(exception) => (
-                                <p className="font-mono mb-0 font-bold line-clamp-1">
-                                    {formatExceptionDisplay(exception)}
-                                </p>
-                            )}
+                            renderExceptionHeader={(exception) => <RawExceptionHeader exception={exception} />}
                             renderFilteredTrace={() => {
-                                setShowAllFrames(true)
+                                if (!showAllFrames) {
+                                    setShowAllFrames(true)
+                                }
                                 return null
                             }}
                             renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (

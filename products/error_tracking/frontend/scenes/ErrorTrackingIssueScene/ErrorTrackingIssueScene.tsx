@@ -28,6 +28,7 @@ import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
+import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
@@ -108,13 +109,14 @@ const RightHandColumn = (): JSX.Element => {
     return (
         <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px]">
             <PostHogSDKIssueBanner event={selectedEvent} />
-
             <ExceptionCard
-                issue={issue ?? undefined}
-                issueLoading={issueLoading}
+                issueId={issue?.id ?? 'no-issue'}
+                loading={issueLoading || initialEventLoading}
                 event={selectedEvent ?? undefined}
-                eventLoading={initialEventLoading}
                 label={tagRenderer(selectedEvent)}
+                renderStackTraceActions={() => {
+                    return issue ? <StackTraceActions issue={issue} /> : null
+                }}
             />
         </div>
     )

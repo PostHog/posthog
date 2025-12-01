@@ -55,7 +55,9 @@ export function CollapsibleExceptionList({
                                 />
                             )}
                             renderFilteredTrace={() => {
-                                setShowAllFrames(true)
+                                if (!showAllFrames) {
+                                    setShowAllFrames(true)
+                                }
                                 return null
                             }}
                             renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (

@@ -1,7 +1,8 @@
 import { Meta } from '@storybook/react'
 
+import { ErrorEventType } from 'lib/components/Errors/types'
+
 import { mswDecorator } from '~/mocks/browser'
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
 import { StyleVariables } from '../StyleVariables'
@@ -35,12 +36,7 @@ export default meta
 export function ExceptionCardBase(): JSX.Element {
     return (
         <div className="w-[800px]">
-            <ExceptionCard
-                issue={issue}
-                issueLoading={false}
-                event={TEST_EVENTS['javascript_resolved'] as any}
-                eventLoading={false}
-            />
+            <ExceptionCard issueId="issue-id" loading={false} event={TEST_EVENTS['javascript_resolved'] as any} />
         </div>
     )
 }
@@ -48,41 +44,40 @@ export function ExceptionCardBase(): JSX.Element {
 export function ExceptionCardNoInApp(): JSX.Element {
     return (
         <div className="w-[800px]">
-            <ExceptionCard
-                issue={issue}
-                issueLoading={false}
-                event={TEST_EVENTS['javascript_no_in_app'] as any}
-                eventLoading={false}
-            />
+            <ExceptionCard issueId="issue-id" loading={false} event={TEST_EVENTS['javascript_no_in_app'] as any} />
         </div>
     )
 }
 
-export function ExceptionCardIssueLoading(): JSX.Element {
+export function ExceptionCardLoading(): JSX.Element {
     return (
         <div className="w-[800px]">
-            <ExceptionCard issue={issue} issueLoading={true} event={undefined} eventLoading={true} />
+            <ExceptionCard issueId="issue-id" loading={true} event={undefined} />
         </div>
     )
 }
-ExceptionCardIssueLoading.tags = ['test-skip']
-
-export function ExceptionCardEventLoading(): JSX.Element {
-    return (
-        <div className="w-[800px]">
-            <ExceptionCard issue={issue} issueLoading={false} event={undefined} eventLoading={true} />
-        </div>
-    )
-}
-ExceptionCardEventLoading.tags = ['test-skip']
+ExceptionCardLoading.tags = ['test-skip']
 
 //////////////////// Utils
 
-const issue = {
-    id: '123',
-    name: 'Issue Title',
-    description: 'Issue Description',
-    status: 'active',
-    assignee: null,
-    first_seen: '2022-01-05',
-} as ErrorTrackingRelationalIssue
+function ExceptionCardWrapperAllEvents({
+    children,
+}: {
+    children: (issueId: string, event: Partial<ErrorEventType>) => JSX.Element
+}): JSX.Element {
+    return (
+        <div className="space-y-8">
+            {Object.entries(TEST_EVENTS).map(([name, evt]: [string, any]) => {
+                return <div key={name}>{children(name, evt)}</div>
+            })}
+        </div>
+    )
+}
+
+export function ExceptionCardAllEvents(): JSX.Element {
+    return (
+        <ExceptionCardWrapperAllEvents>
+            {(issueId, event) => <ExceptionCard issueId={issueId} loading={false} event={event as ErrorEventType} />}
+        </ExceptionCardWrapperAllEvents>
+    )
+}
