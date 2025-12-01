@@ -132,12 +132,6 @@ class TestFindPythonDependencies(unittest.TestCase):
         self.assertGreater(len(matching), 1, "Need multiple matches to verify sorting")
         self.assertEqual(matching, sorted(matching))
 
-    # =============================================================================
-    # Analytics platform worker coverage tests
-    # These verify the dependency detection covers all the paths that were
-    # previously in the explicit grep pattern for the analytics platform
-    # temporal worker CI check.
-    # =============================================================================
     @parameterized.expand(
         [
             # Entrypoint - should trigger rebuild
@@ -164,7 +158,7 @@ class TestFindPythonDependencies(unittest.TestCase):
             ("tests", "posthog/test/test_utils.py", False),
         ]
     )
-    def test_file_triggers_rebuild(self, _name, changed_file, should_trigger):
+    def test_analytics_platform_worker_file_triggers_rebuild(self, _name, changed_file, should_trigger):
         if not (REPO_ROOT / changed_file).exists():
             self.skipTest(f"File not found: {changed_file}")
 
