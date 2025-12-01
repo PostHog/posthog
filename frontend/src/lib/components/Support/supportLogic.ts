@@ -231,6 +231,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'LLM analytics',
             },
             {
+                value: 'logs',
+                'data-attr': `support-form-target-area-logs`,
+                label: 'Logs',
+            },
+            {
                 value: 'max-ai',
                 'data-attr': `support-form-target-area-max-ai`,
                 label: 'PostHog AI',
@@ -319,6 +324,7 @@ export type SupportTicketTargetArea =
     | 'surveys'
     | 'web_analytics'
     | 'error_tracking'
+    | 'logs'
     | 'cdp_destinations'
     | 'data_ingestion'
     | 'batch_exports'
