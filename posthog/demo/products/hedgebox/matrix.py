@@ -913,7 +913,9 @@ class HedgeboxMatrix(Matrix):
                 created_at=self.file_engagement_experiment_start - dt.timedelta(hours=2),
             )
         except IntegrityError:
-            pass  # This can happen if demo data generation is re-run for the same project
+            # Flags already exist, fetch them
+            onboarding_flag = FeatureFlag.objects.get(team=team, key=ONBOARDING_EXPERIMENT_FLAG_KEY)
+            file_engagement_flag = FeatureFlag.objects.get(team=team, key=FILE_ENGAGEMENT_FLAG_KEY)
 
         # Experiments and shared metrics
 
