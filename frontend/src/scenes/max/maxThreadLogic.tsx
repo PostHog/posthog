@@ -14,6 +14,7 @@ import {
     selectors,
 } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
@@ -26,6 +27,8 @@ import { uuid } from 'lib/utils'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -73,6 +76,31 @@ export interface MaxThreadLogicProps {
     conversation?: ConversationDetail | null
 }
 
+/** Maps agent modes to the scenes that should trigger them */
+const SCENE_TO_AGENT_MODE: Record<AgentMode, Set<Scene>> = {
+    [AgentMode.SQL]: new Set([Scene.SQLEditor]),
+    [AgentMode.ProductAnalytics]: new Set([Scene.Dashboards, Scene.Dashboard, Scene.Insight, Scene.SavedInsights]),
+    [AgentMode.SessionReplay]: new Set([
+        Scene.Replay,
+        Scene.ReplaySingle,
+        Scene.ReplayPlaylist,
+        Scene.ReplayFilePlayback,
+        Scene.ReplaySettings,
+    ]),
+}
+
+function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
+    if (!sceneId) {
+        return null
+    }
+    for (const [mode, scenes] of Object.entries(SCENE_TO_AGENT_MODE)) {
+        if (scenes.has(sceneId)) {
+            return mode as AgentMode
+        }
+    }
+    return null
+}
+
 export const maxThreadLogic = kea<maxThreadLogicType>([
     path(['scenes', 'max', 'maxThreadLogic']),
 
@@ -115,6 +143,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['billingContext'],
             featureFlagLogic,
             ['featureFlags'],
+            sceneLogic,
+            ['sceneId'],
         ],
         actions: [
             maxLogic({ tabId }),
@@ -799,6 +829,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }, 0)
         }
     }),
+
+    subscriptions(({ actions, values }) => ({
+        sceneId: (sceneId: Scene | null) => {
+            // Only auto-set mode when the agent modes feature is enabled and no conversation is active
+            if (values.featureFlags[FEATURE_FLAGS.AGENT_MODES] && !values.conversation) {
+                const suggestedMode = getAgentModeForScene(sceneId)
+                if (suggestedMode !== values.agentMode) {
+                    actions.setAgentMode(suggestedMode)
+                }
+            }
+        },
+    })),
 ])
 
 /**
