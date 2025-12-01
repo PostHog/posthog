@@ -50,20 +50,6 @@ def module_to_file(module: str) -> str | None:
     return None
 
 
-def file_to_module(file_path: str) -> str | None:
-    """
-    Convert a file path (posthog/utils/__init__.py) to its module name (posthog.utils).
-    """
-    if not file_path.endswith(".py"):
-        return None
-
-    path = file_path.replace(".py", "")
-    path = path.replace("/__init__", "")
-
-    # Convert path separators to dots
-    return path.replace("/", ".").replace("\\", ".")
-
-
 def find_all_dependency_files(graph: grimp.ImportGraph, entrypoint_module: str) -> set[str]:
     """
     Find all files that the entrypoint depends on.

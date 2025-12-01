@@ -10,7 +10,6 @@ from find_python_dependencies import (
     REPO_ROOT,
     build_import_graph,
     check_if_changes_affect_entrypoint,
-    file_to_module,
     find_all_dependency_files,
     module_to_file,
 )
@@ -35,18 +34,6 @@ class TestFindPythonDependencies(unittest.TestCase):
     )
     def test_module_to_file(self, _name, module, expected_file):
         self.assertEqual(module_to_file(module), expected_file)
-
-    @parameterized.expand(
-        [
-            ("simple_file", "posthog/utils.py", "posthog.utils"),
-            ("init_file", "posthog/temporal/subscriptions/__init__.py", "posthog.temporal.subscriptions"),
-            ("nested_file", "posthog/hogql_queries/query_runner.py", "posthog.hogql_queries.query_runner"),
-            ("non_python_file", "posthog/utils.txt", None),
-            ("frontend_file", "frontend/src/test.tsx", None),
-        ]
-    )
-    def test_file_to_module(self, _name, file_path, expected_module):
-        self.assertEqual(file_to_module(file_path), expected_module)
 
     def test_returns_only_python_file_paths(self):
         files = find_all_dependency_files(self.graph, "posthog.temporal.subscriptions")
