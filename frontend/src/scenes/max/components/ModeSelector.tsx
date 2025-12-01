@@ -1,7 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconWrench } from '@posthog/icons'
+import { IconArrowRight, IconWrench } from '@posthog/icons'
 import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
+
+import { identifierToHuman } from 'lib/utils'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
@@ -9,6 +13,7 @@ import {
     MODE_DEFINITIONS,
     SPECIAL_MODES,
     SpecialMode,
+    TOOL_DEFINITIONS,
     ToolDefinition,
     getDefaultTools,
     getToolsForMode,
@@ -40,6 +45,87 @@ function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Ele
                                         )}
                                     </strong>
                                     {tool.description?.replace(tool.name, '')}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]): JSX.Element {
+    // Group tools by their product (Scene), excluding some scenes
+    const excludedScenes = [Scene.Insight, Scene.SQLEditor, Scene.Replay]
+    const toolsByProduct = Object.values(TOOL_DEFINITIONS).reduce(
+        (acc, tool) => {
+            if (!tool.product || excludedScenes.includes(tool.product)) {
+                return acc
+            }
+            if (!acc[tool.product]) {
+                acc[tool.product] = []
+            }
+            acc[tool.product]!.push(tool)
+            return acc
+        },
+        {} as Partial<Record<Scene, ToolDefinition[]>>
+    )
+
+    return (
+        <div className="flex flex-col gap-1.5">
+            <div>{description}</div>
+            {defaultTools.length > 0 && (
+                <div>
+                    <div className="font-semibold mb-0.5">Default tools:</div>
+                    <ul className="space-y-0.5 text-sm *:flex *:items-start">
+                        {defaultTools.map((tool: ToolDefinition) => (
+                            <li key={tool.name}>
+                                <span className="flex text-base text-success shrink-0 ml-1 mr-2 h-[1.25em]">
+                                    {tool.icon || <IconWrench />}
+                                </span>
+                                <span>
+                                    <strong className="italic">
+                                        {tool.name}
+                                        {tool.beta && (
+                                            <LemonTag size="small" type="warning" className="ml-1 not-italic">
+                                                BETA
+                                            </LemonTag>
+                                        )}
+                                    </strong>
+                                    {tool.description?.replace(tool.name, '')}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+            {Object.keys(toolsByProduct).length > 0 && (
+                <div>
+                    <div className="font-semibold mb-0.5">Contextual tools:</div>
+                    <ul className="space-y-0.5 text-sm *:flex *:items-start">
+                        {Object.entries(toolsByProduct).map(([product, tools]) => (
+                            <li key={product}>
+                                <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
+                                <span>
+                                    <em>
+                                        In {sceneConfigurations[product as Scene]?.name || identifierToHuman(product)}
+                                        :{' '}
+                                    </em>
+                                    {tools.map((tool, index) => (
+                                        <span key={tool.name}>
+                                            <strong className="italic">
+                                                {tool.name}
+                                                {tool.beta && (
+                                                    <LemonTag size="small" type="warning" className="ml-1 not-italic">
+                                                        BETA
+                                                    </LemonTag>
+                                                )}
+                                            </strong>
+                                            {tool.description?.replace(tool.name, '')}
+                                            {index < tools.length - 1 && <>; </>}
+                                        </span>
+                                    ))}
                                 </span>
                             </li>
                         ))}
@@ -100,8 +186,8 @@ export function ModeSelector(): JSX.Element {
             options={MODE_OPTIONS}
             size="xsmall"
             type="tertiary"
-            tooltip={buildModeTooltip(
-                'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise. The tools that are available in all agent modes are listed below.',
+            tooltip={buildGeneralTooltip(
+                'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
                 getDefaultTools()
             )}
             disabledReason={threadLoading ? 'Loading...' : undefined}
