@@ -254,6 +254,44 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
+    def test_team_effective_membership_level_higher_project_membership_than_org_membership(self):
+        """Test that users with admin project access will have its effective membership level at admin"""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Set up user as a member
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Give the member admin access to the team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="admin",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_effective_membership_level_lower_project_membership_than_org_membership(self):
+        """Test that users with member project access will have its effective membership level at admin"""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Set up user as admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Give the user member access to the team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
 
 class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
