@@ -16,18 +16,14 @@ from find_python_dependencies import (
 )
 from parameterized import parameterized
 
-# Build the import graph once for all tests (expensive operation)
-_import_graph = None
 
+class TestFindPythonDependencies(unittest.TestCase):
+    graph = None
 
-def get_import_graph():
-    global _import_graph
-    if _import_graph is None:
-        _import_graph = build_import_graph(LOCAL_PACKAGES)
-    return _import_graph
+    @classmethod
+    def setUpClass(cls):
+        cls.graph = build_import_graph(LOCAL_PACKAGES)
 
-
-class TestModuleToFile(unittest.TestCase):
     @parameterized.expand(
         [
             ("simple_module", "posthog.utils", "posthog/utils.py"),
@@ -40,8 +36,6 @@ class TestModuleToFile(unittest.TestCase):
     def test_module_to_file(self, _name, module, expected_file):
         self.assertEqual(module_to_file(module), expected_file)
 
-
-class TestFileToModule(unittest.TestCase):
     @parameterized.expand(
         [
             ("simple_file", "posthog/utils.py", "posthog.utils"),
@@ -54,10 +48,8 @@ class TestFileToModule(unittest.TestCase):
     def test_file_to_module(self, _name, file_path, expected_module):
         self.assertEqual(file_to_module(file_path), expected_module)
 
-
-class TestFindAllDependencyFiles(unittest.TestCase):
-    def test_returns_python_file_paths(self):
-        files = find_all_dependency_files(get_import_graph(), "posthog.temporal.subscriptions")
+    def test_returns_only_python_file_paths(self):
+        files = find_all_dependency_files(self.graph, "posthog.temporal.subscriptions")
         self.assertIsInstance(files, set)
         for f in files:
             self.assertTrue(f.endswith(".py"), f"Expected .py file, got {f}")
@@ -74,14 +66,12 @@ class TestFindAllDependencyFiles(unittest.TestCase):
         ]
     )
     def test_file_inclusion(self, _name, file_path, should_be_included):
-        files = find_all_dependency_files(get_import_graph(), "posthog.temporal.subscriptions")
+        files = find_all_dependency_files(self.graph, "posthog.temporal.subscriptions")
         if should_be_included:
             self.assertIn(file_path, files)
         else:
             self.assertNotIn(file_path, files)
 
-
-class TestCheckIfChangesAffectEntrypoint(unittest.TestCase):
     @parameterized.expand(
         [
             # Direct dependencies - should trigger rebuild
@@ -104,7 +94,7 @@ class TestCheckIfChangesAffectEntrypoint(unittest.TestCase):
     )
     def test_change_detection(self, _name, changed_file, should_be_affected):
         affected, _matching = check_if_changes_affect_entrypoint(
-            get_import_graph(),
+            self.graph,
             "posthog.temporal.subscriptions",
             [changed_file],
         )
@@ -117,7 +107,7 @@ class TestCheckIfChangesAffectEntrypoint(unittest.TestCase):
 
     def test_multiple_changes_one_affects(self):
         affected, matching = check_if_changes_affect_entrypoint(
-            get_import_graph(),
+            self.graph,
             "posthog.temporal.subscriptions",
             ["frontend/test.tsx", "posthog/utils.py", "README.md"],
         )
@@ -126,7 +116,7 @@ class TestCheckIfChangesAffectEntrypoint(unittest.TestCase):
 
     def test_multiple_changes_none_affect(self):
         affected, matching = check_if_changes_affect_entrypoint(
-            get_import_graph(),
+            self.graph,
             "posthog.temporal.subscriptions",
             ["frontend/test.tsx", "README.md", "rust/main.rs"],
         )
@@ -135,21 +125,19 @@ class TestCheckIfChangesAffectEntrypoint(unittest.TestCase):
 
     def test_returns_sorted_matching_files(self):
         _affected, matching = check_if_changes_affect_entrypoint(
-            get_import_graph(),
+            self.graph,
             "posthog.temporal.subscriptions",
             ["posthog/utils.py", "posthog/hogql_queries/query_runner.py", "ee/models/license.py"],
         )
         self.assertGreater(len(matching), 1, "Need multiple matches to verify sorting")
         self.assertEqual(matching, sorted(matching))
 
-
-class TestAnalyticsPlatformWorkerCoverage(unittest.TestCase):
-    """
-    Tests that verify the dependency detection covers all the paths
-    that were previously in the explicit grep pattern for the analytics platform
-    temporal worker CI check.
-    """
-
+    # =============================================================================
+    # Analytics platform worker coverage tests
+    # These verify the dependency detection covers all the paths that were
+    # previously in the explicit grep pattern for the analytics platform
+    # temporal worker CI check.
+    # =============================================================================
     @parameterized.expand(
         [
             # Entrypoint - should trigger rebuild
@@ -181,7 +169,7 @@ class TestAnalyticsPlatformWorkerCoverage(unittest.TestCase):
             self.skipTest(f"File not found: {changed_file}")
 
         affected, _ = check_if_changes_affect_entrypoint(
-            get_import_graph(),
+            self.graph,
             "posthog.temporal.subscriptions",
             [changed_file],
         )
@@ -190,11 +178,6 @@ class TestAnalyticsPlatformWorkerCoverage(unittest.TestCase):
         else:
             self.assertFalse(affected, f"{changed_file} should NOT trigger a rebuild but was detected")
 
-
-class TestBuildImportGraph(unittest.TestCase):
-    def test_graph_is_built(self):
-        self.assertIsNotNone(get_import_graph())
-
     @parameterized.expand(
         [
             ("posthog", "posthog"),
@@ -202,7 +185,7 @@ class TestBuildImportGraph(unittest.TestCase):
         ]
     )
     def test_graph_contains_package_modules(self, _name, package):
-        modules = get_import_graph().find_children(package)
+        modules = self.graph.find_children(package)
         self.assertGreater(len(modules), 0)
 
     @parameterized.expand([(pkg,) for pkg in LOCAL_PACKAGES])
