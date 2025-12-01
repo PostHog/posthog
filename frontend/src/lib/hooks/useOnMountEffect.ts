@@ -47,12 +47,12 @@ export function useOnMountEffect(effect: React.EffectCallback): void {
  * }, 1000)
  * ```
  *
- * Note: If you need cleanup that clears the timer, use a custom implementation. For most usage in onboarding/pages,
- * not cleaning up is generally fine. This hook does not return a cleanup callback.
+ * Note: This hook does not run a cleanup callback, use a custom function if you need that behaviour.
  */
 
-export function useDelayedOnMountEffect(effect: React.EffectCallback, timeout = 500): void {
+export function useDelayedOnMountEffect(effect: () => void, timeout = 500): void {
     useOnMountEffect(() => {
-        window.setTimeout(effect, timeout)
+        const timer = window.setTimeout(effect, timeout)
+        return () => clearTimeout(timer)
     })
 }
