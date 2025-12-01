@@ -30,6 +30,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -241,9 +242,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                 }
             />
             <QuickSurveyModal
-                flag={featureFlag}
+                context={{ type: QuickSurveyType.FEATURE_FLAG, flag: featureFlag }}
                 isOpen={isQuickSurveyModalOpen}
-                onClose={() => setIsQuickSurveyModalOpen(false)}
+                onCancel={() => setIsQuickSurveyModalOpen(false)}
             />
         </>
     )
