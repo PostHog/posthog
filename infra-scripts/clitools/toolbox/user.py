@@ -31,6 +31,12 @@ def get_current_user() -> dict:
         print(f"Command failed with return code {e.returncode}")  # noqa: T201
         print(f"Output: {e.output}")  # noqa: T201
         print(f"Stderr: {e.stderr}")  # noqa: T201
+
+        if e.returncode == 1 and "Token has expired and refresh failed" in e.stderr:
+            print(  # noqa: T201
+                "Token has expired and refresh failed, please reauthenticate with `aws sso login --profile=<your-profile>`"
+            )
+
         sys.exit(1)
     except Exception as k8s_error:
         print(f"Error: Failed to get user identity: {k8s_error}")  # noqa: T201
