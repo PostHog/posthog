@@ -8,6 +8,7 @@ import { InviteMembersButton } from 'lib/components/Account/InviteMembersButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -219,14 +220,22 @@ interface NextButtonProps {
 const NextButton = ({ installationComplete, size = 'medium' }: NextButtonProps): JSX.Element => {
     const { hasNextStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
+    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
+
+    const advance = !hasNextStep ? completeOnboarding : goToNextStep
+    const skipInstallation = (): void => {
+        reportOnboardingStepSkipped(OnboardingStepKey.INSTALL)
+        advance()
+    }
+
+    const continueInstallation = (): void => {
+        reportOnboardingStepCompleted(OnboardingStepKey.INSTALL)
+        advance()
+    }
 
     if (!installationComplete) {
         return (
-            <LemonButton
-                type="secondary"
-                size={size}
-                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
-            >
+            <LemonButton type="secondary" size={size} onClick={skipInstallation}>
                 Skip installation
             </LemonButton>
         )
@@ -238,7 +247,7 @@ const NextButton = ({ installationComplete, size = 'medium' }: NextButtonProps):
             sideIcon={hasNextStep ? <IconArrowRight /> : null}
             type="primary"
             status="alt"
-            onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+            onClick={continueInstallation}
         >
             Continue
         </LemonButton>

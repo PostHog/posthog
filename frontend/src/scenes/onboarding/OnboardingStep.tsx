@@ -6,6 +6,7 @@ import { IconArrowRight, IconChevronRight } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -45,7 +46,9 @@ export const OnboardingStep = ({
     actions?: JSX.Element
 }): JSX.Element => {
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
+
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
+    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     if (!stepKey) {
@@ -54,6 +57,18 @@ export const OnboardingStep = ({
     const breadcrumbStepKeys = onboardingStepKeys.filter((stepKey) => !breadcrumbExcludeSteps.includes(stepKey))
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
+
+    const skip = (): void => {
+        reportOnboardingStepSkipped(stepKey)
+        onSkip?.()
+        advance()
+    }
+
+    const next = (): void => {
+        reportOnboardingStepCompleted(stepKey)
+        onContinue?.()
+        advance()
+    }
 
     return (
         <>
@@ -112,14 +127,7 @@ export const OnboardingStep = ({
                         </LemonButton>
                     )}
                     {showSkip && (
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                onSkip?.()
-                                advance()
-                            }}
-                            data-attr="onboarding-skip-button"
-                        >
+                        <LemonButton type="secondary" onClick={skip} data-attr="onboarding-skip-button">
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
                     )}
@@ -128,10 +136,7 @@ export const OnboardingStep = ({
                             type="primary"
                             status="alt"
                             data-attr="onboarding-continue"
-                            onClick={() => {
-                                onContinue?.()
-                                advance()
-                            }}
+                            onClick={next}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                             disabledReason={continueDisabledReason}
                         >
