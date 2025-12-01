@@ -111,18 +111,28 @@ def main():
         )
         sys.exit(1)
 
-    # Build the import graph once
-    sys.stderr.write(f"Building import graph for packages: {', '.join(LOCAL_PACKAGES)}...\n")
-    graph = build_import_graph(LOCAL_PACKAGES)
-    sys.stderr.write("Import graph built successfully.\n")
+    try:
+        sys.stderr.write(f"Building import graph for packages: {', '.join(LOCAL_PACKAGES)}...\n")
+        graph = build_import_graph(LOCAL_PACKAGES)
+        sys.stderr.write("Import graph built successfully.\n")
 
-    if args.check_changes:
-        changed_files = args.check_changes.split()
-        affected, matching = check_if_changes_affect_entrypoint(graph, args.entrypoint, changed_files)
-        sys.stdout.write(json.dumps({"affected": affected, "matching_files": matching}) + "\n")
-    else:
-        dependency_files = find_all_dependency_files(graph, args.entrypoint)
-        sys.stdout.write(json.dumps({"dependencies": sorted(dependency_files)}) + "\n")
+        if args.check_changes:
+            changed_files = args.check_changes.split()
+            affected, matching = check_if_changes_affect_entrypoint(graph, args.entrypoint, changed_files)
+            sys.stdout.write(json.dumps({"affected": affected, "matching_files": matching}) + "\n")
+        else:
+            dependency_files = find_all_dependency_files(graph, args.entrypoint)
+            sys.stdout.write(json.dumps({"dependencies": sorted(dependency_files)}) + "\n")
+
+    except Exception as e:
+        sys.stderr.write(f"Error detecting dependency relationship: {e}\n")
+        sys.stderr.write("Falling back to assuming all changes affect the entrypoint.\n")
+        if args.check_changes:
+            # Err on the side of re-building in case we run into an error.
+            sys.stdout.write(json.dumps({"affected": True, "matching_files": []}) + "\n")
+        else:
+            sys.stdout.write(json.dumps({"dependencies": []}) + "\n")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
