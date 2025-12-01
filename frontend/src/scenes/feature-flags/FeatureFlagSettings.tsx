@@ -119,7 +119,7 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
 }
 
 export function FlagsSecureApiKeys(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { deleteSecretTokenBackup, rotateSecretToken } = useActions(teamLogic)
 
     const openResetDialog = (): void => {
@@ -184,6 +184,9 @@ export function FlagsSecureApiKeys(): JSX.Element {
                         icon={<IconRefresh />}
                         noPadding
                         onClick={openResetDialog}
+                        disabledReason={
+                            !isTeamTokenResetAvailable ? 'You do not have permission to rotate this key' : undefined
+                        }
                         tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
                     />
                 }
