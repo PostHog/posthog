@@ -23,10 +23,17 @@ class Command(BaseCommand):
             action="store_true",
             help="Whether migration ultimately succeeded",
         )
+        parser.add_argument(
+            "--duration",
+            type=float,
+            required=False,
+            help="Total migration duration in seconds",
+        )
 
     def handle(self, *args, **options):
         attempts = options["attempts"]
         success = options["success"]
+        duration = options.get("duration")
 
         if not settings.PROM_PUSHGATEWAY_ADDRESS:
             logger.info("PROM_PUSHGATEWAY_ADDRESS not set, skipping metric push")
@@ -48,15 +55,24 @@ class Command(BaseCommand):
         )
         success_gauge.set(1 if success else 0)
 
+        if duration is not None:
+            duration_gauge = Gauge(
+                "django_migration_duration_seconds",
+                "Total duration of the Django migration run in seconds",
+                registry=registry,
+            )
+            duration_gauge.set(duration)
+
         try:
             push_to_gateway(
                 settings.PROM_PUSHGATEWAY_ADDRESS,
                 job="django_migrate",
+                grouping_key={"instance": "posthog"},
                 registry=registry,
             )
             logger.info(
                 "Pushed migration metrics",
-                extra={"attempts": attempts, "success": success},
+                extra={"attempts": attempts, "success": success, "duration": duration},
             )
         except Exception as e:
             logger.exception("Failed to push migration metrics", extra={"error": str(e)})
