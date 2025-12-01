@@ -885,6 +885,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     flag: featureFlag,
                     initialVariantKey: quickSurveyVariantKey,
                 }}
+                info="This survey will display to all users in this feature flag, filtered by any conditions you specify below."
                 isOpen={isQuickSurveyModalOpen}
                 onCancel={() => {
                     setIsQuickSurveyModalOpen(false)

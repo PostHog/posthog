@@ -243,6 +243,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
             />
             <QuickSurveyModal
                 context={{ type: QuickSurveyType.FEATURE_FLAG, flag: featureFlag }}
+                info="This survey will display to all users in this feature flag, filtered by any conditions you specify below."
                 isOpen={isQuickSurveyModalOpen}
                 onCancel={() => setIsQuickSurveyModalOpen(false)}
             />

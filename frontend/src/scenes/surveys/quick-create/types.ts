@@ -8,6 +8,7 @@ export type QuickSurveyContext = {
 
 export interface QuickSurveyFormProps {
     context: QuickSurveyContext
+    info?: string
     onCancel?: () => void
 }
 
