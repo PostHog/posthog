@@ -1,5 +1,7 @@
 import { kea, path } from 'kea'
 
-export const virtualizedLogsListLogic = kea([
+import type { virtualizedLogsListLogicType } from './virtualizedLogsListLogicType'
+
+export const virtualizedLogsListLogic = kea<virtualizedLogsListLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'VirtualizedLogsList', 'virtualizedLogsListLogic']),
 ])
