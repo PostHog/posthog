@@ -292,6 +292,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: cymbal
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
 
     livestream:
         extends:
