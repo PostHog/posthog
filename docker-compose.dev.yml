@@ -162,6 +162,8 @@ services:
             service: kafka_ui
         ports:
             - '9093:8080'
+        environment:
+            SERVER_MAX_HTTP_REQUEST_HEADER_SIZE: 65536
         depends_on:
             - kafka
 
