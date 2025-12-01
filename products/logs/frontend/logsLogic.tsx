@@ -588,7 +588,14 @@ export const logsLogic = kea<logsLogicType>([
         parsedLogs: [
             (s) => [s.logs],
             (logs: LogMessage[]): ParsedLogMessage[] => {
-                return logs.map((log: LogMessage) => {
+                const seen = new Set<string>()
+                const result: ParsedLogMessage[] = []
+
+                for (const log of logs) {
+                    if (seen.has(log.uuid)) {
+                        continue
+                    }
+                    seen.add(log.uuid)
                     const cleanBody = colors.unstyle(log.body)
                     let parsedBody: JsonType | null = null
                     try {
@@ -596,8 +603,10 @@ export const logsLogic = kea<logsLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    return { ...log, cleanBody, parsedBody }
-                })
+                    result.push({ ...log, cleanBody, parsedBody })
+                }
+
+                return result
             },
         ],
         pinnedParsedLogs: [
