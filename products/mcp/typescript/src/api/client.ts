@@ -268,8 +268,9 @@ export class ApiClient {
 
                     const searchParams = getSearchParamsFromRecord(params)
 
-                    const url = `${this.baseUrl}/api/projects/${projectId}/property_definitions/${searchParams.toString() ? `?${searchParams}` : ''
-                        }`
+                    const url = `${this.baseUrl}/api/projects/${projectId}/property_definitions/${
+                        searchParams.toString() ? `?${searchParams}` : ''
+                    }`
 
                     const propertyDefinitions = await withPagination(
                         url,
@@ -798,11 +799,11 @@ export class ApiClient {
                         path: { project_id: projectId },
                         query: params
                             ? {
-                                limit: params.limit,
-                                offset: params.offset,
-                                //@ts-expect-error search is not implemented as a query parameter
-                                search: params.search,
-                            }
+                                  limit: params.limit,
+                                  offset: params.offset,
+                                  //@ts-expect-error search is not implemented as a query parameter
+                                  search: params.search,
+                              }
                             : {},
                     })
 
