@@ -822,9 +822,12 @@ class TestPrinter(BaseTest):
         self._test_property_group_comparison("properties.key IN ('', NULL)", None)
         self._test_property_group_comparison("properties.key IN ('a', 'b', NULL)", None)
 
-        # NULL values are never equal. While this differs from the behavior of the equality operator above, it is
-        # consistent with how ClickHouse treats these values:
+        # NULL values are can be equal if using transform_null_in = 1, which we do by default
+        # https://clickhouse.com/docs/operations/settings/settings#transform_null_in
         # https://clickhouse.com/docs/en/sql-reference/operators/in#null-processing
+        self.assertTrue(
+            HogQLGlobalSettings().transform_null_in
+        )  # if changing this assumption, you'll need to change the printer too
         self._test_property_group_comparison(
             "properties.key in NULL",
             "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, NULL)",
