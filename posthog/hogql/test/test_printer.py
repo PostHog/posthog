@@ -855,26 +855,38 @@ class TestPrinter(BaseTest):
             team=self.team,
             distinct_id="distinct_id",
             event="event",
-            properties={"label": "a", "is_null": None, "is_null_and_string": None},
+            properties={"label": "string", "value": "s"},
         )
         _create_event(
             team=self.team,
             distinct_id="distinct_id",
             event="event",
-            properties={"label": "b", "is_string": "s", "is_null_and_string": "s"},
+            properties={"label": "empty_string", "value": ""},
         )
         _create_event(
             team=self.team,
             distinct_id="distinct_id",
             event="event",
-            properties={"label": "c", "is_string": "s", "is_null_and_string": "s"},
+            properties={"label": "null", "value": None},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "not_set"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "int", "value": 1},
         )
 
-        def assert_result_is_equal(expr: str):
+        def assert_result_is_equal(expr: str, labels):
             hogql_expr = parse_expr(expr)
 
             query = parse_select(
-                "select properties.label as label from events where {expr} order by label asc",
+                "select properties.label as label from events where properties.value in {expr} order by label asc",
                 placeholders={"expr": hogql_expr},
             )
 
@@ -917,32 +929,22 @@ class TestPrinter(BaseTest):
             assert "properties_group_custom" not in disabled_response.clickhouse
             assert "properties_group_custom" in enabled_response.clickhouse
             assert "properties_group_custom" in optimized_response.clickhouse
+            assert {row[0] for row in disabled_response.results} == labels
+            assert {row[0] for row in enabled_response.results} == labels
+            assert {row[0] for row in optimized_response.results} == labels
 
-            assert enabled_response.results == disabled_response.results
-            assert optimized_response.results == disabled_response.results
-
-        assert_result_is_equal("properties.is_string in ('s')")
-        assert_result_is_equal("properties.is_string in ('not_exist')")
-        assert_result_is_equal("properties.is_string in ('not_exist', 's')")
-        assert_result_is_equal("properties.is_string in ('not_exist', 's', NULL)")
-        assert_result_is_equal("properties.is_string in NULL")
-
-        assert_result_is_equal("properties.is_null in NULL")
-        assert_result_is_equal("properties.is_null in (NULL)")
-        assert_result_is_equal("properties.is_null in (NULL, NULL, NULL)")
-        assert_result_is_equal("properties.is_null in [NULL, NULL, NULL]")
-        assert_result_is_equal("properties.is_null in ('not_exist', 's', NULL)")
-
-        assert_result_is_equal("properties.is_null_and_string in ('s')")
-        assert_result_is_equal("properties.is_null_and_string in (NULL)")
-        assert_result_is_equal("properties.is_null_and_string in ('not_exist')")
-        assert_result_is_equal("properties.is_null_and_string in ('not_exist', 's')")
-        assert_result_is_equal("properties.is_null_and_string in ('not_exist', 's', NULL)")
-
-        assert_result_is_equal("properties.not_exist in (NULL)")
-        assert_result_is_equal("properties.not_exist in (NULL, NULL, NULL)")
-        assert_result_is_equal("properties.not_exist in [NULL, NULL, NULL]")
-        assert_result_is_equal("properties.not_exist in ('not_exist', NULL)")
+        assert_result_is_equal("1", {"int"})
+        assert_result_is_equal("s", {"string"})
+        assert_result_is_equal("''", {"empty_string"})
+        assert_result_is_equal("NULL", {"null", "not_set"})
+        assert_result_is_equal("('s')", {"string"})
+        assert_result_is_equal("('s', 's')", {"string"})
+        assert_result_is_equal("['s', 's']", {"string"})
+        assert_result_is_equal("(NULL)", {"null", "not_set"})
+        assert_result_is_equal("(NULL, NULL, NULL)", {"null", "not_set"})
+        assert_result_is_equal("[NULL, NULL, NULL]", {"null", "not_set"})
+        assert_result_is_equal("('s', 1)", {"string", "int"})
+        assert_result_is_equal("('s', '')", {"string", "empty_string"})
 
     def test_property_groups_select_with_aliases(self):
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
