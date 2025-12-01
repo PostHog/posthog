@@ -40,7 +40,7 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { isValidBreakdown } from '~/queries/utils'
+import { isValidBreakdown, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -78,7 +78,8 @@ export function InsightDisplayConfig(): JSX.Element {
 
     const showCompare =
         (isTrends && display !== ChartDisplayType.ActionsAreaGraph && display !== ChartDisplayType.CalendarHeatmap) ||
-        isStickiness
+        isStickiness ||
+        isWebAnalyticsInsightQuery(querySource)
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||

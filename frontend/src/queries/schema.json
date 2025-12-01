@@ -2364,6 +2364,18 @@
                 }
             ]
         },
+        "BingAdsDefaultSources": {
+            "enum": ["bing", "microsoft"],
+            "type": "string"
+        },
+        "BingAdsTableExclusions": {
+            "enum": ["performance"],
+            "type": "string"
+        },
+        "BingAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "Breakdown": {
             "additionalProperties": false,
             "properties": {
@@ -7462,8 +7474,7 @@
             "additionalProperties": false,
             "properties": {
                 "match_field": {
-                    "enum": ["campaign_name", "campaign_id"],
-                    "type": "string"
+                    "$ref": "#/definitions/MatchField"
                 }
             },
             "required": ["match_field"],
@@ -14193,6 +14204,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "Supabase",
                 "CustomerIO",
                 "Github",
                 "Stripe",
@@ -14530,6 +14542,14 @@
                 "protocol": {
                     "description": "Protocol of the item, defaults to \"project://\"",
                     "type": "string"
+                },
+                "reason": {
+                    "$ref": "#/definitions/UserProductListReason",
+                    "description": "Reason for custom product suggestion (from UserProductList)"
+                },
+                "reasonText": {
+                    "description": "Custom reason text for custom product suggestion (from UserProductList)",
+                    "type": ["string", "null"]
                 },
                 "ref": {
                     "description": "Object's ID or other unique reference",
@@ -15464,6 +15484,29 @@
             },
             "required": ["label", "value"],
             "type": "object"
+        },
+        "GoogleAdsDefaultSources": {
+            "enum": [
+                "google",
+                "adwords",
+                "youtube",
+                "display",
+                "gmail",
+                "google_maps",
+                "google_play",
+                "google_discover",
+                "admob",
+                "waze"
+            ],
+            "type": "string"
+        },
+        "GoogleAdsTableExclusions": {
+            "enum": ["stats"],
+            "type": "string"
+        },
+        "GoogleAdsTableKeywords": {
+            "enum": ["campaign"],
+            "type": "string"
         },
         "GroupMathType": {
             "const": "unique_group",
@@ -16531,6 +16574,9 @@
                 },
                 {
                     "$ref": "#/definitions/CalendarHeatmapFilter"
+                },
+                {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             ]
         },
@@ -16542,7 +16588,8 @@
                 "pathsFilter",
                 "stickinessFilter",
                 "calendarHeatmapFilter",
-                "lifecycleFilter"
+                "lifecycleFilter",
+                "properties"
             ],
             "type": "string"
         },
@@ -16553,7 +16600,9 @@
                 "RetentionQuery",
                 "PathsQuery",
                 "StickinessQuery",
-                "LifecycleQuery"
+                "LifecycleQuery",
+                "WebStatsTableQuery",
+                "WebOverviewQuery"
             ],
             "type": "string"
         },
@@ -16579,6 +16628,12 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebStatsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebOverviewQuery"
                 }
             ],
             "required": ["kind"],
@@ -17477,6 +17532,18 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
+        "LinkedinAdsDefaultSources": {
+            "enum": ["linkedin", "li"],
+            "type": "string"
+        },
+        "LinkedinAdsTableExclusions": {
+            "enum": ["stats"],
+            "type": "string"
+        },
+        "LinkedinAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "LogEntryPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -17720,6 +17787,17 @@
         "MarketingAnalyticsAggregatedQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -17732,6 +17810,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -17753,6 +17835,10 @@
                     "$ref": "#/definitions/IntegrationFilter",
                     "description": "Filter by integration IDs"
                 },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                },
                 "kind": {
                     "const": "MarketingAnalyticsAggregatedQuery",
                     "type": "string"
@@ -17768,7 +17854,12 @@
                     "$ref": "#/definitions/MarketingAnalyticsAggregatedQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "select": {
                     "description": "Return a limited set of data. Will use default columns if empty.",
@@ -17976,6 +18067,17 @@
         "MarketingAnalyticsTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
@@ -17989,6 +18091,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -18022,6 +18128,10 @@
                     "$ref": "#/definitions/IntegrationFilter",
                     "description": "Filter by integration type"
                 },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                },
                 "kind": {
                     "const": "MarketingAnalyticsTableQuery",
                     "type": "string"
@@ -18052,7 +18162,12 @@
                     "$ref": "#/definitions/MarketingAnalyticsTableQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "select": {
                     "description": "Return a limited set of data. Will use default columns if empty.",
@@ -18138,6 +18253,559 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "MarketingIntegrationConfig": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaign",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "google",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "adwords",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "youtube",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "display",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "gmail",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "google_maps",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "google_play",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "google_discover",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "admob",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "waze",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 10,
+                            "minItems": 10,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "campaign_id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "campaign_name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "google",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "GoogleAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaign",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "linkedin",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "li",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "linkedin",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "LinkedinAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "meta",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "facebook",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "instagram",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "messenger",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "fb",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "whatsapp",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "audience_network",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "facebook_marketplace",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "threads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 9,
+                            "minItems": 9,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "meta",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "MetaAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": {
+                                "const": "tiktok",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "campaign_id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "campaign_name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "tiktok",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "TikTokAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_report",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "report",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": {
+                                "const": "reddit",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "reddit",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "RedditAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_report",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "report",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "bing",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "microsoft",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "bing",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "BingAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_performance_report",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "performance",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
+                }
+            ]
+        },
+        "MarketingIntegrationConfigType": {
+            "additionalProperties": false,
+            "properties": {
+                "campaignTableName": {
+                    "type": "string"
+                },
+                "defaultSources": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "idField": {
+                    "type": "string"
+                },
+                "nameField": {
+                    "type": "string"
+                },
+                "primarySource": {
+                    "type": "string"
+                },
+                "sourceType": {
+                    "$ref": "#/definitions/NativeMarketingSource"
+                },
+                "statsTableName": {
+                    "type": "string"
+                },
+                "tableExclusions": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tableKeywords": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "sourceType",
+                "nameField",
+                "idField",
+                "campaignTableName",
+                "statsTableName",
+                "tableKeywords",
+                "tableExclusions",
+                "defaultSources",
+                "primarySource"
+            ],
+            "type": "object"
+        },
+        "MatchField": {
+            "enum": ["campaign_name", "campaign_id"],
+            "type": "string"
         },
         "MatchedRecording": {
             "additionalProperties": false,
@@ -18903,6 +19571,28 @@
                 }
             ]
         },
+        "MetaAdsDefaultSources": {
+            "enum": [
+                "meta",
+                "facebook",
+                "instagram",
+                "messenger",
+                "fb",
+                "whatsapp",
+                "audience_network",
+                "facebook_marketplace",
+                "threads"
+            ],
+            "type": "string"
+        },
+        "MetaAdsTableExclusions": {
+            "enum": ["stats"],
+            "type": "string"
+        },
+        "MetaAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "MinimalHedgehogConfig": {
             "additionalProperties": false,
             "properties": {
@@ -18970,6 +19660,10 @@
         },
         "MultipleBreakdownType": {
             "enum": ["cohort", "person", "event", "event_metadata", "group", "session", "hogql", "revenue_analytics"],
+            "type": "string"
+        },
+        "NativeMarketingSource": {
+            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -19676,6 +20370,28 @@
                 "personal_api_key"
             ],
             "type": "object"
+        },
+        "ProductAnalyticsInsightQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/StickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                }
+            ]
         },
         "ProductIntentContext": {
             "enum": [
@@ -24558,6 +25274,18 @@
             "required": ["results", "has_next"],
             "type": "object"
         },
+        "RedditAdsDefaultSources": {
+            "enum": ["reddit"],
+            "type": "string"
+        },
+        "RedditAdsTableExclusions": {
+            "enum": ["report"],
+            "type": "string"
+        },
+        "RedditAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
+        },
         "RefreshType": {
             "enum": [
                 "async",
@@ -26549,11 +27277,6 @@
                 "start_url": {
                     "type": "string"
                 },
-                "storage": {
-                    "description": "Where this recording information was loaded from",
-                    "enum": ["object_storage_lts", "object_storage"],
-                    "type": "string"
-                },
                 "summary": {
                     "type": "string"
                 },
@@ -27852,6 +28575,9 @@
                 "id": {
                     "type": "string"
                 },
+                "isNpsQuestion": {
+                    "type": "boolean"
+                },
                 "link": {
                     "type": "string"
                 },
@@ -28244,6 +28970,18 @@
             },
             "required": ["success", "test_name"],
             "type": "object"
+        },
+        "TikTokAdsDefaultSources": {
+            "enum": ["tiktok"],
+            "type": "string"
+        },
+        "TikTokAdsTableExclusions": {
+            "enum": ["report"],
+            "type": "string"
+        },
+        "TikTokAdsTableKeywords": {
+            "enum": ["campaigns"],
+            "type": "string"
         },
         "TileFilters": {
             "additionalProperties": false,
@@ -29548,6 +30286,17 @@
         "WebExternalClicksTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -29561,6 +30310,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -29572,6 +30325,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebExternalClicksTableQuery",
@@ -29594,7 +30351,12 @@
                     "$ref": "#/definitions/WebExternalClicksTableQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "stripQueryParams": {
                     "type": "boolean"
@@ -29675,6 +30437,17 @@
         "WebGoalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -29688,6 +30461,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -29699,6 +30476,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebGoalsQuery",
@@ -29721,7 +30502,12 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -29827,6 +30613,17 @@
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -29840,6 +30637,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -29851,6 +30652,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebOverviewQuery",
@@ -29870,7 +30675,12 @@
                     "$ref": "#/definitions/WebOverviewQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -29942,6 +30752,17 @@
         "WebPageURLSearchQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -29955,6 +30776,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -29966,6 +30791,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebPageURLSearchQuery",
@@ -29988,7 +30817,12 @@
                     "$ref": "#/definitions/WebPageURLSearchQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "searchTerm": {
                     "type": "string"
@@ -30089,6 +30923,17 @@
         "WebStatsTableQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "breakdownBy": {
                     "$ref": "#/definitions/WebStatsBreakdown"
                 },
@@ -30104,6 +30949,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -30122,6 +30971,10 @@
                 },
                 "includeScrollDepth": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebStatsTableQuery",
@@ -30147,7 +31000,12 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -30266,6 +31124,17 @@
         "WebTrendsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -30278,6 +31147,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -30292,7 +31165,8 @@
                     "type": "boolean"
                 },
                 "interval": {
-                    "$ref": "#/definitions/IntervalType"
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebTrendsQuery",
@@ -30324,7 +31198,12 @@
                     "$ref": "#/definitions/WebTrendsQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -30471,6 +31350,17 @@
         "WebVitalsPathBreakdownQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -30484,6 +31374,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -30495,6 +31389,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebVitalsPathBreakdownQuery",
@@ -30520,7 +31418,12 @@
                     "$ref": "#/definitions/WebVitalsPathBreakdownQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -30632,6 +31535,17 @@
         "WebVitalsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
@@ -30645,6 +31559,10 @@
                         }
                     ]
                 },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -30656,6 +31574,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
                 },
                 "kind": {
                     "const": "WebVitalsQuery",
@@ -30675,7 +31597,12 @@
                     "$ref": "#/definitions/WebGoalsQueryResponse"
                 },
                 "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling"
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
