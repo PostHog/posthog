@@ -14,6 +14,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { isEmail } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -98,6 +99,12 @@ export function Login(): JSX.Element {
             resetLogin()
         }
     }, [isPasswordHidden, resetLogin])
+
+    useEffect(() => {
+        if (isEmail(login.email) && precheckResponse.status === 'pending' && !precheckResponseLoading) {
+            precheck({ email: login.email })
+        }
+    }, [login.email, precheckResponse.status, precheckResponseLoading, precheck])
 
     return (
         <BridgePage
