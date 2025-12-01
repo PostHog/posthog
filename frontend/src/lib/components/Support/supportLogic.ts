@@ -448,6 +448,7 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        setLastSubmittedTicketId: (ticketId: string | null) => ({ ticketId }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -462,6 +463,13 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        lastSubmittedTicketId: [
+            null as string | null,
+            {
+                setLastSubmittedTicketId: (_, { ticketId }) => ticketId,
+                openSupportForm: () => null, // Reset when opening a new form
             },
         ],
     })),
@@ -795,6 +803,7 @@ export const supportLogic = kea<supportLogicType>([
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
 
                 actions.ensureZendeskOrganization()
+                actions.setLastSubmittedTicketId(zendesk_ticket_id)
 
                 // Only close and reset the form on success
                 actions.closeSupportForm()

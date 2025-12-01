@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
@@ -190,5 +192,32 @@ export const createSuggestionGroup = (label: string, icon: JSX.Element, suggesti
         label,
         icon,
         suggestions: suggestions.map((content) => ({ content })),
+    }
+}
+
+export type FeedbackRating = 'bad' | 'okay' | 'good' | 'dismissed' | 'implicit_dismiss'
+export type FeedbackTriggerType = 'message_interval' | 'random_sample' | 'manual' | 'retry' | 'cancel'
+
+export function captureFeedback(
+    conversationId: string,
+    traceId: string | null,
+    rating: FeedbackRating,
+    triggerType: FeedbackTriggerType,
+    feedbackText?: string
+): void {
+    posthog.capture('$ai_metric', {
+        $ai_metric_name: 'feedback',
+        $ai_metric_value: rating,
+        $ai_session_id: conversationId,
+        $ai_trace_id: traceId,
+        feedback_trigger_type: triggerType,
+    })
+
+    if (feedbackText) {
+        posthog.capture('$ai_feedback', {
+            $ai_feedback_text: feedbackText,
+            $ai_session_id: conversationId,
+            $ai_trace_id: traceId,
+        })
     }
 }
