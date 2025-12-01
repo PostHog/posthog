@@ -316,9 +316,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Workflow variables',
                         searchPlaceholder: 'variable key',
                         type: TaxonomicFilterGroupType.WorkflowVariables,
-                        categoryLabel: () => 'Workflow variable',
+                        categoryLabel: () => 'Workflow variables',
                         render: HogFlowTaxonomicFilters,
-                        getPopoverHeader: () => 'Workflow variable',
+                        getPopoverHeader: () => 'Workflow variables',
                     },
                     {
                         name: 'Actions',

@@ -20539,7 +20539,8 @@
                 "error_tracking_issue",
                 "revenue_analytics",
                 "flag",
-                "log"
+                "log",
+                "workflow_variable"
             ],
             "type": "string"
         },
@@ -28714,7 +28715,8 @@
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
-                "max_ai_context"
+                "max_ai_context",
+                "workflow_variables"
             ],
             "type": "string"
         },
