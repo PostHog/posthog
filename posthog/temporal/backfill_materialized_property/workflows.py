@@ -16,9 +16,6 @@ from posthog.temporal.backfill_materialized_property.activities import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
-# workflow.logger hangs in Temporal's sandbox during tests, even with debug_mode=True
-is_test = os.environ.get("PYTEST_CURRENT_TEST") is not None
-
 
 @dataclasses.dataclass
 class BackfillMaterializedPropertyInputs:
@@ -56,6 +53,10 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BackfillMaterializedPropertyInputs) -> None:
         """Execute the backfill workflow."""
+
+        # Disable logging in tests (workflow.logger hangs in Temporal test environments)
+        is_test = os.environ.get("PYTEST_CURRENT_TEST") is not None
+
         try:
             # Wait for plugin-server TeamManager cache to refresh
             # IMPORTANT: plugin-server/src/utils/team-manager.ts has refreshAgeMs=2min + refreshJitterMs=30s
