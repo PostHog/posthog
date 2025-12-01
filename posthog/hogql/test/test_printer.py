@@ -870,7 +870,7 @@ class TestPrinter(BaseTest):
             properties={"label": "c", "is_string": "s", "is_null_and_string": "s"},
         )
 
-        def assert_expressions_are_equal(expr: str):
+        def assert_result_is_equal(expr: str):
             hogql_expr = parse_expr(expr)
 
             query = parse_select(
@@ -921,25 +921,28 @@ class TestPrinter(BaseTest):
             assert enabled_response.results == disabled_response.results
             assert optimized_response.results == disabled_response.results
 
-        assert_expressions_are_equal("properties.is_string in ('s')")
-        assert_expressions_are_equal("properties.is_string in ('not_exist')")
-        assert_expressions_are_equal("properties.is_string in ('not_exist', 's')")
-        assert_expressions_are_equal("properties.is_string in ('not_exist', 's', NULL)")
+        assert_result_is_equal("properties.is_string in ('s')")
+        assert_result_is_equal("properties.is_string in ('not_exist')")
+        assert_result_is_equal("properties.is_string in ('not_exist', 's')")
+        assert_result_is_equal("properties.is_string in ('not_exist', 's', NULL)")
+        assert_result_is_equal("properties.is_string in NULL")
 
-        assert_expressions_are_equal("properties.is_null in NULL")
-        assert_expressions_are_equal("properties.is_null in (NULL)")
-        assert_expressions_are_equal("properties.is_null in (NULL, NULL, NULL)")
-        assert_expressions_are_equal("properties.is_null in [NULL, NULL, NULL]")
-        assert_expressions_are_equal("properties.is_null in ('not_exist', 's', NULL)")
+        assert_result_is_equal("properties.is_null in NULL")
+        assert_result_is_equal("properties.is_null in (NULL)")
+        assert_result_is_equal("properties.is_null in (NULL, NULL, NULL)")
+        assert_result_is_equal("properties.is_null in [NULL, NULL, NULL]")
+        assert_result_is_equal("properties.is_null in ('not_exist', 's', NULL)")
 
-        assert_expressions_are_equal("properties.is_null_and_string in ('s')")
-        assert_expressions_are_equal("properties.is_null_and_string in (NULL)")
-        assert_expressions_are_equal("properties.is_null_and_string in ('not_exist')")
-        assert_expressions_are_equal("properties.is_null_and_string in ('not_exist', 's')")
-        assert_expressions_are_equal("properties.is_null_and_string in ('not_exist', 's', NULL)")
+        assert_result_is_equal("properties.is_null_and_string in ('s')")
+        assert_result_is_equal("properties.is_null_and_string in (NULL)")
+        assert_result_is_equal("properties.is_null_and_string in ('not_exist')")
+        assert_result_is_equal("properties.is_null_and_string in ('not_exist', 's')")
+        assert_result_is_equal("properties.is_null_and_string in ('not_exist', 's', NULL)")
 
-        assert_expressions_are_equal("properties.not_exist in (NULL)")
-        assert_expressions_are_equal("properties.not_exist in ('not_exist', NULL)")
+        assert_result_is_equal("properties.not_exist in (NULL)")
+        assert_result_is_equal("properties.not_exist in (NULL, NULL, NULL)")
+        assert_result_is_equal("properties.not_exist in [NULL, NULL, NULL]")
+        assert_result_is_equal("properties.not_exist in ('not_exist', NULL)")
 
     def test_property_groups_select_with_aliases(self):
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
