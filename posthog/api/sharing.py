@@ -9,7 +9,9 @@ from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+import structlog
 from loginas.utils import is_impersonated_session
+from prometheus_client import Counter
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -41,6 +43,13 @@ from posthog.session_recordings.session_recording_api import SessionRecordingSer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
+
+EXPORT_CACHE_MISS_COUNTER = Counter(
+    "posthog_export_cache_miss_total",
+    "Cache misses when rendering exports - indicates potential cache key mismatch between warming and render",
+)
+
+logger = structlog.get_logger(__name__)
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -699,6 +708,15 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
+
+            if isinstance(resource, ExportedAsset) and not insight_data.get("is_cached", True):
+                EXPORT_CACHE_MISS_COUNTER.inc()
+                logger.warning(
+                    "export_cache_miss",
+                    asset_id=resource.id,
+                    team_id=resource.team_id,
+                    insight_id=resource.insight_id,
+                )
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
@@ -710,6 +728,19 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
+
+            if isinstance(resource, ExportedAsset):
+                tiles = dashboard_data.get("tiles") or []
+                for tile in tiles:
+                    if not tile.get("is_cached", True):
+                        EXPORT_CACHE_MISS_COUNTER.inc()
+                        logger.warning(
+                            "export_cache_miss",
+                            asset_id=resource.id,
+                            team_id=resource.team_id,
+                            dashboard_id=resource.dashboard_id,
+                        )
+                        break
         elif (
             isinstance(resource, ExportedAsset)
             and resource.export_context
