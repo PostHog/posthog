@@ -73,11 +73,12 @@ When unsure, use this tool. Proactive task management shows attentiveness and he
 """.strip()
 
 TODO_WRITE_EXAMPLE_PROMPT = """
+<example>
 {{{example}}}
-{{#reasoning}}
-
+<reasoning>
 {{{reasoning}}}
-{{/reasoning}}
+</reasoning>
+</example>
 """.strip()
 
 
