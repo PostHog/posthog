@@ -11,7 +11,9 @@ The summaries and embeddings serve as inputs for clustering and semantic search.
 """
 
 import asyncio
+from collections.abc import Coroutine
 from datetime import timedelta
+from typing import Any
 
 import structlog
 import temporalio
@@ -142,7 +144,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
 
         # Process traces in batches
         semaphore = asyncio.Semaphore(inputs.batch_size)
-        tasks: list[asyncio.Task[SummarizationActivityResult]] = [
+        tasks: list[Coroutine[Any, Any, SummarizationActivityResult]] = [
             self._process_trace(
                 semaphore=semaphore,
                 trace_id=trace_id,

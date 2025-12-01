@@ -49,8 +49,8 @@ class SummarizationActivityResult:
 
     trace_id: str
     success: bool
-    text_repr_length: int
-    event_count: int
+    text_repr_length: int = 0
+    event_count: int = 0
     skipped: bool = False
     skip_reason: str | None = None
 
