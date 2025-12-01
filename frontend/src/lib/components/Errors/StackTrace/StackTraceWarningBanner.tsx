@@ -1,6 +1,6 @@
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { ExceptionAttributes } from './types'
+import { ExceptionAttributes } from '../types'
 
 function isScriptError(exceptionAttributes: ExceptionAttributes): boolean {
     return (

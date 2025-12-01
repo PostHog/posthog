@@ -18,8 +18,8 @@ import {
 } from 'lib/components/Errors/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { stackFrameLogic } from './Frame/stackFrameLogic'
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
-import { stackFrameLogic } from './stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties

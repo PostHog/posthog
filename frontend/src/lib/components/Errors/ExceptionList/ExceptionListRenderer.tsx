@@ -2,17 +2,17 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ErrorTrackingExceptionList } from '../types'
 
-type ExceptionListDisplayProps = {
+type ExceptionListRendererProps = {
     className?: string
     exceptionList: ErrorTrackingExceptionList
     renderException: (exception: ErrorTrackingExceptionList[number]) => React.ReactNode
 }
 
-export function ExceptionListDisplay({
+export function ExceptionListRenderer({
     className,
     exceptionList,
     renderException,
-}: ExceptionListDisplayProps): JSX.Element {
+}: ExceptionListRendererProps): JSX.Element {
     return (
         <div className={cn('space-y-2 mb-2', className)}>
             {exceptionList.map((exception) => (

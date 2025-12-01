@@ -2,15 +2,15 @@ import { useValues } from 'kea'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { ExceptionDisplay } from './Exception/ExceptionDisplay'
-import { ExceptionHeader } from './Exception/ExceptionHeader'
-import { ExceptionListDisplay } from './ExceptionList/ExceptionListDisplay'
-import { CollapsibleFrame } from './Frame/CollapsibleFrame'
-import { EmptyStacktraceDisplay } from './StackTrace/EmptyStackTraceDisplay'
-import { ResolvedStackTraceDisplay } from './StackTrace/ResolvedStackTraceDisplay'
-import { errorPropertiesLogic } from './errorPropertiesLogic'
-import { ErrorTrackingStackFrame } from './types'
-import { createFrameFilter } from './utils'
+import { CollapsibleExceptionHeader } from '../Exception/CollapsibleExceptionHeader'
+import { ExceptionRenderer } from '../Exception/ExceptionRenderer'
+import { CollapsibleFrame } from '../Frame/CollapsibleFrame'
+import { EmptyStackTrace } from '../StackTrace/EmptyStackTrace'
+import { StackTraceRenderer } from '../StackTrace/StackTraceRenderer'
+import { errorPropertiesLogic } from '../errorPropertiesLogic'
+import { ErrorTrackingStackFrame } from '../types'
+import { createFrameFilter } from '../utils'
+import { ExceptionListRenderer } from './ExceptionListRenderer'
 
 export function CollapsibleExceptionList({
     showAllFrames,
@@ -38,16 +38,16 @@ export function CollapsibleExceptionList({
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>
-            <ExceptionListDisplay
+            <ExceptionListRenderer
                 exceptionList={exceptionList}
                 renderException={(exception) => {
                     const part = getExceptionFingerprint(exception.id)
                     return (
-                        <ExceptionDisplay
+                        <ExceptionRenderer
                             exception={exception}
                             frameFilter={createFrameFilter(showAllFrames)}
                             renderExceptionHeader={(exception) => (
-                                <ExceptionHeader
+                                <CollapsibleExceptionHeader
                                     exception={exception}
                                     loading={false}
                                     fingerprint={part}
@@ -59,7 +59,7 @@ export function CollapsibleExceptionList({
                                 return null
                             }}
                             renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (
-                                <ResolvedStackTraceDisplay
+                                <StackTraceRenderer
                                     frames={frames}
                                     className="border-1 rounded overflow-hidden divide-y divide-solid"
                                     stackFrameRecords={stackFrameRecords}
@@ -72,7 +72,7 @@ export function CollapsibleExceptionList({
                                     )}
                                 />
                             )}
-                            renderEmptyTrace={(exception) => <EmptyStacktraceDisplay exception={exception} />}
+                            renderEmptyTrace={(exception) => <EmptyStackTrace exception={exception} />}
                         />
                     )
                 }}

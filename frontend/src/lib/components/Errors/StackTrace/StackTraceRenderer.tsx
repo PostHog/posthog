@@ -1,9 +1,9 @@
 import { cn } from 'lib/utils/css-classes'
 
-import { KeyedStackFrameRecords } from '../stackFrameLogic'
+import { KeyedStackFrameRecords } from '../Frame/stackFrameLogic'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
 
-export interface ResolvedStackTraceDisplayProps {
+export interface StackTraceRendererProps {
     className?: string
     embedded?: boolean
     frames: ErrorTrackingStackFrame[]
@@ -12,12 +12,12 @@ export interface ResolvedStackTraceDisplayProps {
     onFrameExpanded?: () => void
 }
 
-export function ResolvedStackTraceDisplay({
+export function StackTraceRenderer({
     frames,
     stackFrameRecords,
     renderFrame,
     className,
-}: ResolvedStackTraceDisplayProps): JSX.Element {
+}: StackTraceRendererProps): JSX.Element {
     return (
         <div className={cn('overflow-hidden', className)}>
             {frames.map((frame: ErrorTrackingStackFrame, idx) => (

@@ -2,14 +2,14 @@ import { useValues } from 'kea'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { ExceptionDisplay } from './Exception/ExceptionDisplay'
-import { ExceptionListDisplay } from './ExceptionList/ExceptionListDisplay'
-import { RawFrame } from './Frame/RawFrame'
-import { EmptyStacktraceDisplay } from './StackTrace/EmptyStackTraceDisplay'
-import { ResolvedStackTraceDisplay } from './StackTrace/ResolvedStackTraceDisplay'
-import { errorPropertiesLogic } from './errorPropertiesLogic'
-import { ErrorTrackingStackFrame } from './types'
-import { createFrameFilter, formatExceptionDisplay } from './utils'
+import { ExceptionRenderer } from '../Exception/ExceptionRenderer'
+import { RawFrame } from '../Frame/RawFrame'
+import { EmptyStackTrace } from '../StackTrace/EmptyStackTrace'
+import { StackTraceRenderer } from '../StackTrace/StackTraceRenderer'
+import { errorPropertiesLogic } from '../errorPropertiesLogic'
+import { ErrorTrackingStackFrame } from '../types'
+import { createFrameFilter, formatExceptionDisplay } from '../utils'
+import { ExceptionListRenderer } from './ExceptionListRenderer'
 
 export function RawExceptionList({
     showAllFrames,
@@ -24,11 +24,11 @@ export function RawExceptionList({
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>
-            <ExceptionListDisplay
+            <ExceptionListRenderer
                 exceptionList={exceptionList}
                 renderException={(exception) => {
                     return (
-                        <ExceptionDisplay
+                        <ExceptionRenderer
                             exception={exception}
                             frameFilter={createFrameFilter(showAllFrames)}
                             renderExceptionHeader={(exception) => (
@@ -41,13 +41,13 @@ export function RawExceptionList({
                                 return null
                             }}
                             renderResolvedTrace={(frames: ErrorTrackingStackFrame[]) => (
-                                <ResolvedStackTraceDisplay
+                                <StackTraceRenderer
                                     frames={frames}
                                     stackFrameRecords={stackFrameRecords}
                                     renderFrame={(frame, record) => <RawFrame frame={frame} record={record} />}
                                 />
                             )}
-                            renderEmptyTrace={(exception) => <EmptyStacktraceDisplay exception={exception} />}
+                            renderEmptyTrace={(exception) => <EmptyStackTrace exception={exception} />}
                         />
                     )
                 }}

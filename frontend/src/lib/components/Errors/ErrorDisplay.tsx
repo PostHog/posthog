@@ -9,7 +9,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { CollapsibleExceptionList } from './CollapsibleExceptionList'
+import { CollapsibleExceptionList } from './ExceptionList/CollapsibleExceptionList'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ErrorEventId, ErrorEventProperties, ErrorEventType } from './types'
 import { concatValues } from './utils'

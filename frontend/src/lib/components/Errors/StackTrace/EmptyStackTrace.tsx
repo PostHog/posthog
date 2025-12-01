@@ -5,7 +5,7 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { ErrorTrackingException } from '../types'
 import { KnownExceptionRegistry } from './known-exceptions'
 
-export function EmptyStacktraceDisplay({ exception }: { exception: ErrorTrackingException }): JSX.Element {
+export function EmptyStackTrace({ exception }: { exception: ErrorTrackingException }): JSX.Element {
     const knownIssue = useMemo(() => KnownExceptionRegistry.match(exception), [exception])
     if (knownIssue) {
         return knownIssue.render(exception)

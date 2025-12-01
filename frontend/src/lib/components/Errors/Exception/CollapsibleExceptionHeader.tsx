@@ -10,7 +10,7 @@ import { FingerprintRecordPartDisplay } from '../FingerprintRecordPartDisplay'
 import { ErrorTrackingException, ErrorTrackingRuntime, FingerprintRecordPart } from '../types'
 import { formatType } from '../utils'
 
-export type ExceptionHeaderProps = {
+export type CollapsibleExceptionHeaderProps = {
     exception: ErrorTrackingException
     runtime?: ErrorTrackingRuntime
     loading?: boolean
@@ -19,13 +19,13 @@ export type ExceptionHeaderProps = {
     truncate?: boolean
 }
 
-export function ExceptionHeader({
+export function CollapsibleExceptionHeader({
     exception,
     runtime,
     part,
     loading,
     truncate = true,
-}: ExceptionHeaderProps): JSX.Element {
+}: CollapsibleExceptionHeaderProps): JSX.Element {
     const type = useMemo(() => formatType(exception), [exception])
     const { value } = exception
 

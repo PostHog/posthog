@@ -4,7 +4,7 @@ import { ErrorTrackingException, ErrorTrackingStackFrame } from '../types'
 
 type StackTraceRenderer = (frames: ErrorTrackingStackFrame[], exception: ErrorTrackingException) => React.ReactNode
 
-export type ExceptionDisplayProps = {
+export type ExceptionRendererProps = {
     className?: string
     exception: ErrorTrackingException
     frameFilter?: (frame: ErrorTrackingStackFrame) => boolean
@@ -15,7 +15,7 @@ export type ExceptionDisplayProps = {
     renderFilteredTrace: (exception: ErrorTrackingException) => React.ReactNode
 }
 
-export function ExceptionDisplay({
+export function ExceptionRenderer({
     className,
     exception,
     frameFilter,
@@ -23,11 +23,11 @@ export function ExceptionDisplay({
     renderEmptyTrace,
     renderResolvedTrace,
     renderFilteredTrace,
-}: ExceptionDisplayProps): JSX.Element {
+}: ExceptionRendererProps): JSX.Element {
     return (
         <div className={className}>
-            <div className="exception-header">{renderExceptionHeader(exception)}</div>
-            <div className="exception-stacktrace">
+            <div>{renderExceptionHeader(exception)}</div>
+            <div>
                 {match(exception.stacktrace)
                     .when(
                         (stack) => stack === null || stack === undefined || stack.frames.length === 0,
