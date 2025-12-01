@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useCallback } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonMenu, LemonMenuItems, Popover, Spinner } from '@posthog/lemon-ui'
@@ -15,7 +14,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { ActivityScope, SidePanelTab } from '~/types'
 
 import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
-import { SUPPORTED_LANGUAGES, messageActionsMenuLogic } from './messageActionsMenuLogic'
+import { MAX_TRANSLATE_LENGTH, SUPPORTED_LANGUAGES, messageActionsMenuLogic } from './messageActionsMenuLogic'
 
 export interface MessageActionsMenuProps {
     content: string
@@ -29,8 +28,8 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
         scope: ActivityScope.LLM_TRACE,
         item_id: traceId,
     }
-    const commentsLogicInstance = commentsLogic(commentsLogicProps)
-    const { maybeLoadComments } = useActions(commentsLogicInstance)
+    const { richContentEditor } = useValues(commentsLogic(commentsLogicProps))
+    const { maybeLoadComments } = useActions(commentsLogic(commentsLogicProps))
 
     const logic = messageActionsMenuLogic({ content })
     const {
@@ -46,22 +45,18 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
     } = useValues(logic)
     const { setShowTranslatePopover, setShowConsentPopover, setTargetLanguage, translate } = useActions(logic)
 
-    const insertQuoteIntoEditor = useCallback(
-        (quotedContent: string, retries = 0): void => {
-            const editor = commentsLogicInstance.values.richContentEditor
-            if (editor) {
-                editor.clear()
-                editor.pasteContent(0, quotedContent + '\n\n')
-                editor.focus('end')
-            } else if (retries < 10) {
-                setTimeout(() => insertQuoteIntoEditor(quotedContent, retries + 1), 100)
-            }
-        },
-        [commentsLogicInstance]
-    )
-
     if (!content || content.trim().length === 0) {
         return null
+    }
+
+    const insertQuoteIntoEditor = (quotedContent: string, retries = 0): void => {
+        if (richContentEditor) {
+            richContentEditor.clear()
+            richContentEditor.pasteContent(0, quotedContent + '\n\n')
+            richContentEditor.focus('end')
+        } else if (retries < 10) {
+            setTimeout(() => insertQuoteIntoEditor(quotedContent, retries + 1), 100)
+        }
     }
 
     const handleStartDiscussion = (): void => {
@@ -154,7 +149,8 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
                         <div className="border-t pt-3">
                             {isTooLong ? (
                                 <div className="text-xs text-warning mb-2">
-                                    Message truncated to {(10000).toLocaleString()} characters for translation
+                                    Message truncated to {MAX_TRANSLATE_LENGTH.toLocaleString()} characters for
+                                    translation
                                 </div>
                             ) : null}
                             <div className="flex items-center gap-2 mb-3">

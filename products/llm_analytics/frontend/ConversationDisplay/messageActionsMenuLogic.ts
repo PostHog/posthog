@@ -7,7 +7,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import type { messageActionsMenuLogicType } from './messageActionsMenuLogicType'
 
 const STORAGE_KEY = 'posthog-translate-language'
-const MAX_TRANSLATE_LENGTH = 10000
+export const MAX_TRANSLATE_LENGTH = 10000
 
 export const SUPPORTED_LANGUAGES = [
     { value: 'en', label: 'English' },
@@ -53,7 +53,7 @@ export interface MessageActionsMenuLogicProps {
 export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'ConversationDisplay', 'messageActionsMenuLogic']),
     props({} as MessageActionsMenuLogicProps),
-    key((props) => props.content.slice(0, 100)),
+    key((props) => `${props.content.slice(0, 100)}_${props.content.length}`),
     actions({
         setShowTranslatePopover: (show: boolean) => ({ show }),
         setShowConsentPopover: (show: boolean) => ({ show }),

@@ -119,3 +119,15 @@ class TestTranslateText:
 
         with pytest.raises(Exception, match="API Error"):
             translate_text("Test", "es")
+
+    @patch("openai.OpenAI")
+    @patch("products.llm_analytics.backend.translation.llm.settings")
+    def test_creates_client_with_timeout(self, mock_settings, mock_openai_class):
+        mock_settings.OPENAI_API_KEY = "test-key"
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
+        mock_openai_class.return_value.chat.completions.create.return_value = mock_response
+
+        translate_text("Test", "es")
+
+        mock_openai_class.assert_called_once_with(api_key="test-key", timeout=30.0)

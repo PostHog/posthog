@@ -22,7 +22,7 @@ def translate_text(text: str, target_language: str) -> str:
     """
     import openai
 
-    client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+    client = openai.OpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0)
 
     target_name = SUPPORTED_LANGUAGES.get(target_language, target_language)
 
