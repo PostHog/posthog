@@ -51,23 +51,18 @@ class DagMismatchTest(BaseTest):
     @parameterized.expand(
         [
             # create edge from A to B DAG should fail regardless of dag id
-            ("a1", "b", A_DAG_ID, "create"),
-            ("a2", "b", A_DAG_ID, "create"),
-            ("a1", "b", B_DAG_ID, "create"),
-            ("a2", "b", B_DAG_ID, "create"),
-            # update edge from A to B DAG should fail regardless of dag id
-            ("a1", "b", A_DAG_ID, "update"),
-            ("a1", "b", B_DAG_ID, "update"),
+            ("a1", "b", A_DAG_ID),
+            ("a2", "b", A_DAG_ID),
+            ("a1", "b", B_DAG_ID),
+            ("a2", "b", B_DAG_ID),
             # create edge from A to A DAG should fail if edge belongs to DAG B
-            ("a1", "a3", B_DAG_ID, "create"),
+            ("a1", "a3", B_DAG_ID),
         ],
     )
-    def test_dag_mismatch(self, source_label, target_label, dag_id, mode):
+    def test_dag_mismatch(self, source_label, target_label, dag_id):
+        # note that we don't have to test update() calls because we have it disabled
+        # to force edges to only be created or updated (when key fields are involved)
         source = Node.objects.get(name=source_label)
         target = Node.objects.get(name=target_label)
         with self.assertRaises(DAGMismatchError):
-            if mode == "create":
-                Edge.objects.create(team=source.team, dag_id=dag_id, source=source, target=target)
-            elif mode == "update":
-                original_target = Node.objects.get(name="a2")
-                Edge.objects.filter(team=source.team, source=source, target=original_target).update(target=target)
+            Edge.objects.create(team=source.team, dag_id=dag_id, source=source, target=target)
