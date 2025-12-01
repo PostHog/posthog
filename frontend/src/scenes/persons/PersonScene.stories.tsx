@@ -77,7 +77,6 @@ const meta: Meta = {
                                         created_at: '2025-05-08T22:53:38.784000Z',
                                         uuid: 'carrot-1234-parsnip-5678',
                                     },
-                                    storage: 'object_storage',
                                     snapshot_source: 'web',
                                     ongoing: false,
                                     activity_score: 11.62,
