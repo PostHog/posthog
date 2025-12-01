@@ -1026,11 +1026,13 @@ function DisplayOptionsSelect(): JSX.Element {
             value: DisplayOption.ExpandAll,
             label: 'Expand all',
             tooltip: 'Show all messages and full conversation history',
+            'data-attr': 'llma-trace-display-expand-all',
         },
         {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
             tooltip: 'Focus on the most recent input and final output',
+            'data-attr': 'llma-trace-display-expand-last',
         },
         ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
@@ -1039,16 +1041,11 @@ function DisplayOptionsSelect(): JSX.Element {
                       value: DisplayOption.TextView,
                       label: 'Text view',
                       tooltip: 'Simple human readable text view, for humans',
+                      'data-attr': 'llma-trace-display-text-view',
                   },
               ]
             : []),
     ]
-
-    const dataAttrMap: Record<DisplayOption, string> = {
-        [DisplayOption.ExpandAll]: 'llma-expand-all-selected',
-        [DisplayOption.CollapseExceptOutputAndLastInput]: 'llma-expand-last-selected',
-        [DisplayOption.TextView]: 'llma-text-view-selected',
-    }
 
     return (
         <LemonSelect
@@ -1057,7 +1054,6 @@ function DisplayOptionsSelect(): JSX.Element {
             onChange={setDisplayOption}
             options={displayOptions}
             tooltip="Configure how generation conversation messages are displayed"
-            data-attr={dataAttrMap[displayOption]}
         />
     )
 }
