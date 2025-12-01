@@ -249,6 +249,7 @@ class EventViewSet(
             next_url: Optional[str] = None
             if not is_csv_request and len(query_result) > limit:
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
+            headers = None
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
                 headers = {"X-PostHog-Notif": "https://posthog.com/docs/events_list-upcoming-changes"}
             return response.Response({"next": next_url, "results": result}, headers=headers)
