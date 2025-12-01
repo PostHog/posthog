@@ -9,8 +9,6 @@ import {
     LemonSegmentedButton,
     LemonSelect,
     LemonTable,
-    LemonTag,
-    LemonTagType,
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -35,6 +33,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LogMessage, ProductKey } from '~/queries/schema/schema-general'
 import { PropertyOperator } from '~/types'
 
+import { LogTag } from 'products/logs/frontend/components/LogTag'
 import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
 
@@ -106,7 +105,7 @@ export function LogsScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="h-full">
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 description={sceneConfigurations[Scene.Logs].description}
@@ -430,21 +429,6 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
             }}
         />
     )
-}
-
-const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element => {
-    const type =
-        (
-            {
-                debug: 'muted',
-                info: 'default',
-                warn: 'warning',
-                error: 'danger',
-                fatal: 'danger',
-            } as Record<LogMessage['severity_text'], LemonTagType>
-        )[level] ?? 'muted'
-
-    return <LemonTag type={type}>{level}</LemonTag>
 }
 
 const Filters = (): JSX.Element => {
