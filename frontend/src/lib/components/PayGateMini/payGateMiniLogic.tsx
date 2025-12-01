@@ -1,8 +1,5 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -10,13 +7,6 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import type { payGateMiniLogicType } from './payGateMiniLogicType'
-
-// Feature flag payload for PLATFORM_PAYGATE_CTA
-interface PaygateCtaFlagPayload {
-    freeUsersCTA?: string
-    trialEligibleCTA?: string
-    trialUsedCTA?: string
-}
 
 export interface PayGateMiniLogicProps {
     feature: AvailableFeature
@@ -37,8 +27,6 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             ['user', 'hasAvailableFeature', 'availableFeature'],
             preflightLogic,
             ['isCloudOrDev'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [],
     })),
@@ -131,12 +119,6 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (s) => [s.nextPlanWithFeature],
             (nextPlanWithFeature) => nextPlanWithFeature?.features.find((f) => f.key === props.feature),
         ],
-        isTrialEligible: [
-            (s) => [s.productWithFeature, s.billing],
-            (productWithFeature, billing) => {
-                return !billing?.trial && !!productWithFeature?.trial
-            },
-        ],
         gateVariant: [
             (s) => [
                 s.billingLoading,
@@ -184,35 +166,19 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         ctaLabel: [
-            (s) => [s.gateVariant, s.billing, s.isTrialEligible, s.featureFlags],
-            (gateVariant, billing, isTrialEligible, featureFlags) => {
+            (s) => [s.gateVariant, s.isAddonProduct, s.isPaymentEntryFlow],
+            (gateVariant, isAddonProduct, isPaymentEntryFlow) => {
                 if (gateVariant === 'contact-sales') {
                     return 'Contact sales'
                 }
                 if (gateVariant === 'move-to-cloud') {
                     return 'Move to PostHog Cloud'
                 }
-
-                // Trigger $feature_flag_called for analytics
-                void featureFlags[FEATURE_FLAGS.PLATFORM_PAYGATE_CTA]
-
-                const isPaidOrg = billing?.subscription_level !== 'free'
-                const payload = posthog.getFeatureFlagPayload(FEATURE_FLAGS.PLATFORM_PAYGATE_CTA) as
-                    | PaygateCtaFlagPayload
-                    | undefined
-
-                if (!isPaidOrg && payload?.freeUsersCTA) {
-                    return payload.freeUsersCTA
-                }
-                if (isTrialEligible && payload?.trialEligibleCTA) {
-                    return payload.trialEligibleCTA
-                }
-                if (!isTrialEligible && payload?.trialUsedCTA) {
-                    return payload.trialUsedCTA
-                }
-
-                if (gateVariant === 'add-card') {
+                if (isPaymentEntryFlow) {
                     return 'Upgrade now'
+                }
+                if (gateVariant === 'add-card' && isAddonProduct) {
+                    return 'View plans'
                 }
                 return 'Upgrade now'
             },
