@@ -11,6 +11,7 @@ from products.tasks.backend.temporal.process_task.activities.clone_repository im
     CloneRepositoryInput,
     clone_repository,
 )
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.setup_repository import (
     SetupRepositoryInput,
     setup_repository,
@@ -22,6 +23,16 @@ from products.tasks.backend.temporal.process_task.activities.setup_repository im
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
 class TestSetupRepositoryActivity:
+    def _create_context(self, github_integration, repository) -> TaskProcessingContext:
+        return TaskProcessingContext(
+            task_id="test-task-123",
+            run_id="test-run-456",
+            team_id=github_integration.team_id,
+            github_integration_id=github_integration.id,
+            repository=repository,
+            distinct_id="test-user-id",
+        )
+
     @pytest.mark.django_db
     def test_setup_repository_success(self, activity_environment, github_integration):
         config = SandboxConfig(
@@ -32,15 +43,9 @@ class TestSetupRepositoryActivity:
         sandbox = None
         try:
             sandbox = Sandbox.create(config)
+            context = self._create_context(github_integration, "posthog/posthog-js")
 
-            clone_input = CloneRepositoryInput(
-                sandbox_id=sandbox.id,
-                repository="posthog/posthog-js",
-                github_integration_id=github_integration.id,
-                task_id="test-task-123",
-                run_id="test-run-456",
-                distinct_id="test-user-id",
-            )
+            clone_input = CloneRepositoryInput(context=context, sandbox_id=sandbox.id)
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
@@ -59,12 +64,7 @@ class TestSetupRepositoryActivity:
                     "git commit -m 'test setup'"
                 )
 
-                setup_input = SetupRepositoryInput(
-                    sandbox_id=sandbox.id,
-                    repository="posthog/posthog-js",
-                    task_id="test-task-123",
-                    distinct_id="test-user-id",
-                )
+                setup_input = SetupRepositoryInput(context=context, sandbox_id=sandbox.id)
 
                 result = async_to_sync(activity_environment.run)(setup_repository, setup_input)
 
@@ -78,7 +78,7 @@ class TestSetupRepositoryActivity:
                 sandbox.destroy()
 
     @pytest.mark.django_db
-    def test_setup_repository_without_clone(self, activity_environment):
+    def test_setup_repository_without_clone(self, activity_environment, github_integration):
         config = SandboxConfig(
             name="test-setup-no-clone",
             template=SandboxTemplate.DEFAULT_BASE,
@@ -87,13 +87,8 @@ class TestSetupRepositoryActivity:
         sandbox = None
         try:
             sandbox = Sandbox.create(config)
-
-            setup_input = SetupRepositoryInput(
-                sandbox_id=sandbox.id,
-                repository="posthog/posthog-js",
-                task_id="test-task-no-clone",
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(github_integration, "posthog/posthog-js")
+            setup_input = SetupRepositoryInput(context=context, sandbox_id=sandbox.id)
 
             with pytest.raises(RetryableRepositorySetupError):
                 async_to_sync(activity_environment.run)(setup_repository, setup_input)
@@ -102,13 +97,9 @@ class TestSetupRepositoryActivity:
                 sandbox.destroy()
 
     @pytest.mark.django_db
-    def test_setup_repository_sandbox_not_found(self, activity_environment):
-        setup_input = SetupRepositoryInput(
-            sandbox_id="non-existent-sandbox-id",
-            repository="posthog/posthog-js",
-            task_id="test-task-not-found",
-            distinct_id="test-user-id",
-        )
+    def test_setup_repository_sandbox_not_found(self, activity_environment, github_integration):
+        context = self._create_context(github_integration, "posthog/posthog-js")
+        setup_input = SetupRepositoryInput(context=context, sandbox_id="non-existent-sandbox-id")
 
         with pytest.raises(SandboxNotFoundError):
             async_to_sync(activity_environment.run)(setup_repository, setup_input)
@@ -123,15 +114,9 @@ class TestSetupRepositoryActivity:
         sandbox = None
         try:
             sandbox = Sandbox.create(config)
+            context = self._create_context(github_integration, "posthog/posthog-js")
 
-            clone_input = CloneRepositoryInput(
-                sandbox_id=sandbox.id,
-                repository="posthog/posthog-js",
-                github_integration_id=github_integration.id,
-                task_id="test-task-uncommitted",
-                run_id="test-run-uncommitted",
-                distinct_id="test-user-id",
-            )
+            clone_input = CloneRepositoryInput(context=context, sandbox_id=sandbox.id)
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
@@ -144,12 +129,7 @@ class TestSetupRepositoryActivity:
             ) as mock_setup_cmd:
                 mock_setup_cmd.return_value = "pnpm install && echo 'test' > uncommitted_file.txt"
 
-                setup_input = SetupRepositoryInput(
-                    sandbox_id=sandbox.id,
-                    repository="posthog/posthog-js",
-                    task_id="test-task-uncommitted",
-                    distinct_id="test-user-id",
-                )
+                setup_input = SetupRepositoryInput(context=context, sandbox_id=sandbox.id)
 
                 with pytest.raises(RetryableRepositorySetupError) as exc_info:
                     async_to_sync(activity_environment.run)(setup_repository, setup_input)
