@@ -266,11 +266,10 @@ export class MyMCP extends McpAgent<Env> {
 
 const responseHandler = async (response: Response): Promise<Response> => {
     if (!response.ok) {
-        const body = await response.text()
+        const body = await response.clone().text()
         if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
             return new Response('OAuth token is inactive', { status: 401 })
         }
-        return new Response(body, response)
     }
 
     return response

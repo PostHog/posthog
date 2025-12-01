@@ -50,7 +50,7 @@ export class StateManager {
         const { scope, scoped_teams, scoped_organizations } = introspectionResult.data
 
         return {
-            scopes: scope.split(' '),
+            scopes: scope ? scope.split(' ') : [],
             scoped_teams,
             scoped_organizations,
         }
