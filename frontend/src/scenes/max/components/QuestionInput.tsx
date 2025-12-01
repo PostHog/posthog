@@ -21,7 +21,6 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
-import { ModeSelector } from './ModeSelector'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { ToolsDisplay } from './ToolsDisplay'
 
@@ -156,58 +155,61 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 disabled={inputDisabled}
                                 minRows={1}
                                 maxRows={10}
-                                className="!border-none !bg-transparent min-h-0 py-2 px-2 resize-none"
+                                className="!border-none !bg-transparent min-h-0 py-2 pl-2 pr-12"
                                 autoFocus="true-without-pulse"
                             />
                         </SlashCommandAutocomplete>
-                        {!isSharedThread && (
-                            <div className="flex items-center justify-between gap-2 px-2 pb-2">
-                                {featureFlags[FEATURE_FLAGS.AGENT_MODES] && <ModeSelector />}
-                                <AIConsentPopoverWrapper
-                                    placement="bottom-end"
-                                    showArrow
-                                    onApprove={() => askMax(pendingPrompt || question)}
-                                    onDismiss={() => completeThreadGeneration()}
-                                    middleware={[
-                                        offset((state) => ({
-                                            mainAxis: state.placement.includes('top') ? 30 : 1,
-                                        })),
-                                    ]}
-                                    hidden={!threadLoading}
-                                >
-                                    <LemonButton
-                                        type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
-                                        onClick={() => {
-                                            if (threadLoading) {
-                                                stopGeneration()
-                                            } else {
-                                                askMax(question)
-                                            }
-                                        }}
-                                        tooltip={
-                                            threadLoading ? (
-                                                "Let's bail"
-                                            ) : (
-                                                <>
-                                                    Let's go! <KeyboardShortcut enter />
-                                                </>
-                                            )
-                                        }
-                                        loading={threadLoading && !dataProcessingAccepted}
-                                        disabledReason={disabledReason}
-                                        size="xsmall"
-                                        icon={
-                                            threadLoading ? (
-                                                <IconStopFilled />
-                                            ) : (
-                                                MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
-                                                    ?.icon || <IconArrowRight />
-                                            )
-                                        }
-                                    />
-                                </AIConsentPopoverWrapper>
-                            </div>
+                    </div>
+                    <div
+                        className={clsx(
+                            'absolute flex items-center',
+                            isSharedThread && 'hidden',
+                            isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
+                    >
+                        <AIConsentPopoverWrapper
+                            placement="bottom-end"
+                            showArrow
+                            onApprove={() => askMax(pendingPrompt || question)}
+                            onDismiss={() => completeThreadGeneration()}
+                            middleware={[
+                                offset((state) => ({
+                                    mainAxis: state.placement.includes('top') ? 30 : 1,
+                                })),
+                            ]}
+                            hidden={!threadLoading}
+                        >
+                            <LemonButton
+                                type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
+                                onClick={() => {
+                                    if (threadLoading) {
+                                        stopGeneration()
+                                    } else {
+                                        askMax(question)
+                                    }
+                                }}
+                                tooltip={
+                                    threadLoading ? (
+                                        "Let's bail"
+                                    ) : (
+                                        <>
+                                            Let's go! <KeyboardShortcut enter />
+                                        </>
+                                    )
+                                }
+                                loading={threadLoading && !dataProcessingAccepted}
+                                disabledReason={disabledReason}
+                                size="small"
+                                icon={
+                                    threadLoading ? (
+                                        <IconStopFilled />
+                                    ) : (
+                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                            ?.icon || <IconArrowRight />
+                                    )
+                                }
+                            />
+                        </AIConsentPopoverWrapper>
                     </div>
                 </div>
                 {!isSharedThread && !featureFlags[FEATURE_FLAGS.AGENT_MODES] && (

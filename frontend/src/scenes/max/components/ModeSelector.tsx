@@ -163,7 +163,11 @@ const MODE_OPTIONS: LemonSelectSection<ModeValue>[] = [
     },
 ]
 
-export function ModeSelector(): JSX.Element {
+interface ModeSelectorProps {
+    size?: 'xsmall' | 'xxsmall'
+}
+
+export function ModeSelector({ size = 'xsmall' }: ModeSelectorProps): JSX.Element {
     const { agentMode, threadLoading, deepResearchMode } = useValues(maxThreadLogic)
     const { setAgentMode, setDeepResearchMode } = useActions(maxThreadLogic)
 
@@ -184,7 +188,7 @@ export function ModeSelector(): JSX.Element {
             value={currentValue}
             onChange={handleChange}
             options={MODE_OPTIONS}
-            size="xsmall"
+            size={size}
             type="tertiary"
             tooltip={buildGeneralTooltip(
                 'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
@@ -193,7 +197,7 @@ export function ModeSelector(): JSX.Element {
             disabledReason={threadLoading ? 'Loading...' : undefined}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}
-            className="rounded-full px-1 h-7 min-h-0 border border-primary"
+            className="flex-shrink-0 border"
         />
     )
 }

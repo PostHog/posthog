@@ -7,8 +7,11 @@ import { IconAtSign, IconDashboard, IconGraph, IconPageChart, IconWarning } from
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { ModeSelector } from './components/ModeSelector'
 import { maxContextLogic } from './maxContextLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
@@ -294,6 +297,7 @@ interface ContextDisplayProps {
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { deepResearchMode, showContextUI } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
@@ -308,6 +312,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
     return (
         <div className="px-2 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
+                {featureFlags[FEATURE_FLAGS.AGENT_MODES] && <ModeSelector size="xxsmall" />}
                 {deepResearchMode ? (
                     <LemonButton
                         size="xxsmall"
