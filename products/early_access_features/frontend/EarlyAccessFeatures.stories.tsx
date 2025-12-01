@@ -4,7 +4,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { EarlyAccessFeatureType, FeatureFlagBucketingIdentifier } from '~/types'
+import { EarlyAccessFeatureType } from '~/types'
 
 const EARLY_ACCESS_FEATURE_RESULT = [
     {
@@ -50,7 +50,7 @@ const EARLY_ACCESS_FEATURE_RESULT = [
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
-            bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,        },
+        },
         name: 'dddd',
         description: 'dedd',
         stage: 'alpha',
@@ -96,7 +96,7 @@ const EARLY_ACCESS_FEATURE_RESULT = [
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
-            bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,        },
+        },
         name: 'ello',
         description: '',
         stage: 'alpha',

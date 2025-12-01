@@ -35,8 +35,7 @@
         },
         "deleted": false,
         "active": true,
-        "ensure_experience_continuity": false,
-        "bucketing_identifier": "distinct_id"
+        "ensure_experience_continuity": false
     },
     "holdout": null,
     "holdout_id": null,

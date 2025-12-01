@@ -2,13 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import {
-    AccessControlLevel,
-    FeatureFlagBucketingIdentifier,
-    FeatureFlagEvaluationRuntime,
-    FeatureFlagType,
-    SDKKey,
-} from '~/types'
+import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType, SDKKey } from '~/types'
 import { AvailableFeature } from '~/types'
 
 import { OPTIONS } from './FeatureFlagCodeOptions'
@@ -33,7 +27,6 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     experiment_set: [],
     is_simple_flag: false,
     ensure_experience_continuity: false,
-    bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     rollback_conditions: [],
     performed_rollback: false,
     can_edit: true,

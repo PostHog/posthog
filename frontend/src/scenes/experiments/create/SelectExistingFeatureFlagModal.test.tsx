@@ -4,12 +4,7 @@ import userEvent from '@testing-library/user-event'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import {
-    AccessControlLevel,
-    FeatureFlagBucketingIdentifier,
-    FeatureFlagEvaluationRuntime,
-    FeatureFlagType,
-} from '~/types'
+import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { SelectExistingFeatureFlagModal } from './SelectExistingFeatureFlagModal'
 import { selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
@@ -49,7 +44,6 @@ describe('SelectExistingFeatureFlagModal', () => {
         can_edit: true,
         tags: [],
         ensure_experience_continuity: null,
-        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
         user_access_level: AccessControlLevel.Admin,
         status: 'ACTIVE',
         has_encrypted_payloads: false,
