@@ -214,19 +214,7 @@ const LemonTableLogs = (): JSX.Element => {
 }
 
 const VirtualizedLogsListLogs = (): JSX.Element => {
-    const {
-        wrapBody,
-        prettifyJson,
-        pinnedParsedLogs,
-        parsedLogs,
-        logsLoading,
-        isPinned,
-        hasMoreLogsToLoad,
-        logsPageSize,
-        logsRemainingToLoad,
-    } = useValues(logsLogic)
-
-    const { loadMoreLogs } = useActions(logsLogic)
+    const { wrapBody, prettifyJson, pinnedParsedLogs, parsedLogs, logsLoading, isPinned } = useValues(logsLogic)
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
         formatDate: 'YYYY-MM-DD',
@@ -234,25 +222,22 @@ const VirtualizedLogsListLogs = (): JSX.Element => {
     }
 
     return (
-        <>
-            <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height)-3px)] z-20 bg-primary pt-2">
-                <div className="pb-2">
-                    <DisplayOptions />
+        <div className="h-full flex flex-col gap-2">
+            <VirtualizedLogsListDisplayOptions />
+            {pinnedParsedLogs.length > 0 && (
+                <div className="border rounded-t bg-bg-light shadow-sm">
+                    <VirtualizedLogsList
+                        dataSource={pinnedParsedLogs}
+                        loading={false}
+                        isPinned={isPinned}
+                        wrapBody={wrapBody}
+                        prettifyJson={prettifyJson}
+                        tzLabelFormat={tzLabelFormat}
+                        showPinnedWithOpacity
+                        fixedHeight={100}
+                    />
                 </div>
-                {pinnedParsedLogs.length > 0 && (
-                    <div className="border rounded-t bg-bg-light shadow-sm">
-                        <VirtualizedLogsList
-                            dataSource={pinnedParsedLogs}
-                            loading={false}
-                            isPinned={isPinned}
-                            wrapBody={wrapBody}
-                            prettifyJson={prettifyJson}
-                            tzLabelFormat={tzLabelFormat}
-                            showPinnedWithOpacity
-                        />
-                    </div>
-                )}
-            </div>
+            )}
             <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
                 <VirtualizedLogsList
                     dataSource={parsedLogs}
@@ -263,25 +248,8 @@ const VirtualizedLogsListLogs = (): JSX.Element => {
                     tzLabelFormat={tzLabelFormat}
                     showPinnedWithOpacity
                 />
-                {parsedLogs.length > 0 && (
-                    <div className="m-2 flex items-center">
-                        <LemonButton
-                            onClick={loadMoreLogs}
-                            loading={logsLoading}
-                            fullWidth
-                            center
-                            disabled={!hasMoreLogsToLoad || logsLoading}
-                        >
-                            {logsLoading
-                                ? 'Loading more logs...'
-                                : hasMoreLogsToLoad
-                                  ? `Click to load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
-                                  : `Showing all ${humanFriendlyNumber(parsedLogs.length)} logs`}
-                        </LemonButton>
-                    </div>
-                )}
             </div>
-        </>
+        </div>
     )
 }
 
@@ -618,6 +586,57 @@ const DisplayOptions = (): JSX.Element => {
                         ]}
                     />
                 </LemonField.Pure>
+                <span className="text-muted text-xs flex items-center gap-1">
+                    <KeyboardShortcut arrowup />
+                    <KeyboardShortcut arrowdown />
+                    or
+                    <KeyboardShortcut j />
+                    <KeyboardShortcut k />
+                    navigate
+                    <span className="mx-1">·</span>
+                    <KeyboardShortcut enter />
+                    expand
+                </span>
+            </div>
+        </div>
+    )
+}
+
+const VirtualizedLogsListDisplayOptions = (): JSX.Element => {
+    const { orderBy, wrapBody, prettifyJson, totalLogsMatchingFilters, sparklineLoading } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson } = useActions(logsLogic)
+
+    return (
+        <div className="flex justify-between">
+            <div className="flex gap-2">
+                <LemonSegmentedButton
+                    value={orderBy}
+                    onChange={setOrderBy}
+                    options={[
+                        {
+                            value: 'earliest',
+                            label: 'Earliest',
+                        },
+                        {
+                            value: 'latest',
+                            label: 'Latest',
+                        },
+                    ]}
+                    size="small"
+                />
+                <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+                <LemonCheckbox
+                    checked={prettifyJson}
+                    bordered
+                    onChange={setPrettifyJson}
+                    label="Prettify JSON"
+                    size="small"
+                />
+            </div>
+            <div className="flex items-center gap-4">
+                {!sparklineLoading && totalLogsMatchingFilters > 0 && (
+                    <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsMatchingFilters)} logs</span>
+                )}
                 <span className="text-muted text-xs flex items-center gap-1">
                     <KeyboardShortcut arrowup />
                     <KeyboardShortcut arrowdown />
