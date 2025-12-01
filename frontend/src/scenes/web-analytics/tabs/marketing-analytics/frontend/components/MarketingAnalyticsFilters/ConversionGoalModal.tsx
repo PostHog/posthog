@@ -109,6 +109,7 @@ export function ConversionGoalModal(): JSX.Element {
                 <div>
                     <label className="text-sm font-medium mb-1 block">Event or table</label>
                     <ConversionGoalDropdown
+                        key={conversionGoalInput?.conversion_goal_id || 'default'}
                         value={conversionGoalInput || defaultConversionGoalFilter}
                         onChange={handleConversionGoalChange}
                         typeKey="conversion-goal-modal"

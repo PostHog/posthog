@@ -641,11 +641,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             actions.hideConversionGoalModal()
         },
         saveConversionGoal: () => {
-            actions.addOrUpdateConversionGoal({
-                ...values.conversionGoalInput,
-                conversion_goal_name: values.uniqueConversionGoalName,
-            })
-            // Reset input for new goal, but keep the draft applied
+            // First save the draft goal to the conversion_goals list
+            if (values.draftConversionGoal) {
+                actions.addOrUpdateConversionGoal(values.draftConversionGoal)
+            }
+            // Then clear the draft and input state (resets UI)
+            actions.setDraftConversionGoal(null)
             actions.setConversionGoalInput({
                 ...defaultConversionGoalFilter,
                 conversion_goal_id: uuid(),
