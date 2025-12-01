@@ -1,6 +1,9 @@
 from django.db import connection, models
 
+from posthog.models import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+
+from .node import Node
 
 
 class CycleDetectionError(Exception):
@@ -49,15 +52,11 @@ class DataModelingEdgeManager(models.Manager):
 class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = DataModelingEdgeManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, editable=False)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, editable=False)
     # the source node of the edge (i.e. the node this edge is pointed away from)
-    source = models.ForeignKey(
-        "data_modeling.Node", related_name="outgoing_edges", on_delete=models.CASCADE, editable=False
-    )
+    source = models.ForeignKey(Node, related_name="outgoing_edges", on_delete=models.CASCADE, editable=False)
     # the target node of the edge (i.e. the node this edge is pointed toward)
-    target = models.ForeignKey(
-        "data_modeling.Node", related_name="incoming_edges", on_delete=models.CASCADE, editable=False
-    )
+    target = models.ForeignKey(Node, related_name="incoming_edges", on_delete=models.CASCADE, editable=False)
     # the name of the DAG this edge belongs to
     dag_id = models.TextField(max_length=256, default="posthog", db_index=True, editable=False)
     properties = models.JSONField(default=dict)
@@ -115,4 +114,17 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             return cursor.fetchone() is not None
 
     def _detect_dag_mismatch(self):
-        pass
+        source = Node.objects.get(id=self.source_id)
+        target = Node.objects.get(id=self.target_id)
+        if source.team_id != self.team_id or target.team_id != self.team_id:
+            raise DAGMismatchError(
+                f"Edge team_id ({self.team_id}) does not match "
+                f"source node team_id ({source.team_id}) or "
+                f"target node team_id ({target.team_id})"
+            )
+        if source.dag_id != self.dag_id or target.dag_id != self.dag_id:
+            raise DAGMismatchError(
+                f"Edge dag_id ({self.dag_id}) does not match "
+                f"source node dag_id ({source.dag_id}) or "
+                f"target node dag_id ({target.dag_id})"
+            )
