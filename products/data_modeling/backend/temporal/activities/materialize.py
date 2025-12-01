@@ -36,7 +36,7 @@ from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -53,6 +53,8 @@ os.environ["SCHEMA__NAMING"] = "direct"
 
 LOGGER = get_logger(__name__)
 MB_50_IN_BYTES = 50 * 1000 * 1000
+CLICKHOUSE_MAX_BLOCK_SIZE = 50 * 1000
+DELTA_TABLE_RETENTION_HOURS = 24
 DUCKLAKE_WORKFLOW_PREFIX = "data_modeling"
 _IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
 
@@ -77,12 +79,6 @@ class InvalidNodeTypeException(Exception):
 
 class NodeNotFoundException(Exception):
     """Exception raised when a node is not found."""
-
-    pass
-
-
-class NodeReferencesDeletedQueryException(Exception):
-    """Exception raised when a node's saved query has been marked deleted"""
 
     pass
 
@@ -150,11 +146,18 @@ class FailMaterializationInputs:
 # Helper functions
 
 
-def _build_model_table_uri(team_id: int, node_id: str, normalized_name: str) -> str:
-    return f"{settings.BUCKET_URL}/team_{team_id}_model_{node_id}/modeling/{normalized_name}"
+def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
+    return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{normalized_name}"
 
 
-def _get_credentials() -> dict[str, str]:
+def _get_aws_storage_options() -> dict[str, str]:
+    opts = {
+        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+        "region_name": settings.AIRBYTE_BUCKET_REGION,
+        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
@@ -162,35 +165,10 @@ def _get_credentials() -> dict[str, str]:
             settings.AIRBYTE_BUCKET_SECRET,
             settings.OBJECT_STORAGE_ENDPOINT,
         )
-
-        return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    if TEST:
-        return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    return {
-        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-        "region_name": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
+    if settings.USE_LOCAL_SETUP or TEST:
+        opts["endpoint_url"] = settings.OBJECT_STORAGE_ENDPOINT
+        opts["AWS_ALLOW_HTTP"] = "true"
+    return opts
 
 
 def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
@@ -322,7 +300,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_client() as client:
+    async with get_clickhouse_client() as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -370,7 +348,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         "IPv6": ("toString", ()),
     }
 
-    async with get_client() as client:
+    async with get_clickhouse_client() as client:
         query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
         has_type_to_convert = False
 
@@ -431,7 +409,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
-    async with get_client(max_block_size=50_000) as client:
+    async with get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE) as client:
         batches = []
         batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
@@ -651,28 +629,14 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.prefetch_related("team").get)(
         id=node.saved_query.id, team_id=inputs.team_id, deleted=False
     )
-    if not saved_query:
-        raise NodeReferencesDeletedQueryException(
-            f"Node {node.name} references saved query {saved_query.id} which has been marked deleted"
-        )
     job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
 
     await logger.adebug(f"Starting materialization for node {node.name}")
 
-    query_columns = saved_query.columns
-    if not query_columns:
-        query_columns = await database_sync_to_async(saved_query.get_columns)()
-
-    hogql_query = saved_query.query["query"]
-
-    row_count = 0
-    # Use saved_query.id.hex to match saved_query.folder_path format (UUID without hyphens)
     table_uri = _build_model_table_uri(team.pk, saved_query.id.hex, saved_query.normalized_name)
-    storage_options = _get_credentials()
-
     await logger.adebug(f"Delta table URI = {table_uri}")
 
-    # Delete existing table first to avoid schema conflicts
+    # delete existing table first to avoid schema conflicts
     s3 = get_s3_client()
     try:
         await logger.adebug(f"Deleting existing delta table at {table_uri}")
@@ -682,6 +646,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
 
     try:
+        hogql_query = saved_query.query["query"]
         rows_expected = await get_query_row_count(hogql_query, team, logger)
         await logger.ainfo(f"Expected rows: {rows_expected}")
         job.rows_expected = rows_expected
@@ -693,6 +658,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
     delta_table: deltalake.DeltaTable | None = None
 
+    row_count = 0
+    storage_options = _get_aws_storage_options()
     async with Heartbeater():
         async for index, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
             batch, ch_types = res
@@ -737,10 +704,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     await logger.adebug("Compacting delta table")
     delta_table.optimize.compact()
     await logger.adebug("Vacuuming delta table")
-    delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+    delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
 
     file_uris = delta_table.file_uris()
-
     saved_query_table: DataWarehouseTable | None = None
     if saved_query.table_id:
         saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
@@ -755,9 +721,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         logger=logger,
     )
 
-    saved_query.is_materialized = True
-    await database_sync_to_async(saved_query.save)()
-
     await logger.adebug("Creating DataWarehouseTable model")
     dwh_table = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
 
@@ -765,14 +728,13 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     saved_query.table_id = dwh_table.id
     await database_sync_to_async(saved_query.save)()
 
-    # Update table row count
+    # update table row count
     if dwh_table:
         dwh_table.row_count = row_count
         await database_sync_to_async(dwh_table.save)()
         await logger.ainfo(f"Updated row count for table {saved_query.name} to {row_count}")
 
     await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
-
     return MaterializeViewResult(
         row_count=row_count,
         table_uri=table_uri,
@@ -781,6 +743,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     )
 
 
+# TODO(andrew): reuse bill's
 @temporalio.activity.defn
 def copy_to_ducklake_activity(inputs: CopyToDuckLakeInputs) -> bool:
     """Copy materialized data to DuckLake."""
@@ -835,15 +798,6 @@ async def finish_materialization_activity(inputs: FinishMaterializationInputs) -
     node = await database_sync_to_async(Node.objects.get)(
         id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
-    job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
-
-    # Update job status
-    job.status = DataModelingJob.Status.COMPLETED
-    job.last_run_at = dt.datetime.now(dt.UTC)
-    job.error = None
-    await database_sync_to_async(job.save)()
-
-    # Update node system properties
     _update_node_system_properties(
         node,
         status="completed",
@@ -852,6 +806,12 @@ async def finish_materialization_activity(inputs: FinishMaterializationInputs) -
         duration_seconds=inputs.duration_seconds,
     )
     await database_sync_to_async(node.save)()
+
+    job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
+    job.status = DataModelingJob.Status.COMPLETED
+    job.last_run_at = dt.datetime.now(dt.UTC)
+    job.error = None
+    await database_sync_to_async(job.save)()
 
     await logger.ainfo(f"Finished materialization for node {node.name}")
 
@@ -865,14 +825,6 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     node = await database_sync_to_async(Node.objects.get)(
         id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
-    job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
-
-    # Update job status
-    job.status = DataModelingJob.Status.FAILED
-    job.error = inputs.error
-    await database_sync_to_async(job.save)()
-
-    # Update node system properties
     _update_node_system_properties(
         node,
         status="failed",
@@ -880,5 +832,10 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
         error=inputs.error,
     )
     await database_sync_to_async(node.save)()
+
+    job = await database_sync_to_async(DataModelingJob.objects.get)(id=inputs.job_id)
+    job.status = DataModelingJob.Status.FAILED
+    job.error = inputs.error
+    await database_sync_to_async(job.save)()
 
     await logger.aerror(f"Failed materialization for node {node.name}: {inputs.error}")

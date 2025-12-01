@@ -29,7 +29,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
 
 
-# Non-retryable errors - these indicate problems with the query or data, not transient issues
+# these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
     "CHQueryErrorMemoryLimitExceeded",
     "CannotCoerceColumnException",
@@ -105,10 +105,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
         temporalio.workflow.logger.info("Starting MaterializeViewWorkflow", **inputs.properties_to_log)
-
         start_time = temporalio.workflow.now()
-
-        # Step 1: Create job record
         job_id = await temporalio.workflow.execute_activity(
             create_materialization_job_activity,
             CreateJobInputs(
@@ -116,15 +113,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 node_id=inputs.node_id,
                 dag_id=inputs.dag_id,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=3,
-                non_retryable_error_types=NON_RETRYABLE_ERRORS,
-            ),
+            start_to_close_timeout=dt.timedelta(minutes=1),
         )
-
         try:
-            # Step 2: Materialize the view
             materialize_result = await temporalio.workflow.execute_activity(
                 materialize_view_activity,
                 MaterializeViewInputs(
@@ -133,7 +124,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     job_id=job_id,
                 ),
-                start_to_close_timeout=dt.timedelta(hours=1),
+                # clickhouse timeout is 10mins so start to close is that plus a bit of margin
+                start_to_close_timeout=dt.timedelta(minutes=15),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=3,
@@ -142,8 +134,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     non_retryable_error_types=NON_RETRYABLE_ERRORS,
                 ),
             )
-
-            # Step 3: Copy to DuckLake (if enabled)
+            # copy to ducklake (if enabled)
             ducklake_completed = False
             if settings.DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED and materialize_result.file_uris:
                 try:
@@ -158,7 +149,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                             file_uris=materialize_result.file_uris,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=30),
-                        heartbeat_timeout=dt.timedelta(minutes=2),
                         retry_policy=temporalio.common.RetryPolicy(
                             maximum_attempts=2,
                         ),
@@ -171,10 +161,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     )
                     capture_exception(ducklake_err)
 
-            # Step 4: Mark as complete
+            # handle success
             end_time = temporalio.workflow.now()
             duration_seconds = (end_time - start_time).total_seconds()
-
             await temporalio.workflow.execute_activity(
                 finish_materialization_activity,
                 FinishMaterializationInputs(
@@ -190,7 +179,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
-
             temporalio.workflow.logger.info(
                 "MaterializeViewWorkflow completed successfully",
                 rows=materialize_result.row_count,
@@ -198,7 +186,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 ducklake_completed=ducklake_completed,
                 **inputs.properties_to_log,
             )
-
             return MaterializeViewWorkflowResult(
                 job_id=job_id,
                 node_id=inputs.node_id,
@@ -206,47 +193,16 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 duration_seconds=duration_seconds,
                 ducklake_copy_completed=ducklake_completed,
             )
-
-        except temporalio.exceptions.ActivityError as e:
-            # Handle activity failures
-            error_message = str(e.cause) if e.cause else str(e)
-            temporalio.workflow.logger.error(
-                f"MaterializeViewWorkflow failed: {error_message}",
-                **inputs.properties_to_log,
-            )
-
-            try:
-                await temporalio.workflow.execute_activity(
-                    fail_materialization_activity,
-                    FailMaterializationInputs(
-                        team_id=inputs.team_id,
-                        node_id=inputs.node_id,
-                        dag_id=inputs.dag_id,
-                        job_id=job_id,
-                        error=error_message,
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=5),
-                    retry_policy=temporalio.common.RetryPolicy(
-                        maximum_attempts=3,
-                    ),
-                )
-            except Exception as fail_err:
-                temporalio.workflow.logger.error(
-                    f"Failed to mark job as failed: {str(fail_err)}",
-                    **inputs.properties_to_log,
-                )
-
-            raise
-
         except Exception as e:
-            # Handle unexpected errors
-            error_message = str(e)
-            temporalio.workflow.logger.error(
-                f"MaterializeViewWorkflow failed with unexpected error: {error_message}",
-                **inputs.properties_to_log,
-            )
-            capture_exception(e)
-
+            # handle failure
+            if isinstance(e, temporalio.exceptions.ActivityError):
+                error_message = str(e.cause) if e.cause else str(e)
+                temporal_error_log = f"MaterializeViewWorkflow failed with ActivityError: {error_message}"
+            else:
+                capture_exception(e)
+                error_message = str(e)
+                temporal_error_log = f"MaterializeViewWorkflow failed with unexpected error: {error_message}"
+            temporalio.workflow.logger.error(temporal_error_log, **inputs.properties_to_log)
             try:
                 await temporalio.workflow.execute_activity(
                     fail_materialization_activity,
@@ -267,5 +223,4 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     f"Failed to mark job as failed: {str(fail_err)}",
                     **inputs.properties_to_log,
                 )
-
             raise
