@@ -48,9 +48,7 @@ impl TryFrom<&SerializableRawEvent> for RawEvent {
         let distinct_id = serializable
             .distinct_id_json
             .as_ref()
-            .map(|s| {
-                serde_json::from_str(s).map_err(|e| anyhow!("Invalid distinct_id JSON: {e}"))
-            })
+            .map(|s| serde_json::from_str(s).map_err(|e| anyhow!("Invalid distinct_id JSON: {e}")))
             .transpose()?;
 
         let properties: HashMap<String, serde_json::Value> =
