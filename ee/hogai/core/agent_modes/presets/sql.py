@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
@@ -66,7 +66,7 @@ The assistant used the todo list because:
 
 
 class SQLAgentToolkit(AgentToolkit):
-    POSITIVE_TODO_EXAMPLES: ClassVar[list[TodoWriteExample]] = [
+    POSITIVE_TODO_EXAMPLES = [
         TodoWriteExample(
             example=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION,
             reasoning=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION_REASONING,
