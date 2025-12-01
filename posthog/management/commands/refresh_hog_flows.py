@@ -23,6 +23,7 @@ def remove_event_filters_from_conditionals(actions):
                     del filters["events"]
 
         updated_actions.append(action)
+    return updated_actions
 
 
 class Command(BaseCommand):
