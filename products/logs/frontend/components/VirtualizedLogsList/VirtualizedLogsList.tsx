@@ -67,7 +67,13 @@ export function VirtualizedLogsList({
         []
     )
 
-    // Clear cache when display options change since row heights will be different
+    // Clear cache when display options change or when a fresh query starts (loading + empty data)
+    useEffect(() => {
+        if (logsLoading && dataSource.length === 0) {
+            cache.clearAll()
+        }
+    }, [logsLoading, dataSource.length, cache])
+
     useEffect(() => {
         cache.clearAll()
         listRef.current?.recomputeRowHeights()
