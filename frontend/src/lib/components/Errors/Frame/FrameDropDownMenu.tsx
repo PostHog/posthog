@@ -13,8 +13,8 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { SourceData, framesCodeSourceLogic } from '../framesCodeSourceLogic'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
+import { SourceData, framesCodeSourceLogic } from './framesCodeSourceLogic'
 
 export function FrameDropDownMenu({
     frame,
