@@ -4,9 +4,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -171,14 +169,11 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         ctaLink: [
-            (s) => [s.gateVariant, s.isAddonProduct, s.productWithFeature, s.featureInfo, s.scrollToProduct],
-            (gateVariant, isAddonProduct, productWithFeature, featureInfo, scrollToProduct) => {
-                if (gateVariant === 'add-card' && !isAddonProduct && productWithFeature) {
-                    return getUpgradeProductLink({
-                        product: productWithFeature as BillingProductV2Type,
-                        redirectPath: urls.organizationBilling(),
-                    })
-                } else if (gateVariant === 'add-card') {
+            (s) => [s.gateVariant, s.productWithFeature, s.featureInfo, s.scrollToProduct],
+            (gateVariant, productWithFeature, featureInfo, scrollToProduct) => {
+                // product activation is already handled in the startPaymentEntryFlow,
+                // and ctaLink is used only when isPaymentEntryFlow is false
+                if (gateVariant === 'add-card') {
                     return `/organization/billing${scrollToProduct ? `?products=${productWithFeature?.type}` : ''}`
                 } else if (gateVariant === 'contact-sales') {
                     return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo?.name}`
@@ -223,8 +218,12 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         isPaymentEntryFlow: [
-            (s) => [s.gateVariant, s.isAddonProduct],
-            (gateVariant, isAddonProduct): boolean => gateVariant === 'add-card' && !isAddonProduct,
+            (s) => [s.gateVariant, s.isAddonProduct, s.billing],
+            (gateVariant, isAddonProduct, billing): boolean => {
+                // Show payment entry flow only for free customers trying to upgrade to a paid plan
+                // to use core features (not addons)
+                return gateVariant === 'add-card' && !isAddonProduct && billing?.subscription_level === 'free'
+            },
         ],
     })),
 ])
