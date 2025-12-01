@@ -295,9 +295,12 @@ const DelayedLoadingSpinner = (): JSX.Element => {
 }
 
 const getMainContentElement = (): HTMLElement | null => document.getElementById('main-content')
-const restoreMainContentScrollTop = (scrollTop: number): void => {
+const restoreMainContentScrollTop = (scrollTop: number, onlyIfTabId?: string): void => {
     const element = getMainContentElement()
     if (!element) {
+        return
+    }
+    if (onlyIfTabId && sceneLogic.findMounted()?.values.activeTabId !== onlyIfTabId) {
         return
     }
     window.requestAnimationFrame(() => {
@@ -1032,10 +1035,10 @@ export const sceneLogic = kea<sceneLogicType>([
 
             if (tabId !== lastTabId) {
                 const scrollTop = values.tabScrollDepths[tabId] ?? 0
-                window.setTimeout(() => restoreMainContentScrollTop(scrollTop), 1)
-                window.setTimeout(() => restoreMainContentScrollTop(scrollTop), 10)
-                window.setTimeout(() => restoreMainContentScrollTop(scrollTop), 100)
-                window.setTimeout(() => restoreMainContentScrollTop(scrollTop), 300)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 1)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 10)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 100)
+                window.setTimeout(() => restoreMainContentScrollTop(scrollTop, tabId), 300)
             } else {
                 // if we clicked on a link, scroll to top
                 const previousScene = selectors.sceneId(previousState)
