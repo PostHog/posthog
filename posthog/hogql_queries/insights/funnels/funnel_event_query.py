@@ -263,9 +263,10 @@ class FunnelEventQuery:
             cols.append(step_col)
 
         # exclusion cols
-        for index, exclusions in enumerate(self.exclusions_by_index):
-            exclusion_col_expr = self._get_exclusions_col(source_kind, table_name, exclusions, index)
-            cols.append(exclusion_col_expr)
+        if self.context.funnelsFilter.exclusions:
+            for index, exclusions in enumerate(self.exclusions_by_index):
+                exclusion_col_expr = self._get_exclusions_col(source_kind, table_name, exclusions, index)
+                cols.append(exclusion_col_expr)
 
         # breakdown (attribution) col
         cols.extend(self._get_breakdown_select_prop())
