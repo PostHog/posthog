@@ -193,7 +193,7 @@ class ObjectStorage(ObjectStorageClient):
                 bucket=bucket,
                 file_name=key,
                 error=e,
-                s3_response=s3_response,
+                s3_response={},
             )
             capture_exception(e)
             raise ObjectStorageError("read failed") from e
