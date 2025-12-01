@@ -63,9 +63,9 @@ class SummarizeSessionsTool(MaxTool):
     name: Literal["summarize_sessions"] = "summarize_sessions"
     description: str = dedent("""
         Use this tool to summarize session recordings by analyzing the events within those sessions (and the visual recordings) to find patterns and issues.
-        If explicit session IDs to summarize were not specified by the user, you MUST first use the filter_session_recordings tool to filter for relevant recordings.
 
-        IMPORTANT: Do not use this tool if the preceding filter_session_recordings call returned no results.
+        If explicit session IDs to summarize were not specified by the user, you MUST first use the filter_session_recordings tool to filter for relevant recordings.
+        Do not use this tool if the preceding filter_session_recordings call returned no results.
 
         To use session summarization, get the filters right rather than accepting subpar ones (no results is likely a filtering issue rather than a data issue)
         """).strip()
