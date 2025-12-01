@@ -100,14 +100,14 @@ export function LineWithNumber({
         {
             label: 'Copy link',
             onClick: handleCopyPermalink,
-            'data-attr': 'llm-analytics-line-copy-link',
+            'data-attr': 'llma-line-copy-link',
         },
         ...(showDiscussions
             ? [
                   {
                       label: 'Start discussion',
                       onClick: handleStartDiscussion,
-                      'data-attr': 'llm-analytics-line-start-discussion',
+                      'data-attr': 'llma-line-start-discussion',
                   },
               ]
             : []),
@@ -122,7 +122,7 @@ export function LineWithNumber({
                               setShowConsentPopover(true)
                           }
                       },
-                      'data-attr': 'llm-analytics-line-translate',
+                      'data-attr': 'llma-line-translate',
                   },
               ]
             : []),

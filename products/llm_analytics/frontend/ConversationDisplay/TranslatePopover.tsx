@@ -37,7 +37,12 @@ export function TranslatePopover({ content, title = 'Translate' }: TranslatePopo
                 <div className="p-3 min-w-72 max-w-120">
                     <div className="flex items-center justify-between mb-2">
                         <span className="font-semibold text-sm">{title}</span>
-                        <LemonButton size="xsmall" onClick={() => setShowTranslatePopover(false)} noPadding>
+                        <LemonButton
+                            size="xsmall"
+                            onClick={() => setShowTranslatePopover(false)}
+                            noPadding
+                            data-attr="llma-translate-close"
+                        >
                             <span className="text-lg leading-none">&times;</span>
                         </LemonButton>
                     </div>
@@ -57,8 +62,15 @@ export function TranslatePopover({ content, title = 'Translate' }: TranslatePopo
                                     value: lang.value,
                                     label: lang.label,
                                 }))}
+                                data-attr="llma-translate-language-select"
                             />
-                            <LemonButton size="small" type="primary" onClick={translate} loading={translationLoading}>
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                onClick={translate}
+                                loading={translationLoading}
+                                data-attr="llma-translate-submit"
+                            >
                                 {translationText && isTranslatedForCurrentLanguage ? 'Re-translate' : 'Translate'}
                             </LemonButton>
                         </div>

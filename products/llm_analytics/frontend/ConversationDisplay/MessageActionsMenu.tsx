@@ -76,7 +76,7 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
                   {
                       label: 'Start discussion',
                       onClick: handleStartDiscussion,
-                      'data-attr': 'llm-analytics-message-start-discussion',
+                      'data-attr': 'llma-message-start-discussion',
                   },
               ]
             : []),
@@ -91,7 +91,7 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
                               setShowConsentPopover(true)
                           }
                       },
-                      'data-attr': 'llm-analytics-message-translate',
+                      'data-attr': 'llma-message-translate',
                   },
               ]
             : []),
