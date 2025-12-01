@@ -73,10 +73,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if self.query.breakdownBy == WebStatsBreakdown.FRUSTRATION_METRICS:
             return self.frustration_metrics_query_builder.build()
 
-        return self.to_main_query(self._counts_breakdown_value())
+        return self.main_query_builder.build(self._counts_breakdown_value())
 
     def to_entry_bounce_query(self) -> ast.SelectQuery:
-        return self.to_main_query(self._bounce_entry_pathname_breakdown())
+        return self.main_query_builder.build(self._bounce_entry_pathname_breakdown())
 
     def _calculate(self):
         query = self.to_query()

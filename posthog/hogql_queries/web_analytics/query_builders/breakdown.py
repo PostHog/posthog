@@ -24,8 +24,10 @@ class BreakdownConfig:
     where_expr: str = "breakdown_value IS NOT NULL"
 
     def build_expr(self, path_cleaner: PathCleaner) -> ast.Expr:
-        if self.expr_builder:
+        if self.expr_builder and self.apply_path_cleaning:
             expr = self.expr_builder(path_cleaner)
+        elif self.expr_builder:
+            expr = self.expr_builder()
         elif self.field_chain:
             expr = ast.Field(chain=list(self.field_chain))
         else:
