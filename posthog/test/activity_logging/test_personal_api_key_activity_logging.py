@@ -217,6 +217,9 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
                 self.assertEqual(log.detail["context"]["team_name"], second_team.name)
 
     def test_activity_log_api_returns_personal_api_key_logs(self):
+        self.team.receive_org_level_activity_logs = True
+        self.team.save()
+
         api_key = self.create_personal_api_key(label="API Test Key")
         api_key_id = api_key["id"]
         mask_value = api_key["mask_value"]
