@@ -178,5 +178,5 @@ class ApprovalPolicy(models.Model):
         verbose_name_plural = "Approval policies"
 
     def __str__(self):
-        scope = f"Team {self.team_id}" if self.team_id else f"Org {self.organization_id}"
+        scope = f"Team {self.team.id}" if self.team else f"Org {self.organization.id}"
         return f"ApprovalPolicy({self.action_key}, {scope})"
