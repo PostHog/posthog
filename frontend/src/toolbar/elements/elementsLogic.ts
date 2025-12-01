@@ -13,7 +13,7 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
-import { checkSelectorFragilityCached } from '../utils/selectorQuality'
+import { FragileSelectorResult, checkSelectorFragilityCached } from '../utils/selectorQuality'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
 
@@ -21,6 +21,31 @@ export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
 const VIEWPORT_BUFFER_PX = 200
+
+function getElementMetaWithSelectorQuality(
+    element: HTMLElement | null,
+    elementMap: ElementMap,
+    actionsForElementMap: ActionElementMap,
+    dataAttributes: string[]
+): (ElementWithMetadata & { selectorQuality: FragileSelectorResult | null }) | null {
+    if (!element) {
+        return null
+    }
+    const meta = elementMap.get(element)
+    if (!meta) {
+        return null
+    }
+    const actions = actionsForElementMap.get(element)
+    const actionStep = elementToActionStep(meta.element, dataAttributes)
+    const selectorQuality = actionStep?.selector ? checkSelectorFragilityCached(actionStep.selector) : null
+
+    return {
+        ...meta,
+        actionStep,
+        actions: actions || [],
+        selectorQuality,
+    }
+}
 
 const getMaxZIndex = (element: Element): number => {
     let maxZIndex = 0
@@ -384,50 +409,14 @@ export const elementsLogic = kea<elementsLogicType>([
                 s.actionsForElementMap,
                 toolbarConfigLogic.selectors.dataAttributes,
             ],
-            (selectedElement, elementMap, actionsForElementMap, dataAttributes) => {
-                if (selectedElement) {
-                    const meta = elementMap.get(selectedElement)
-                    if (meta) {
-                        const actions = actionsForElementMap.get(selectedElement)
-                        const actionStep = elementToActionStep(meta.element, dataAttributes)
-                        const selectorQuality = actionStep?.selector
-                            ? checkSelectorFragilityCached(actionStep.selector)
-                            : null
-
-                        return {
-                            ...meta,
-                            actionStep,
-                            actions: actions || [],
-                            selectorQuality,
-                        }
-                    }
-                }
-                return null
-            },
+            (selectedElement, elementMap, actionsForElementMap, dataAttributes) =>
+                getElementMetaWithSelectorQuality(selectedElement, elementMap, actionsForElementMap, dataAttributes),
         ],
 
         hoverElementMeta: [
             (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarConfigLogic.selectors.dataAttributes],
-            (hoverElement, elementMap, actionsForElementMap, dataAttributes) => {
-                if (hoverElement) {
-                    const meta = elementMap.get(hoverElement)
-                    if (meta) {
-                        const actions = actionsForElementMap.get(hoverElement)
-                        const actionStep = elementToActionStep(meta.element, dataAttributes)
-                        const selectorQuality = actionStep?.selector
-                            ? checkSelectorFragilityCached(actionStep.selector)
-                            : null
-
-                        return {
-                            ...meta,
-                            actionStep,
-                            actions: actions || [],
-                            selectorQuality,
-                        }
-                    }
-                }
-                return null
-            },
+            (hoverElement, elementMap, actionsForElementMap, dataAttributes) =>
+                getElementMetaWithSelectorQuality(hoverElement, elementMap, actionsForElementMap, dataAttributes),
         ],
 
         highlightElementMeta: [
@@ -437,26 +426,8 @@ export const elementsLogic = kea<elementsLogicType>([
                 s.actionsForElementMap,
                 toolbarConfigLogic.selectors.dataAttributes,
             ],
-            (highlightElement, elementMap, actionsForElementMap, dataAttributes) => {
-                if (highlightElement) {
-                    const meta = elementMap.get(highlightElement)
-                    if (meta) {
-                        const actions = actionsForElementMap.get(highlightElement)
-                        const actionStep = elementToActionStep(meta.element, dataAttributes)
-                        const selectorQuality = actionStep?.selector
-                            ? checkSelectorFragilityCached(actionStep.selector)
-                            : null
-
-                        return {
-                            ...meta,
-                            actionStep,
-                            actions: actions || [],
-                            selectorQuality,
-                        }
-                    }
-                }
-                return null
-            },
+            (highlightElement, elementMap, actionsForElementMap, dataAttributes) =>
+                getElementMetaWithSelectorQuality(highlightElement, elementMap, actionsForElementMap, dataAttributes),
         ],
         activeMeta: [
             (s) => [s.selectedElementMeta, s.hoverElementMeta],

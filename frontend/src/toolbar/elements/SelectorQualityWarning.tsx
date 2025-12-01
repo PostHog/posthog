@@ -1,4 +1,4 @@
-import { IconX } from '@posthog/icons'
+import { IconWarning } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { FragileSelectorResult, checkSelectorFragilityCached } from '~/toolbar/utils/selectorQuality'
@@ -18,7 +18,7 @@ export function SelectorQualityWarning({ selector, compact = false }: SelectorQu
     if (compact) {
         return (
             <div className="text-xs mt-1 text-primary">
-                <IconX className="inline mr-1 text-danger" />
+                <IconWarning className="inline mr-1 text-warning" />
                 {result.reason} <code>{result.fragileSelector}</code>. Add a <code>data-posthog</code> attribute for
                 stable tracking.
             </div>
@@ -26,7 +26,7 @@ export function SelectorQualityWarning({ selector, compact = false }: SelectorQu
     }
 
     return (
-        <LemonBanner type="error">
+        <LemonBanner type="warning">
             <div className="text-sm">
                 <strong>Fragile selector:</strong> {result.reason}{' '}
                 <code className="text-xs">{result.fragileSelector}</code>. <strong>Recommendation:</strong> Add a{' '}
@@ -53,7 +53,7 @@ export function SelectorQualityBadge({ result }: SelectorQualityBadgeProps): JSX
 
     return (
         <span className="ml-2 cursor-help" title={`Fragile selector: ${result.reason}`}>
-            <IconX className="text-danger" />
+            <IconWarning className="text-warning" />
         </span>
     )
 }
