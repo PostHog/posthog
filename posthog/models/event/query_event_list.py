@@ -4,7 +4,6 @@ from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.utils.timezone import now
 
 from dateutil.parser import isoparse
 
@@ -27,7 +26,10 @@ from posthog.utils import relative_date_parse
 
 def parse_timestamp(timestamp: str, tzinfo: ZoneInfo) -> datetime:
     try:
-        return isoparse(timestamp)
+        parsed = isoparse(timestamp)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=tzinfo)
+        return parsed
     except ValueError:
         return relative_date_parse(timestamp, tzinfo)
 
@@ -84,12 +86,12 @@ def query_events_list(
     if request_get_query_dict.get("before"):
         request_get_query_dict["before"] = parse_timestamp(request_get_query_dict["before"], team.timezone_info)
     else:
-        request_get_query_dict["before"] = now() + timedelta(seconds=5)
+        request_get_query_dict["before"] = datetime.now(team.timezone_info) + timedelta(seconds=5)
 
     if request_get_query_dict.get("after"):
         request_get_query_dict["after"] = parse_timestamp(request_get_query_dict["after"], team.timezone_info)
     elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
-        request_get_query_dict["after"] = now() - timedelta(hours=24)
+        request_get_query_dict["after"] = datetime.now(team.timezone_info) - timedelta(hours=24)
 
     if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 and request_get_query_dict.get("after"):
         date_range = request_get_query_dict["before"] - request_get_query_dict["after"]
@@ -104,6 +106,7 @@ def query_events_list(
             not request_get_query_dict.get("after")
             or request_get_query_dict["after"].date() != request_get_query_dict["before"].date()
         )
+        and request_get_query_dict["before"].time() != time.min
     ):
         # If this is the first try, and after is not the same day as before, only load the current day, regardless of whether "after" is specified to reduce the amount of data we load
         request_get_query_dict["after"] = datetime.combine(request_get_query_dict["before"], time.min)
