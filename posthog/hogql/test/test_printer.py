@@ -941,7 +941,8 @@ class TestPrinter(BaseTest):
             assert {row[0] for row in optimized_response.results} == labels
 
         assert_result_is_equal("1", {"int"})
-        assert_result_is_equal("s", {"string"})
+        assert_result_is_equal("'1'", {"int"})  # this feels wrong, but at least it's consistent
+        assert_result_is_equal("'s'", {"string"})
         assert_result_is_equal("''", {"empty_string"})
         assert_result_is_equal("NULL", {"null", "not_set"})
         assert_result_is_equal("('s')", {"string"})
