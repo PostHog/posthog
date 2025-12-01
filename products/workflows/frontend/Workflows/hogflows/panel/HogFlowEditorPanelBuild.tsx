@@ -79,15 +79,7 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
         config: {
             conditions: [
                 {
-                    filters: {
-                        events: [
-                            {
-                                id: '$pageview',
-                                name: '$pageview',
-                                type: 'events',
-                            },
-                        ],
-                    },
+                    filters: {},
                 },
             ],
         },

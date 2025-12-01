@@ -147,7 +147,7 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         action["filters"] = {
-            "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}],
+            "properties": [{"key": "event", "type": "event_metadata", "value": ["custom_event"], "operator": "exact"}]
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -178,7 +178,14 @@ class TestHogFlowAPI(APIBaseTest):
                 "conditions": [
                     {
                         "filters": {
-                            "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}]
+                            "properties": [
+                                {
+                                    "key": "event",
+                                    "type": "event_metadata",
+                                    "value": ["custom_event"],
+                                    "operator": "exact",
+                                }
+                            ]
                         }
                     }
                 ],
@@ -231,3 +238,47 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["status"] == "draft"
+
+    def test_hog_flow_conditional_event_filter_rejected(self):
+        conditional_action = {
+            "id": "cond_1",
+            "name": "cond_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+                "conditions": [
+                    {
+                        "filters": {
+                            "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}]
+                        }
+                    }
+                ],
+            },
+        }
+
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow",
+            "actions": [trigger_action, conditional_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__non_field_errors",
+            "code": "invalid_input",
+            "detail": "Event filters are not allowed in conditionals",
+            "type": "validation_error",
+        }

@@ -12,6 +12,21 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 logger = structlog.get_logger(__name__)
 
 
+def remove_event_filters_from_conditionals(actions):
+    updated_actions = []
+    for action in actions:
+        conditions = action.get("config", {}).get("conditions", [])
+        if conditions:
+            for condition in conditions:
+                filters = condition.get("filters", {})
+                if "events" in filters:
+                    del filters["events"]
+
+        updated_actions.append(action)
+
+    return updated_actions
+
+
 class Command(BaseCommand):
     help = "Refresh HogFlows (all statuses) by re-saving them to trigger reload on workers"
 
@@ -99,6 +114,8 @@ class Command(BaseCommand):
                         "actions": hog_flow.actions,
                         "variables": hog_flow.variables,
                     }
+
+                    data["actions"] = remove_event_filters_from_conditionals(hog_flow.actions)
 
                     # Process through serializer to regenerate bytecode
                     serializer = HogFlowSerializer(

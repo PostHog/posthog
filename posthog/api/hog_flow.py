@@ -101,6 +101,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             for condition in conditions:
                 filters = condition.get("filters")
                 if filters is not None:
+                    if "events" in filters:
+                        raise serializers.ValidationError("Event filters are not allowed in conditionals")
+
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
                     condition["filters"] = serializer.validated_data
