@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, memo, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfinity, IconInfo, IconX } from '@posthog/icons'
+import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfinity, IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonDialog,
-    LemonDivider,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
     LemonSelect,
@@ -17,10 +16,10 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { isObject } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { InternalMultipleChoiceSurvey } from 'scenes/session-recordings/components/InternalSurvey/InternalMultipleChoiceSurvey'
@@ -34,110 +33,6 @@ import {
     type SessionRecordingMaskingLevel,
     type SessionRecordingRetentionPeriod,
 } from '~/types'
-
-interface SupportedPlatformProps {
-    note?: ReactNode
-    label: string
-    supportedSinceVersion: false | string
-}
-
-function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
-    const node = (
-        <div
-            className={cn(
-                props.supportedSinceVersion ? 'bg-fill-success-highlight' : 'bg-fill-warning-highlight',
-                'px-1 py-0.5 h-full flex items-center gap-1',
-                props.note && props.supportedSinceVersion && 'cursor-help'
-            )}
-        >
-            {props.note ? <IconInfo /> : props.supportedSinceVersion ? <IconCheck /> : <IconX />} {props.label}
-        </div>
-    )
-    let tooltip = null
-    if (props.supportedSinceVersion || props.note) {
-        tooltip = (
-            <div className="flex flex-col gap-1 cursor-help">
-                {props.supportedSinceVersion && <div>Since version {props.supportedSinceVersion}</div>}
-                {props.note && <div>{props.note}</div>}
-            </div>
-        )
-    }
-    if (tooltip) {
-        return (
-            <Tooltip delayMs={200} title={tooltip}>
-                {node}
-            </Tooltip>
-        )
-    }
-    return node
-}
-
-export const SupportedPlatforms = memo(function SupportedPlatforms(props: {
-    web?: false | { note?: ReactNode; version?: string }
-    android?: false | { note?: ReactNode; version?: string }
-    ios?: false | { note?: ReactNode; version?: string }
-    reactNative?: false | { note?: ReactNode; version?: string }
-    flutter?: false | { note?: ReactNode; version?: string }
-}): JSX.Element | null {
-    const allSupported = props && Object.keys(props).length === 5 && Object.values(props).every((value) => !!value)
-    return allSupported ? null : (
-        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
-            <Tooltip delayMs={200} title="We support lots of platforms! But not every feature works everywhere (yet)">
-                <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
-            </Tooltip>
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.web) ? props.web.note : undefined}
-                label="Web"
-                supportedSinceVersion={
-                    isObject(props.web) && typeof props.web?.version === 'string' ? props.web.version : false
-                }
-            />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.android) ? props.android.note : undefined}
-                label="Android"
-                supportedSinceVersion={
-                    isObject(props.android) && typeof props.android?.version === 'string'
-                        ? props.android.version
-                        : false
-                }
-            />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.ios) ? props.ios.note : undefined}
-                label="iOS"
-                supportedSinceVersion={
-                    isObject(props.ios) && typeof props.ios?.version === 'string' ? props.ios.version : false
-                }
-            />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.reactNative) ? props.reactNative.note : undefined}
-                label="React Native"
-                supportedSinceVersion={
-                    isObject(props.reactNative) && typeof props.reactNative?.version === 'string'
-                        ? props.reactNative.version
-                        : false
-                }
-            />
-
-            <LemonDivider vertical className="h-full" />
-            <SupportedPlatform
-                note={isObject(props.flutter) ? props.flutter.note : undefined}
-                label="Flutter"
-                supportedSinceVersion={
-                    isObject(props.flutter) && typeof props.flutter?.version === 'string'
-                        ? props.flutter.version
-                        : false
-                }
-            />
-        </div>
-    )
-})
 
 export function Since(props: {
     web?: false | { version?: string }
