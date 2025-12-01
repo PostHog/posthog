@@ -233,6 +233,18 @@ class StripeSourceConfig(config.Config):
 
 
 @config.config
+class SupabaseSourceConfig(config.Config):
+    host: str
+    database: str
+    user: str
+    password: str
+    schema: str
+    port: int = config.value(converter=int)
+    connection_string: str | None = None
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
 class TemporalIOSourceConfig(config.Config):
     host: str
     port: str
@@ -291,6 +303,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
+        ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,

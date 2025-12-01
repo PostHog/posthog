@@ -665,7 +665,7 @@ export function ActionFilterRow({
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
-                                                visible={math !== undefined || isStepOptional(index + 1)}
+                                                visible={math != null || isStepOptional(index + 1)}
                                             />
                                         </div>
                                     </>

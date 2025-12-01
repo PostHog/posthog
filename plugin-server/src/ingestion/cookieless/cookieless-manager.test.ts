@@ -172,10 +172,10 @@ describe('CookielessManager', () => {
         let organizationId: string
         let teamId: number
         let team: Team
-        const now = new Date('2025-01-10T11:00:00')
-        const aBitLater = new Date('2025-01-10T11:10:00')
-        const muchLater = new Date('2025-01-10T19:00:00')
-        const differentDay = new Date('2025-01-11T11:00:00')
+        const now = new Date('2025-01-10T11:00:00Z')
+        const aBitLater = new Date('2025-01-10T11:10:00Z')
+        const muchLater = new Date('2025-01-10T19:00:00Z')
+        const differentDay = new Date('2025-01-11T11:00:00Z')
         const userAgent = 'Test User Agent'
         const identifiedDistinctId = 'identified@example.com'
         let event: PluginEvent
@@ -681,6 +681,114 @@ describe('CookielessManager', () => {
                 expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
                 if (nonCookielessResult.type === PipelineResultType.OK) {
                     expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
+        })
+        describe('timestamp out of range', () => {
+            beforeEach(async () => {
+                await setModeForTeam(CookielessServerHashMode.Stateful)
+            })
+
+            it('should drop only the event with out-of-range timestamp, not other events in batch', async () => {
+                // Create an event with a timestamp that's too old (more than 72h + timezone buffer in the past)
+                const oldTimestamp = new Date('2025-01-05T11:00:00Z') // 5 days before "now" (2025-01-10)
+                const eventWithOldTimestamp = deepFreeze({
+                    ...event,
+                    now: oldTimestamp.toISOString(),
+                    uuid: new UUID7(oldTimestamp.getTime()).toString(),
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    {
+                        event: eventWithOldTimestamp,
+                        team,
+                        message,
+                        headers: { force_disable_person_processing: false },
+                    },
+                    { event, team, message, headers: { force_disable_person_processing: false } },
+                    { event: nonCookielessEvent, team, message, headers: { force_disable_person_processing: false } },
+                ])
+                expect(response.length).toBe(3)
+
+                // Event with old timestamp should be dropped
+                const oldTimestampResult = response[0]
+                expect(oldTimestampResult.type).toBe(PipelineResultType.DROP)
+                if (oldTimestampResult.type === PipelineResultType.DROP) {
+                    expect(oldTimestampResult.reason).toBe('cookieless_timestamp_out_of_range')
+                }
+
+                // Valid cookieless event should pass through
+                const validCookielessResult = response[1]
+                expect(validCookielessResult.type).toBe(PipelineResultType.OK)
+
+                // Non-cookieless event should pass through
+                const nonCookielessResult = response[2]
+                expect(nonCookielessResult.type).toBe(PipelineResultType.OK)
+                if (nonCookielessResult.type === PipelineResultType.OK) {
+                    expect(nonCookielessResult.value.event).toBe(nonCookielessEvent)
+                }
+            })
+
+            it('should drop events with timestamps too far in the future', async () => {
+                // Create an event with a timestamp that's too far in the future
+                const futureTimestamp = new Date('2025-01-12T11:00:00Z') // 2 days after "now" (2025-01-10)
+                const eventWithFutureTimestamp = deepFreeze({
+                    ...event,
+                    now: futureTimestamp.toISOString(),
+                    uuid: new UUID7(futureTimestamp.getTime()).toString(),
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    {
+                        event: eventWithFutureTimestamp,
+                        team,
+                        message,
+                        headers: { force_disable_person_processing: false },
+                    },
+                    { event, team, message, headers: { force_disable_person_processing: false } },
+                ])
+                expect(response.length).toBe(2)
+
+                // Event with future timestamp should be dropped
+                const futureTimestampResult = response[0]
+                expect(futureTimestampResult.type).toBe(PipelineResultType.DROP)
+                if (futureTimestampResult.type === PipelineResultType.DROP) {
+                    expect(futureTimestampResult.reason).toBe('cookieless_timestamp_out_of_range')
+                }
+
+                // Valid cookieless event should pass through
+                const validCookielessResult = response[1]
+                expect(validCookielessResult.type).toBe(PipelineResultType.OK)
+            })
+
+            it('should include ingestion warning for dropped events', async () => {
+                const oldTimestamp = new Date('2025-01-05T11:00:00Z')
+                const eventWithOldTimestamp = deepFreeze({
+                    ...event,
+                    now: oldTimestamp.toISOString(),
+                    uuid: new UUID7(oldTimestamp.getTime()).toString(),
+                })
+
+                const response = await hub.cookielessManager.doBatch([
+                    {
+                        event: eventWithOldTimestamp,
+                        team,
+                        message,
+                        headers: { force_disable_person_processing: false },
+                    },
+                ])
+                expect(response.length).toBe(1)
+
+                const result = response[0]
+                expect(result.type).toBe(PipelineResultType.DROP)
+                if (result.type === PipelineResultType.DROP) {
+                    expect(result.warnings.length).toBe(1)
+                    expect(result.warnings[0].type).toBe('cookieless_timestamp_out_of_range')
+                    expect(result.warnings[0].details).toMatchObject({
+                        eventUuid: eventWithOldTimestamp.uuid,
+                        event: eventWithOldTimestamp.event,
+                        distinctId: eventWithOldTimestamp.distinct_id,
+                    })
                 }
             })
         })

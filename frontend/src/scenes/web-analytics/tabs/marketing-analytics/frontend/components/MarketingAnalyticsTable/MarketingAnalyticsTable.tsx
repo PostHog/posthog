@@ -25,7 +25,6 @@ import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
-import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
@@ -87,22 +86,17 @@ export const MarketingAnalyticsTable = ({
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <div className="flex gap-4">
-                    <div className="flex-1">
-                        <DraftConversionGoalControls />
-                    </div>
-                    <div className="self-start flex flex-col gap-2">
-                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
-                            Configure columns
-                        </LemonButton>
-                        <LemonSwitch
-                            checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
-                            onChange={handleIncludeAllConversionsChange}
-                            label="Non-integrated conversions"
-                            tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
-                            size="small"
-                        />
-                    </div>
+                <div className="flex gap-4 justify-end">
+                    <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                        Configure columns
+                    </LemonButton>
+                    <LemonSwitch
+                        checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
+                        onChange={handleIncludeAllConversionsChange}
+                        label="Non-integrated conversions"
+                        tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
+                        size="small"
+                    />
                 </div>
             </div>
             {validationWarnings && validationWarnings.length > 0 && (
