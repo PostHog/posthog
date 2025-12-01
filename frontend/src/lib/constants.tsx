@@ -267,6 +267,7 @@ export const FEATURE_FLAGS = {
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     LOGS: 'logs', // owner: #team-logs
     LOGS_PRE_EARLY_ACCESS: 'logs-internal', // owner: #team-logs
+    LOGS_VIRTUALIZED_LIST: 'logs-virtualized-list', // owner: #team-logs
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics

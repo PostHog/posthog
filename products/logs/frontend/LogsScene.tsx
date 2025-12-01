@@ -18,9 +18,11 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -35,6 +37,7 @@ import { PropertyOperator } from '~/types'
 
 import { LogTag } from 'products/logs/frontend/components/LogTag'
 import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList'
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
 
 import { AttributeBreakdowns } from './AttributeBreakdowns'
@@ -51,27 +54,9 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const {
-        wrapBody,
-        prettifyJson,
-        pinnedParsedLogs,
-        parsedLogs,
-        sparklineData,
-        logsLoading,
-        sparklineLoading,
-        isPinned,
-        hasMoreLogsToLoad,
-        logsPageSize,
-        logsRemainingToLoad,
-    } = useValues(logsLogic)
-    const {
-        runQuery,
-        setDateRangeFromSparkline,
-        loadMoreLogs,
-        highlightNextLog,
-        highlightPreviousLog,
-        toggleExpandLog,
-    } = useActions(logsLogic)
+    const { sparklineData, sparklineLoading } = useValues(logsLogic)
+    const { runQuery, setDateRangeFromSparkline, highlightNextLog, highlightPreviousLog, toggleExpandLog } =
+        useActions(logsLogic)
     const { highlightedLogId: sceneHighlightedLogId } = useValues(logsLogic)
 
     useEffect(() => {
@@ -97,11 +82,6 @@ export function LogsScene(): JSX.Element {
 
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
         setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
-    }
-
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
-        formatDate: 'YYYY-MM-DD',
-        formatTime: 'HH:mm:ss.SSS',
     }
 
     return (
@@ -150,55 +130,158 @@ export function LogsScene(): JSX.Element {
                 {sparklineLoading && <SpinnerOverlay />}
             </div>
             <SceneDivider />
-            <div>
-                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height)-3px)] z-20 bg-primary pt-2">
-                    <div className="pb-2">
-                        <DisplayOptions />
-                    </div>
-                    {pinnedParsedLogs.length > 0 && (
-                        <div className="border rounded-t bg-bg-light shadow-sm">
-                            <LogsTable
-                                dataSource={pinnedParsedLogs}
-                                loading={false}
-                                isPinned={isPinned}
-                                wrapBody={wrapBody}
-                                prettifyJson={prettifyJson}
-                                tzLabelFormat={tzLabelFormat}
-                            />
-                        </div>
-                    )}
-                </div>
-                <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
-                    <LogsTable
-                        showHeader={!pinnedParsedLogs.length}
-                        dataSource={parsedLogs}
-                        loading={logsLoading}
-                        isPinned={isPinned}
-                        wrapBody={wrapBody}
-                        prettifyJson={prettifyJson}
-                        tzLabelFormat={tzLabelFormat}
-                        showPinnedWithOpacity
-                    />
-                    {parsedLogs.length > 0 && (
-                        <div className="m-2 flex items-center">
-                            <LemonButton
-                                onClick={loadMoreLogs}
-                                loading={logsLoading}
-                                fullWidth
-                                center
-                                disabled={!hasMoreLogsToLoad || logsLoading}
-                            >
-                                {logsLoading
-                                    ? 'Loading more logs...'
-                                    : hasMoreLogsToLoad
-                                      ? `Click to load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
-                                      : `Showing all ${humanFriendlyNumber(parsedLogs.length)} logs`}
-                            </LemonButton>
-                        </div>
-                    )}
-                </div>
-            </div>
+            <LogsListContainer />
         </SceneContent>
+    )
+}
+
+const LogsListContainer = (): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useVirtualizedList = !!featureFlags[FEATURE_FLAGS.LOGS_VIRTUALIZED_LIST]
+    return useVirtualizedList ? <VirtualizedLogsListLogs /> : <LemonTableLogs />
+}
+
+const LemonTableLogs = (): JSX.Element => {
+    const {
+        wrapBody,
+        prettifyJson,
+        pinnedParsedLogs,
+        parsedLogs,
+        logsLoading,
+        isPinned,
+        hasMoreLogsToLoad,
+        logsPageSize,
+        logsRemainingToLoad,
+    } = useValues(logsLogic)
+
+    const { loadMoreLogs } = useActions(logsLogic)
+
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
+        formatDate: 'YYYY-MM-DD',
+        formatTime: 'HH:mm:ss.SSS',
+    }
+
+    return (
+        <div>
+            <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height)-3px)] z-20 bg-primary pt-2">
+                <div className="pb-2">
+                    <DisplayOptions />
+                </div>
+                {pinnedParsedLogs.length > 0 && (
+                    <div className="border rounded-t bg-bg-light shadow-sm">
+                        <LogsTable
+                            dataSource={pinnedParsedLogs}
+                            loading={false}
+                            isPinned={isPinned}
+                            wrapBody={wrapBody}
+                            prettifyJson={prettifyJson}
+                            tzLabelFormat={tzLabelFormat}
+                        />
+                    </div>
+                )}
+            </div>
+            <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
+                <LogsTable
+                    showHeader={!pinnedParsedLogs.length}
+                    dataSource={parsedLogs}
+                    loading={logsLoading}
+                    isPinned={isPinned}
+                    wrapBody={wrapBody}
+                    prettifyJson={prettifyJson}
+                    tzLabelFormat={tzLabelFormat}
+                    showPinnedWithOpacity
+                />
+                {parsedLogs.length > 0 && (
+                    <div className="m-2 flex items-center">
+                        <LemonButton
+                            onClick={loadMoreLogs}
+                            loading={logsLoading}
+                            fullWidth
+                            center
+                            disabled={!hasMoreLogsToLoad || logsLoading}
+                        >
+                            {logsLoading
+                                ? 'Loading more logs...'
+                                : hasMoreLogsToLoad
+                                  ? `Click to load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
+                                  : `Showing all ${humanFriendlyNumber(parsedLogs.length)} logs`}
+                        </LemonButton>
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
+
+const VirtualizedLogsListLogs = (): JSX.Element => {
+    const {
+        wrapBody,
+        prettifyJson,
+        pinnedParsedLogs,
+        parsedLogs,
+        logsLoading,
+        isPinned,
+        hasMoreLogsToLoad,
+        logsPageSize,
+        logsRemainingToLoad,
+    } = useValues(logsLogic)
+
+    const { loadMoreLogs } = useActions(logsLogic)
+
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
+        formatDate: 'YYYY-MM-DD',
+        formatTime: 'HH:mm:ss.SSS',
+    }
+
+    return (
+        <>
+            <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height)-3px)] z-20 bg-primary pt-2">
+                <div className="pb-2">
+                    <DisplayOptions />
+                </div>
+                {pinnedParsedLogs.length > 0 && (
+                    <div className="border rounded-t bg-bg-light shadow-sm">
+                        <VirtualizedLogsList
+                            dataSource={pinnedParsedLogs}
+                            loading={false}
+                            isPinned={isPinned}
+                            wrapBody={wrapBody}
+                            prettifyJson={prettifyJson}
+                            tzLabelFormat={tzLabelFormat}
+                            showPinnedWithOpacity
+                        />
+                    </div>
+                )}
+            </div>
+            <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
+                <VirtualizedLogsList
+                    dataSource={parsedLogs}
+                    loading={logsLoading}
+                    isPinned={isPinned}
+                    wrapBody={wrapBody}
+                    prettifyJson={prettifyJson}
+                    tzLabelFormat={tzLabelFormat}
+                    showPinnedWithOpacity
+                />
+                {parsedLogs.length > 0 && (
+                    <div className="m-2 flex items-center">
+                        <LemonButton
+                            onClick={loadMoreLogs}
+                            loading={logsLoading}
+                            fullWidth
+                            center
+                            disabled={!hasMoreLogsToLoad || logsLoading}
+                        >
+                            {logsLoading
+                                ? 'Loading more logs...'
+                                : hasMoreLogsToLoad
+                                  ? `Click to load ${humanFriendlyNumber(Math.min(logsPageSize, logsRemainingToLoad))} more`
+                                  : `Showing all ${humanFriendlyNumber(parsedLogs.length)} logs`}
+                        </LemonButton>
+                    </div>
+                )}
+            </div>
+        </>
     )
 }
 
