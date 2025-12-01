@@ -6,6 +6,9 @@ on:
             - master
     pull_request:
 
+permissions:
+    contents: read
+
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -47,8 +50,10 @@ jobs:
                   filters: |
                       dagster:
                         - 'dags/**'
-                        # Dagster depends on code from the posthog package, so ensure we run on changes to it
+                        # Dagster depends on Python, so ensure we run on possible changes to it
                         - 'posthog/**/*'
+                        - 'ee/**/*'
+                        - 'products/**/*'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
                         # We use docker compose for tests, make sure we rerun on
@@ -145,3 +150,21 @@ jobs:
             - name: Run Dagster tests
               run: |
                   pytest dags
+
+    # Job just to collate the status of the matrix jobs for requiring passing status
+    dagster_tests:
+        needs: [dagster]
+        name: Dagster Tests Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  # The `needs.dagster.result` will be 'success' only if all jobs in the matrix succeeded.
+                  # Otherwise, it will be 'failure'.
+                  if [[ "${{ needs.dagster.result }}" != "success" && "${{ needs.dagster.result }}" != "skipped" ]]; then
+                    echo "One or more jobs in the Dagster test matrix failed."
+                    exit 1
+                  fi
+
+                  echo "All checks passed."
