@@ -542,10 +542,7 @@ impl BatchDeduplicationProcessor {
                     key, output_topic, e
                 );
                 Err(anyhow::anyhow!(
-                    "Failed to publish event with key '{}' to topic '{}': {}",
-                    key,
-                    output_topic,
-                    e
+                    "Failed to publish event with key '{key}' to topic '{output_topic}': {e}"
                 ))
             }
         }
