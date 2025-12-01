@@ -2,6 +2,7 @@
 
 from django.conf import settings
 
+import openai
 import structlog
 
 from .constants import SUPPORTED_LANGUAGES, TRANSLATION_MODEL
@@ -20,8 +21,6 @@ def translate_text(text: str, target_language: str) -> str:
     Returns:
         Translated text
     """
-    import openai
-
     client = openai.OpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0)
 
     target_name = SUPPORTED_LANGUAGES.get(target_language, target_language)
