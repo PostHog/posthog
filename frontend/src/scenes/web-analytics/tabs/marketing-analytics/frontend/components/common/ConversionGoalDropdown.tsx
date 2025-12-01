@@ -123,6 +123,13 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                         }
                     }
 
+                    // Clean up EventsNode: remove id field (EventsNode uses event, not id)
+                    if (newFilter.kind === NodeKind.EventsNode) {
+                        if ('id' in newFilter) {
+                            delete (newFilter as any).id
+                        }
+                    }
+
                     // Override the schema with the schema from the data warehouse
                     if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
                         const dwNode = data_warehouse[0] as DataWarehouseFilter & Record<ConversionGoalSchema, string>
