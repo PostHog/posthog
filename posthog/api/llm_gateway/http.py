@@ -134,10 +134,15 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = dict(serializer.validated_data)
         is_streaming = data.get("stream", False)
 
+        trace_id = request.data.get("metadata", {}).get("user_id")
+
         data["metadata"] = {
-            "user_id": str(request.user.id) if request.user else None,
+            "user_id": str(request.user.distinct_id) if request.user else None,
             "team_id": str(self.team.id),
             "organization_id": str(self.organization.id),
+            **{
+                "$ai_trace_id": trace_id,
+            },
         }
 
         if is_streaming:
@@ -214,7 +219,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         is_streaming = data.get("stream", False)
 
         data["metadata"] = {
-            "user_id": str(request.user.id) if request.user else None,
+            "user_id": str(request.user.distinct_id) if request.user else None,
             "team_id": str(self.team.id),
             "organization_id": str(self.organization.id),
         }
@@ -224,7 +229,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return self._create_streaming_response(sse_stream)
         else:
             try:
-                response = asyncio.run(litellm.acompletion(**data))
+                response = litellm.completion(**data)
                 response_dict = response.model_dump() if hasattr(response, "model_dump") else response
                 return Response(response_dict)
             except Exception as e:
