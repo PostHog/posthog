@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.models import CycleDetectionError, Edge, Node
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 LINKED_LIST_DAG_ID = "linked_list"
@@ -152,8 +152,39 @@ class TreeCycleDetectionTest(BaseTest):
         source = Node.objects.get(saved_query__name=f"bt_{source_label}")
         target = Node.objects.get(saved_query__name=f"bt_{target_label}")
         if should_raise:
-            with self.assertRaises(Exception):
+            with self.assertRaises(CycleDetectionError):
                 Edge.objects.create(team=source.team, dag_id=BALANCED_TREE_DAG_ID, source=source, target=target)
         else:
             edge = Edge.objects.create(team=source.team, dag_id=BALANCED_TREE_DAG_ID, source=source, target=target)
             edge.delete()
+
+    def test_disallowed_object_functions(self):
+        test_team = self.team
+        test_node = Node.objects.get(name="bt_root")
+        bt_edges = Edge.objects.filter(dag_id=BALANCED_TREE_DAG_ID)
+        disallowed = ("dag_id", "source", "source_id", "target", "target_id", "team", "team_id")
+        for key in disallowed:
+            # test update disallowed for each key
+            with self.assertRaises(NotImplementedError):
+                if key.endswith("id"):
+                    bt_edges.update(**{key: "test"})
+                elif key == "source":
+                    bt_edges.update(source=test_node)
+                elif key == "target":
+                    bt_edges.update(target=test_node)
+                elif key == "team":
+                    bt_edges.update(team=test_team)
+            # test bulk_update disallowed for each key
+            mock_edges = [Edge(source=test_node, target=test_node, team=test_team, dag_id="test") for _ in range(3)]
+            for edge in mock_edges:
+                if key.endswith("id"):
+                    setattr(edge, key, "test")
+                elif key in ("source", "target"):
+                    setattr(edge, key, test_node)
+                elif key == "team":
+                    setattr(edge, key, test_team)
+            with self.assertRaises(NotImplementedError):
+                Edge.objects.bulk_update(mock_edges, [key])
+        # test bulk_create disallowed
+        with self.assertRaises(NotImplementedError):
+            Edge.objects.bulk_create(bt_edges)

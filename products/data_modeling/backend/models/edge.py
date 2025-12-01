@@ -1,9 +1,54 @@
-from django.db import models
+from django.db import connection, models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
+class CycleDetectionError(Exception):
+    """The exception raised when an edge would cause a cycle in a DAG"""
+
+    pass
+
+
+class DAGMismatchError(Exception):
+    """exception raised when an edge would connect two different DAGs together"""
+
+    pass
+
+
+class DataModelingEdgeQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        disallowed = ("dag_id", "source", "source_id", "target", "target_id", "team", "team_id")
+        for key in disallowed:
+            if key in kwargs:
+                raise NotImplementedError(
+                    f"QuerySet.update() is disabled for fields ({disallowed}) to ensure cycle detection. "
+                    "Use individual save() calls instead."
+                )
+        return super().update(**kwargs)
+
+    def bulk_create(self, objs, *args, **kwargs):
+        del objs, args, kwargs  # unused
+        raise NotImplementedError("bulk_create() is disabled for Edge objects to ensure cycle detection.")
+
+    def bulk_update(self, objs, fields, *args, **kwargs):
+        disallowed = ("dag_id", "source", "source_id", "target", "target_id", "team", "team_id")
+        for key in disallowed:
+            if key in kwargs:
+                raise NotImplementedError(
+                    f"QuerySet.bulk_update() is disabled for fields ({disallowed}) to ensure cycle detection. "
+                    "Use individual save() calls instead."
+                )
+        return super().bulk_update(objs, fields, *args, **kwargs)
+
+
+class DataModelingEdgeManager(models.Manager):
+    def get_queryset(self):
+        return DataModelingEdgeQuerySet(self.model, using=self._db)
+
+
 class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+    objects = DataModelingEdgeManager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, editable=False)
     # the source node of the edge (i.e. the node this edge is pointed away from)
     source = models.ForeignKey(
@@ -22,3 +67,52 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         constraints = [
             models.UniqueConstraint(fields=["dag_id", "source", "target"], name="unique_within_dag"),
         ]
+
+    def save(self, *args, **kwargs):
+        self._detect_cycles()
+        self._detect_dag_mismatch()
+        super().save(*args, **kwargs)
+
+    def _detect_cycles(self):
+        # acquire advisory lock to prevent race conditions
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [self.team_id, self.dag_id])
+        # trivial case: self loop
+        if self.source_id == self.target_id:
+            raise CycleDetectionError(
+                f"Self-loop detected: team={self.team_id} dag={self.dag_id} "
+                f"source={self.source_id} target={self.target_id}"
+            )
+        # recursive case
+        if self._creates_cycle():
+            raise CycleDetectionError(
+                f"Cycle detected: team={self.team_id} dag={self.dag_id} source={self.source_id} target={self.target_id}"
+            )
+
+    def _creates_cycle(self):
+        sql = """
+            WITH RECURSIVE reachable(node_id) AS (
+                SELECT e.target_id
+                FROM posthog_datamodelingedge e
+                WHERE e.source_id = '{target_id}'
+                    AND e.team_id = '{team_id}'
+                    AND e.dag_id = '{dag_id}'
+                UNION
+                SELECT e.target_id
+                FROM posthog_datamodelingedge e
+                INNER JOIN reachable r
+                ON e.source_id = r.node_id
+                WHERE e.target_id <> '{target_id}'
+                    AND e.team_id = '{team_id}'
+                    AND e.dag_id = '{dag_id}'
+            )
+            SELECT 1 FROM reachable WHERE node_id = '{source_id}'
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.format(team_id=self.team_id, dag_id=self.dag_id, source_id=self.source_id, target_id=self.target_id)
+            )
+            return cursor.fetchone() is not None
+
+    def _detect_dag_mismatch(self):
+        pass
