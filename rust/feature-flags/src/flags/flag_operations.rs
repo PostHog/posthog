@@ -892,27 +892,6 @@ mod tests {
             .await
             .expect("Failed to insert deleted flag in Postgres");
 
-        context
-            .insert_flag(
-                team.id,
-                Some(FeatureFlagRow {
-                    id: 0,
-                    team_id: team.id,
-                    name: Some("Inactive Flag".to_string()),
-                    key: "inactive_flag".to_string(),
-                    filters: inactive_flag["filters"].clone(),
-                    deleted: false,
-                    active: false,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                }),
-            )
-            .await
-            .expect("Failed to insert inactive flag in Postgres");
-
         // Fetch and verify from Redis
         let redis_flags = get_flags_from_redis(redis_client, team.id)
             .await
