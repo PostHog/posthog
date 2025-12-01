@@ -3,12 +3,39 @@
 import math
 from typing import Optional, Union
 
+from pydantic import BaseModel
+
 from posthog.schema import (
+    BingAdsDefaultSources,
+    BingAdsTableExclusions,
+    BingAdsTableKeywords,
+    GoogleAdsDefaultSources,
+    GoogleAdsTableExclusions,
+    GoogleAdsTableKeywords,
     InfinityValue,
+    LinkedinAdsDefaultSources,
+    LinkedinAdsTableExclusions,
+    LinkedinAdsTableKeywords,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsItem,
+    MarketingIntegrationConfig1,
+    MarketingIntegrationConfig2,
+    MarketingIntegrationConfig3,
+    MarketingIntegrationConfig4,
+    MarketingIntegrationConfig5,
+    MarketingIntegrationConfig6,
+    MetaAdsDefaultSources,
+    MetaAdsTableExclusions,
+    MetaAdsTableKeywords,
+    NativeMarketingSource,
+    RedditAdsDefaultSources,
+    RedditAdsTableExclusions,
+    RedditAdsTableKeywords,
+    TikTokAdsDefaultSources,
+    TikTokAdsTableExclusions,
+    TikTokAdsTableKeywords,
     WebAnalyticsItemKind,
 )
 
@@ -151,8 +178,8 @@ MARKETING_ANALYTICS_SCHEMA = {
     MarketingAnalyticsColumnsSchemaNames.CURRENCY: {"required": False},
 }
 
-# Valid native marketing sources
-VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds", "LinkedinAds", "RedditAds", "MetaAds", "TikTokAds", "BingAds"]
+# Valid native marketing sources - derived from generated enum
+VALID_NATIVE_MARKETING_SOURCES = [source.value for source in NativeMarketingSource]
 
 # Valid non-native marketing sources (managed external sources like BigQuery)
 VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
@@ -160,48 +187,101 @@ VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
 # Valid self-managed marketing sources (mirrors frontend types)
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]
 
-# Required tables for each native source
-NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
-    "GoogleAds": ["campaign", "campaign_stats"],
-    "LinkedinAds": ["campaigns", "campaign_stats"],
-    "RedditAds": ["campaigns", "campaign_report"],
-    "MetaAds": ["campaigns", "campaign_stats"],
-    "TikTokAds": ["campaigns", "campaign_report"],
-    "BingAds": ["campaigns", "campaign_performance_report"],
+# Map generated config models to NativeMarketingSource using sourceType field
+_ALL_CONFIG_MODELS = [
+    MarketingIntegrationConfig1,
+    MarketingIntegrationConfig2,
+    MarketingIntegrationConfig3,
+    MarketingIntegrationConfig4,
+    MarketingIntegrationConfig5,
+    MarketingIntegrationConfig6,
+]
+
+
+def _get_field_default(model: type[BaseModel], field_name: str):
+    """Extract default value from a Pydantic model field."""
+    return model.model_fields[field_name].default
+
+
+# Build mapping from NativeMarketingSource to config model using sourceType
+_CONFIG_MODELS: dict[NativeMarketingSource, type] = {}
+for _config in _ALL_CONFIG_MODELS:
+    _source_type_value = _get_field_default(_config, "sourceType")
+    _source = NativeMarketingSource(_source_type_value)
+    _CONFIG_MODELS[_source] = _config
+
+
+def _get_enum_values(enum_class) -> list[str]:
+    """Extract values from a StrEnum or RootModel literal type."""
+    # Check if it's a StrEnum (has __members__)
+    if hasattr(enum_class, "__members__"):
+        return [member.value for member in enum_class]
+    # It's a RootModel with a single literal value - get the default
+    if hasattr(enum_class, "model_fields") and "root" in enum_class.model_fields:
+        return [enum_class.model_fields["root"].default]
+    return []
+
+
+# Mapping from NativeMarketingSource to generated enum types
+_DEFAULT_SOURCES_ENUMS = {
+    NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,
+    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsDefaultSources,
+    NativeMarketingSource.META_ADS: MetaAdsDefaultSources,
+    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsDefaultSources,
+    NativeMarketingSource.REDDIT_ADS: RedditAdsDefaultSources,
+    NativeMarketingSource.BING_ADS: BingAdsDefaultSources,
 }
 
-# Table pattern matching for native sources. TODO: find a better way to get the table names from the source.
+_TABLE_KEYWORDS_ENUMS = {
+    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableKeywords,
+    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableKeywords,
+    NativeMarketingSource.META_ADS: MetaAdsTableKeywords,
+    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableKeywords,
+    NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
+    NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
+}
+
+_TABLE_EXCLUSIONS_ENUMS = {
+    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableExclusions,
+    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableExclusions,
+    NativeMarketingSource.META_ADS: MetaAdsTableExclusions,
+    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableExclusions,
+    NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
+    NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
+}
+
+# Derived constants from generated types
+NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
+    source: [
+        _get_field_default(config, "campaignTableName"),
+        _get_field_default(config, "statsTableName"),
+    ]
+    for source, config in _CONFIG_MODELS.items()
+}
+
 TABLE_PATTERNS = {
-    "GoogleAds": {
-        "campaign_table_keywords": ["campaign"],
-        "campaign_table_exclusions": ["stats"],
-        "stats_table_keywords": ["campaign_stats"],
-    },
-    "LinkedinAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["stats"],
-        "stats_table_keywords": ["campaign_stats"],
-    },
-    "RedditAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["report"],
-        "stats_table_keywords": ["campaign_report"],
-    },
-    "MetaAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["stats"],
-        "stats_table_keywords": ["campaign_stats"],
-    },
-    "TikTokAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["report"],
-        "stats_table_keywords": ["campaign_report"],
-    },
-    "BingAds": {
-        "campaign_table_keywords": ["campaigns"],
-        "campaign_table_exclusions": ["performance"],
-        "stats_table_keywords": ["campaign_performance_report"],
-    },
+    source: {
+        "campaign_table_keywords": _get_enum_values(_TABLE_KEYWORDS_ENUMS[source]),
+        "campaign_table_exclusions": _get_enum_values(_TABLE_EXCLUSIONS_ENUMS[source]),
+        "stats_table_keywords": [_get_field_default(config, "statsTableName")],
+    }
+    for source, config in _CONFIG_MODELS.items()
+}
+
+INTEGRATION_FIELD_NAMES = {
+    source: {
+        "name_field": _get_field_default(config, "nameField"),
+        "id_field": _get_field_default(config, "idField"),
+    }
+    for source, config in _CONFIG_MODELS.items()
+}
+
+INTEGRATION_PRIMARY_SOURCE = {
+    source: _get_field_default(config, "primarySource") for source, config in _CONFIG_MODELS.items()
+}
+
+INTEGRATION_DEFAULT_SOURCES = {
+    source: _get_enum_values(_DEFAULT_SOURCES_ENUMS[source]) for source in NativeMarketingSource
 }
 
 # Column kind mapping for WebAnalyticsItemBase
