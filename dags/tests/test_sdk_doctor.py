@@ -145,6 +145,9 @@ class TestFetchNodeSdkData(TestFetchSdkDataBase):
         assert result["releaseDates"]["5.14.0"] == "2025-11-24T10:24:59Z"
         assert mock_get.call_count == 3  # Paginated to second page + 1 for `posthog-js-lite`
 
+        # `posthog-js-lite` included a leading `v` prefix on some tags, let's make sure it's removed
+        assert not any(version.startswith("v") for version in result["releaseDates"].keys())
+
 
 class TestFetchReactNativeSdkData(TestFetchSdkDataBase):
     @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
@@ -161,6 +164,9 @@ class TestFetchReactNativeSdkData(TestFetchSdkDataBase):
         assert result["releaseDates"]["4.14.0"] == "2025-11-26T13:26:49Z"
         assert mock_get.call_count == 3  # Paginated to second page + 1 for `posthog-js-lite`
 
+        # `posthog-js-lite` included a leading `v` prefix on some tags, let's make sure it's removed
+        assert not any(version.startswith("v") for version in result["releaseDates"].keys())
+
 
 class TestFetchFlutterSdkData(TestFetchSdkDataBase):
     @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
@@ -176,6 +182,9 @@ class TestFetchFlutterSdkData(TestFetchSdkDataBase):
         assert "5.9.0" in result["releaseDates"]
         assert result["releaseDates"]["5.9.0"] == "2025-11-05T13:22:41Z"
         assert mock_get.call_count == 2  # Paginated to second page
+
+        # `flutter` included a leading `v` prefix on some tags, let's make sure it's removed
+        assert not any(version.startswith("v") for version in result["releaseDates"].keys())
 
 
 class TestFetchIosSdkData(TestFetchSdkDataBase):
