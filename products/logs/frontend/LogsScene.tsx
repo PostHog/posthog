@@ -154,7 +154,7 @@ const LemonTableLogs = (): JSX.Element => {
         logsRemainingToLoad,
     } = useValues(logsLogic)
 
-    const { loadMoreLogs } = useActions(logsLogic)
+    const { fetchNextLogsPage } = useActions(logsLogic)
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
         formatDate: 'YYYY-MM-DD',
@@ -194,7 +194,7 @@ const LemonTableLogs = (): JSX.Element => {
                 {parsedLogs.length > 0 && (
                     <div className="m-2 flex items-center">
                         <LemonButton
-                            onClick={loadMoreLogs}
+                            onClick={fetchNextLogsPage}
                             loading={logsLoading}
                             fullWidth
                             center

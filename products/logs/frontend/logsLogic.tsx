@@ -203,7 +203,6 @@ export const logsLogic = kea<logsLogicType>([
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
         fetchNextLogsPage: (limit?: number) => ({ limit }),
-        loadMoreLogs: true,
         truncateLogs: (limit: number) => ({ limit }),
         applyLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
         clearLogs: true,
@@ -837,9 +836,6 @@ export const logsLogic = kea<logsLogicType>([
                 actions.setHasMoreLogsToLoad(true)
             }
         },
-        loadMoreLogs: () => {
-            actions.fetchNextLogsPage()
-        },
         highlightNextLog: () => {
             const logs = values.parsedLogs
             if (logs.length === 0) {
@@ -855,7 +851,7 @@ export const logsLogic = kea<logsLogicType>([
             } else if (currentIndex < logs.length - 1) {
                 actions.setHighlightedLogId(logs[currentIndex + 1].uuid)
             } else if (values.hasMoreLogsToLoad && !values.logsLoading) {
-                actions.loadMoreLogs()
+                actions.fetchNextLogsPage()
             }
         },
         highlightPreviousLog: () => {
