@@ -68,7 +68,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import CohortPeople, CohortType
-from posthog.models.cohort.util import get_all_cohort_dependencies, print_cohort_hogql_query
+from posthog.models.cohort.util import get_all_cohort_dependencies, get_friendly_error_message, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -370,6 +370,14 @@ class CSVConfig:
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
 
 
+class CohortListItemSerializer(serializers.ModelSerializer):
+    """Minimal serializer for cohort references (e.g., person cohorts endpoint)."""
+
+    class Meta:
+        model = Cohort
+        fields = ["id", "name", "count"]
+
+
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
@@ -416,8 +424,6 @@ class CohortSerializer(serializers.ModelSerializer):
         ]
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
-        from posthog.models.cohort.util import get_friendly_error_message
-
         if hasattr(cohort, "last_error_code"):
             if cohort.last_error_code:
                 return get_friendly_error_message(cohort.last_error_code)
