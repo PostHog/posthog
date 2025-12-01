@@ -159,9 +159,6 @@ class TestFindPythonDependencies(unittest.TestCase):
         ]
     )
     def test_analytics_platform_worker_file_triggers_rebuild(self, _name, changed_file, should_trigger):
-        if not (REPO_ROOT / changed_file).exists():
-            self.skipTest(f"File not found: {changed_file}")
-
         affected, _ = check_if_changes_affect_entrypoint(
             self.graph,
             "posthog.temporal.subscriptions",
