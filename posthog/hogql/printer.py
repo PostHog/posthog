@@ -853,8 +853,9 @@ class _Printer(Visitor[str]):
 
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
-                    return "0"
-                elif node.right.value == "":
+                    # we can't optimize here, as the unoptimized version returns true if the key doesn't exist OR the value is null
+                    return None
+                if node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
                 elif isinstance(node.right.type, ast.StringType):
@@ -1989,6 +1990,11 @@ class _Printer(Visitor[str]):
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None
+
+    @staticmethod
+    def print_clickhouse_settings(s):
+        printer = _Printer(dialect="clickhouse", context=HogQLContext())
+        return printer._print_settings(s)
 
     def _create_default_window_frame(self, node: ast.WindowFunction):
         # For lag/lead functions, we need to order by the first argument by default

@@ -579,9 +579,7 @@ class TestPrinter(BaseTest):
             )
 
         context = build_context(PropertyGroupsMode.OPTIMIZED)
-        # Include HogQLGlobalSettings() so that when we check indexes, we see what skip indexes would be used with realistic settings.
-        # E.g. settings like `transform_null_in=1` can make a dramatic difference to the indexes for queries with `in(X, Y)`
-        printed_expr = self._expr(input_expression, context, settings=HogQLGlobalSettings())
+        printed_expr = self._expr(input_expression, context)
         if expected_optimized_query is not None:
             self.assertEqual(printed_expr, expected_optimized_query)
         else:
@@ -612,9 +610,16 @@ class TestPrinter(BaseTest):
                         if result is not None:
                             return result
 
+            # Include HogQLGlobalSettings() so that when we check indexes, we see what skip indexes would be used with realistic settings.
+            # E.g. settings like `transform_null_in=1` can make a dramatic difference to the indexes for queries with `in(X, Y)`
             [[raw_explain_result]] = sync_execute(
                 f"EXPLAIN indexes = 1, json = 1 SELECT count() FROM events WHERE {printed_expr}",
                 context.values,
+                settings={
+                    "1" if v is True else "0" if v is False else str(v): v
+                    for k, v in HogQLGlobalSettings().model_dump().items()
+                    if v is not None
+                },
             )
             read_from_merge_tree_step = _find_node(
                 json.loads(raw_explain_result)[0]["Plan"],
@@ -818,9 +823,22 @@ class TestPrinter(BaseTest):
         # NULL values are never equal. While this differs from the behavior of the equality operator above, it is
         # consistent with how ClickHouse treats these values:
         # https://clickhouse.com/docs/en/sql-reference/operators/in#null-processing
-        self._test_property_group_comparison("properties.key in NULL", "0")
-        self._test_property_group_comparison("properties.key in (NULL)", "0")
-        self._test_property_group_comparison("properties.key in (NULL, NULL, NULL)", "0")
+        self._test_property_group_comparison(
+            "properties.key in NULL",
+            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, NULL)",
+        )
+        self._test_property_group_comparison(
+            "properties.key in (NULL)",
+            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, NULL)",
+        )
+        self._test_property_group_comparison(
+            "properties.key in (NULL, NULL, NULL)",
+            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, tuple(NULL, NULL, NULL))",
+        )
+        self._test_property_group_comparison(
+            "properties.key in [NULL, NULL, NULL]",
+            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, [NULL, NULL, NULL])",
+        )
 
         # Don't optimize comparisons to types that require additional type conversions.
         self._test_property_group_comparison("properties.key in true", None)
@@ -832,30 +850,96 @@ class TestPrinter(BaseTest):
         self._test_property_group_comparison("properties.key in lower('value')", None)
         self._test_property_group_comparison("properties.key in (lower('a'), lower('b'))", None)
 
-    def test_property_groups_optimized_in_comparisons_with_array_constants(self) -> None:
-        # Array constants (e.g. from ast.Constant(value=['a', 'b'])) should be optimized the same as tuples.
-        # This is important for experiment queries that use list constants for variant filtering.
-        context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
-            modifiers=HogQLQueryModifiers(
-                materializationMode=MaterializationMode.AUTO,
-                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
-            ),
+    def test_event_property_groups_optimized_in_query_results(self):
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "a", "is_null": None, "is_null_and_string": None},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "b", "is_string": "s", "is_null_and_string": "s"},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="distinct_id",
+            event="event",
+            properties={"label": "c", "is_string": "s", "is_null_and_string": "s"},
         )
 
-        # Build a query with a list constant using placeholders
-        query = parse_select(
-            "SELECT 1 FROM events WHERE properties.key IN {variants}",
-            placeholders={"variants": ast.Constant(value=["control", "test"])},
-        )
-        printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        def assert_expressions_are_equal(expr: str):
+            hogql_expr = parse_expr(expr)
 
-        # Should use the optimized form: has(map, key) AND in(map[key], tuple(...))
-        # This ensures both bloom filter indexes (keys and values) can be used
-        self.assertIn("and(has(events.properties_group_custom,", printed)
-        self.assertIn("in(events.properties_group_custom[", printed)
-        self.assertIn("tuple(", printed)
+            query = parse_select(
+                "select properties.label as label from events where {expr} order by label asc",
+                placeholders={"expr": hogql_expr},
+            )
+
+            disabled_context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    propertyGroupsMode=PropertyGroupsMode.DISABLED,
+                ),
+            )
+            enabled_context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    propertyGroupsMode=PropertyGroupsMode.ENABLED,
+                ),
+            )
+            optimized_context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+                ),
+            )
+
+            disabled_response = execute_hogql_query(
+                query=query, team=self.team, context=disabled_context, modifiers=disabled_context.modifiers
+            )
+            enabled_response = execute_hogql_query(
+                query=query, team=self.team, context=enabled_context, modifiers=enabled_context.modifiers
+            )
+            optimized_response = execute_hogql_query(
+                query=query, team=self.team, context=optimized_context, modifiers=optimized_context.modifiers
+            )
+
+            assert disabled_response.clickhouse and enabled_response.clickhouse and optimized_response.clickhouse
+            assert "properties_group_custom" not in disabled_response.clickhouse
+            assert "properties_group_custom" in enabled_response.clickhouse
+            assert "properties_group_custom" in optimized_response.clickhouse
+
+            assert enabled_response.results == disabled_response.results
+            assert optimized_response.results == disabled_response.results
+
+        assert_expressions_are_equal("properties.is_string in ('s')")
+        assert_expressions_are_equal("properties.is_string in ('not_exist')")
+        assert_expressions_are_equal("properties.is_string in ('not_exist', 's')")
+        assert_expressions_are_equal("properties.is_string in ('not_exist', 's', NULL)")
+
+        assert_expressions_are_equal("properties.is_null in NULL")
+        assert_expressions_are_equal("properties.is_null in (NULL)")
+        assert_expressions_are_equal("properties.is_null in (NULL, NULL, NULL)")
+        assert_expressions_are_equal("properties.is_null in [NULL, NULL, NULL]")
+        assert_expressions_are_equal("properties.is_null in ('not_exist', 's', NULL)")
+
+        assert_expressions_are_equal("properties.is_null_and_string in ('s')")
+        assert_expressions_are_equal("properties.is_null_and_string in (NULL)")
+        assert_expressions_are_equal("properties.is_null_and_string in ('not_exist')")
+        assert_expressions_are_equal("properties.is_null_and_string in ('not_exist', 's')")
+        assert_expressions_are_equal("properties.is_null_and_string in ('not_exist', 's', NULL)")
+
+        assert_expressions_are_equal("properties.not_exist in (NULL)")
+        assert_expressions_are_equal("properties.not_exist in ('not_exist', NULL)")
 
     def test_property_groups_select_with_aliases(self):
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
