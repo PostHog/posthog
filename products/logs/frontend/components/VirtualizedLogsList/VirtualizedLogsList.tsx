@@ -2,7 +2,9 @@ import './VirtualizedLogsList.scss'
 
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
-import { AutoSizer, CellMeasurer, CellMeasurerCache, List, ListRowProps } from 'react-virtualized'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
+import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
