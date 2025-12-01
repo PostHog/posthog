@@ -882,6 +882,13 @@ class TestPrinter(BaseTest):
             properties={"label": "int", "value": 1},
         )
 
+        # update this test if we add more modes
+        assert {e.value for e in PropertyGroupsMode} == {
+            PropertyGroupsMode.DISABLED,
+            PropertyGroupsMode.ENABLED,
+            PropertyGroupsMode.OPTIMIZED,
+        }
+
         def assert_result_is_equal(expr: str, labels):
             hogql_expr = parse_expr(expr)
 
