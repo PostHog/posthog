@@ -77,6 +77,9 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
+
+    /** Skip the context menu */
+    skipContext?: boolean
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
@@ -242,7 +245,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             </a>
         )
 
-        if (href && !externalLink) {
+        if (href && !externalLink && !skipContext) {
             element = (
                 <ContextMenu key={props.key}>
                     <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
