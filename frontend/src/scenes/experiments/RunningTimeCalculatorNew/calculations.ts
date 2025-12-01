@@ -185,7 +185,6 @@ export function calculateRecommendedSampleSize(
          * - The formula is identical to the Count metric case.
          */
         if (variance === null) {
-            lemonToast.error('Mean metric (Sum) requires variance, but got null')
             return null
         }
         sampleSizeFormula = (16 * variance) / d ** 2
@@ -279,7 +278,6 @@ export function calculateRecommendedSampleSize(
          * - Uses delta method: Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
          */
         if (variance === null) {
-            lemonToast.error('Ratio metric requires variance, but got null')
             return null
         }
         sampleSizeFormula = (16 * variance) / d ** 2
