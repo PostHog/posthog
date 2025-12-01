@@ -677,7 +677,7 @@ impl MessageProcessor for DeduplicationProcessor {
 
         // Process the event through deduplication, passing the original payload and headers for publishing
         match self
-            .process_raw_event(raw_event, orig_payload.to_vec(), orig_headers.clone(), ctx)
+            .process_raw_event(raw_event, orig_payload.to_vec(), orig_headers, ctx)
             .await
         {
             Ok(published) => {

@@ -60,7 +60,9 @@ fn create_batch_kafka_consumer(
             for msg in messages {
                 batch.push_message(msg);
             }
-            self.sender.send(batch).map_err(|e| anyhow::anyhow!("Failed to send batch: {}", e))
+            self.sender
+                .send(batch)
+                .map_err(|e| anyhow::anyhow!("Failed to send batch: {}", e))
         }
     }
 

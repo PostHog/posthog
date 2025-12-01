@@ -287,10 +287,7 @@ impl DeduplicationStore {
 
     /// Batch put timestamp records
     pub fn put_timestamp_records_batch(&self, entries: Vec<TimestampBatchEntry>) -> Result<()> {
-        let raw_entries: Vec<(&[u8], &[u8])> = entries
-            .iter()
-            .map(|e| (e.key, e.value))
-            .collect();
+        let raw_entries: Vec<(&[u8], &[u8])> = entries.iter().map(|e| (e.key, e.value)).collect();
         self.store.put_batch(Self::TIMESTAMP_CF, raw_entries)
     }
 

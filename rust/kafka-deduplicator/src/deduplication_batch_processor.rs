@@ -38,18 +38,9 @@ use crate::{
     utils::timestamp,
 };
 
-/// Context for a Kafka message being processed
-struct MessageContext {
-    topic: String,
-    partition: i32,
-    offset: i64,
-    key: String,
-}
-
 /// Enriched event with deduplication keys
 struct EnrichedEvent<'a> {
     raw_event: &'a RawEvent,
-    timestamp_key: TimestampKey,
     uuid_key: Option<UuidKey>,
     timestamp_key_bytes: Vec<u8>,
     uuid_key_bytes: Option<Vec<u8>>,
@@ -78,8 +69,9 @@ impl BatchConsumerProcessor<CapturedEvent> for BatchDeduplicationProcessor {
             .map(|message| (message.get_topic_partition(), message))
             .into_group_map();
 
-        // Process partitions in parallel using rayon
-        // Each partition has its own RocksDB store, so parallel processing is safe
+        // Process partitions concurrently using async tasks
+        // Each partition has its own RocksDB store, so concurrent processing is safe
+        // Note: Within each partition, we use rayon for CPU-bound JSON parsing
 
         let mut promises = vec![];
         for (partition, messages) in messages_by_partition {
@@ -119,15 +111,18 @@ impl BatchDeduplicationProcessor {
         messages: Vec<&KafkaMessage<CapturedEvent>>,
     ) -> Result<()> {
         // Parse events in parallel (CPU-bound work - good use of rayon)
-        let parsed_events: Vec<Result<RawEvent>> =
-            messages.par_iter().map(Self::parse_raw_event).collect();
+        // Use block_in_place to avoid blocking the async runtime thread pool
+        let parsed_events: Vec<Result<RawEvent>> = tokio::task::block_in_place(|| {
+            messages.par_iter().map(Self::parse_raw_event).collect()
+        });
 
         // Collect successful parses and extract metadata sequentially
         // This avoids cloning the entire message - we just copy the small pieces we need
-        let mut events = Vec::new();
-        let mut payloads = Vec::new();
-        let mut headers_vec = Vec::new();
-        let mut keys = Vec::new();
+        let successful_count = parsed_events.iter().filter(|r| r.is_ok()).count();
+        let mut events = Vec::with_capacity(successful_count);
+        let mut payloads = Vec::with_capacity(successful_count);
+        let mut headers_vec = Vec::with_capacity(successful_count);
+        let mut keys = Vec::with_capacity(successful_count);
 
         for (idx, msg) in messages.iter().enumerate() {
             if let Ok(event) = &parsed_events[idx] {
@@ -260,7 +255,6 @@ impl BatchDeduplicationProcessor {
 
                 EnrichedEvent {
                     raw_event,
-                    timestamp_key,
                     uuid_key,
                     timestamp_key_bytes,
                     uuid_key_bytes,
@@ -310,48 +304,53 @@ impl BatchDeduplicationProcessor {
 
         // Step 4: Process deduplication results and prepare batch writes
         // Track keys we've seen in this batch to detect within-batch duplicates
-        let mut batch_timestamp_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-        let mut batch_uuid_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+        let event_count = enriched_events.len();
+        let mut batch_timestamp_cache: HashMap<Vec<u8>, Vec<u8>> =
+            HashMap::with_capacity(event_count);
+        let mut batch_uuid_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::with_capacity(event_count);
 
-        let mut timestamp_writes: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
-        let mut uuid_writes: Vec<(Vec<u8>, Vec<u8>, u64)> = Vec::new();
-        let mut dedup_results: Vec<DeduplicationResult> = Vec::new();
+        let mut timestamp_writes: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(event_count);
+        let mut uuid_writes: Vec<(Vec<u8>, Vec<u8>, u64)> = Vec::with_capacity(event_count);
+        let mut dedup_results: Vec<DeduplicationResult> = Vec::with_capacity(event_count);
 
         for (idx, enriched) in enriched_events.iter().enumerate() {
             let raw_event = &enriched.raw_event;
 
             // Check timestamp-based deduplication
             // First check RocksDB results, then check within-batch cache
-            let timestamp_source = timestamp_results[idx]
-                .as_ref()
-                .or_else(|| batch_timestamp_cache.get(&enriched.timestamp_key_bytes));
+            let timestamp_source: Option<&[u8]> = timestamp_results[idx].as_deref().or_else(|| {
+                batch_timestamp_cache
+                    .get(&enriched.timestamp_key_bytes)
+                    .map(|v| v.as_slice())
+            });
 
-            let timestamp_result = match Self::check_timestamp_duplicate_from_bytes(
-                &timestamp_source.cloned(),
-                raw_event,
-            ) {
-                Ok((result, metadata)) => {
-                    if let Some(metadata) = metadata {
-                        // Update metadata and prepare for write
-                        let value =
-                            bincode::serde::encode_to_vec(&metadata, bincode::config::standard())?;
-                        timestamp_writes
-                            .push((enriched.timestamp_key_bytes.clone(), value.clone()));
+            let timestamp_result =
+                match Self::check_timestamp_duplicate_from_bytes(timestamp_source, raw_event) {
+                    Ok((result, metadata)) => {
+                        if let Some(metadata) = metadata {
+                            // Update metadata and prepare for write
+                            let value = bincode::serde::encode_to_vec(
+                                &metadata,
+                                bincode::config::standard(),
+                            )?;
+                            timestamp_writes
+                                .push((enriched.timestamp_key_bytes.clone(), value.clone()));
 
-                        // Update batch cache for within-batch duplicate detection
-                        batch_timestamp_cache.insert(enriched.timestamp_key_bytes.clone(), value);
+                            // Update batch cache for within-batch duplicate detection
+                            batch_timestamp_cache
+                                .insert(enriched.timestamp_key_bytes.clone(), value);
+                        }
+
+                        // Emit metrics for timestamp deduplication
+                        Self::emit_timestamp_metrics(&result, raw_event, &metrics);
+
+                        result
                     }
-
-                    // Emit metrics for timestamp deduplication
-                    Self::emit_timestamp_metrics(&result, raw_event, &metrics);
-
-                    result
-                }
-                Err(e) => {
-                    error!("Failed to check timestamp duplicate: {}", e);
-                    DeduplicationResult::Skipped
-                }
-            };
+                    Err(e) => {
+                        error!("Failed to check timestamp duplicate: {}", e);
+                        DeduplicationResult::Skipped
+                    }
+                };
 
             // If timestamp check found a duplicate, we're done
             if timestamp_result.is_duplicate() {
@@ -364,10 +363,10 @@ impl BatchDeduplicationProcessor {
                 let uuid_key_bytes = enriched.uuid_key_bytes.as_ref().unwrap();
 
                 // First check RocksDB results, then check within-batch cache
-                let uuid_source = uuid_results_map
+                let uuid_source: Option<&[u8]> = uuid_results_map
                     .get(&idx)
-                    .and_then(|r| r.as_ref())
-                    .or_else(|| batch_uuid_cache.get(uuid_key_bytes));
+                    .and_then(|r| r.as_deref())
+                    .or_else(|| batch_uuid_cache.get(uuid_key_bytes).map(|v| v.as_slice()));
 
                 let uuid_result =
                     match Self::check_uuid_duplicate_from_bytes(uuid_source, raw_event) {
@@ -554,7 +553,7 @@ impl BatchDeduplicationProcessor {
 
     /// Check timestamp-based duplicate from raw bytes
     fn check_timestamp_duplicate_from_bytes(
-        existing_bytes: &Option<Vec<u8>>,
+        existing_bytes: Option<&[u8]>,
         raw_event: &RawEvent,
     ) -> Result<(DeduplicationResult, Option<TimestampMetadata>)> {
         match existing_bytes {
@@ -608,7 +607,7 @@ impl BatchDeduplicationProcessor {
 
     /// Check UUID-based duplicate from raw bytes
     fn check_uuid_duplicate_from_bytes(
-        existing_bytes: Option<&Vec<u8>>,
+        existing_bytes: Option<&[u8]>,
         raw_event: &RawEvent,
     ) -> Result<(DeduplicationResult, Option<UuidMetadata>)> {
         match existing_bytes {
@@ -852,35 +851,6 @@ impl BatchDeduplicationProcessor {
                     e
                 ))
             }
-        }
-    }
-
-    fn get_message_context(message: &KafkaMessage<CapturedEvent>) -> MessageContext {
-        // Get the original message key for publishing
-        let key = match message.key_as_str() {
-            Some(key_result) => match key_result {
-                Ok(key_str) => key_str.to_string(),
-                Err(e) => {
-                    error!(
-                        "Invalid UTF-8 in message key at {}:{} offset {}: {}",
-                        message.get_topic_partition().topic(),
-                        message.get_topic_partition().partition_number(),
-                        message.get_offset(),
-                        e
-                    );
-                    String::new()
-                }
-            },
-            None => String::new(), // Empty key is acceptable
-        };
-
-        // Get the original headers to preserve them when publishing
-        // Create message context
-        MessageContext {
-            topic: message.get_topic_partition().topic().to_string(),
-            partition: message.get_topic_partition().partition_number(),
-            offset: message.get_offset(),
-            key,
         }
     }
 }
@@ -1186,8 +1156,8 @@ mod tests {
             .map(|i| {
                 create_test_raw_event(
                     Some(Uuid::new_v4()),
-                    &format!("event{}", i),
-                    &format!("user{}", i),
+                    &format!("event{i}"),
+                    &format!("user{i}"),
                     &format!("2024-01-01T00:{:02}:00Z", i % 60),
                 )
             })
@@ -1209,8 +1179,8 @@ mod tests {
             .map(|i| {
                 create_test_raw_event(
                     Some(Uuid::new_v4()),
-                    &format!("event{}", i),
-                    &format!("user{}", i),
+                    &format!("event{i}"),
+                    &format!("user{i}"),
                     &format!("2024-01-01T00:{:02}:00Z", i % 60),
                 )
             })
