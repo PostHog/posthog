@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
-import { LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
@@ -19,7 +19,7 @@ import {
 import { QuickSurveyFormProps, QuickSurveyType } from './quick-create/types'
 import { buildLogicProps } from './quick-create/utils'
 
-export function QuickSurveyForm({ context, onCancel }: QuickSurveyFormProps): JSX.Element {
+export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProps): JSX.Element {
     const logicProps: QuickSurveyFormLogicProps = useMemo(() => {
         return {
             ...buildLogicProps(context),
@@ -41,7 +41,9 @@ export function QuickSurveyForm({ context, onCancel }: QuickSurveyFormProps): JS
 
     return (
         <>
-            <div className="grid grid-cols-2 gap-6">
+            {info && <LemonBanner type="info">{info}</LemonBanner>}
+
+            <div className="grid grid-cols-2 gap-6 mt-2">
                 <div className="space-y-4">
                     <div>
                         <LemonLabel className="mb-2">Question for users</LemonLabel>
@@ -130,12 +132,13 @@ export function QuickSurveyForm({ context, onCancel }: QuickSurveyFormProps): JS
 
 export function QuickSurveyModal({
     context,
+    info,
     onCancel,
     isOpen,
 }: QuickSurveyFormProps & { isOpen: boolean }): JSX.Element {
     return (
         <LemonModal title="Quick feedback survey" isOpen={isOpen} onClose={onCancel} width={900}>
-            <QuickSurveyForm context={context} onCancel={onCancel} />
+            <QuickSurveyForm context={context} info={info} onCancel={onCancel} />
         </LemonModal>
     )
 }
