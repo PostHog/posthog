@@ -10,8 +10,9 @@ import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { urlToResource } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
@@ -199,6 +200,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 : '#'
             : undefined
 
+        const resource = href && href.startsWith('/') ? urlToResource(removeProjectIdIfPresent(href)) : null
+
         const elementClasses = buttonProps
             ? buttonPrimitiveVariants(buttonProps)
             : `Link ${subtle ? 'Link--subtle' : ''}`
@@ -217,6 +220,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 tabIndex={tabIndex}
                 {...props}
                 {...draggableProps}
+                {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
             >
                 {children}
                 {targetBlankIcon &&
