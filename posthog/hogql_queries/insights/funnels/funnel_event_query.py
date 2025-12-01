@@ -186,7 +186,7 @@ class FunnelEventQuery:
             # TODO: Implement where conditions for data warehouse sources
             node = steps[0][1]
 
-            all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name)
+            all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name, node)
 
             select: list[ast.Expr] = [
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])),
@@ -251,11 +251,13 @@ class FunnelEventQuery:
             ),
         )
 
-    def _get_funnel_cols(self, source_kind: SourceTableKind, table_name) -> tuple[list[ast.Expr]]:
+    def _get_funnel_cols(
+        self, source_kind: SourceTableKind, table_name: str, node: Optional[DataWarehouseNode] = None
+    ) -> tuple[list[ast.Expr]]:
         cols: list[ast.Expr] = []
 
         # extra fields
-        cols.extend(self._get_extra_fields(source_kind))
+        cols.extend(self._get_extra_fields(source_kind, node))
 
         # step cols
         for index, entity in enumerate(self.context.query.series):
@@ -446,9 +448,16 @@ class FunnelEventQuery:
                 ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
             ]
 
-    def _get_extra_fields(self, source_kind: SourceTableKind) -> list[ast.Expr]:
+    def _get_extra_fields(
+        self, source_kind: SourceTableKind, node: Optional[DataWarehouseNode] = None
+    ) -> list[ast.Expr]:
         def _expr_for(field: str) -> ast.Expr:
             if is_data_warehouse_source(source_kind):
+                if field == "uuid":
+                    return ast.Alias(
+                        alias="uuid",
+                        expr=ast.Call(name="toUUID", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field])]),
+                    )
                 return ast.Constant(value=None)
             return ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])
 

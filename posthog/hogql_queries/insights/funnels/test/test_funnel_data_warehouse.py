@@ -1,19 +1,13 @@
 from pathlib import Path
 
 from freezegun import freeze_time
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
+from posthog.schema import DataWarehouseNode, DateRange, EventsNode, FunnelsQuery
 
-from posthog.schema import (
-    DataWarehouseNode,
-    DateRange,
-    EventsNode,
-    FunnelsQuery,
-)
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse"
 
@@ -43,27 +37,6 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse(self):
         table_name = self.setup_data_warehouse()
-        # events = [
-        #     {
-        #         "event": "step one",
-        #         "timestamp": datetime(2021, 5, 1, 0, 0, 0),
-        #     },
-        #     # Exclusion happens after time expires
-        #     {
-        #         "event": "exclusion",
-        #         "timestamp": datetime(2021, 5, 1, 0, 0, 11),
-        #     },
-        #     {
-        #         "event": "step two",
-        #         "timestamp": datetime(2021, 5, 1, 0, 0, 12),
-        #     },
-        # ]
-        # journeys_for(
-        #     {
-        #         "user_one": events,
-        #     },
-        #     self.team,
-        # )
 
         funnels_query = FunnelsQuery(
             kind="FunnelsQuery",
@@ -88,13 +61,11 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
 
         with freeze_time("2025-11-07"):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
-            result = runner.calculate()
+            response = runner.calculate()
 
-        # self.assertTrue(result.results.isUdf)
-
-        # assert response.columns is not None
-        # assert set(response.columns).issubset({"date", "total"})
-        # assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
+        results = response.results
+        self.assertEqual(results[0]["count"], 5)
+        self.assertEqual(results[1]["count"], 1)
 
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_and_regular_nodes(self):

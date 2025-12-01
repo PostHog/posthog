@@ -246,11 +246,14 @@ class FunnelBase(ABC):
         people: Optional[list[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
     ) -> dict[str, Any]:
-        if isinstance(step, DataWarehouseNode):
-            # raise ValidationError(
-            #     "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
-            # )
-            return {}
+        if isinstance(step, EventsNode):
+            type = "events"
+        elif isinstance(step, ActionsNode):
+            type = "actions"
+        elif isinstance(step, DataWarehouseNode):
+            type = "data_warehouse"
+        else:
+            raise TypeError(f"Unsupported step type {type(step)}")
 
         if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
             return {
@@ -260,19 +263,20 @@ class FunnelBase(ABC):
                 "order": index,
                 "people": people if people else [],
                 "count": correct_result_for_sampling(count, sampling_factor),
-                "type": "events" if isinstance(step, EventsNode) else "actions",
+                "type": type,
             }
 
         action_id: Optional[str | int]
         if isinstance(step, EventsNode):
             name = step.event
             action_id = step.event
-            type = "events"
+        if isinstance(step, DataWarehouseNode):
+            name = ""
+            action_id = ""
         else:
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
             action_id = step.id
-            type = "actions"
 
         return {
             "action_id": action_id,
