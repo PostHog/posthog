@@ -148,7 +148,6 @@
         "created_at": "2024-10-14T21:19:33.368000Z",
         "uuid": "1bcc7e91-f665-5f29-996e-8f9f6cfe9212"
     },
-    "storage": "object_storage",
     "snapshot_source": "web",
     "ongoing": null,
     "activity_score": null
