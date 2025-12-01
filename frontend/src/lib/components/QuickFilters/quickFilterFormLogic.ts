@@ -137,7 +137,7 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
             if (updates.value !== undefined) {
                 const currentOption = values.options[index]
                 if (currentOption && !currentOption.label) {
-                    const autoLabel = Array.isArray(updates.value) ? updates.value.join(', ') : updates.value || ''
+                    const autoLabel = Array.isArray(updates.value) ? updates.value.join(', ') : (updates.value ?? '')
                     if (autoLabel) {
                         actions.updateOption(index, { label: autoLabel })
                     }
