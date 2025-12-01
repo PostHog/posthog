@@ -2048,6 +2048,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     (stats["/a"]["user_count"], 0),  # (visitors_this_month, visitors_last_month)
                     (stats["/a"]["view_count"], 0),  # (views_this_month, views_last_month)
                     (stats["/a"]["avg_duration"], 0),  # (avg_time_on_page_this_month, avg_time_on_page_last_month)
+                    (0, 0),
                     1 / len(results),  # ui fill fraction
                     "",
                 ],
@@ -2091,6 +2092,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     (stats["/a"]["user_count"], 0),
                     (stats["/a"]["view_count"], 0),
                     (stats["/a"]["avg_duration"], 0),
+                    (0, 0),
                     1 / len(results),
                     "",
                 ],
@@ -2142,6 +2144,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     (stats["/a"]["user_count"], 0),
                     (stats["/a"]["view_count"], 0),
                     (stats["/a"]["avg_duration"], 0),
+                    (0, 0),
                     1 / len(results),
                     "",
                 ],
@@ -2150,6 +2153,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     (stats["/a"]["user_count"], 0),
                     (stats["/b"]["view_count"], 0),
                     (stats["/b"]["avg_duration"], 0),
+                    (0, 0),
                     1 / len(results),
                     "",
                 ],
@@ -2158,6 +2162,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     (stats["/a"]["user_count"], 0),
                     (stats["/c"]["view_count"], 0),
                     (stats["/c"]["avg_duration"], 0),
+                    (0, 0),
                     1 / len(results),
                     "",
                 ],
@@ -2195,6 +2200,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     (m2_stats["/a"]["user_count"], m1_stats["/a"]["user_count"]),
                     (m2_stats["/a"]["view_count"], m1_stats["/a"]["view_count"]),
                     (m2_stats["/a"]["avg_duration"], m1_stats["/a"]["avg_duration"]),
+                    (1, 1),
                     1 / len(results),
                     "",
                 ],
