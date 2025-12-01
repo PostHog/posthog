@@ -218,6 +218,8 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             )
 
         if self.query.searchTerm:
+            # NOTE: each token adds a separate LIKE '%value%' condition which will be expensive for the logs table
+            # Future optimisation: consider ClickHouse multiSearchAny or better ngram index usage if performance becomes an issue with many tokens.
             for token_type, value in parse_search_tokens(self.query.searchTerm):
                 if token_type == "negative":
                     exprs.append(
