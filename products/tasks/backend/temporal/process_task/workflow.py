@@ -14,7 +14,6 @@ from .activities.check_snapshot_exists_for_repository import (
     CheckSnapshotExistsForRepositoryInput,
     check_snapshot_exists_for_repository,
 )
-from .activities.cleanup_personal_api_key import cleanup_personal_api_key
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.clone_repository import CloneRepositoryInput, clone_repository
 from .activities.create_sandbox_from_snapshot import (
@@ -59,7 +58,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, run_id: str) -> ProcessTaskOutput:
         sandbox_id = None
-        personal_api_key_id = None
 
         try:
             self._context = await self._get_task_processing_context(run_id)
@@ -79,7 +77,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             create_sandbox_output = await self._create_sandbox_from_snapshot(snapshot_id)
 
             sandbox_id = create_sandbox_output.sandbox_id
-            personal_api_key_id = create_sandbox_output.personal_api_key_id
 
             result = await self._execute_task_in_sandbox(sandbox_id)
 
@@ -120,8 +117,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         finally:
-            if personal_api_key_id:
-                await self._cleanup_personal_api_key(personal_api_key_id)
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
 
@@ -195,12 +190,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _setup_snapshot_with_repository(self, setup_repository: bool = True) -> str:
         setup_sandbox_id = None
-        setup_personal_api_key_id = None
 
         try:
             setup_output = await self._get_sandbox_for_setup()
             setup_sandbox_id = setup_output.sandbox_id
-            setup_personal_api_key_id = setup_output.personal_api_key_id
             setup_failed = False
 
             await self._clone_repository_in_sandbox(setup_sandbox_id)
@@ -227,8 +220,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             snapshot_id = await self._snapshot_sandbox(setup_sandbox_id)
 
         finally:
-            if setup_personal_api_key_id:
-                await self._cleanup_personal_api_key(setup_personal_api_key_id)
             if setup_sandbox_id:
                 await self._cleanup_sandbox(setup_sandbox_id)
 
@@ -245,17 +236,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-
-    async def _cleanup_personal_api_key(self, personal_api_key_id: str) -> None:
-        try:
-            await workflow.execute_activity(
-                cleanup_personal_api_key,
-                personal_api_key_id,
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-        except Exception as e:
-            logger.warning(f"Failed to cleanup personal API key {personal_api_key_id}: {e}")
 
     async def _execute_task_in_sandbox(self, sandbox_id: str) -> ExecuteTaskOutput:
         execute_input = ExecuteTaskInput(context=self.context, sandbox_id=sandbox_id)

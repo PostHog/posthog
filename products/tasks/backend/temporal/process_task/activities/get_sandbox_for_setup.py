@@ -1,19 +1,21 @@
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
+from django.utils import timezone
 
 from temporalio import activity
 
-from posthog.models import PersonalAPIKey
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.models import OAuthAccessToken, OAuthApplication
+from posthog.models.utils import generate_random_oauth_access_token
 from posthog.temporal.common.utils import asyncify
+from posthog.utils import get_instance_region
 
 from products.tasks.backend.models import SandboxSnapshot, Task
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import (
     GitHubAuthenticationError,
-    PersonalAPIKeyError,
+    OAuthTokenError,
     TaskInvalidStateError,
     TaskNotFoundError,
 )
@@ -21,6 +23,10 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_name_for_task
 
 from .get_task_processing_context import TaskProcessingContext
+
+ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
+ARRAY_APP_CLIENT_ID_EU = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9"
+ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
 
 
 @dataclass
@@ -31,16 +37,34 @@ class GetSandboxForSetupInput:
 @dataclass
 class GetSandboxForSetupOutput:
     sandbox_id: str
-    personal_api_key_id: str
 
 
-def _create_personal_api_key(task: Task) -> tuple[str, PersonalAPIKey]:
+def _get_array_app() -> OAuthApplication:
+    """Get the Array app OAuth application based on the deployment region."""
+    region = get_instance_region()
+    if region == "EU":
+        client_id = ARRAY_APP_CLIENT_ID_EU
+    elif region in ("DEV", "E2E"):
+        client_id = ARRAY_APP_CLIENT_ID_DEV
+    else:
+        client_id = ARRAY_APP_CLIENT_ID_US
+
+    try:
+        return OAuthApplication.objects.get(client_id=client_id)
+    except OAuthApplication.DoesNotExist:
+        raise OAuthTokenError(
+            f"Array app not found for region {region}",
+            {"region": region, "client_id": client_id},
+            cause=RuntimeError(f"No OAuthApplication with client_id={client_id}"),
+        )
+
+
+def _create_oauth_access_token(task: Task) -> str:
+    """Create an OAuth access token for the Array app, scoped to the task's team.
+
+    OAuth tokens auto-expire after 1 hour, so no cleanup is needed.
+    """
     scopes = _get_default_scopes()
-
-    value = generate_random_token_personal()
-
-    mask_value = mask_key_value(value)
-    secure_value = hash_key_value(value)
 
     if not task.created_by:
         raise TaskInvalidStateError(
@@ -49,22 +73,23 @@ def _create_personal_api_key(task: Task) -> tuple[str, PersonalAPIKey]:
             cause=RuntimeError(f"Task {task.id} missing created_by field"),
         )
 
-    assert task.created_by is not None
+    app = _get_array_app()
+    token_value = generate_random_oauth_access_token(None)
 
-    personal_api_key = PersonalAPIKey.objects.create(
+    OAuthAccessToken.objects.create(
         user=task.created_by,
-        label=f"Task Agent - {task.title[:20]}",
-        secure_value=secure_value,
-        mask_value=mask_value,
-        scopes=scopes,
+        application=app,
+        token=token_value,
+        expires=timezone.now() + timedelta(hours=1),
+        scope=" ".join(scopes),
         scoped_teams=[task.team_id],
     )
 
-    return value, personal_api_key
+    return token_value
 
 
 def _get_default_scopes() -> list[str]:
-    scopes = [
+    return [
         "error_tracking:read",
         "user:read",
         "organization:read",
@@ -72,15 +97,13 @@ def _get_default_scopes() -> list[str]:
         "task:write",
     ]
 
-    return scopes
-
 
 @activity.defn
 @asyncify
 def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> GetSandboxForSetupOutput:
     """
     Get sandbox for setup with injected environment variables. Searches for existing snapshot to use as base,
-    otherwise uses default template. Returns sandbox_id and personal_api_key_id when sandbox is running.
+    otherwise uses default template. Returns sandbox_id when sandbox is running.
     """
     ctx = input.context
 
@@ -109,17 +132,17 @@ def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> GetSandboxForSetupO
             )
 
         try:
-            api_key_value, personal_api_key = _create_personal_api_key(task)
+            access_token = _create_oauth_access_token(task)
         except Exception as e:
-            raise PersonalAPIKeyError(
-                f"Failed to create personal API key for task {ctx.task_id}",
+            raise OAuthTokenError(
+                f"Failed to create OAuth access token for task {ctx.task_id}",
                 {"task_id": ctx.task_id, "error": str(e)},
                 cause=e,
             )
 
         environment_variables = {
             "GITHUB_TOKEN": github_token,
-            "POSTHOG_PERSONAL_API_KEY": api_key_value,
+            "POSTHOG_PERSONAL_API_KEY": access_token,
             "POSTHOG_API_URL": settings.SITE_URL,
             "POSTHOG_PROJECT_ID": str(ctx.team_id),
         }
@@ -136,7 +159,4 @@ def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> GetSandboxForSetupO
 
         activity.logger.info(f"Created setup sandbox {sandbox.id} with environment variables injected")
 
-        return GetSandboxForSetupOutput(
-            sandbox_id=sandbox.id,
-            personal_api_key_id=personal_api_key.id,
-        )
+        return GetSandboxForSetupOutput(sandbox_id=sandbox.id)

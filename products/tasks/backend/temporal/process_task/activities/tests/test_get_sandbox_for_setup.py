@@ -61,7 +61,6 @@ class TestGetSandboxForSetupActivity:
 
             assert isinstance(output.sandbox_id, str)
             assert len(output.sandbox_id) > 0
-            assert isinstance(output.personal_api_key_id, str)
 
             sandbox_id = output.sandbox_id
             sandbox = Sandbox.get_by_id(sandbox_id)
@@ -74,7 +73,7 @@ class TestGetSandboxForSetupActivity:
             api_key_check = sandbox.execute("bash -c 'echo $POSTHOG_PERSONAL_API_KEY'")
             assert api_key_check.exit_code == 0
             assert len(api_key_check.stdout.strip()) > 0, "POSTHOG_PERSONAL_API_KEY should be set"
-            assert api_key_check.stdout.strip().startswith("phx_"), "API key should have correct format"
+            assert api_key_check.stdout.strip().startswith("pha_"), "OAuth token should have correct format"
 
             api_url_check = sandbox.execute("bash -c 'echo $POSTHOG_API_URL'")
             assert api_url_check.exit_code == 0
@@ -97,7 +96,6 @@ class TestGetSandboxForSetupActivity:
 
             assert isinstance(output.sandbox_id, str)
             assert len(output.sandbox_id) > 0
-            assert isinstance(output.personal_api_key_id, str)
 
             sandbox_id = output.sandbox_id
             sandbox = Sandbox.get_by_id(sandbox_id)
@@ -125,7 +123,6 @@ class TestGetSandboxForSetupActivity:
 
             assert isinstance(output.sandbox_id, str)
             assert len(output.sandbox_id) > 0
-            assert isinstance(output.personal_api_key_id, str)
 
             sandbox_id = output.sandbox_id
             sandbox = Sandbox.get_by_id(sandbox_id)
@@ -150,7 +147,6 @@ class TestGetSandboxForSetupActivity:
 
             assert isinstance(output.sandbox_id, str)
             assert len(output.sandbox_id) > 0
-            assert isinstance(output.personal_api_key_id, str)
 
             sandbox_id = output.sandbox_id
             sandbox = Sandbox.get_by_id(sandbox_id)
