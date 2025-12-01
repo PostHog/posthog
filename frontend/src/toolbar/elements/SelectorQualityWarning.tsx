@@ -19,8 +19,8 @@ export function SelectorQualityWarning({ selector, compact = false }: SelectorQu
         return (
             <div className="text-xs mt-1 text-primary">
                 <IconWarning className="inline mr-1 text-warning" />
-                {result.reason} <code>{result.fragileSelector}</code>. Add a <code>data-posthog</code> attribute for
-                stable tracking.
+                {result.reason} <code>{result.fragileSelector}</code>. Add a <code>data-*</code> attribute for stable
+                tracking.
             </div>
         )
     }
