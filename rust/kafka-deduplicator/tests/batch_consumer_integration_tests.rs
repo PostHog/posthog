@@ -77,7 +77,7 @@ async fn send_test_messages(
         producer
             .send(record, Timeout::After(Duration::from_secs(5)))
             .await
-            .map_err(|(e, _)| anyhow::anyhow!("Failed to send message: {}", e))?;
+            .map_err(|(e, _)| anyhow::anyhow!("Failed to send message: {e}"))?;
     }
 
     // Give kafka some time to process the messages

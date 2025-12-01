@@ -552,10 +552,7 @@ impl DeduplicationProcessor {
                     key, output_topic, e
                 );
                 Err(anyhow::anyhow!(
-                    "Failed to publish event with key '{}' to topic '{}': {}",
-                    key,
-                    output_topic,
-                    e
+                    "Failed to publish event with key '{key}' to topic '{output_topic}': {e}"
                 ))
             }
         }
@@ -641,11 +638,7 @@ impl MessageProcessor for DeduplicationProcessor {
                     topic, partition, offset, e
                 );
                 return Err(anyhow::anyhow!(
-                    "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
-                    topic,
-                    partition,
-                    offset,
-                    e
+                    "Failed to parse RawEvent from data field at {topic}:{partition} offset {offset}: {e}"
                 ));
             }
         };
