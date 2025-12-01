@@ -616,7 +616,7 @@ class TestPrinter(BaseTest):
                 f"EXPLAIN indexes = 1, json = 1 SELECT count() FROM events WHERE {printed_expr}",
                 context.values,
                 settings={
-                    "1" if v is True else "0" if v is False else str(v): v
+                    k: "1" if v is True else "0" if v is False else str(v)
                     for k, v in HogQLGlobalSettings().model_dump().items()
                     if v is not None
                 },
