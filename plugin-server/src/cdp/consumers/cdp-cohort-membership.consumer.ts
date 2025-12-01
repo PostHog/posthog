@@ -62,7 +62,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             let paramIndex = 1
 
             for (const change of changes) {
-                const inCohort = change.status === 'entered' || change.status === 'member'
+                const inCohort = change.status === 'entered'
                 placeholders.push(
                     `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, CURRENT_TIMESTAMP)`
                 )

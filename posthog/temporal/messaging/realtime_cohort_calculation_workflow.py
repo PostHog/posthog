@@ -171,6 +171,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                     "team_id": row["team_id"],
                                     "cohort_id": row["cohort_id"],
                                     "person_id": str(row["person_id"]),
+                                    "last_updated": str(row["last_updated"]),
                                     "status": status,
                                 }
                                 await asyncio.to_thread(
