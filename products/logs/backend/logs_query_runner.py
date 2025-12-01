@@ -1,5 +1,6 @@
 import shlex
 import datetime as dt
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -23,6 +24,23 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+
+def parse_search_tokens(search_term: str) -> list[tuple[Literal["positive", "negative"], str]]:
+    try:
+        tokens = shlex.split(search_term)
+    except ValueError:
+        tokens = search_term.split()
+
+    results: list[tuple[Literal["positive", "negative"], str]] = []
+    for token in tokens:
+        if token == "!":
+            continue
+        if token.startswith("!"):
+            results.append(("negative", token[1:]))
+        else:
+            results.append(("positive", token))
+    return results
 
 
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
@@ -200,33 +218,26 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             )
 
         if self.query.searchTerm:
-            # shlex.split preserves quoted strings as single tokens: "hello world" → ["hello world"]
-            try:
-                tokens = shlex.split(self.query.searchTerm)
-            except ValueError:
-                tokens = self.query.searchTerm.split()
-            for token in tokens:
-                if token == "!":
-                    continue
-                if token.startswith("!"):
+            for token_type, value in parse_search_tokens(self.query.searchTerm):
+                if token_type == "negative":
                     exprs.append(
                         parse_expr(
                             "body NOT LIKE {searchTerm}",
-                            placeholders={"searchTerm": ast.Constant(value=f"%{token[1:]}%")},
+                            placeholders={"searchTerm": ast.Constant(value=f"%{value}%")},
                         )
                     )
                 else:
                     exprs.append(
                         parse_expr(
                             "body LIKE {searchTerm}",
-                            placeholders={"searchTerm": ast.Constant(value=f"%{token}%")},
+                            placeholders={"searchTerm": ast.Constant(value=f"%{value}%")},
                         )
                     )
                     # ip addresses are particularly bad at full text searches with our ngram 3 index
                     exprs.append(
                         parse_expr(
                             "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
-                            placeholders={"searchTerm": ast.Constant(value=f"{token}")},
+                            placeholders={"searchTerm": ast.Constant(value=f"{value}")},
                         )
                     )
 
