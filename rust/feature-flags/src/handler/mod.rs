@@ -13,10 +13,14 @@ pub mod types;
 pub use types::*;
 
 use crate::{
-    api::{errors::FlagError, types::FlagsResponse},
+    api::{
+        errors::{ClientFacingError, FlagError},
+        types::FlagsResponse,
+    },
     flags::flag_service::FlagService,
     metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
 };
+use common_hypercache::HyperCacheConfig;
 use std::collections::HashMap;
 use tracing::{info, instrument, warn};
 
@@ -92,13 +96,38 @@ async fn process_request_inner(
     };
 
     let result = async {
+        // Create HyperCacheReader for flags
+        let flags_redis_client = context
+            .state
+            .dedicated_redis_client
+            .clone()
+            .unwrap_or_else(|| context.state.redis_client.clone());
+
+        let mut hypercache_config = HyperCacheConfig::new(
+            "feature_flags".to_string(),
+            "flags.json".to_string(),
+            context.state.config.object_storage_region.clone(),
+            context.state.config.object_storage_bucket.clone(),
+        );
+
+        if !context.state.config.object_storage_endpoint.is_empty() {
+            hypercache_config.s3_endpoint =
+                Some(context.state.config.object_storage_endpoint.clone());
+        }
+
+        let hypercache_reader =
+            common_hypercache::HyperCacheReader::new(flags_redis_client, hypercache_config)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to create HyperCacheReader: {:?}", e);
+                    FlagError::ClientFacing(ClientFacingError::ServiceUnavailable)
+                })?;
+
         let flag_service = FlagService::new(
             context.state.redis_client.clone(),
-            context.state.dedicated_redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
             context.state.config.team_cache_ttl_seconds,
-            context.state.config.flags_cache_ttl_seconds,
-            context.state.config.clone(),
+            hypercache_reader,
         );
 
         let (original_distinct_id, verified_token, request) =

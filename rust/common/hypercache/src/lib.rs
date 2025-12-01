@@ -30,7 +30,6 @@
 use anyhow::Result;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as AwsS3SdkClient;
-use common_compression::{decompress_zstd, CompressionError};
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 #[cfg(all(test, feature = "mock-client"))]
@@ -45,7 +44,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
 const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
@@ -129,9 +128,6 @@ pub enum HyperCacheError {
 
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
-
-    #[error("Compression error: {0}")]
-    Compression(#[from] CompressionError),
 
     #[error("Cache miss - data not found in any tier")]
     CacheMiss,
@@ -297,6 +293,11 @@ impl HyperCacheReader {
         .await
         {
             Ok(Ok(data)) => {
+                info!(
+                    cache_key = %redis_cache_key,
+                    namespace = %self.config.namespace,
+                    "HyperCache hit: Redis"
+                );
                 inc(
                     HYPERCACHE_COUNTER_NAME,
                     &[
@@ -314,8 +315,18 @@ impl HyperCacheReader {
                 }
                 return Ok((data, CacheSource::Redis));
             }
-            Ok(Err(_)) | Err(_) => {
-                // Continue to S3 fallback
+            Ok(Err(e)) => {
+                debug!(
+                    cache_key = %redis_cache_key,
+                    error = %e,
+                    "HyperCache Redis miss, trying S3"
+                );
+            }
+            Err(_) => {
+                debug!(
+                    cache_key = %redis_cache_key,
+                    "HyperCache Redis timeout, trying S3"
+                );
             }
         }
 
@@ -323,6 +334,11 @@ impl HyperCacheReader {
         let s3_cache_key = self.config.get_s3_cache_key(key);
         match timeout(self.config.s3_timeout, self.try_get_from_s3(&s3_cache_key)).await {
             Ok(Ok(data)) => {
+                info!(
+                    cache_key = %s3_cache_key,
+                    namespace = %self.config.namespace,
+                    "HyperCache hit: S3"
+                );
                 inc(
                     HYPERCACHE_COUNTER_NAME,
                     &[
@@ -334,10 +350,27 @@ impl HyperCacheReader {
                 );
                 return Ok((data, CacheSource::S3));
             }
-            Ok(Err(_)) | Err(_) => {
-                // Both sources failed
+            Ok(Err(e)) => {
+                debug!(
+                    cache_key = %s3_cache_key,
+                    error = %e,
+                    "HyperCache S3 miss"
+                );
+            }
+            Err(_) => {
+                debug!(
+                    cache_key = %s3_cache_key,
+                    "HyperCache S3 timeout"
+                );
             }
         }
+
+        warn!(
+            redis_key = %redis_cache_key,
+            s3_key = %s3_cache_key,
+            namespace = %self.config.namespace,
+            "HyperCache miss: both Redis and S3 failed"
+        );
 
         inc(
             HYPERCACHE_COUNTER_NAME,
@@ -451,41 +484,11 @@ impl HyperCacheReader {
     }
 
     async fn try_get_from_redis(&self, cache_key: &str) -> Result<Value, HyperCacheError> {
-        // Try raw bytes (Django compresses data > 512 bytes with Zstd)
+        // The Redis client's get_raw_bytes already handles zstd decompression,
+        // so we receive Pickle(JSON) data directly.
         match self.redis_client.get_raw_bytes(cache_key.to_string()).await {
             Ok(raw_bytes) => {
-                // Try Zstd(Pickle(JSON)) decompression pipeline
-                match decompress_zstd(&raw_bytes) {
-                    Ok(decompressed_bytes) => {
-                        match serde_pickle::from_slice::<String>(
-                            &decompressed_bytes,
-                            Default::default(),
-                        ) {
-                            Ok(json_string) => {
-                                if json_string == HYPER_CACHE_EMPTY_VALUE {
-                                    return Ok(Value::String(json_string));
-                                }
-                                match serde_json::from_str(&json_string) {
-                                    Ok(value) => return Ok(value),
-                                    Err(e) => {
-                                        debug!("Failed to parse JSON from compressed Redis data for key '{}': {}", cache_key, e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                debug!("Failed to deserialize pickle from compressed Redis data for key '{}': {}", cache_key, e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        debug!(
-                            "Failed to decompress Redis data for key '{}': {}",
-                            cache_key, e
-                        );
-                    }
-                }
-
-                // Try Pickle(JSON) without compression
+                // Deserialize Pickle(JSON) - the Redis client already decompressed zstd
                 match serde_pickle::from_slice::<String>(&raw_bytes, Default::default()) {
                     Ok(json_string) => {
                         if json_string == HYPER_CACHE_EMPTY_VALUE {
@@ -494,12 +497,18 @@ impl HyperCacheReader {
                         match serde_json::from_str(&json_string) {
                             Ok(value) => return Ok(value),
                             Err(e) => {
-                                debug!("Failed to parse JSON from uncompressed Redis data for key '{}': {}", cache_key, e);
+                                debug!(
+                                    "Failed to parse JSON from Redis data for key '{}': {}",
+                                    cache_key, e
+                                );
                             }
                         }
                     }
                     Err(e) => {
-                        debug!("Failed to deserialize pickle from uncompressed Redis data for key '{}': {}", cache_key, e);
+                        debug!(
+                            "Failed to deserialize pickle from Redis data for key '{}': {}",
+                            cache_key, e
+                        );
                     }
                 }
             }
@@ -773,17 +782,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_try_get_from_redis_compressed_data() {
-        use common_compression::compress_zstd;
-
+        // The real RedisClient auto-decompresses zstd data in get_raw_bytes,
+        // so HyperCache receives already-decompressed pickled bytes.
+        // This test verifies HyperCache handles pickled data correctly
+        // (which is what it receives after Redis client decompression).
         let mut mock_redis = MockRedisClient::new();
         let test_data = json!({"flags": [], "group_type_mapping": {}});
         let test_data_str = serde_json::to_string(&test_data).unwrap();
 
-        // Simulate Django's compression pipeline: JSON string -> Pickle -> Zstd
+        // Simulate what the real Redis client returns after auto-decompression:
+        // Pickle(JSON) - the zstd layer is already removed by the Redis client
         let pickled_bytes = serde_pickle::to_vec(&test_data_str, Default::default()).unwrap();
-        let compressed_bytes = compress_zstd(&pickled_bytes).unwrap();
 
-        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(compressed_bytes));
+        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(pickled_bytes));
 
         let config = HyperCacheConfig::new(
             "test".to_string(),
@@ -1000,16 +1011,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_compression_error_handling() {
+    async fn test_invalid_data_handling() {
         let mut mock_redis = MockRedisClient::new();
-        // Provide invalid compressed data that will fail decompression
-        let invalid_compressed_bytes = vec![0xFF, 0xFE, 0xFD, 0xFC]; // Invalid zstd data
-        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(invalid_compressed_bytes));
+        // Provide invalid data that can't be deserialized as pickle
+        let invalid_bytes = vec![0xFF, 0xFE, 0xFD, 0xFC];
+        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(invalid_bytes));
 
         let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
 
         let result = reader.try_get_from_redis("test_key").await;
-        // Should fail gracefully and return CacheMiss since we try multiple decompression approaches
+        // Should fail gracefully and return CacheMiss when pickle deserialization fails
         assert!(matches!(result, Err(HyperCacheError::CacheMiss)));
     }
 

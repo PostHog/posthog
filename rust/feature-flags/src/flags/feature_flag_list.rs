@@ -1,85 +1,64 @@
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use metrics::counter;
-use std::sync::Arc;
-use tracing;
 
 use crate::api::errors::FlagError;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    FeatureFlag, FeatureFlagList, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX,
+    FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
 };
-use common_cache::{CacheConfig, CacheResult, ReadThroughCache};
 use common_database::PostgresReader;
-use common_redis::Client as RedisClient;
 use common_types::TeamId;
 
-// Constants for cache configuration
-/// Default TTL for feature flags cache: 5 days (432,000 seconds)
-/// This matches the TTL used by the Python cache layer
-pub const DEFAULT_FLAGS_CACHE_TTL_SECONDS: u64 = 432_000;
+/// Hypercache sentinel value indicating the team has no flags
+const HYPERCACHE_MISSING_VALUE: &str = "__missing__";
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
         Self { flags }
     }
 
-    /// Creates a ReadThroughCache instance for feature flags
+    /// Parses a JSON Value from hypercache into a list of feature flags.
     ///
-    /// # Arguments
-    /// * `redis_reader` - Redis client for reading cached data
-    /// * `redis_writer` - Redis client for writing cached data
-    /// * `ttl_seconds` - Cache TTL in seconds (defaults to DEFAULT_FLAGS_CACHE_TTL_SECONDS if None)
-    ///
-    /// # Returns
-    /// A configured ReadThroughCache instance for feature flags
-    pub fn create_cache(
-        redis_reader: Arc<dyn RedisClient + Send + Sync>,
-        redis_writer: Arc<dyn RedisClient + Send + Sync>,
-        ttl_seconds: Option<u64>,
-    ) -> ReadThroughCache {
-        let ttl = ttl_seconds.unwrap_or(DEFAULT_FLAGS_CACHE_TTL_SECONDS);
-        ReadThroughCache::new(
-            redis_reader,
-            redis_writer,
-            CacheConfig::with_ttl(TEAM_FLAGS_CACHE_PREFIX, ttl),
-            None, // No negative caching for now
-        )
-    }
-
-    /// Get feature flags from cache or database using the read-through cache pattern
-    ///
-    /// This is the primary method for fetching feature flags. It:
-    /// 1. Checks Redis cache first
-    /// 2. On cache miss, loads from PostgreSQL using `from_pg`
-    /// 3. Automatically updates the cache when loading from DB (unless Redis is unavailable)
-    ///
-    /// # Arguments
-    /// * `cache` - ReadThroughCache instance
-    /// * `pg_client` - PostgreSQL client for database fallback
-    /// * `team_id` - Team ID to fetch flags for
-    ///
-    /// # Returns
-    /// * `Ok(CacheResult<Vec<FeatureFlag>>)` - Cache result containing flags
-    /// * `Err(FlagError)` - Error from database or cache
-    pub async fn get_with_cache(
-        cache: &ReadThroughCache,
-        pg_client: PostgresReader,
+    /// Handles:
+    /// - Null values (returns empty vec)
+    /// - Sentinel "__missing__" value (returns empty vec)
+    /// - Standard hypercache format `{"flags": [...]}`
+    pub fn parse_hypercache_value(
+        data: serde_json::Value,
         team_id: TeamId,
-    ) -> Result<CacheResult<Vec<FeatureFlag>>, FlagError> {
-        let pg_client = pg_client.clone();
-        let cache_result = cache
-            .get_or_load(&team_id, move |&team_id| {
-                let pg_client = pg_client.clone();
-                async move {
-                    // Load from PostgreSQL - always returns Some, even for empty results
-                    // This ensures empty flag lists are cached to prevent repeated DB queries
-                    let flags = Self::from_pg(pg_client, team_id).await?;
-                    Ok::<Option<Vec<FeatureFlag>>, FlagError>(Some(flags))
-                }
-            })
-            .await?;
+    ) -> Result<Vec<FeatureFlag>, FlagError> {
+        // Handle null (can happen when hypercache returns empty)
+        if data.is_null() {
+            return Ok(vec![]);
+        }
 
-        Ok(cache_result)
+        // Check for the sentinel value indicating no flags for this team
+        if data.as_str() == Some(HYPERCACHE_MISSING_VALUE) {
+            tracing::debug!("Hypercache sentinel (no flags) for team {}", team_id);
+            return Ok(vec![]);
+        }
+
+        // Parse the hypercache format: {"flags": [...]}
+        let wrapper: HypercacheFlagsWrapper =
+            serde_json::from_value(data.clone()).map_err(|e| {
+                tracing::error!(
+                    "Failed to parse hypercache data for team {}: {}. Data: {}",
+                    team_id,
+                    e,
+                    &data.to_string()[..data.to_string().len().min(200)]
+                );
+                counter!(
+                    TOMBSTONE_COUNTER,
+                    "failure_type" => "hypercache_parse_error",
+                    "team_id" => team_id.to_string(),
+                )
+                .increment(1);
+                FlagError::RedisDataParsingError
+            })?;
+
+        tracing::debug!("Parsed {} flags for team {}", wrapper.flags.len(), team_id);
+
+        Ok(wrapper.flags)
     }
 
     /// Returns feature flags from postgres given a team_id

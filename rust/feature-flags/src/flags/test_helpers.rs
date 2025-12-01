@@ -6,12 +6,19 @@ use std::sync::Arc;
 use crate::{
     api::errors::FlagError,
     flags::flag_models::{
-        FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
+        FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup, HypercacheFlagsWrapper,
     },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
 };
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
+
+/// Generate the Django-compatible hypercache key for tests
+/// Format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
+/// The "posthog:1:" prefix matches Django's cache versioning
+fn hypercache_test_key(team_id: TeamId) -> String {
+    format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json")
+}
 
 pub fn create_simple_property_filter(
     key: &str,
@@ -69,19 +76,60 @@ pub fn create_simple_flag(properties: Vec<PropertyFilter>, rollout_percentage: f
     }
 }
 
-/// Test-only helper to write feature flags directly to Redis
+/// Test-only helper to read feature flags directly from Redis (hypercache format)
 ///
-/// This bypasses the ReadThroughCache and directly writes to Redis,
-/// useful for setting up test data and verifying cache updates.
-pub async fn update_flags_in_redis(
+/// Reads from hypercache key format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
+/// Uses Django-compatible key format with version prefix.
+/// Useful for testing cache behavior and verifying cache contents.
+pub async fn get_flags_from_redis(
+    client: Arc<dyn RedisClient + Send + Sync>,
+    team_id: TeamId,
+) -> Result<FeatureFlagList, FlagError> {
+    let cache_key = hypercache_test_key(team_id);
+    tracing::debug!(
+        "Attempting to read flags from hypercache at key '{}'",
+        cache_key
+    );
+
+    let serialized = client.get(cache_key.clone()).await?;
+
+    let wrapper: HypercacheFlagsWrapper = serde_json::from_str(&serialized).map_err(|e| {
+        tracing::error!(
+            "Failed to parse hypercache data for team {}: {}",
+            team_id,
+            e
+        );
+        FlagError::RedisDataParsingError
+    })?;
+
+    tracing::debug!(
+        "Successfully read {} flags from hypercache at key '{}'",
+        wrapper.flags.len(),
+        cache_key
+    );
+
+    Ok(FeatureFlagList {
+        flags: wrapper.flags,
+    })
+}
+
+/// Test-only helper to write feature flags to hypercache (the new cache format)
+///
+/// Writes flags in the hypercache format: {"flags": [...]}
+/// at key: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
+/// Uses Django-compatible key format with version prefix.
+pub async fn update_flags_in_hypercache(
     client: Arc<dyn RedisClient + Send + Sync>,
     team_id: TeamId,
     flags: &FeatureFlagList,
     ttl_seconds: Option<u64>,
 ) -> Result<(), FlagError> {
-    let payload = serde_json::to_string(&flags.flags).map_err(|e| {
+    let wrapper = HypercacheFlagsWrapper {
+        flags: flags.flags.clone(),
+    };
+    let payload = serde_json::to_string(&wrapper).map_err(|e| {
         tracing::error!(
-            "Failed to serialize {} flags for team {}: {}",
+            "Failed to serialize {} flags for team {} (hypercache): {}",
             flags.flags.len(),
             team_id,
             e
@@ -89,19 +137,19 @@ pub async fn update_flags_in_redis(
         FlagError::RedisDataParsingError
     })?;
 
-    let cache_key = format!("{TEAM_FLAGS_CACHE_PREFIX}{team_id}");
+    let cache_key = hypercache_test_key(team_id);
 
     match ttl_seconds {
         Some(ttl) => {
             tracing::info!(
-                "Writing flags to Redis at key '{}' with TTL {} seconds: {} flags",
+                "Writing flags to hypercache at key '{}' with TTL {} seconds: {} flags",
                 cache_key,
                 ttl,
                 flags.flags.len()
             );
             client.setex(cache_key, payload, ttl).await.map_err(|e| {
                 tracing::error!(
-                    "Failed to update Redis cache with TTL for project {}: {}",
+                    "Failed to update hypercache with TTL for project {}: {}",
                     team_id,
                     e
                 );
@@ -110,57 +158,16 @@ pub async fn update_flags_in_redis(
         }
         None => {
             tracing::info!(
-                "Writing flags to Redis at key '{}' without TTL: {} flags",
+                "Writing flags to hypercache at key '{}' without TTL: {} flags",
                 cache_key,
                 flags.flags.len()
             );
             client.set(cache_key, payload).await.map_err(|e| {
-                tracing::error!(
-                    "Failed to update Redis cache for project {}: {}",
-                    team_id,
-                    e
-                );
+                tracing::error!("Failed to update hypercache for project {}: {}", team_id, e);
                 FlagError::CacheUpdateError
             })?;
         }
     }
 
     Ok(())
-}
-
-/// Test-only helper to read feature flags directly from Redis
-///
-/// This bypasses the ReadThroughCache and directly reads from Redis,
-/// useful for testing cache behavior and verifying cache contents.
-pub async fn get_flags_from_redis(
-    client: Arc<dyn RedisClient + Send + Sync>,
-    team_id: TeamId,
-) -> Result<FeatureFlagList, FlagError> {
-    tracing::debug!(
-        "Attempting to read flags from Redis at key '{}{}'",
-        TEAM_FLAGS_CACHE_PREFIX,
-        team_id
-    );
-
-    let serialized_flags = client
-        .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{team_id}"))
-        .await?;
-
-    let flags_list: Vec<FeatureFlag> = serde_json::from_str(&serialized_flags).map_err(|e| {
-        tracing::error!(
-            "failed to parse data to flags list for team {}: {}",
-            team_id,
-            e
-        );
-        FlagError::RedisDataParsingError
-    })?;
-
-    tracing::debug!(
-        "Successfully read {} flags from Redis at key '{}{}'",
-        flags_list.len(),
-        TEAM_FLAGS_CACHE_PREFIX,
-        team_id
-    );
-
-    Ok(FeatureFlagList { flags: flags_list })
 }
