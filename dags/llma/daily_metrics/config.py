@@ -25,7 +25,7 @@ class LLMADailyMetricsConfig:
     max_partitions_per_run: int = 14
 
     # ClickHouse query settings
-    clickhouse_max_execution_time: int = 300  # 5 minutes
+    clickhouse_max_execution_time: int = 600  # 10 minutes
 
     # Dagster job timeout (seconds)
     job_timeout: int = 1800  # 30 minutes
