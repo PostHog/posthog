@@ -783,13 +783,15 @@ class TestPrinter(BaseTest):
             "properties.key IN ('a', 'b')",
             "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)))",
             {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
-            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
         )
         self._test_property_group_comparison(
             "properties.key IN ['a', 'b']",
             "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)))",
             {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
-            expected_skip_indexes_used={"properties_group_custom_keys_bf", "properties_group_custom_values_bf"},
+            expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+            expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
         )
 
         # Single string value converts to equality comparison
