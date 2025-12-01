@@ -1,7 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,11 +14,14 @@ import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
-import { LLMASessionFeedbackDisplay } from './LLMASessionFeedbackDisplay'
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
 import { formatLLMCost, getTraceTimestamp } from './utils'
+
+const LLMASessionFeedbackDisplay = lazy(() =>
+    import('./LLMASessionFeedbackDisplay').then((m) => ({ default: m.LLMASessionFeedbackDisplay }))
+)
 
 export const scene: SceneExport = {
     component: LLMAnalyticsSessionScene,
@@ -91,7 +95,11 @@ function SessionSceneWrapper(): JSX.Element {
                                     {sessionStats.totalLatency.toFixed(2)}s
                                 </LemonTag>
                             )}
-                            {showFeedback && <LLMASessionFeedbackDisplay sessionId={sessionId} />}
+                            {showFeedback && (
+                                <Suspense fallback={<Spinner />}>
+                                    <LLMASessionFeedbackDisplay sessionId={sessionId} />
+                                </Suspense>
+                            )}
                         </header>
                     </div>
                     <div className="bg-surface-primary border rounded p-4">
