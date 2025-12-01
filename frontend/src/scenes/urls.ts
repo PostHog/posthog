@@ -55,7 +55,8 @@ export const urls = {
         view_id?: string,
         insightShortId?: string,
         draftId?: string,
-        outputTab?: OutputTab
+        outputTab?: OutputTab,
+        endpointName?: string
     ): string => {
         const params = new URLSearchParams()
 
@@ -71,6 +72,10 @@ export const urls = {
 
         if (outputTab) {
             params.set('output_tab', outputTab)
+        }
+
+        if (endpointName) {
+            params.set('endpoint_name', endpointName)
         }
 
         const queryString = params.toString()

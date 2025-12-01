@@ -71,6 +71,7 @@ export type SettingId =
     | 'autocapture-data-attributes'
     | 'date-and-time'
     | 'internal-user-filtering'
+    | 'business-model'
     | 'data-theme'
     | 'correlation-analysis'
     | 'customer-analytics-usage-metrics'

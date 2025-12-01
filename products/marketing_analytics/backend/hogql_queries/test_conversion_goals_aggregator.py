@@ -134,8 +134,10 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert len(final_query.select) == 4  # campaign, id, source, conversion
 
         conversion_column = final_query.select[3]  # Index 3 is the first conversion column (after campaign, id, source)
-        assert isinstance(conversion_column, ast.Field)
-        assert conversion_column.chain == [self.config.get_conversion_goal_column_name(0)]
+        assert isinstance(conversion_column, ast.Alias)
+        assert conversion_column.alias == self.config.get_conversion_goal_column_name(0)
+        assert isinstance(conversion_column.expr, ast.Call)
+        assert conversion_column.expr.name == "sum"
 
     def test_unified_cte_multiple_processors(self):
         goal1 = self._create_test_conversion_goal("multi_goal1", "Goal 1")
@@ -160,8 +162,10 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert len(conversion_columns) == 3
 
         for i, column in enumerate(conversion_columns):
-            assert isinstance(column, ast.Field)
-            assert column.chain == [self.config.get_conversion_goal_column_name(i)]
+            assert isinstance(column, ast.Alias)
+            assert column.alias == self.config.get_conversion_goal_column_name(i)
+            assert isinstance(column.expr, ast.Call)
+            assert column.expr.name == "sum"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_unified_cte_sql_snapshot(self):
@@ -195,7 +199,8 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert isinstance(final_query, ast.SelectQuery)
         assert len(final_query.select) == 5  # campaign, id, source, 2 conversions
         assert isinstance(final_query.select_from, ast.JoinExpr)
-        assert isinstance(final_query.select_from.table, ast.SelectQuery)
+        # The table can be either SelectQuery (single processor) or SelectSetQuery (UNION ALL for multiple processors)
+        assert isinstance(final_query.select_from.table, ast.SelectQuery | ast.SelectSetQuery)
 
     def test_conversion_goal_columns_single(self):
         goal = self._create_test_conversion_goal("columns_test", "Columns Test")
@@ -380,7 +385,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             self.config.get_conversion_goal_column_name(1),
             self.config.get_conversion_goal_column_name(2),
         ]
-        actual_names = [col.chain[0] for col in conversion_columns if isinstance(col, ast.Field)]
+        actual_names = [col.alias for col in conversion_columns if isinstance(col, ast.Alias)]
         assert actual_names == expected_names
 
     def test_empty_goal_name(self):
@@ -411,8 +416,10 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
         conversion_column = final_query.select[3]  # Index 3 is the first conversion column (after campaign, id, source)
-        assert isinstance(conversion_column, ast.Field)
-        assert conversion_column.chain == [self.config.get_conversion_goal_column_name(999)]
+        assert isinstance(conversion_column, ast.Alias)
+        assert conversion_column.alias == self.config.get_conversion_goal_column_name(999)
+        assert isinstance(conversion_column.expr, ast.Call)
+        assert conversion_column.expr.name == "sum"
 
     def test_duplicate_goal_names(self):
         goal1 = self._create_test_conversion_goal("dup1", "Duplicate Goal")

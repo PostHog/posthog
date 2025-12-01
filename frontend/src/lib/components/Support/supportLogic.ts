@@ -280,6 +280,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-logs`,
                 label: 'Logs',
             },
+            {
+                value: 'endpoints',
+                'data-attr': `support-form-target-area-endpoints`,
+                label: 'Endpoints',
+            },
         ],
     },
 ]
@@ -322,6 +327,7 @@ export type SupportTicketTargetArea =
     | 'max-ai'
     | 'customer-analytics'
     | 'logs'
+    | 'endpoints'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -366,6 +372,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     workflows: 'workflows',
     billing: 'billing',
     logs: 'logs',
+    endpoints: 'endpoints',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
