@@ -928,6 +928,7 @@ FROM (
                 )
             GROUP BY
                 distinct_id
+            $filter_distinct_ids
         ) AS pd ON p.id = pd.person_id2
     where
         team_id = {team_id}::Int64

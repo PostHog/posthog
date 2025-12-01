@@ -1,5 +1,7 @@
-import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import type { WorkflowsSceneTab } from './frontend/WorkflowsScene'
@@ -61,9 +63,9 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Workflows',
+            intents: [ProductKey.WORKFLOWS],
             href: urls.workflows(),
             type: 'workflows',
-            visualOrder: PRODUCT_VISUAL_ORDER.workflows,
             category: 'Tools',
             tags: ['beta'],
             flag: FEATURE_FLAGS.WORKFLOWS,

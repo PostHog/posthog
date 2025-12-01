@@ -21,14 +21,15 @@ import { generateText } from 'ai'
 import { PostHogAgentToolkit } from '@posthog/agent-toolkit/integrations/ai-sdk'
 
 const toolkit = new PostHogAgentToolkit({
-    posthogPersonalApiKey: process.env.POSTHOG_PERSONAL_API_KEY!,
-    posthogApiBaseUrl: 'https://us.posthog.com', // or https://eu.posthog.com if you are hosting in the EU
+  posthogPersonalApiKey: process.env.POSTHOG_PERSONAL_API_KEY!,
+  posthogApiBaseUrl: 'https://us.posthog.com', // or https://eu.posthog.com if you are hosting in the EU
 })
 
 const result = await generateText({
-    model: openai('gpt-4'),
-    tools: await toolkit.getTools(),
-    prompt: 'Analyze our product usage by getting the top 5 most interesting insights and summarising the data from them.',
+  model: openai('gpt-4'),
+  tools: await toolkit.getTools(),
+  prompt:
+    'Analyze our product usage by getting the top 5 most interesting insights and summarising the data from them.',
 })
 ```
 
@@ -44,24 +45,24 @@ import { AgentExecutor, createToolCallingAgent } from 'langchain/agents'
 import { PostHogAgentToolkit } from '@posthog/agent-toolkit/integrations/langchain'
 
 const toolkit = new PostHogAgentToolkit({
-    posthogPersonalApiKey: process.env.POSTHOG_PERSONAL_API_KEY!,
-    posthogApiBaseUrl: 'https://us.posthog.com', // or https://eu.posthog.com if you are hosting in the EU
+  posthogPersonalApiKey: process.env.POSTHOG_PERSONAL_API_KEY!,
+  posthogApiBaseUrl: 'https://us.posthog.com', // or https://eu.posthog.com if you are hosting in the EU
 })
 
 const tools = await toolkit.getTools()
 const llm = new ChatOpenAI({ model: 'gpt-4' })
 
 const prompt = ChatPromptTemplate.fromMessages([
-    ['system', 'You are a data analyst with access to PostHog analytics'],
-    ['human', '{input}'],
-    new MessagesPlaceholder('agent_scratchpad'),
+  ['system', 'You are a data analyst with access to PostHog analytics'],
+  ['human', '{input}'],
+  new MessagesPlaceholder('agent_scratchpad'),
 ])
 
 const agent = createToolCallingAgent({ llm, tools, prompt })
 const executor = new AgentExecutor({ agent, tools })
 
 const result = await executor.invoke({
-    input: 'Analyze our product usage by getting the top 5 most interesting insights and summarising the data from them.',
+  input: 'Analyze our product usage by getting the top 5 most interesting insights and summarising the data from them.',
 })
 ```
 

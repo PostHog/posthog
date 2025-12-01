@@ -1,4 +1,3 @@
-import abc
 import typing
 import datetime as dt
 import functools
@@ -14,7 +13,6 @@ _T = typing.TypeVar("_T")
 EPOCH = dt.datetime(1970, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
 EPOCH_SECONDS = pa.scalar(EPOCH, type=pa.timestamp("s", tz="UTC"))
 EPOCH_MILLISECONDS = pa.scalar(EPOCH, type=pa.timestamp("ms", tz="UTC"))
-EPOCH_MICROSECONDS = pa.scalar(EPOCH, type=pa.timestamp("us", tz="UTC"))
 
 
 def _noop_cast(arr: pa.Array) -> pa.Array:
@@ -50,6 +48,13 @@ def _make_ensure_array(
     return f
 
 
+# Not offering this one as a default compatible type as it can result in data loss
+# (truncation of the microsecond part). Leaving it up to specific destinations to decide
+# whether to use it.
+TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH = _make_ensure_array(
+    functools.partial(pa.compute.seconds_between, EPOCH_MILLISECONDS)
+)
+
 TypeTupleToCastMapping = dict[tuple[pa.DataType, pa.DataType], collections.abc.Callable[[pa.Array], pa.Array]]
 
 # I played around with the idea of making this a proper graph and then using DFS/BFS to
@@ -60,13 +65,16 @@ COMPATIBLE_TYPES: TypeTupleToCastMapping = {
     (pa.timestamp("s", tz="UTC"), pa.int64()): _make_ensure_array(
         functools.partial(pa.compute.seconds_between, EPOCH_SECONDS)
     ),
-    (pa.timestamp("ms", tz="UTC"), pa.int64()): _make_ensure_array(
-        functools.partial(pa.compute.milliseconds_between, EPOCH_MILLISECONDS)
-    ),
-    (pa.timestamp("us", tz="UTC"), pa.int64()): _make_ensure_array(
-        functools.partial(pa.compute.microseconds_between, EPOCH_MICROSECONDS)
-    ),
     (pa.string(), JsonType()): _make_ensure_array(functools.partial(pa.compute.cast, target_type=JsonType())),
+    # We assume this is a destination field created from a ClickHouse `DateTime` that
+    # has  been updated to `DateTime64(3)`.
+    # This would mean the field would have been created as a BigQuery 'INT64', but we
+    # are now receiving a `pa.timestamp("ms", tz="UTC")`.
+    # So, since `DateTime` is seconds since the EPOCH, we maintain that here.
+    # This technically truncates the millisecond part of the value, but if it came from
+    # a `DateTime` then we assume it is empty (as it would have been empty before).
+    (pa.timestamp("ms", tz="UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
+    (pa.timestamp("ms", tz="Etc/UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
 }
 
 
@@ -117,12 +125,14 @@ class Field[T](typing.Protocol):
     """
 
     name: str
+    alias: str
     data_type: pa.DataType
 
     @classmethod
     def from_arrow_field(cls, field: pa.Field) -> typing.Self: ...
 
-    def to_arrow_field(cls) -> pa.Field: ...
+    def to_arrow_field(self) -> pa.Field:
+        return pa.field(self.name, self.data_type)
 
     @classmethod
     def from_destination_field(cls, field: T) -> typing.Self: ...
@@ -220,24 +230,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         self.fields: list[FieldType] = list(fields)
 
     @classmethod
-    @abc.abstractmethod
-    def from_arrow_schema(cls, schema: pa.Schema, **kwargs) -> typing.Self:
-        """Sub-classes should implement how to create a Table from an arrow schema.
-
-        The body of this method should just be a call to from_arrow_schema_full.
-
-        This method offers a relaxed signature via kwargs to allow sub-classes some
-        flexibility in figuring out how to:
-        * Pass their concrete Field implementation as field_type.
-            * Unfortunately, generic types are not available at runtime, so we need this
-              to be passed as an argument, even if the class definition already displays
-              the concrete Field type.
-        * Obtain name and parents.
-        """
-        raise NotImplementedError()
-
-    @classmethod
-    def from_arrow_schema_full(
+    def from_arrow_schema_with_field_type(
         cls,
         schema: pa.Schema,
         field_type: type[FieldType],
@@ -246,6 +239,23 @@ class Table(TableBase, typing.Generic[FieldType]):
         primary_key: collections.abc.Iterable[str] = (),
         version_key: collections.abc.Iterable[str] = (),
     ) -> typing.Self:
+        """Sub-classes should implement how to create a Table from an arrow schema.
+
+        However, different sub-classes have different requirements, so we cannot have a
+        signature that fits all.
+
+        We offer this method as a way for sub-classes to figure out:
+        * Their concrete Field implementation.
+            * This should be known for concrete sub-classes.
+            * Unfortunately, generic types are not available at runtime, so we need this
+              to be passed as an argument, even if the class definition already displays
+              the concrete Field type.
+        * Obtain name and parents.
+        * Set anything else that they wish to set.
+
+        And then call this.
+        """
+
         return cls(
             name=name,
             fields=(field_type.from_arrow_field(field) for field in schema),
@@ -326,7 +336,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         if isinstance(key, int):
             return self.fields[key]
         elif isinstance(key, str):
-            return self._get_field_by_name(key)
+            return self._get_field_by_name_or_alias(key)
 
         raise TypeError(f"unsupported key type: '{type(key)}'")
 
@@ -345,7 +355,7 @@ class Table(TableBase, typing.Generic[FieldType]):
                 raise ValueError(f"Cannot update '{key}' with field of name '{value.name}'")
 
             try:
-                existing = self._get_field_by_name(key)
+                existing = self._get_field_by_name_or_alias(key)
                 index = self.fields.index(existing)
             except KeyError:
                 # New field.
@@ -356,7 +366,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         else:
             raise TypeError(f"unsupported key type: '{type(key)}'")
 
-        self._get_field_by_name.cache_clear()
+        self._get_field_by_name_or_alias.cache_clear()
 
     def __delitem__(self, key: int | str) -> None:
         """Delete a field from this `Table`.
@@ -370,12 +380,12 @@ class Table(TableBase, typing.Generic[FieldType]):
             del self.fields[key]
 
         elif isinstance(key, str):
-            existing = self._get_field_by_name(key)
+            existing = self._get_field_by_name_or_alias(key)
             index = self.fields.index(existing)
 
             del self.fields[index]
 
-        self._get_field_by_name.cache_clear()
+        self._get_field_by_name_or_alias.cache_clear()
 
     def __contains__(self, field: FieldType | str) -> bool:
         """Check if this `Table` contains a field.
@@ -388,7 +398,7 @@ class Table(TableBase, typing.Generic[FieldType]):
 
         if isinstance(field, str):
             try:
-                _ = self._get_field_by_name(field)
+                _ = self._get_field_by_name_or_alias(field)
             except KeyError:
                 return False
             else:
@@ -397,17 +407,17 @@ class Table(TableBase, typing.Generic[FieldType]):
             return field in self.fields
 
     @functools.lru_cache
-    def _get_field_by_name(self, key: str) -> FieldType:
-        """Get a field from this `Table` by its name.
+    def _get_field_by_name_or_alias(self, key: str) -> FieldType:
+        """Get a field from this `Table` by its name or alias.
 
         This method uses a LRU cache to avoid iterating more than once per `key`, in case
-        it is in a loop and frequently getting fields by name.
+        it is in a loop and frequently getting fields by name or alias.
 
         Raises:
             KeyError: If a field with the name doesn't exist.
         """
         try:
-            return next(field for field in self.fields if field.name == key)
+            return next(field for field in self.fields if field.name == key or field.alias == key)
         except StopIteration:
             raise KeyError(key)
 

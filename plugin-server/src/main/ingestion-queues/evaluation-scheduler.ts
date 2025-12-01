@@ -82,13 +82,13 @@ export function groupEventsByTeam(events: RawKafkaEvent[]): Map<number, RawKafka
     return grouped
 }
 
-export function checkRolloutPercentage(distinctId: string, rolloutPercentage: number): boolean {
+export function checkRolloutPercentage(eventId: string, rolloutPercentage: number): boolean {
     if (rolloutPercentage >= 100) {
         return true
     }
 
     // Use MD5 hash for deterministic sampling
-    const hash = crypto.createHash('md5').update(distinctId).digest('hex')
+    const hash = crypto.createHash('md5').update(eventId).digest('hex')
     const hashValue = parseInt(hash.substring(0, 8), 16)
     const percentage = (hashValue % 10000) / 100
 
@@ -160,7 +160,7 @@ export class EvaluationMatcher {
                 continue
             }
 
-            const inSample = checkRolloutPercentage(event.distinct_id, condition.rollout_percentage)
+            const inSample = checkRolloutPercentage(event.uuid, condition.rollout_percentage)
 
             if (!inSample) {
                 continue
@@ -289,6 +289,6 @@ async function processEventEvaluationMatch(
 
     evaluationMatchesCounter.labels({ outcome: 'matched' }).inc()
 
-    await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event.uuid, event.timestamp)
+    await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event)
     evaluationSchedulerEventsProcessed.labels({ status: 'success' }).inc()
 }

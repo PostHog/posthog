@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
@@ -8,6 +9,8 @@ import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { HealthCheckResult, Hub, LogsIngestionConsumerConfig, PluginServerService } from '../types'
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
+import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
+import { LogsIngestionMessage } from './types'
 
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
@@ -15,16 +18,42 @@ export const logMessageDroppedCounter = new Counter({
     labelNames: ['reason'],
 })
 
-export type LogsIngestionMessage = {
-    token: string
-    teamId: number
-    message: Message
-}
+export const logsBytesReceivedCounter = new Counter({
+    name: 'logs_ingestion_bytes_received_total',
+    help: 'Total uncompressed bytes received for logs ingestion',
+})
+
+export const logsBytesAllowedCounter = new Counter({
+    name: 'logs_ingestion_bytes_allowed_total',
+    help: 'Total uncompressed bytes allowed through rate limiting',
+})
+
+export const logsBytesDroppedCounter = new Counter({
+    name: 'logs_ingestion_bytes_dropped_total',
+    help: 'Total uncompressed bytes dropped due to rate limiting',
+})
+
+export const logsRecordsReceivedCounter = new Counter({
+    name: 'logs_ingestion_records_received_total',
+    help: 'Total log records received',
+})
+
+export const logsRecordsAllowedCounter = new Counter({
+    name: 'logs_ingestion_records_allowed_total',
+    help: 'Total log records allowed through rate limiting',
+})
+
+export const logsRecordsDroppedCounter = new Counter({
+    name: 'logs_ingestion_records_dropped_total',
+    help: 'Total log records dropped due to rate limiting',
+})
 
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
+    private redis: RedisV2
+    private rateLimiter: LogsRateLimiterService
 
     protected groupId: string
     protected topic: string
@@ -46,6 +75,8 @@ export class LogsIngestionConsumer {
         this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? hub.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
+        this.redis = createRedisV2Pool(hub, 'logs')
+        this.rateLimiter = new LogsRateLimiterService(hub, this.redis)
     }
 
     public get service(): PluginServerService {
@@ -58,18 +89,60 @@ export class LogsIngestionConsumer {
 
     public async processBatch(
         messages: LogsIngestionMessage[]
-    ): Promise<{ backgroundTask: Promise<any>; messages: LogsIngestionMessage[] }> {
+    ): Promise<{ backgroundTask?: Promise<any>; messages: LogsIngestionMessage[] }> {
         if (!messages.length) {
-            return { backgroundTask: Promise.resolve(), messages: [] }
+            return { messages: [] }
         }
 
-        await this.produceValidLogMessages(messages)
+        const filteredMessages = await this.filterRateLimitedMessages(messages)
+
+        if (!filteredMessages.length) {
+            return { messages: [] }
+        }
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: Promise.resolve(),
-            messages,
+            backgroundTask: this.produceValidLogMessages(filteredMessages),
+            messages: filteredMessages,
         }
+    }
+
+    private async filterRateLimitedMessages(messages: LogsIngestionMessage[]): Promise<LogsIngestionMessage[]> {
+        // Track total incoming traffic
+        let totalBytesReceived = 0
+        let totalRecordsReceived = 0
+        for (const message of messages) {
+            totalBytesReceived += message.bytesUncompressed
+            totalRecordsReceived += message.recordCount
+        }
+        logsBytesReceivedCounter.inc(totalBytesReceived)
+        logsRecordsReceivedCounter.inc(totalRecordsReceived)
+
+        // Filter messages using rate limiter service
+        const { allowed, dropped } = await this.rateLimiter.filterMessages(messages)
+
+        // Track allowed metrics
+        let bytesAllowed = 0
+        let recordsAllowed = 0
+        for (const message of allowed) {
+            bytesAllowed += message.bytesUncompressed
+            recordsAllowed += message.recordCount
+        }
+        logsBytesAllowedCounter.inc(bytesAllowed)
+        logsRecordsAllowedCounter.inc(recordsAllowed)
+
+        // Track dropped metrics
+        let bytesDropped = 0
+        let recordsDropped = 0
+        logMessageDroppedCounter.inc({ reason: 'rate_limited' }, dropped.length)
+        for (const message of dropped) {
+            bytesDropped += message.bytesUncompressed
+            recordsDropped += message.recordCount
+        }
+        logsBytesDroppedCounter.inc(bytesDropped)
+        logsRecordsDroppedCounter.inc(recordsDropped)
+
+        return allowed
     }
 
     private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
@@ -100,9 +173,8 @@ export class LogsIngestionConsumer {
                     const token = headers.token
 
                     if (!token) {
-                        logger.error('missing_token_or_distinct_id')
-                        // Write to DLQ topic maybe?
-                        logMessageDroppedCounter.inc({ reason: 'missing_token_or_distinct_id' })
+                        logger.error('missing_token')
+                        logMessageDroppedCounter.inc({ reason: 'missing_token' })
                         return
                     }
 
@@ -113,16 +185,22 @@ export class LogsIngestionConsumer {
                     }
 
                     if (!team) {
-                        // Write to DLQ topic maybe?
-                        logger.error('team_not_found')
+                        logger.error('team_not_found', { token_with_no_team: token })
                         logMessageDroppedCounter.inc({ reason: 'team_not_found' })
                         return
                     }
+
+                    const bytesUncompressed = parseInt(headers.bytes_uncompressed ?? '0', 10)
+                    const bytesCompressed = parseInt(headers.bytes_compressed ?? '0', 10)
+                    const recordCount = parseInt(headers.record_count ?? '0', 10)
 
                     events.push({
                         token,
                         message,
                         teamId: team.id,
+                        bytesUncompressed,
+                        bytesCompressed,
+                        recordCount,
                     })
                 } catch (e) {
                     logger.error('Error parsing message', e)

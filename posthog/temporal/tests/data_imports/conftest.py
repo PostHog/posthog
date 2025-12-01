@@ -1162,34 +1162,36 @@ def zendesk_sla_policies():
             "previous_page": null,
             "sla_policies": [
                 {
-                "description": "For urgent incidents, we will respond to tickets in 10 minutes",
-                "filter": {
-                    "all": [
+                    "description": "For urgent incidents, we will respond to tickets in 10 minutes",
+                    "filter": {
+                        "all": [
+                            {
+                                "field": "type",
+                                "operator": "is",
+                                "value": "incident"
+                            },
+                            {
+                                "field": "via_id",
+                                "operator": "is",
+                                "value": "4"
+                            }
+                        ],
+                        "any": []
+                    },
+                    "id": 36,
+                    "created_at": "2022-04-25T19:42:18Z",
+                    "updated_at": "2024-05-31T22:10:48Z",
+                    "policy_metrics": [
                         {
-                            "field": "type",
-                            "operator": "is",
-                            "value": "incident"
-                        },
-                        {
-                            "field": "via_id",
-                            "operator": "is",
-                            "value": "4"
+                            "business_hours": false,
+                            "metric": "first_reply_time",
+                            "priority": "low",
+                            "target": 60
                         }
                     ],
-                    "any": []
-                },
-                "id": 36,
-                "policy_metrics": [
-                    {
-                        "business_hours": false,
-                        "metric": "first_reply_time",
-                        "priority": "low",
-                        "target": 60
-                    }
-                ],
-                "position": 3,
-                "title": "Incidents",
-                "url": "https://{subdomain}.zendesk.com/api/v2/slas/policies/36.json"
+                    "position": 3,
+                    "title": "Incidents",
+                    "url": "https://{subdomain}.zendesk.com/api/v2/slas/policies/36.json"
                 }
             ]
         }
@@ -1300,6 +1302,8 @@ def zendesk_ticket_events():
             "ticket_events": [
                 {
                     "id": 926256957613,
+                    "created_at": "2022-04-25T19:42:18Z",
+                    "updated_at": "2024-05-31T22:10:48Z",
                     "instance_id": 1,
                     "metric": "agent_work_time",
                     "ticket_id": 155,

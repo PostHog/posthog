@@ -14,7 +14,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.experiment import ExperimentHoldout
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):
@@ -125,7 +125,7 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
-@receiver(model_activity_signal, sender=ExperimentHoldout)
+@mutable_receiver(model_activity_signal, sender=ExperimentHoldout)
 def handle_experiment_holdout_change(
     sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
 ):

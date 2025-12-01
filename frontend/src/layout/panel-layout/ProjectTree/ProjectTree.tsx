@@ -7,12 +7,15 @@ import {
     IconChevronRight,
     IconEllipsis,
     IconFolderPlus,
+    IconPencil,
     IconPlusSmall,
     IconShortcut,
 } from '@posthog/icons'
 
+import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
+import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
@@ -27,7 +30,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
@@ -49,6 +52,20 @@ export interface ProjectTreeProps {
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
+
+const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
+const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
+
+const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
+    [UserProductListReason.USED_BY_COLLEAGUES]:
+        'We think you might like this product because your colleagues are using it.',
+    [UserProductListReason.USED_SIMILAR_PRODUCTS]:
+        'We think you might like this product because you use similar products. Give it a try!',
+    [UserProductListReason.USED_ON_SEPARATE_TEAM]:
+        'You use this product on another project so we think you might like it here.',
+    [UserProductListReason.NEW_PRODUCT]: 'This is a brand new product. Give it a try!',
+    [UserProductListReason.SALES_LED]: 'This product is recommended for you by our team.',
+}
 
 export function ProjectTree({
     logicKey,
@@ -103,27 +120,75 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { openItemSelectModal } = useActions(itemSelectModalLogic)
+
+    const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
+        SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
+        false
+    )
+    const [customProductHelperDismissed, setCustomProductHelperDismissed] = useLocalStorage<boolean>(
+        CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
+        false
+    )
 
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
-    const treeData: TreeDataItem[] = []
-    if (root === 'shortcuts://' && fullFileSystemFiltered.length === 0) {
-        treeData.push({
-            id: 'products/shortcuts-helper-category',
-            name: 'Example shortcuts',
-            type: 'category',
-            displayName: (
-                <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-1 -mx-1">
-                    Shortcuts are added by pressing{' '}
-                    <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                    side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file menu
-                    click <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />
-                </div>
-            ),
-        })
-    } else {
-        treeData.push(...fullFileSystemFiltered)
+    const treeData: TreeDataItem[] = [...fullFileSystemFiltered]
+    if (fullFileSystemFiltered.length <= 5) {
+        if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
+            treeData.push({
+                id: 'products/shortcuts-helper-category',
+                name: 'Example shortcuts',
+                type: 'category',
+                displayName: (
+                    <div
+                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                            'mt-2': fullFileSystemFiltered.length === 0,
+                        })}
+                    >
+                        Shortcuts are added by pressing{' '}
+                        <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                        side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file
+                        menu click{' '}
+                        <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.{' '}
+                        {fullFileSystemFiltered.length > 0 && (
+                            <span className="cursor-pointer underline" onClick={() => setShortcutHelperDismissed(true)}>
+                                Dismiss.
+                            </span>
+                        )}
+                    </div>
+                ),
+            })
+        }
+
+        if (root === 'custom-products://' && (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed)) {
+            treeData.push({
+                id: 'products/custom-products-helper-category',
+                name: 'Example apps',
+                type: 'category',
+                displayName: (
+                    <div
+                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                            'mt-6': fullFileSystemFiltered.length === 0,
+                        })}
+                    >
+                        You can display your preferred apps here. You can configure what items show up in here by
+                        clicking on the{' '}
+                        <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
+                        above. We'll automatically suggest new apps to this list as you use them.{' '}
+                        {fullFileSystemFiltered.length > 0 && (
+                            <span
+                                className="cursor-pointer underline"
+                                onClick={() => setCustomProductHelperDismissed(true)}
+                            >
+                                Dismiss.
+                            </span>
+                        )}
+                    </div>
+                ),
+            })
+        }
     }
 
     useEffect(() => {
@@ -309,11 +374,12 @@ export function ProjectTree({
                 )
             }}
             itemSideActionButton={(item) => {
-                const showProductMenuItems =
+                const showDropdownMenu =
                     root === 'products://' ||
+                    root === 'custom-products://' ||
                     (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
-                if (showProductMenuItems) {
+                if (showDropdownMenu) {
                     if (item.name === 'Product analytics') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
@@ -387,9 +453,10 @@ export function ProjectTree({
                         {treeTableKeys?.headers.slice(0).map((header, index) => {
                             const width = header.width || 0
                             const offset = header.offset || 0
-                            const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
+                            const value = header.key.split('.').reduce<any>((obj, key) => obj?.[key], item)
                             const isFolder =
                                 (item.children && item.children.length > 0) || item.record?.type === 'folder'
+
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
                             const offsetAdjusted = index === 0 ? offset : offset - 12
@@ -442,10 +509,31 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
-                if (root === 'products://' || root === 'data://' || root === 'persons://') {
-                    let key = item.record?.sceneKey
+                if (
+                    root === 'products://' ||
+                    root === 'data://' ||
+                    root === 'persons://' ||
+                    root === 'custom-products://'
+                ) {
+                    const key = item.record?.sceneKey
+                    const reason = item.record?.reason as UserProductListReason | undefined
+                    const reasonText = item.record?.reason_text as string | null | undefined
+
+                    const suggestedProductBaseTooltipText =
+                        reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
+                    const tooltipText = suggestedProductBaseTooltipText ? (
+                        <>
+                            {suggestedProductBaseTooltipText}
+                            <br />
+                            You can remove this product from your sidebar on the pencil button above.
+                            <br />
+                            <br />
+                        </>
+                    ) : undefined
+
                     return (
                         <>
+                            {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
                             {item.tags?.length && (
@@ -467,6 +555,7 @@ export function ProjectTree({
                         </>
                     )
                 }
+
                 if (root === 'persons://') {
                     return (
                         <>
@@ -490,31 +579,51 @@ export function ProjectTree({
                         </>
                     )
                 }
+
                 if (root === 'new://') {
                     if (item.children) {
                         return <>View all</>
                     }
                     return <>Create a new {nameNode}</>
                 }
-                return projectTreeMode === 'tree' ? (
-                    <>
-                        Name: {nameNode} <br />
-                        Created by:{' '}
-                        <ProfilePicture
-                            user={user || { first_name: 'PostHog' }}
-                            size="xs"
-                            showName
-                            className="font-semibold"
-                        />
-                        <br />
-                        Created at:{' '}
-                        <span className="font-semibold">
-                            {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
-                        </span>
-                    </>
-                ) : undefined
+
+                if (projectTreeMode === 'tree') {
+                    return (
+                        <>
+                            Name: {nameNode} <br />
+                            Created by:{' '}
+                            <ProfilePicture
+                                user={user || { first_name: 'PostHog' }}
+                                size="xs"
+                                showName
+                                className="font-semibold"
+                            />
+                            <br />
+                            Created at:{' '}
+                            <span className="font-semibold">
+                                {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
+                            </span>
+                        </>
+                    )
+                }
+
+                return undefined
             }}
             renderItemIcon={(item) => {
+                const createdAt = item.record?.created_at
+                const reason = item.record?.reason as UserProductListReason | undefined
+                const reasonText = item.record?.reason_text as string | null | undefined
+
+                // This indicator is shown if we detect we're looking at a custom product
+                // that's been recently added to the user's sidebar.
+                // We extract the `reasonText` from the item or come up with some default
+                // ones for some specific reasons that have a reasonable default.
+                const showIndicator =
+                    root === 'custom-products://' &&
+                    createdAt &&
+                    dayjs().diff(dayjs(createdAt), 'days') < 7 &&
+                    (reasonText || (reason && USER_PRODUCT_LIST_REASON_DEFAULTS[reason]))
+
                 return (
                     <>
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
@@ -524,12 +633,21 @@ export function ProjectTree({
                                 className="ml-[4px]"
                             />
                         )}
-                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
+                        <div className="relative">
+                            <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
+                            {showIndicator && (
+                                <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
+                            )}
+                        </div>
                     </>
                 )
             }}
             renderItem={(item) => {
-                const isNew = item.record?.created_at && dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
+                const isCustomProduct = root === 'custom-products://'
+                const isNew =
+                    !isCustomProduct &&
+                    item.record?.created_at &&
+                    dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3
 
                 return (
                     <span className="truncate">
@@ -623,6 +741,24 @@ export function ProjectTree({
                                         })}
                                     />
                                     {selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
+                                </>
+                            ),
+                        }),
+                },
+                {
+                    ...(root === 'shortcuts://' &&
+                        sortMethod !== 'recent' && {
+                            'data-attr': 'shortcuts-panel-add-button',
+                            onClick: openItemSelectModal,
+                            children: (
+                                <>
+                                    <IconPlusSmall
+                                        className={cn('size-3', {
+                                            'text-tertiary': selectMode === 'default',
+                                            'text-primary': selectMode === 'multi',
+                                        })}
+                                    />
+                                    Add shortcut
                                 </>
                             ),
                         }),

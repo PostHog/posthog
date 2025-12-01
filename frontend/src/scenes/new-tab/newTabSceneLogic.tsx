@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { RefObject } from 'react'
 
 import {
     IconActivity,
@@ -33,7 +34,7 @@ import {
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -44,7 +45,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityTab, EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
 
-import { SearchInputCommand } from './components/SearchInput'
+import { SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
 export type NEW_TAB_CATEGORY_ITEMS =
@@ -186,6 +187,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             dataset,
             prefix,
         }),
+        setNewTabSearchInputRef: (ref: RefObject<SearchInputHandle> | null) => ({ ref }),
+        focusNewTabSearchInput: true,
     }),
     loaders(({ values, actions }) => ({
         sceneLogViews: [
@@ -591,6 +594,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 },
             },
         ],
+        newTabSearchInputRef: [
+            null as RefObject<SearchInputHandle> | null,
+            {
+                setNewTabSearchInputRef: (_, { ref }) => ref,
+            },
+        ],
     }),
     selectors(({ actions }) => ({
         sceneLogViewsByRef: [
@@ -701,7 +710,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const name = splitPath(item.path).pop()
                     return {
                         id: item.path,
-                        name: name || item.path,
+                        name: name ? unescapePath(name) : item.path,
                         category: 'recents',
                         href: item.href || '#',
                         lastViewedAt: item.last_viewed_at ?? null,
@@ -817,7 +826,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'ask-ai',
                     name: searchTerm ? `Ask: ${searchTerm}` : 'Ask Posthog AI anything...',
                     category: 'askAI',
-                    href: urls.max(undefined, searchTerm),
+                    href: urls.ai(undefined, searchTerm),
                     icon: <IconSparkles />,
                     record: {
                         type: 'ai',
@@ -831,7 +840,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'open-ai',
                     name: 'Open',
                     category: 'askAI',
-                    href: urls.max(undefined, undefined),
+                    href: urls.ai(undefined, undefined),
                     icon: <IconArrowRight />,
                     record: {
                         type: 'ai',
@@ -1711,6 +1720,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
             await breakpoint(300)
             actions.loadGroupSearchResults({ searchTerm })
+        },
+        focusNewTabSearchInput: () => {
+            if (values.newTabSearchInputRef?.current) {
+                values.newTabSearchInputRef.current.focus()
+            }
         },
     })),
     tabAwareActionToUrl(({ values }) => {

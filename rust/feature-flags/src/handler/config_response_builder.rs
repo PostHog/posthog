@@ -32,7 +32,7 @@ impl ConfigContext {
         Self {
             config: context.state.config.clone(),
             database_pools: context.state.database_pools.clone(),
-            redis: context.state.redis_reader.clone(),
+            redis: context.state.redis_client.clone(),
             session_replay_billing_limiter: context.state.session_replay_billing_limiter.clone(),
             headers: context.headers.clone(),
         }
@@ -239,6 +239,7 @@ mod tests {
         handler::{config_response_builder::apply_core_config_fields, session_recording},
         team::team_models::Team,
     };
+    use chrono::Utc;
     use serde_json::json;
     use sqlx::types::{Json, Uuid};
     use std::collections::HashMap;
@@ -249,7 +250,6 @@ mod tests {
             id: 1,
             name: "Test Team".to_string(),
             api_token: "test-token".to_string(),
-            project_id: Some(1),
             uuid: Uuid::new_v4(),
             organization_id: None,
             autocapture_opt_out: None,
@@ -272,6 +272,7 @@ mod tests {
             session_recording_masking_config: None,
             session_replay_config: None,
             survey_config: None,
+            extra_settings: None,
             session_recording_url_trigger_config: None,
             session_recording_url_blocklist_config: None,
             session_recording_event_trigger_config: None,
@@ -288,6 +289,7 @@ mod tests {
             flags: HashMap::new(),
             quota_limited: None,
             request_id: StdUuid::new_v4(),
+            evaluated_at: Utc::now().timestamp_millis(),
             config: ConfigResponse::default(),
         }
     }
@@ -866,5 +868,22 @@ mod tests {
         } else {
             panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
         }
+    }
+
+    #[test]
+    fn test_extra_settings_not_exposed_in_response() {
+        let mut response = create_base_response();
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+
+        team.extra_settings = Some(Json(json!({"internal_config": {"nested": "data"}})));
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        let serialized = serde_json::to_string(&response).expect("Failed to serialize response");
+        assert!(
+            !serialized.contains("extra_settings"),
+            "Response should not contain extra_settings field"
+        );
     }
 }

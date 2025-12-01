@@ -72,3 +72,4 @@ pub const GROUP_TYPE_MAPPING_TIME: &str = "cymbal_group_type_mapping_time";
 pub const POSTHOG_SDK_EXCEPTION_RESOLVED: &str = "cymbal_posthog_sdk_exception_resolved";
 pub const SUSPICIOUS_FRAMES_DETECTED: &str = "cymbal_suspicious_frames_detected";
 pub const LEGACY_JS_FRAME_RESOLVED: &str = "cymbal_legacy_js_frame_resolved";
+pub const JAVA_EXCEPTION_REMAP_FAILED: &str = "cymbal_java_exception_remap_failed";

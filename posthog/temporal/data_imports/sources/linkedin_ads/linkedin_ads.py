@@ -158,7 +158,7 @@ def linkedin_ads_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(),
+        items=get_rows,
         primary_keys=schema.primary_keys,
         partition_count=1,  # this enables partitioning
         partition_size=schema.partition_size,  # this enables partitioning

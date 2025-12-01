@@ -1,4 +1,6 @@
+import shlex
 import datetime as dt
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -22,6 +24,23 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+
+def parse_search_tokens(search_term: str) -> list[tuple[Literal["positive", "negative"], str]]:
+    try:
+        tokens = shlex.split(search_term)
+    except ValueError:
+        tokens = search_term.split()
+
+    results: list[tuple[Literal["positive", "negative"], str]] = []
+    for token in tokens:
+        if token.startswith("!"):
+            value = token.lstrip("!")
+            if value:
+                results.append(("negative", value))
+        else:
+            results.append(("positive", token))
+    return results
 
 
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
@@ -100,7 +119,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             filters=HogQLFilters(dateRange=self.query.dateRange),
             settings=self.settings,
         )
-
         results = []
         for result in response.results:
             results.append(
@@ -118,6 +136,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     "resource_attributes": result[10],
                     "instrumentation_scope": result[11],
                     "event_name": result[12],
+                    "live_logs_checkpoint": result[13],
                 }
             )
 
@@ -161,7 +180,8 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 severity_text as level,
                 resource_attributes,
                 instrumentation_scope,
-                event_name
+                event_name,
+                (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint
             FROM logs where (_part_starting_offset+_part_offset) in ({query})
         """,
             placeholders={"query": query},
@@ -198,23 +218,41 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             )
 
         if self.query.searchTerm:
-            exprs.append(
-                parse_expr(
-                    "body LIKE {searchTerm}",
-                    placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
-                )
-            )
-            # ip addresses are particularly bad at full text searches with our ngram 3 index
-            # match them separately against a materialized column of ip addresses
-            exprs.append(
-                parse_expr(
-                    "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
-                    placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
-                )
-            )
+            # NOTE: each token adds a separate LIKE '%value%' condition which will be expensive for the logs table
+            # Future optimisation: consider ClickHouse multiSearchAny or better ngram index usage if performance becomes an issue with many tokens.
+            for token_type, value in parse_search_tokens(self.query.searchTerm):
+                if token_type == "negative":
+                    exprs.append(
+                        parse_expr(
+                            "body NOT LIKE {searchTerm}",
+                            placeholders={"searchTerm": ast.Constant(value=f"%{value}%")},
+                        )
+                    )
+                else:
+                    exprs.append(
+                        parse_expr(
+                            "body LIKE {searchTerm}",
+                            placeholders={"searchTerm": ast.Constant(value=f"%{value}%")},
+                        )
+                    )
+                    # ip addresses are particularly bad at full text searches with our ngram 3 index
+                    exprs.append(
+                        parse_expr(
+                            "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
+                            placeholders={"searchTerm": ast.Constant(value=f"{value}")},
+                        )
+                    )
 
         if self.query.filterGroup:
             exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
+
+        if self.query.liveLogsCheckpoint:
+            exprs.append(
+                parse_expr(
+                    "observed_timestamp >= {liveLogsCheckpoint}",
+                    placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
+                )
+            )
 
         return ast.And(exprs=exprs)
 

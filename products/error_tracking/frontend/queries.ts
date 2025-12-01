@@ -9,13 +9,13 @@ import {
     EventsQuery,
     InsightVizNode,
     NodeKind,
+    ProductKey,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
-    ProductKey,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,

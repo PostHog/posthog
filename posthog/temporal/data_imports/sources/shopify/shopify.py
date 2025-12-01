@@ -18,6 +18,7 @@ from .constants import (
     SHOPIFY_API_VERSION,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
+    SHOPIFY_PAGE_SIZE_OVERRIDES,
 )
 
 
@@ -90,7 +91,9 @@ def _make_paginated_shopify_request(
         else:
             raise Exception(f"Unexpected graphql response format in Shopify rows read. Keys: {list(payload.keys())}")
 
-    vars: dict[str, Any] = {"pageSize": SHOPIFY_DEFAULT_PAGE_SIZE}
+    pageSize = SHOPIFY_PAGE_SIZE_OVERRIDES.get(graphql_object.name, SHOPIFY_DEFAULT_PAGE_SIZE)
+    vars: dict[str, Any] = {"pageSize": pageSize}
+    logger.debug(f"Using page size {vars['pageSize']} for object {graphql_object.name}")
     if query:
         vars.update({"query": query})
     has_next_page = True
@@ -163,7 +166,7 @@ def shopify_source(
     if not endpoint_config:
         raise ValueError(f"Endpoint {schema_name} has no config in shopify/settings.py")
     return SourceResponse(
-        items=get_rows(),
+        items=get_rows,
         primary_keys=[ID],
         # intentionally left as the input object name as the response name needs to match the input name
         name=graphql_object_name,

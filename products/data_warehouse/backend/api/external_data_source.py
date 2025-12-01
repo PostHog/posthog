@@ -3,7 +3,6 @@ import dataclasses
 from typing import Any
 
 from django.db.models import Prefetch, Q
-from django.dispatch import receiver
 
 import structlog
 import temporalio
@@ -23,7 +22,7 @@ from posthog.models.activity_logging.external_data_utils import (
     get_external_data_source_created_by_info,
     get_external_data_source_detail_name,
 )
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.config import Config
@@ -710,7 +709,7 @@ class ExternalDataSourceContext(ActivityContextBase):
     created_by_user_name: str | None
 
 
-@receiver(model_activity_signal, sender=ExternalDataSource)
+@mutable_receiver(model_activity_signal, sender=ExternalDataSource)
 def handle_external_data_source_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

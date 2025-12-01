@@ -12,6 +12,7 @@ import {
     IconGraph,
     IconHogQL,
     IconLifecycle,
+    IconLineGraph,
     IconLive,
     IconLlmAnalytics,
     IconPerson,
@@ -377,6 +378,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.SessionsQuery]: {
+        name: 'Sessions',
+        description: 'List and explore sessions.',
+        icon: IconTableChart,
+        inMenu: false,
+    },
     [NodeKind.RevenueExampleEventsQuery]: {
         name: 'Revenue Example Events',
         description: 'Revenue Example Events Query.',
@@ -554,6 +561,12 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         description: 'Use Hog to query your data.',
         icon: IconHogQL,
         inMenu: true,
+    },
+    [InsightType.WEB_ANALYTICS]: {
+        name: 'Web Analytics',
+        description: 'Web analytics insights from your website data.',
+        icon: IconLineGraph,
+        inMenu: false,
     },
 }
 

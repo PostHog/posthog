@@ -27,16 +27,14 @@ export function ReleasePreviewPill(): JSX.Element {
             onMouseEnterInside={() => setIsOpen(true)}
             onMouseLeaveInside={() => setIsOpen(false)}
         >
-            <span
-                className="inline-flex align-middle"
+            <LemonTag
+                className="bg-fill-primary cursor-default inline-flex items-center"
                 onMouseEnter={() => setIsOpen(true)}
                 onMouseLeave={() => setIsOpen(false)}
             >
-                <LemonTag className="bg-fill-primary">
-                    <IconCommit className="text-sm text-secondary" />
-                    <span>{releasePillTitle(release)}</span>
-                </LemonTag>
-            </span>
+                <IconCommit className="text-sm text-secondary" />
+                <span>{releasePillTitle(release)}</span>
+            </LemonTag>
         </Popover>
     )
 }

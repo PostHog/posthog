@@ -7,117 +7,104 @@ import { getDecompressionWorkerManager } from './DecompressionWorkerManager'
 import { hasAnyWireframes, parseEncodedSnapshots, processAllSnapshots } from './process-all-snapshots'
 import { keyForSource } from './source-key'
 
-// Mock the EE exports early so modules under test see it when imported
-jest.mock('@posthog/ee/exports', () => ({
-    __esModule: true,
-    default: jest.fn().mockResolvedValue({
-        enabled: true,
-        mobileReplay: {
-            transformEventToWeb: jest.fn((event: any) => {
-                // Transform mobile FullSnapshot (wireframes) into a rrweb-like full snapshot structure
-                // Matches the real transformer structure: Document -> HTML -> [Head, Body] -> Body -> [img, ...]
-                if (event?.type === 2 && event?.data?.wireframes !== undefined) {
-                    const firstWireframe = event.data.wireframes[0]
-                    const width = firstWireframe?.width || 400
-                    const height = firstWireframe?.height || 800
-                    return {
-                        ...event,
-                        data: {
-                            node: {
-                                type: 0, // Document
+jest.mock('scenes/session-recordings/mobile-replay', () => ({
+    transformEventToWeb: jest.fn((event: any) => {
+        if (event?.type === 2 && event?.data?.wireframes !== undefined) {
+            const firstWireframe = event.data.wireframes[0]
+            const width = firstWireframe?.width || 400
+            const height = firstWireframe?.height || 800
+            return {
+                ...event,
+                data: {
+                    node: {
+                        type: 0,
+                        childNodes: [
+                            {
+                                type: 1,
+                                name: 'html',
+                                id: 2,
+                            },
+                            {
+                                type: 2,
+                                tagName: 'html',
+                                id: 3,
                                 childNodes: [
                                     {
-                                        type: 1, // DocumentType
-                                        name: 'html',
-                                        id: 2,
+                                        type: 2,
+                                        tagName: 'head',
+                                        id: 4,
+                                        childNodes: [],
                                     },
                                     {
-                                        type: 2, // Element
-                                        tagName: 'html',
-                                        id: 3,
+                                        type: 2,
+                                        tagName: 'body',
+                                        id: 5,
+                                        attributes: { 'data-rrweb-id': 5 },
                                         childNodes: [
                                             {
                                                 type: 2,
-                                                tagName: 'head',
-                                                id: 4,
+                                                tagName: 'img',
+                                                id: 100,
+                                                attributes: {
+                                                    'data-rrweb-id': 100,
+                                                    width,
+                                                    height,
+                                                    src: 'data:image/png;base64,test',
+                                                },
                                                 childNodes: [],
-                                            },
-                                            {
-                                                type: 2,
-                                                tagName: 'body',
-                                                id: 5,
-                                                attributes: { 'data-rrweb-id': 5 },
-                                                childNodes: [
-                                                    {
-                                                        type: 2,
-                                                        tagName: 'img',
-                                                        id: 100,
-                                                        attributes: {
-                                                            'data-rrweb-id': 100,
-                                                            width,
-                                                            height,
-                                                            src: 'data:image/png;base64,test',
-                                                        },
-                                                        childNodes: [],
-                                                    },
-                                                ],
                                             },
                                         ],
                                     },
                                 ],
-                                id: 1,
                             },
-                            initialOffset: { top: 0, left: 0 },
-                            href: 'https://example.com',
-                        },
-                    }
-                }
+                        ],
+                        id: 1,
+                    },
+                    initialOffset: { top: 0, left: 0 },
+                    href: 'https://example.com',
+                },
+            }
+        }
 
-                // Transform mobile IncrementalSnapshot with wireframe updates into mutation format
-                if (event?.type === 3 && event?.data?.updates && Array.isArray(event.data.updates)) {
-                    const updates = event.data.updates
-                    // Check if this has wireframe data (mobile format)
-                    if (updates.some((u: any) => u.wireframe)) {
-                        // Extract dimensions from first wireframe
-                        const firstUpdate = updates.find((u: any) => u.wireframe)
-                        const wireframe = firstUpdate?.wireframe
-                        const width = wireframe?.width || 400
-                        const height = wireframe?.height || 800
+        if (event?.type === 3 && event?.data?.updates && Array.isArray(event.data.updates)) {
+            const updates = event.data.updates
+            if (updates.some((u: any) => u.wireframe)) {
+                const firstUpdate = updates.find((u: any) => u.wireframe)
+                const wireframe = firstUpdate?.wireframe
+                const width = wireframe?.width || 400
+                const height = wireframe?.height || 800
 
-                        // Transform to mutation format with adds containing img nodes
-                        return {
-                            ...event,
-                            data: {
-                                source: 0, // IncrementalSource.Mutation
-                                adds: [
-                                    {
-                                        parentId: 5, // body id
-                                        nextId: null,
-                                        node: {
-                                            type: 2, // Element
-                                            tagName: 'img',
-                                            id: 100,
-                                            attributes: {
-                                                'data-rrweb-id': 100,
-                                                width,
-                                                height,
-                                                src: 'data:image/png;base64,test',
-                                            },
-                                            childNodes: [],
-                                        },
+                return {
+                    ...event,
+                    data: {
+                        source: 0,
+                        adds: [
+                            {
+                                parentId: 5,
+                                nextId: null,
+                                node: {
+                                    type: 2,
+                                    tagName: 'img',
+                                    id: 100,
+                                    attributes: {
+                                        'data-rrweb-id': 100,
+                                        width,
+                                        height,
+                                        src: 'data:image/png;base64,test',
                                     },
-                                ],
-                                removes: [],
-                                texts: [],
-                                attributes: [],
+                                    childNodes: [],
+                                },
                             },
-                        }
-                    }
+                        ],
+                        removes: [],
+                        texts: [],
+                        attributes: [],
+                    },
                 }
+            }
+        }
 
-                return event
-            }),
-        },
+        return event
     }),
 }))
 
@@ -338,7 +325,7 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots(convertInput(mockCompressedData), sessionId)
 
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock)
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock, { isParallel: false })
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe('1')
             expect(result[0].timestamp).toBe(1234567890)
@@ -422,7 +409,7 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots(fakeRawSnappyData, sessionId)
 
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData)
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData, { isParallel: false })
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe('1')
             expect(result[0].timestamp).toBe(1234567890)
@@ -778,7 +765,7 @@ describe('process all snapshots', () => {
             expect(fullSnapshot?.timestamp).toBe(1999)
         })
 
-        it('handles multiple mobile events correctly (only first gets synthetic)', async () => {
+        it('handles multiple mobile screenshot events (each gets synthetic full)', async () => {
             const sessionId = 'test-mobile-session'
 
             const snapshotJson = JSON.stringify({
@@ -815,8 +802,9 @@ describe('process all snapshots', () => {
             )
 
             const fullSnapshots = results.filter((r) => r.type === 2)
-            expect(fullSnapshots).toHaveLength(1)
+            expect(fullSnapshots).toHaveLength(2)
             expect(fullSnapshots[0].timestamp).toBe(999)
+            expect(fullSnapshots[1].timestamp).toBe(1999)
 
             const incrementalSnapshots = results.filter((r) => r.type === 3)
             expect(incrementalSnapshots).toHaveLength(2)

@@ -8,8 +8,8 @@ from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -72,6 +72,7 @@ How would you rate the memory content? Choose one:
 def call_node(demo_org_team_user, core_memory):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
+        .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_COLLECTOR)
         .add_memory_collector(AssistantNodeName.END, AssistantNodeName.END)
         # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
         .compile(checkpointer=DjangoCheckpointer())

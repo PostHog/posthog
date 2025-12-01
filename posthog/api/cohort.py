@@ -78,6 +78,7 @@ from posthog.models.feature_flag.flag_matching import (
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.property.property import Property, PropertyGroup
@@ -491,6 +492,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data, person_ids)
+            # Refresh from DB to get updated count field set by _insert_users_list_with_batching
+            cohort.refresh_from_db()
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
@@ -766,6 +769,10 @@ class CohortSerializer(serializers.ModelSerializer):
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
 
+        create_in_folder = validated_data.pop("_create_in_folder", None)
+        if create_in_folder is not None:
+            cohort._create_in_folder = create_in_folder or None
+
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
@@ -800,6 +807,79 @@ class CohortSerializer(serializers.ModelSerializer):
                     raise ValidationError(
                         f"This cohort is used in {len(flags_with_cohort)} active feature flag(s): {', '.join(flag_names)}. "
                         "Please remove the cohort from these feature flags before deleting it."
+                    )
+
+                # Check if cohort is used in test_account_filters
+                teams_with_cohort = Team.objects.filter(
+                    project_id=cohort.team.project_id, test_account_filters__contains=[{"type": "cohort"}]
+                )
+                teams_using_cohort = []
+                for team in teams_with_cohort:
+                    for filter_item in team.test_account_filters:
+                        if filter_item.get("type") == "cohort" and filter_item.get("value") == cohort.id:
+                            teams_using_cohort.append(team)
+                            break
+
+                if teams_using_cohort:
+                    team_names = [team.name for team in teams_using_cohort]
+                    raise ValidationError(
+                        f"This cohort is used in 'Filter out internal and test users' for {len(teams_using_cohort)} environment(s): {', '.join(team_names)}. "
+                        "Please remove the cohort from these test account filters before deleting it."
+                    )
+
+                # Check if cohort is used in insights
+
+                # Use PostgreSQL's jsonb_path_exists for recursive JSONB searching
+                # This finds cohort references at any depth in the JSON structure
+                insights_using_cohort = Insight.objects.filter(
+                    team_id=cohort.team_id,
+                    deleted=False,
+                ).extra(
+                    where=[
+                        """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
+                        OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
+                            AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
+                    ],
+                    params=[cohort.id, cohort.id, cohort.id],
+                )
+
+                if insights_using_cohort.exists():
+                    count = insights_using_cohort.count()
+                    insight_names = [
+                        insight.name or insight.derived_name or "Unnamed" for insight in insights_using_cohort[:5]
+                    ]
+                    names_str = ", ".join(insight_names)
+                    if count > 5:
+                        names_str = f"{names_str}, and {count - 5} more"
+                    raise ValidationError(
+                        f"This cohort is used in {count} insight(s): {names_str}. "
+                        "Please remove the cohort from these insights before deleting it."
+                    )
+
+                # Check if cohort is used as criteria in other cohorts
+                dependent_cohorts = (
+                    Cohort.objects.filter(
+                        team__project_id=cohort.team.project_id,
+                        deleted=False,
+                    )
+                    .exclude(id=cohort.id)
+                    .extra(
+                        where=[
+                            """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+                        ],
+                        params=[cohort.id, cohort.id],
+                    )
+                )
+
+                if dependent_cohorts.exists():
+                    count = dependent_cohorts.count()
+                    cohort_names = [c.name for c in dependent_cohorts[:5]]
+                    names_str = ", ".join(cohort_names)
+                    if count > 5:
+                        names_str = f"{names_str}, and {count - 5} more"
+                    raise ValidationError(
+                        f"This cohort is used as criteria in {count} other cohort(s): {names_str}. "
+                        "Please remove this cohort from those cohort definitions before deleting it."
                     )
 
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
@@ -1198,13 +1278,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         serializer.save()
         instance = cast(Cohort, serializer.instance)
 
-        # Although there are no changes when creating a Cohort, we synthesize one here because
-        # it is helpful to show the list of people in the cohort when looking at the activity log.
-        people = instance.to_dict()["people"]
-        changes = dict_changes_between(
-            "Cohort", previous={"people": []}, new={"people": people}, use_field_exclusions=True
-        )
-
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
@@ -1213,7 +1286,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=instance.id,
             scope="Cohort",
             activity="created",
-            detail=Detail(changes=changes, name=instance.name),
+            detail=Detail(name=instance.name),
         )
 
     def perform_update(self, serializer):
@@ -1231,6 +1304,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         serializer.save()
 
         changes = dict_changes_between("Cohort", previous=before_update, new=instance.to_dict())
+        activity = "updated"
+        deleted_change = next((change for change in changes if change.field == "deleted"), None)
+        if deleted_change:
+            if bool(deleted_change.after):
+                activity = "deleted"
+            elif bool(deleted_change.before):
+                activity = "restored"
 
         log_activity(
             organization_id=self.organization.id,
@@ -1239,7 +1319,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=instance_id,
             scope="Cohort",
-            activity="updated",
+            activity=activity,
             detail=Detail(changes=changes, name=instance.name),
         )
 

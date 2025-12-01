@@ -17,17 +17,19 @@ import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/ses
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     AvailableFeature,
     OnboardingStepKey,
-    ProductKey,
     type SessionRecordingMaskingLevel,
     TeamPublicType,
     TeamType,
 } from '~/types'
 
+import { OnboardingAIConsent } from './OnboardingAIConsent'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
+import { OnboardingProjectData } from './OnboardingProjectData'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
@@ -81,6 +83,9 @@ const OnboardingWrapper = ({
         scope: RestrictionScope.Organization,
     })
 
+    const shouldShowAIConsentStep = useFeatureFlag('ONBOARDING_AI_CONSENT_STEP', 'test')
+    const shouldShowTellUsMoreStep = useFeatureFlag('ONBOARDING_TELL_US_MORE_STEP', 'test')
+
     useEffect(() => {
         let steps = []
         if (Array.isArray(children)) {
@@ -106,16 +111,33 @@ const OnboardingWrapper = ({
             steps = [...steps, BillingStep]
         }
 
+        if (shouldShowAIConsentStep) {
+            const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
+            steps = [...steps, aiConsentStep]
+        }
+
         const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
         if (!userCannotInvite) {
             const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
             steps = [...steps, inviteTeammatesStep]
         }
 
+        if (shouldShowTellUsMoreStep) {
+            const tellUsMoreStep = <OnboardingProjectData stepKey={OnboardingStepKey.TELL_US_MORE} />
+            steps = [...steps, tellUsMoreStep]
+        }
+
         steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        children,
+        billingLoading,
+        minAdminRestrictionReason,
+        currentOrganization,
+        shouldShowAIConsentStep,
+        shouldShowTellUsMoreStep,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {

@@ -30,7 +30,6 @@ import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
-import { ObjectStorage } from './utils/object_storage'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
@@ -235,6 +234,17 @@ export type LogsIngestionConsumerConfig = {
     LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: string
     LOGS_INGESTION_CONSUMER_DLQ_TOPIC: string
     LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
+    LOGS_REDIS_HOST: string
+    LOGS_REDIS_PORT: number
+    LOGS_REDIS_PASSWORD: string
+    LOGS_REDIS_TLS: boolean
+    LOGS_LIMITER_ENABLED_TEAMS: string
+    LOGS_LIMITER_DISABLED_FOR_TEAMS: string
+    LOGS_LIMITER_BUCKET_SIZE_KB: number
+    LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: number
+    LOGS_LIMITER_TTL_SECONDS: number
+    LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
+    LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
 /**
@@ -360,12 +370,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
-    OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
-    OBJECT_STORAGE_REGION: string // s3 region
-    OBJECT_STORAGE_ENDPOINT: string // s3 endpoint
-    OBJECT_STORAGE_ACCESS_KEY_ID: string
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
@@ -473,11 +477,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
 
-    // Workflows
-    MAILJET_PUBLIC_KEY: string
-    MAILJET_SECRET_KEY: string
-
-    // SES
+    // SES (Workflows email sending)
     SES_ENDPOINT: string
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
@@ -508,7 +508,6 @@ export interface Hub extends PluginsServerConfig {
     cookielessRedisPool: GenericPool<Redis>
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
-    objectStorage?: ObjectStorage
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
@@ -1010,6 +1009,16 @@ export interface RawPerson extends BasePerson {
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+}
+
+/** Mutable fields that can be updated on a Person via updatePerson. */
+export interface PersonUpdateFields {
+    properties: Properties
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation | null
+    is_identified: boolean
+    created_at: DateTime
+    version?: number // Optional: allows forcing a specific version (used for dual-write sync)
 }
 
 /** Person model exposed outside of person-specific DB logic. */

@@ -31,6 +31,7 @@ __all__ = [
     "calculate_cohort",
     "demo_create_data",
     "demo_reset_master_team",
+    "early_access_feature",
     "email",
     "exporter",
     "feature_flags",
@@ -49,5 +50,4 @@ __all__ = [
     "user_identify",
     "verify_persons_data_in_sync",
     "warehouse",
-    "early_access_feature",
 ]

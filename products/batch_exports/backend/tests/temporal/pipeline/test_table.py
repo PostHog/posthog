@@ -100,6 +100,7 @@ def test_table_is_a_sequence_of_fields():
     class TestField(Field):
         def __init__(self, name: str, data_type: pa.DataType):
             self.name = name
+            self.alias = name
             self.data_type = data_type
 
         @classmethod
@@ -120,9 +121,7 @@ def test_table_is_a_sequence_of_fields():
             raise NotImplementedError()
 
     class TestTable(Table):
-        @classmethod
-        def from_arrow_schema(cls, schema: pa.Schema, **kwargs) -> typing.Self:
-            return cls(name="test", fields=[])
+        pass
 
     one = TestField(name="one", data_type=pa.string())
     two = TestField(name="two", data_type=pa.string())

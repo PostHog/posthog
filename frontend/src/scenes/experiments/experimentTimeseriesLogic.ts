@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
@@ -19,7 +19,6 @@ import { Experiment, ExperimentIdType } from '~/types'
 
 import { COLORS } from './MetricsView/shared/colors'
 import { getVariantInterval } from './MetricsView/shared/utils'
-import { experimentLogic } from './experimentLogic'
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 
 export interface ProcessedTimeseriesDataPoint {
@@ -50,16 +49,14 @@ export interface ProcessedChartData {
 }
 
 export interface ExperimentTimeseriesLogicProps {
-    experimentId: number | string
+    experiment: Experiment
     metric?: ExperimentMetric
 }
 
 export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     props({} as ExperimentTimeseriesLogicProps),
-    key((props) => props.experimentId),
     path((key) => ['scenes', 'experiments', 'experimentTimeseriesLogic', key]),
     connect(() => ({
-        values: [experimentLogic, ['experiment']],
         actions: [eventUsageLogic, ['reportExperimentTimeseriesRecalculated']],
     })),
 
@@ -81,7 +78,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     }
 
                     const response = await api.get(
-                        `api/projects/@current/experiments/${props.experimentId}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
+                        `api/projects/@current/experiments/${props.experiment.id}/timeseries_results/?metric_uuid=${metric.uuid}&fingerprint=${metric.fingerprint}`
                     )
                     return response
                 },
@@ -93,7 +90,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     try {
                         const response = await api.createResponse(
-                            `api/projects/@current/experiments/${props.experimentId}/recalculate_timeseries/`,
+                            `api/projects/@current/experiments/${props.experiment.id}/recalculate_timeseries/`,
                             {
                                 metric: metric,
                                 fingerprint: metric.fingerprint,
@@ -104,7 +101,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                             if (response.status === 201) {
                                 lemonToast.success('Recalculation started successfully')
                                 actions.reportExperimentTimeseriesRecalculated(
-                                    props.experimentId as ExperimentIdType,
+                                    props.experiment.id as ExperimentIdType,
                                     metric
                                 )
                             } else if (response.status === 200) {
@@ -208,19 +205,29 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
             },
         ],
 
-        // Progress message - only shown when we have partial data
+        // Progress message - shows calculation progress or completion
         progressMessage: [
             (s) => [s.timeseries],
             (timeseries: ExperimentMetricTimeseries | null): string | null => {
-                if (!timeseries || timeseries.status !== 'partial') {
+                if (!timeseries || !timeseries.timeseries) {
                     return null
                 }
 
                 const timeseriesData = timeseries.timeseries || {}
-                const computedDays = Object.values(timeseriesData).filter(Boolean).length
+                const computedDays = Object.values(timeseriesData).filter((value) => value !== null).length
                 const totalDays = Object.keys(timeseriesData).length
 
-                return totalDays > 0 ? `Computed ${computedDays} of ${totalDays} days` : null
+                if (totalDays === 0) {
+                    return null
+                }
+
+                // If all days are computed, show "Calculated N days"
+                if (computedDays === totalDays) {
+                    return `Calculated ${totalDays} day${totalDays === 1 ? '' : 's'}`
+                }
+
+                // Otherwise show progress "Computed N of M days"
+                return `Computed ${computedDays} of ${totalDays} days`
             },
         ],
         hasTimeseriesData: [
@@ -237,7 +244,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
         // Generate Chart.js-ready datasets
         chartData: [
-            (s) => [s.processedVariantData, s.experiment],
+            (s, props) => [s.processedVariantData, props.experiment],
             (
                 processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[],
                 experiment: Experiment

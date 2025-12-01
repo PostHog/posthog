@@ -139,6 +139,12 @@ pub struct Config {
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
+
     #[envconfig(default = "")]
     pub filtered_teams: String, // Comma seperated list of teams to either filter in (process) or filter out (ignore)
 

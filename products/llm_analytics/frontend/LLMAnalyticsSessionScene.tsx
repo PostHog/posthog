@@ -1,10 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,7 +17,11 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
-import { formatLLMCost } from './utils'
+import { formatLLMCost, getTraceTimestamp } from './utils'
+
+const LLMASessionFeedbackDisplay = lazy(() =>
+    import('./LLMASessionFeedbackDisplay').then((m) => ({ default: m.LLMASessionFeedbackDisplay }))
+)
 
 export const scene: SceneExport = {
     component: LLMAnalyticsSessionScene,
@@ -32,6 +39,9 @@ export function LLMAnalyticsSessionScene(): JSX.Element {
 }
 
 function SessionSceneWrapper(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
+
     const {
         traces,
         responseLoading,
@@ -85,6 +95,12 @@ function SessionSceneWrapper(): JSX.Element {
                                     {sessionStats.totalLatency.toFixed(2)}s
                                 </LemonTag>
                             )}
+                            {/* This is an internal component, it's lazy loaded and behind feature flag. */}
+                            {showFeedback && (
+                                <Suspense fallback={<Spinner />}>
+                                    <LLMASessionFeedbackDisplay sessionId={sessionId} />
+                                </Suspense>
+                            )}
                         </header>
                     </div>
                     <div className="bg-surface-primary border rounded p-4">
@@ -132,7 +148,9 @@ function SessionSceneWrapper(): JSX.Element {
                                                         </LemonTag>
                                                     )}
                                                     <Link
-                                                        to={urls.llmAnalyticsTrace(trace.id)}
+                                                        to={urls.llmAnalyticsTrace(trace.id, {
+                                                            timestamp: getTraceTimestamp(trace.createdAt),
+                                                        })}
                                                         onClick={(e) => e.stopPropagation()}
                                                         className="text-xs"
                                                     >

@@ -201,7 +201,7 @@ impl KafkaSink {
             Codec::Zstandard(ZstandardSettings::default()),
         );
 
-        for row in rows {
+        for row in &rows {
             writer.append_ser(row)?;
         }
 
@@ -226,10 +226,14 @@ impl KafkaSink {
                     .insert(Header {
                         key: "bytes_compressed",
                         value: Some(&payload.len().to_string()),
+                    })
+                    .insert(Header {
+                        key: "record_count",
+                        value: Some(&rows.len().to_string()),
                     }),
             ),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {}", err))),
+            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
             Ok(delivery_future) => Ok(delivery_future),
         }?;
 

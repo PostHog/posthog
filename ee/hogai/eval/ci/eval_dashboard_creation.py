@@ -5,10 +5,11 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
+from ee.hogai.chat_agent import AssistantGraph
+from ee.hogai.chat_agent.dashboards.nodes import DashboardCreationNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
-from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import NodePath
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
@@ -162,7 +163,11 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
 
 async def eval_tool_call_dashboard_creation(pytestconfig, demo_org_team_user):
     conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
-    dashboard_creation_node = DashboardCreationNode(demo_org_team_user[1], demo_org_team_user[2])
+    dashboard_creation_node = DashboardCreationNode(
+        demo_org_team_user[1],
+        demo_org_team_user[2],
+        node_path=(NodePath(name="create_dashboard", message_id="msg_id", tool_call_id="tool_call_id"),),
+    )
 
     async def task_with_context(messages):
         state = AssistantState(

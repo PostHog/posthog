@@ -4,14 +4,6 @@ from django.conf import settings
 
 import psycopg
 
-from products.batch_exports.backend.temporal.destinations.postgres_batch_export import PostgreSQLHeartbeatDetails
-
-
-@pytest.fixture
-def activity_environment(activity_environment):
-    activity_environment.heartbeat_class = PostgreSQLHeartbeatDetails
-    return activity_environment
-
 
 @pytest.fixture
 def postgres_config():
@@ -54,6 +46,8 @@ def test_properties(request, session_id):
             "unicode_null": "\u0000",
             "emoji": "🤣",
             "newline": "\n",
+            # URL with curly braces, which needs to be escaped when converted to a PostgreSQL array.
+            "$current_url": "https://www.posthog.com#link={foo}",
         }
 
 

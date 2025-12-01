@@ -1061,7 +1061,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
-                    canOpenInsight: true,
+                    canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                 })
 
                 const createTableTab = (
@@ -1119,7 +1119,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 embedded: true,
                                 hideTooltipOnScroll: true,
                             },
-                            canOpenInsight: true,
+                            canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                             canOpenModal: false,
                         }
                     }
@@ -1147,6 +1147,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             showActions: true,
                             columns,
                         },
+                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenModal: false,
                     }
                 }
 
@@ -1158,7 +1160,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         dateRange: dateRange,
                         filterTestAccounts: filterTestAccounts,
                         filterGroup: replayFilters.filter_group,
-                        columns: ['error', 'users', 'occurrences'],
+                        columns: ['error', 'users', 'occurrences', 'last_seen'],
                         limit: 4,
                     })
                 } catch (e) {
@@ -1190,13 +1192,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     kind: NodeKind.TrendsQuery,
                                     dateRange,
                                     interval,
-                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).flatMap((metric) =>
-                                        [PropertyMathType.P75, PropertyMathType.P90, PropertyMathType.P99].map((math) =>
-                                            createSeries(metric, math)
-                                        )
+                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
+                                        createSeries(metric, webVitalsPercentile)
                                     ),
                                     trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-                                    compareFilter,
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
                                 },
@@ -1265,6 +1264,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             includeRevenue,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
+                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                     },
                     {
                         kind: 'tabs',
@@ -1792,7 +1792,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               embedded: true,
                                           },
                                           insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
-                                          canOpenInsight: true,
+                                          canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                                       }
                                     : null,
                                 shouldShowGeoIPQueries
@@ -1872,7 +1872,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   embedded: true,
                               },
                               insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: false,
+                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                               canOpenModal: true,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
@@ -2154,7 +2154,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
                               canOpenModal: true,
-                              canOpenInsight: false,
+                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                               docs: {
                                   title: 'Frustrating Pages',
                                   description: (

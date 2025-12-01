@@ -490,31 +490,37 @@ class SessionReplayEvents:
         return query
 
     @staticmethod
-    def get_soon_to_expire_sessions_query(
+    def count_soon_to_expire_sessions_query(
         format: Optional[str] = None,
     ):
         """
-        Helper function to build a query for listing all sessions that are about to expire
+        Helper function to build a query for counting all sessions that are about to expire
         """
         query = """
+                WITH
+                    expiring_sessions
+                AS (
+                    SELECT
+                        session_id,
+                        min(min_first_timestamp) as start_time,
+                        max(retention_period_days) as retention_period_days,
+                        dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                        dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
+                    FROM
+                        session_replay_events
+                    PREWHERE
+                        team_id = %(team_id)s
+                        AND min_first_timestamp <= %(python_now)s
+                    GROUP BY
+                        session_id
+                    HAVING
+                        expiry_time >= %(python_now)s
+                        AND recording_ttl <= %(ttl_threshold)s
+                    ORDER BY recording_ttl ASC
+                )
                 SELECT
-                    session_id,
-                    min(min_first_timestamp) as start_time,
-                    max(retention_period_days) as retention_period_days,
-                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
-                    dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
-                FROM
-                    session_replay_events
-                PREWHERE
-                    team_id = %(team_id)s
-                    AND min_first_timestamp <= %(python_now)s
-                GROUP BY
-                    session_id
-                HAVING
-                    expiry_time >= %(python_now)s
-                    AND recording_ttl <= %(ttl_threshold)s
-                ORDER BY recording_ttl ASC
-                LIMIT %(limit)s
+                    count(session_id) as recording_count
+                FROM expiring_sessions
                 {optional_format_clause}
                 """
         query = query.format(
@@ -532,3 +538,53 @@ def ttl_days(team: Team) -> int:
         ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
 
     return ttl_days
+
+
+def get_person_emails_for_session_ids(
+    session_ids: list[str],
+    min_timestamp: datetime,
+    max_timestamp: datetime,
+    team_id: int,
+) -> dict[str, str | None]:
+    """
+    Get person emails for a list of session IDs.
+    """
+    from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+    if not session_ids:
+        return {}
+    if len(session_ids) > 1000:
+        raise ValueError(f"Cannot query more than 1000 session IDs at once, got {len(session_ids)}")
+    if (max_timestamp - min_timestamp).days > 90:
+        raise ValueError(
+            f"Date range cannot exceed 3 months (90 days), got {(max_timestamp - min_timestamp).days} days"
+        )
+    team = Team.objects.get(pk=team_id)
+    query = HogQLQuery(
+        query="""
+            SELECT
+                properties.$session_id AS session_id,
+                any(person.properties.email) AS email
+            FROM events
+            WHERE properties.$session_id IN {session_ids}
+                AND timestamp >= {min_timestamp}
+                AND timestamp <= {max_timestamp}
+            GROUP BY properties.$session_id
+        """,
+        values={
+            "session_ids": session_ids,
+            "min_timestamp": min_timestamp,
+            "max_timestamp": max_timestamp,
+        },
+    )
+    result = HogQLQueryRunner(team=team, query=query).calculate()
+    email_mapping: dict[str, str | None] = {session_id: None for session_id in session_ids}
+    if result.results:
+        for row in result.results:
+            session_id = row[0]
+            email = row[1]
+            if email and isinstance(email, str) and email.strip():
+                email_mapping[session_id] = email
+            else:
+                email_mapping[session_id] = None
+    return email_mapping

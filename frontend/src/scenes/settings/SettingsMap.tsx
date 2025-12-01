@@ -1,6 +1,7 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
+import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -31,6 +32,8 @@ import { urls } from 'scenes/urls'
 import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
+import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
     ActivityLogNotifications,
@@ -58,7 +61,6 @@ import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConf
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import {
     NetworkCaptureSettings,
-    ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayDataRetentionSettings,
     ReplayGeneral,
@@ -71,6 +73,7 @@ import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
     Bookmarklet,
     TeamAuthorizedURLs,
+    TeamBusinessModel,
     TeamDisplayName,
     TeamTimezone,
     TeamVariables,
@@ -137,6 +140,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Project ID',
                 component: <TeamVariables />,
             },
+
+            {
+                id: 'date-and-time',
+                title: 'Date & time',
+                component: <TeamTimezone />,
+            },
+            {
+                id: 'business-model',
+                title: 'Business model',
+                component: <TeamBusinessModel />,
+            },
         ],
     },
     {
@@ -184,10 +198,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <GroupAnalyticsConfig />,
             },
             {
-                id: 'crm-usage-metrics',
+                id: 'customer-analytics-usage-metrics',
                 title: 'Usage metrics',
                 component: <UsageMetricsConfig />,
-                flag: 'CRM_USAGE_METRICS',
+                flag: 'CUSTOMER_ANALYTICS',
+            },
+            {
+                id: 'customer-analytics-dashboard-events',
+                title: 'Dashboard events',
+                component: <CustomerAnalyticsDashboardEvents />,
+                flag: 'CUSTOMER_ANALYTICS',
             },
         ],
     },
@@ -196,11 +216,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
-            {
-                id: 'date-and-time',
-                title: 'Date & time',
-                component: <TeamTimezone />,
-            },
             {
                 id: 'base-currency',
                 title: 'Base currency',
@@ -416,12 +431,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 allowForTeam: (t) => !!t?.recording_domains?.length,
             },
             {
-                id: 'replay-ai-config',
-                title: 'AI recording summary',
-                component: <ReplayAISettings />,
-                flag: 'AI_SESSION_PERMISSIONS',
-            },
-            {
                 id: 'replay-retention',
                 title: (
                     <>
@@ -493,6 +502,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 component: <SymbolSets />,
+            },
+            {
+                id: 'error-tracking-releases',
+                title: 'Releases',
+                component: <Releases />,
             },
         ],
     },
@@ -689,8 +703,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: (
                     // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
-                        PostHog AI features, such as our assistant Max, use{' '}
-                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
+                        PostHog AI features, such as the PostHog AI chat, use{' '}
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: Anthropic and OpenAI`}>
                             <dfn>external AI services</dfn>
                         </Tooltip>{' '}
                         for data analysis.

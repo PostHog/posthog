@@ -184,4 +184,4 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
     ):
         source = google_ads_source(cfg, resource_name=resource, team_id=team.id)
 
-        _ = list(source.items)
+        _ = list(source.items())
