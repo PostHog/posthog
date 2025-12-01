@@ -337,7 +337,7 @@ class TestRefreshHogFlows(BaseTest):
         filters = updated[0]["config"]["conditions"][0]["filters"]
         self.assertNotIn("events", filters)
         self.assertEqual(filters["source"], "events")
-        self.assertJSONEqual(
+        self.assertEqual(
             filters["properties"], [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
         )
 
@@ -365,7 +365,7 @@ class TestRefreshHogFlows(BaseTest):
         filters = updated[0]["config"]["conditions"][0]["filters"]
         self.assertNotIn("events", filters)
         self.assertEqual(filters["source"], "events")
-        self.assertJSONEqual(
+        self.assertEqual(
             filters["properties"], [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
         )
 
@@ -394,5 +394,5 @@ class TestRefreshHogFlows(BaseTest):
         cond2 = updated[0]["config"]["conditions"][1]["filters"]
         self.assertNotIn("events", cond1)
         self.assertNotIn("events", cond2)
-        self.assertJSONEqual(cond1, {"source": "events"})
-        self.assertJSONEqual(cond2, {"source": "events"})
+        self.assertEqual(cond1, {"source": "events"})
+        self.assertEqual(cond2, {"source": "events"})
