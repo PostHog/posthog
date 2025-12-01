@@ -4,9 +4,9 @@ import { P, match } from 'ts-pattern'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
-import { CollapsibleExceptionList } from 'lib/components/Errors/CollapsibleExceptionList'
-import { ExceptionListSkeleton } from 'lib/components/Errors/ExceptionList/ExceptionListSkeleton'
-import { RawExceptionList } from 'lib/components/Errors/RawExceptionList'
+import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
+import { LoadingExceptionList } from 'lib/components/Errors/ExceptionList/LoadingExceptionList'
+import { RawExceptionList } from 'lib/components/Errors/ExceptionList/RawExceptionList'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import posthog from 'lib/posthog-typed'
@@ -111,19 +111,16 @@ function StacktraceIssueDisplay({
 } & { className?: string }): JSX.Element | null {
     const { showAsText, loading, showAllFrames } = useValues(exceptionCardLogic)
     const { setShowAllFrames } = useActions(exceptionCardLogic)
+    const commonProps = { showAllFrames, setShowAllFrames, className }
     return match([issueLoading || loading, showAsText])
-        .with([true, P.any], () => <ExceptionListSkeleton className={className} />)
-        .with([false, true], () => (
-            <RawExceptionList showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} className={className} />
-        ))
+        .with([true, P.any], () => <LoadingExceptionList {...commonProps} />)
+        .with([false, true], () => <RawExceptionList {...commonProps} />)
         .with([false, false], () => (
             <CollapsibleExceptionList
-                showAllFrames={showAllFrames}
-                setShowAllFrames={setShowAllFrames}
+                {...commonProps}
                 onFirstFrameExpanded={() => {
                     posthog.capture('error_tracking_stacktrace_explored', { issue_id: issue?.id })
                 }}
-                className={className}
             />
         ))
         .otherwise(() => null)

@@ -1,7 +1,6 @@
 import { connect, kea, path, props, selectors } from 'kea'
 
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 

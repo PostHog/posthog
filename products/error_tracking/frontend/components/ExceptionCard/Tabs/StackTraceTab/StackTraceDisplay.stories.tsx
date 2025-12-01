@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import { CollapsibleExceptionList } from 'lib/components/Errors/CollapsibleExceptionList'
-import { RawExceptionList } from 'lib/components/Errors/RawExceptionList'
+import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
+import { RawExceptionList } from 'lib/components/Errors/ExceptionList/RawExceptionList'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
