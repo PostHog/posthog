@@ -16,6 +16,7 @@ class TestParseSearchTokens(BaseTest):
             ("quoted phrase", '"hello world"', [("positive", "hello world")]),
             ("negative quoted phrase", '!"hello world"', [("negative", "hello world")]),
             ("standalone bang ignored", "!", []),
+            ("double bang ignored", "!!", []),
             ("standalone bang with tokens", "error ! warning", [("positive", "error"), ("positive", "warning")]),
             ("multiple spaces", "error    warning", [("positive", "error"), ("positive", "warning")]),
             ("malformed quotes fallback", '"unclosed quote', [("positive", '"unclosed'), ("positive", "quote")]),

@@ -34,10 +34,10 @@ def parse_search_tokens(search_term: str) -> list[tuple[Literal["positive", "neg
 
     results: list[tuple[Literal["positive", "negative"], str]] = []
     for token in tokens:
-        if token == "!":
-            continue
         if token.startswith("!"):
-            results.append(("negative", token[1:]))
+            value = token[1:]
+            if value:
+                results.append(("negative", value))
         else:
             results.append(("positive", token))
     return results
