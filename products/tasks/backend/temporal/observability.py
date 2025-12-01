@@ -1,27 +1,33 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import posthoganalytics
 from temporalio import activity, workflow
 
 from posthog.temporal.common.logger import get_logger
 
-logger = get_logger(__name__)
+from products.tasks.backend.models import LogLevel
 
-LogLevel = Literal["debug", "info", "warn", "error"]
+logger = get_logger(__name__)
 
 
 def emit_agent_log(run_id: str, level: LogLevel, message: str) -> None:
     """Emit a console-style agent event for user-facing logs.
 
-    Use level="info" for user-facing messages, level="debug" for internal details.
+    On activity retries (attempt > 1), debug logs are used regardless of the log level provided to avoid duplicate user-facing messages.
     """
     from products.tasks.backend.models import TaskRun
 
+    effective_level = level
+    if activity.in_activity():
+        info = activity.info()
+        if info.attempt > 1:
+            effective_level = "debug"
+
     try:
         task_run = TaskRun.objects.get(id=run_id)
-        task_run.emit_console_event(level, message)
+        task_run.emit_console_event(effective_level, message)
     except TaskRun.DoesNotExist:
         logger.warning("TaskRun not found for emit_agent_log", run_id=run_id)
     except Exception:

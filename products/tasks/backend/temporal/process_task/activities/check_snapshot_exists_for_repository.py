@@ -43,6 +43,6 @@ def check_snapshot_exists_for_repository(
     emit_agent_log(
         ctx.run_id,
         "info",
-        f"Didn't find an existing development environment for repository {ctx.repository}, creating one (this may take a few minutes to complete)",
+        f"Did not find an existing development environment for repository {ctx.repository}, creating one (this may take a few minutes to complete)",
     )
     return CheckSnapshotExistsForRepositoryOutput(exists=False, snapshot_id=None)

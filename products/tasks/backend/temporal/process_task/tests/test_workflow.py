@@ -31,9 +31,6 @@ from products.tasks.backend.temporal.process_task.activities.create_sandbox_from
 from products.tasks.backend.temporal.process_task.activities.create_snapshot import create_snapshot
 from products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox import execute_task_in_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import get_sandbox_for_setup
-from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
-    get_task_processing_context,
-)
 from products.tasks.backend.temporal.process_task.activities.setup_repository import setup_repository
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import track_workflow_event
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskOutput, ProcessTaskWorkflow
