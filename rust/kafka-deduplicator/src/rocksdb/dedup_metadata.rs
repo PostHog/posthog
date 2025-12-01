@@ -42,20 +42,20 @@ impl TryFrom<&SerializableRawEvent> for RawEvent {
         let uuid = serializable
             .uuid
             .as_ref()
-            .map(|s| s.parse().map_err(|e| anyhow!("Invalid UUID: {}", e)))
+            .map(|s| s.parse().map_err(|e| anyhow!("Invalid UUID: {e}")))
             .transpose()?;
 
         let distinct_id = serializable
             .distinct_id_json
             .as_ref()
             .map(|s| {
-                serde_json::from_str(s).map_err(|e| anyhow!("Invalid distinct_id JSON: {}", e))
+                serde_json::from_str(s).map_err(|e| anyhow!("Invalid distinct_id JSON: {e}"))
             })
             .transpose()?;
 
         let properties: HashMap<String, serde_json::Value> =
             serde_json::from_str(&serializable.properties_json)
-                .map_err(|e| anyhow!("Invalid properties JSON: {}", e))?;
+                .map_err(|e| anyhow!("Invalid properties JSON: {e}"))?;
 
         Ok(RawEvent {
             uuid,
@@ -119,7 +119,7 @@ impl VersionedMetadata {
                     bincode::serde::decode_from_slice(payload, bincode::config::standard())?;
                 Ok(VersionedMetadata::V1(v1))
             }
-            _ => Err(anyhow::anyhow!("unknown version: {}", version)),
+            _ => Err(anyhow::anyhow!("unknown version: {version}")),
         }
     }
 }
