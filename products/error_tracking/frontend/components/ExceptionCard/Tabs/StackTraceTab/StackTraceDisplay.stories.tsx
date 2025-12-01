@@ -116,11 +116,6 @@ export function TextDisplayWithStacktrace(): JSX.Element {
 
 //////////////////// Utils
 
-// const DEFAULT_PROPS = {
-//     truncateMessage: true,
-//     renderEmpty: (exception: ErrorTrackingException) => <StacktraceEmptyDisplay exception={exception} />,
-// } as StacktraceBaseDisplayProps
-
 function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JSX.Element {
     const eventNames = Object.keys(TEST_EVENTS) as TestEventName[]
     return (
@@ -138,7 +133,7 @@ function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JS
     )
 }
 
-export function StackTraceGenericDisplay({ className }: { className?: string }): JSX.Element {
+function StackTraceGenericDisplay({ className }: { className?: string }): JSX.Element {
     const { showAllFrames } = useValues(exceptionCardLogic)
     const { setShowAllFrames } = useActions(exceptionCardLogic)
     return (
@@ -150,7 +145,7 @@ export function StackTraceGenericDisplay({ className }: { className?: string }):
     )
 }
 
-export function StackTraceRawDisplay({ className }: { className?: string }): JSX.Element {
+function StackTraceRawDisplay({ className }: { className?: string }): JSX.Element {
     const { showAllFrames } = useValues(exceptionCardLogic)
     const { setShowAllFrames } = useActions(exceptionCardLogic)
     return <RawExceptionList showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} className={className} />
