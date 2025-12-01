@@ -205,12 +205,19 @@ export function captureFeedback(
     triggerType: FeedbackTriggerType,
     feedbackText?: string
 ): void {
-    posthog.capture('posthog_ai_feedback_submitted', {
-        $ai_conversation_id: conversationId,
+    posthog.capture('$ai_metric', {
+        $ai_metric_name: 'feedback',
+        $ai_metric_value: rating,
         $ai_session_id: conversationId,
         $ai_trace_id: traceId,
-        $ai_feedback_rating: rating,
-        $ai_feedback_trigger_type: triggerType,
-        $ai_feedback_text: feedbackText ?? null,
+        feedback_trigger_type: triggerType,
     })
+
+    if (feedbackText) {
+        posthog.capture('$ai_feedback', {
+            $ai_feedback_text: feedbackText,
+            $ai_session_id: conversationId,
+            $ai_trace_id: traceId,
+        })
+    }
 }

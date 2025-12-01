@@ -82,13 +82,14 @@ export const llmAnalyticsSessionFeedbackLogic = kea<llmAnalyticsSessionFeedbackL
                 kind: NodeKind.HogQLQuery,
                 query: `
                     SELECT
-                        properties.$ai_feedback_rating as rating,
-                        properties.$ai_feedback_trigger_type as trigger_type,
+                        properties.$ai_metric_value as rating,
+                        properties.feedback_trigger_type as trigger_type,
                         properties.$ai_trace_id as trace_id,
                         timestamp
                     FROM events
-                    WHERE event = 'posthog_ai_feedback_submitted'
-                      AND properties.$ai_conversation_id = {sessionId}
+                    WHERE event = '$ai_metric'
+                      AND properties.$ai_metric_name = 'feedback'
+                      AND properties.$ai_session_id = {sessionId}
                     ORDER BY timestamp DESC
                 `,
                 values: { sessionId },
