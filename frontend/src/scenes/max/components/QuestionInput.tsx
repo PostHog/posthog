@@ -10,6 +10,8 @@ import React from 'react'
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -51,6 +53,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     },
     ref
 ) {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
@@ -159,7 +162,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </SlashCommandAutocomplete>
                         {!isSharedThread && (
                             <div className="flex items-center justify-between gap-2 px-2 pb-2">
-                                <ModeSelector />
+                                {featureFlags[FEATURE_FLAGS.AGENT_MODES] && <ModeSelector />}
                                 <AIConsentPopoverWrapper
                                     placement="bottom-end"
                                     showArrow
@@ -207,7 +210,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         )}
                     </div>
                 </div>
-                {!isSharedThread && (
+                {!isSharedThread && !featureFlags[FEATURE_FLAGS.AGENT_MODES] && (
                     <ToolsDisplay
                         isFloating={isThreadVisible}
                         tools={tools}

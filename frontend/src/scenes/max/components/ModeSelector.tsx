@@ -100,7 +100,10 @@ export function ModeSelector(): JSX.Element {
             options={MODE_OPTIONS}
             size="xsmall"
             type="tertiary"
-            tooltip="Select the agent mode. The agent modes inject specific capabilities and tools to best suit your request."
+            tooltip={buildModeTooltip(
+                'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise. The tools that are available in all agent modes are listed below.',
+                getDefaultTools()
+            )}
             disabledReason={threadLoading ? 'Loading...' : undefined}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}
