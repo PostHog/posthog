@@ -22,7 +22,6 @@ from products.tasks.backend.temporal.process_task.activities import get_task_pro
 from products.tasks.backend.temporal.process_task.activities.check_snapshot_exists_for_repository import (
     check_snapshot_exists_for_repository,
 )
-from products.tasks.backend.temporal.process_task.activities.cleanup_personal_api_key import cleanup_personal_api_key
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import cleanup_sandbox
 from products.tasks.backend.temporal.process_task.activities.clone_repository import clone_repository
 from products.tasks.backend.temporal.process_task.activities.create_sandbox_from_snapshot import (
@@ -83,7 +82,6 @@ class TestProcessTaskWorkflow:
                         create_sandbox_from_snapshot,
                         execute_task_in_sandbox,
                         cleanup_sandbox,
-                        cleanup_personal_api_key,
                         track_workflow_event,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),

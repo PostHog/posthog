@@ -1,6 +1,5 @@
 from .process_task.activities import (
     check_snapshot_exists_for_repository,
-    cleanup_personal_api_key,
     cleanup_sandbox,
     clone_repository,
     create_sandbox_from_snapshot,
@@ -26,7 +25,6 @@ ACTIVITIES = [
     create_snapshot,
     create_sandbox_from_snapshot,
     execute_task_in_sandbox,
-    cleanup_personal_api_key,
     cleanup_sandbox,
     track_workflow_event,
 ]
