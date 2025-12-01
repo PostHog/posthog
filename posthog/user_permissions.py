@@ -221,6 +221,19 @@ class UserTeamPermissions:
             if access_level == "admin":
                 return OrganizationMembership.Level.ADMIN
 
+        # Check if the team is private
+        team_is_private = any(
+            ac["resource_id"] == str(self.team.id)
+            and ac["organization_member_id"] is None
+            and ac["role_id"] is None
+            and ac["access_level"] == "none"
+            for ac in access_controls
+        )
+
+        # If team is not private, all organization members have access
+        if not team_is_private:
+            return cast("OrganizationMembership.Level", organization_membership.level)
+
         # Check for role-based access
         user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
 
@@ -234,19 +247,6 @@ class UserTeamPermissions:
 
             if role_has_access:
                 return cast("OrganizationMembership.Level", organization_membership.level)
-
-        # Check if the team is private
-        team_is_private = any(
-            ac["resource_id"] == str(self.team.id)
-            and ac["organization_member_id"] is None
-            and ac["role_id"] is None
-            and ac["access_level"] == "none"
-            for ac in access_controls
-        )
-
-        # If team is not private, all organization members have access
-        if not team_is_private:
-            return cast("OrganizationMembership.Level", organization_membership.level)
 
         # No access found
         return None
