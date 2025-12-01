@@ -61,6 +61,7 @@ dependencies = [
     "google-cloud-bigquery==3.26",
     "google-genai==1.46.0",
     "granian[uvloop,reload,pname]==2.5.5",
+    "grimp==3.13",
     "gspread==6.2.1",
     "hogql-parser==1.2.12",
     "infi-clickhouse-orm",
