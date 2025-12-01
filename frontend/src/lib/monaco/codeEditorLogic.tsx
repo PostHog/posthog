@@ -1,5 +1,5 @@
 import type { Monaco } from '@monaco-editor/react'
-import { actions, connect, kea, key, path, props, propsChanged, selectors } from 'kea'
+import { actions, beforeUnmount, connect, kea, key, path, props, propsChanged, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -174,6 +174,21 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             props.editor !== oldProps.editor
         ) {
             actions.reloadMetadata()
+        }
+    }),
+    beforeUnmount(({ props }) => {
+        const model = props.editor?.getModel()
+        if (model) {
+            // Clear model markers to prevent memory accumulation
+            if (props.monaco) {
+                props.monaco.editor.setModelMarkers(model, 'hogql', [])
+            }
+            // Clear stale logic reference to prevent memory leaks
+            // The autocomplete provider checks isMounted() before using the logic,
+            // so clearing this reference is safe
+            if ((model as any).codeEditorLogic) {
+                delete (model as any).codeEditorLogic
+            }
         }
     }),
 ])

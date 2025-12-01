@@ -659,6 +659,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 ...values.sourceQuery,
                 source: newSource,
             })
+            // Mount the dataNodeLogic if not already mounted
+            // The logic is keyed, so multiple mounts with the same key are safe
             if (!cache.umountDataNode) {
                 cache.umountDataNode = dataNodeLogic({
                     key: values.dataLogicKey,
@@ -1201,10 +1203,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         insight.query &&
                         !searchParams.open_query
                     ) {
-                        dataNodeLogic({
-                            key: values.dataLogicKey,
-                            query: (insight.query as DataVisualizationNode).source,
-                        }).mount()
+                        // Track the mount for cleanup
+                        if (!cache.umountDataNode) {
+                            cache.umountDataNode = dataNodeLogic({
+                                key: values.dataLogicKey,
+                                query: (insight.query as DataVisualizationNode).source,
+                            }).mount()
+                        }
 
                         const response = dataNodeLogic({
                             key: values.dataLogicKey,
@@ -1245,12 +1250,23 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                             if (props.monaco && !tabAdded) {
                                 clearInterval(interval)
+                                // Remove from tracked intervals
+                                cache.waitIntervals = (cache.waitIntervals || []).filter(
+                                    (i: ReturnType<typeof setInterval>) => i !== interval
+                                )
                                 resolve()
                             } else if (intervalCount >= 10_000 / 300) {
                                 clearInterval(interval)
+                                // Remove from tracked intervals
+                                cache.waitIntervals = (cache.waitIntervals || []).filter(
+                                    (i: ReturnType<typeof setInterval>) => i !== interval
+                                )
                                 reject()
                             }
                         }, 300)
+                        // Track interval for cleanup on unmount
+                        cache.waitIntervals = cache.waitIntervals || []
+                        cache.waitIntervals.push(interval)
                     })
                 }
 
@@ -1277,5 +1293,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } catch {}
         })
         cache.timeouts = []
+
+        // Clean up any pending intervals from waitUntilMonaco
+        const intervals = cache.waitIntervals as Array<ReturnType<typeof setInterval>> | undefined
+        intervals?.forEach((i) => {
+            try {
+                clearInterval(i)
+            } catch {}
+        })
+        cache.waitIntervals = []
     }),
 ])
