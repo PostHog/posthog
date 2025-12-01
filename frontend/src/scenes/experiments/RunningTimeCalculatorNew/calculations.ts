@@ -6,7 +6,11 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import { isExperimentFunnelMetric, isExperimentMeanMetric } from '~/queries/schema/schema-general'
+import {
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 import { ExperimentMetricMathType } from '~/types'
 
@@ -45,6 +49,13 @@ export function calculateBaselineValue(
         }
         // For experiments, conversion rate is: (completed final step) / (total exposed)
         return baseline.number_of_samples > 0 ? stepCounts[stepCounts.length - 1] / baseline.number_of_samples : null
+    }
+
+    if (isExperimentRatioMetric(metric)) {
+        if (!baseline.denominator_sum || baseline.denominator_sum === 0) {
+            return null
+        }
+        return baseline.sum / baseline.denominator_sum
     }
 
     lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
