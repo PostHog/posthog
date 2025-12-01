@@ -27242,11 +27242,6 @@
                 "start_url": {
                     "type": "string"
                 },
-                "storage": {
-                    "description": "Where this recording information was loaded from",
-                    "enum": ["object_storage_lts", "object_storage"],
-                    "type": "string"
-                },
                 "summary": {
                     "type": "string"
                 },
