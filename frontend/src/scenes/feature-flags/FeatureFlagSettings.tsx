@@ -180,14 +180,15 @@ export function FlagsSecureApiKeys(): JSX.Element {
             </h3>
             <CodeSnippet
                 actions={
-                    isTeamTokenResetAvailable ? (
-                        <LemonButton
-                            icon={<IconRefresh />}
-                            noPadding
-                            onClick={openResetDialog}
-                            tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
-                        />
-                    ) : undefined
+                    <LemonButton
+                        icon={<IconRefresh />}
+                        noPadding
+                        onClick={openResetDialog}
+                        disabledReason={
+                            !isTeamTokenResetAvailable ? 'You do not have permission to rotate this key' : undefined
+                        }
+                        tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
+                    />
                 }
                 className={currentTeam?.secret_api_token ? '' : 'text-muted'}
                 thing="Primary Feature Flags Secure API key"
