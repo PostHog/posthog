@@ -31,6 +31,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
 import {
+    AgentMode,
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
@@ -158,6 +159,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
+        setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
         setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
@@ -220,6 +222,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
                 setConversation: (_, { conversation }) => conversation?.type === ConversationType.DeepResearch,
+            },
+        ],
+
+        agentMode: [
+            null as AgentMode | null,
+            {
+                setAgentMode: (_, { agentMode }) => agentMode,
+                setConversation: (_, { conversation }) => (conversation?.agent_mode as AgentMode) ?? null,
             },
         ],
 
@@ -301,6 +311,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (values.deepResearchMode) {
                     apiData.deep_research_mode = true
+                }
+
+                if (values.agentMode) {
+                    apiData.agent_mode = values.agentMode
                 }
 
                 const response = await api.conversations.stream(apiData, {

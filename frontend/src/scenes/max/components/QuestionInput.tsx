@@ -8,7 +8,7 @@ import { ReactNode, useEffect, useState } from 'react'
 import React from 'react'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -19,6 +19,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
+import { ModeSelector } from './ModeSelector'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { ToolsDisplay } from './ToolsDisplay'
 
@@ -33,7 +34,6 @@ interface QuestionInputProps {
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     onSubmit?: () => void
-    showDeepResearchModeToggle?: boolean
 }
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
@@ -48,7 +48,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         textAreaRef,
         containerClassName,
         onSubmit,
-        showDeepResearchModeToggle,
     },
     ref
 ) {
@@ -65,7 +64,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         cancelLoading,
         pendingPrompt,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -119,7 +118,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         }}
                     >
                         {!isSharedThread && (
-                            <div className="pt-1">
+                            <div className="pt-2">
                                 {!isThreadVisible ? (
                                     <div className="flex items-start justify-between">
                                         <ContextDisplay size={contextDisplaySize} />
@@ -154,61 +153,58 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 disabled={inputDisabled}
                                 minRows={1}
                                 maxRows={10}
-                                className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                                className="!border-none !bg-transparent min-h-0 py-2 px-2 resize-none"
                                 autoFocus="true-without-pulse"
                             />
                         </SlashCommandAutocomplete>
-                    </div>
-                    <div
-                        className={clsx(
-                            'absolute flex items-center',
-                            isSharedThread && 'hidden', // Submit not available at all for shared threads
-                            isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
+                        {!isSharedThread && (
+                            <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                                <ModeSelector />
+                                <AIConsentPopoverWrapper
+                                    placement="bottom-end"
+                                    showArrow
+                                    onApprove={() => askMax(pendingPrompt || question)}
+                                    onDismiss={() => completeThreadGeneration()}
+                                    middleware={[
+                                        offset((state) => ({
+                                            mainAxis: state.placement.includes('top') ? 30 : 1,
+                                        })),
+                                    ]}
+                                    hidden={!threadLoading}
+                                >
+                                    <LemonButton
+                                        type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
+                                        onClick={() => {
+                                            if (threadLoading) {
+                                                stopGeneration()
+                                            } else {
+                                                askMax(question)
+                                            }
+                                        }}
+                                        tooltip={
+                                            threadLoading ? (
+                                                "Let's bail"
+                                            ) : (
+                                                <>
+                                                    Let's go! <KeyboardShortcut enter />
+                                                </>
+                                            )
+                                        }
+                                        loading={threadLoading && !dataProcessingAccepted}
+                                        disabledReason={disabledReason}
+                                        size="xsmall"
+                                        icon={
+                                            threadLoading ? (
+                                                <IconStopFilled />
+                                            ) : (
+                                                MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                                    ?.icon || <IconArrowRight />
+                                            )
+                                        }
+                                    />
+                                </AIConsentPopoverWrapper>
+                            </div>
                         )}
-                    >
-                        <AIConsentPopoverWrapper
-                            placement="bottom-end"
-                            showArrow
-                            onApprove={() => askMax(pendingPrompt || question)}
-                            onDismiss={() => completeThreadGeneration()}
-                            middleware={[
-                                offset((state) => ({
-                                    mainAxis: state.placement.includes('top') ? 30 : 1,
-                                })),
-                            ]}
-                            hidden={!threadLoading}
-                        >
-                            <LemonButton
-                                type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
-                                onClick={() => {
-                                    if (threadLoading) {
-                                        stopGeneration()
-                                    } else {
-                                        askMax(question)
-                                    }
-                                }}
-                                tooltip={
-                                    threadLoading ? (
-                                        "Let's bail"
-                                    ) : (
-                                        <>
-                                            Let's go! <KeyboardShortcut enter />
-                                        </>
-                                    )
-                                }
-                                loading={threadLoading && !dataProcessingAccepted}
-                                disabledReason={disabledReason}
-                                size="small"
-                                icon={
-                                    threadLoading ? (
-                                        <IconStopFilled />
-                                    ) : (
-                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
-                                            ?.icon || <IconArrowRight />
-                                    )
-                                }
-                            />
-                        </AIConsentPopoverWrapper>
                     </div>
                 </div>
                 {!isSharedThread && (
@@ -218,18 +214,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         bottomActions={bottomActions}
                         deepResearchMode={deepResearchMode}
                     />
-                )}
-                {!isSharedThread && showDeepResearchModeToggle && (
-                    <div className="flex justify-end gap-1 w-full p-1">
-                        <LemonSwitch
-                            checked={deepResearchMode}
-                            label="Think harder"
-                            disabled={threadLoading}
-                            onChange={(checked) => setDeepResearchMode(checked)}
-                            size="xxsmall"
-                            tooltip="This will make PostHog AI think harder about your question"
-                        />
-                    </div>
                 )}
             </div>
         </div>

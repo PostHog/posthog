@@ -306,7 +306,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
     const hasToolContext = toolContextItems.length > 0
 
     return (
-        <div className="px-1 w-full">
+        <div className="px-2 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
                 {deepResearchMode ? (
                     <LemonButton
