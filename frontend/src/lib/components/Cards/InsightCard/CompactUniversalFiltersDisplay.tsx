@@ -9,6 +9,7 @@ import {
     isPropertyFilterWithOperator,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -24,8 +25,13 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-function isActionFilter(filter: UniversalFiltersGroupValue): filter is ActionFilter {
-    return (filter as ActionFilter).type !== undefined && 'id' in filter
+function isActionFilter(filter: UniversalFiltersGroupValue): filter is ActionFilter & { type: 'actions' } {
+    return (filter as ActionFilter).type === 'actions' && 'id' in filter
+}
+
+function isEventFilter(filter: UniversalFiltersGroupValue): filter is ActionFilter & { type: 'events' } {
+    // Yeah, it's a legacy mess, ActionFilter actually means a few different things
+    return (filter as ActionFilter).type === 'events' && 'id' in filter
 }
 
 function isUniversalFiltersGroup(value: UniversalFiltersGroupValue): value is UniversalFiltersGroup {
@@ -49,6 +55,7 @@ export function CompactUniversalFiltersDisplay({
     return (
         <>
             {groupFilter.values.map((filterOrGroup, index) => {
+                const isFirstFilterOverall = index === 0
                 if (isUniversalFiltersGroup(filterOrGroup)) {
                     // Nested group
                     return (
@@ -63,28 +70,39 @@ export function CompactUniversalFiltersDisplay({
                     )
                 }
 
-                if (isActionFilter(filterOrGroup)) {
+                if (isActionFilter(filterOrGroup) || isEventFilter(filterOrGroup)) {
                     return (
                         <div key={index} className="SeriesDisplay__condition">
                             <span>
                                 {embedded && index === 0 ? 'where ' : null}
                                 {index > 0 ? (groupFilter.type === FilterLogicalOperator.Or ? 'or ' : 'and ') : null}
-                                Performed action
-                                <Link
-                                    to={urls.action(filterOrGroup.id as number)}
-                                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action mx-1"
-                                    title="Action"
-                                >
-                                    {filterOrGroup.name || `Action ${filterOrGroup.id}`}
-                                </Link>
+                                {isActionFilter(filterOrGroup) ? (
+                                    <>
+                                        {isFirstFilterOverall ? 'P' : 'p'}erformed action
+                                        <Link
+                                            to={urls.action(filterOrGroup.id as number)}
+                                            className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action mx-1"
+                                        >
+                                            {filterOrGroup.name || filterOrGroup.id}
+                                        </Link>
+                                    </>
+                                ) : (
+                                    <>
+                                        {isFirstFilterOverall ? 'H' : 'h'}ad event
+                                        <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event">
+                                            <PropertyKeyInfo
+                                                value={filterOrGroup.id as string}
+                                                type={TaxonomicFilterGroupType.Events}
+                                            />
+                                        </span>
+                                    </>
+                                )}
                             </span>
                         </div>
                     )
                 }
 
                 // Property filter
-                const isFirstFilterOverall = index === 0
-
                 return (
                     <div key={index} className="SeriesDisplay__condition">
                         <span>
