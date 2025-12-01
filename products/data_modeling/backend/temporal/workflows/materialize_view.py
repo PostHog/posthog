@@ -17,6 +17,7 @@ from products.data_modeling.backend.temporal.activities.materialize import (
     FailMaterializationInputs,
     FinishMaterializationInputs,
     MaterializeViewInputs,
+    PrepareQueryableTableInputs,
 )
 
 with temporalio.workflow.unsafe.imports_passed_through():
@@ -26,6 +27,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         fail_materialization_activity,
         finish_materialization_activity,
         materialize_view_activity,
+        prepare_queryable_table_activity,
     )
 
 
@@ -134,6 +136,24 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     non_retryable_error_types=NON_RETRYABLE_ERRORS,
                 ),
             )
+
+            # prepare files for querying and create DataWarehouseTable
+            await temporalio.workflow.execute_activity(
+                prepare_queryable_table_activity,
+                PrepareQueryableTableInputs(
+                    team_id=inputs.team_id,
+                    job_id=job_id,
+                    saved_query_id=materialize_result.saved_query_id,
+                    table_uri=materialize_result.table_uri,
+                    file_uris=materialize_result.file_uris,
+                    row_count=materialize_result.row_count,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
+
             # copy to ducklake (if enabled)
             ducklake_completed = False
             if settings.DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED and materialize_result.file_uris:

@@ -1,7 +1,11 @@
+# TODO(andrew): reduce db round trips by passing better primitives between activities
+# TODO(andrew): factor out into one file per activity (if its nicer)
+# TODO(andrew): add s3 cleanup on failure
 import os
 import re
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 from urllib.parse import urlparse
@@ -13,9 +17,9 @@ import pyarrow as pa
 import deltalake
 import asyncstdlib
 import pyarrow.compute as pc
-import temporalio.activity
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
+from temporalio import activity
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -141,6 +145,22 @@ class FailMaterializationInputs:
     dag_id: str
     job_id: str
     error: str
+
+
+@dataclasses.dataclass
+class PrepareQueryableTableInputs:
+    team_id: int
+    job_id: str
+    saved_query_id: str
+    table_uri: str
+    file_uris: list[str]
+    row_count: int
+
+
+@dataclasses.dataclass
+class PrepareQueryableTableResult:
+    folder_path: str
+    table_id: str
 
 
 # Helper functions
@@ -425,9 +445,6 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
             )
 
 
-# DuckLake helper functions
-
-
 def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     """Normalize identifiers so they are safe for DuckDB."""
     cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
@@ -572,10 +589,7 @@ def _update_node_system_properties(
         system["last_run_error"] = None
 
 
-# Activities
-
-
-@temporalio.activity.defn
+@activity.defn
 async def create_materialization_job_activity(inputs: CreateJobInputs) -> str:
     """Create a DataModelingJob record in RUNNING status."""
     bind_contextvars(team_id=inputs.team_id)
@@ -585,8 +599,8 @@ async def create_materialization_job_activity(inputs: CreateJobInputs) -> str:
         id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
 
-    workflow_id = temporalio.activity.info().workflow_id
-    workflow_run_id = temporalio.activity.info().workflow_run_id
+    workflow_id = activity.info().workflow_id
+    workflow_run_id = activity.info().workflow_run_id
 
     job = await database_sync_to_async(DataModelingJob.objects.create)(
         team_id=inputs.team_id,
@@ -601,7 +615,7 @@ async def create_materialization_job_activity(inputs: CreateJobInputs) -> str:
     return str(job.id)
 
 
-@temporalio.activity.defn
+@activity.defn
 async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     """Materialize a view by executing its query and writing to delta lake."""
     bind_contextvars(team_id=inputs.team_id)
@@ -632,7 +646,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     s3 = get_s3_client()
     try:
         await logger.adebug(f"Deleting existing delta table at {table_uri}")
-        s3.delete(table_uri, recursive=True)
+        # non-blocking delete returns control to the event loop so heart beats continue
+        await asyncio.to_thread(s3.delete, table_uri, recursive=True)
         await logger.adebug("Table deleted")
     except FileNotFoundError:
         await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
@@ -648,47 +663,45 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         job.rows_expected = None
         await database_sync_to_async(job.save)()
 
-    delta_table: deltalake.DeltaTable | None = None
-
     row_count = 0
     storage_options = _get_aws_storage_options()
+    delta_table: deltalake.DeltaTable | None = None
     async with Heartbeater():
         async for index, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
-
-            if delta_table is None:
-                delta_table = deltalake.DeltaTable.create(
-                    table_uri=table_uri,
-                    schema=batch.schema,
-                    storage_options=storage_options,
-                )
-
             mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
             schema_mode: typing.Literal["merge", "overwrite"] | None = "merge"
             if index == 0:
                 mode = "overwrite"
                 schema_mode = "overwrite"
-
-            await logger.adebug(
-                f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
-            )
-
             deltalake.write_deltalake(
-                table_or_uri=delta_table,
-                storage_options=storage_options,
+                table_or_uri=table_uri,
                 data=batch,
-                mode=mode,
-                schema_mode=schema_mode,
+                mode="overwrite",
+                schema_mode="overwrite",
+                storage_options=storage_options,
                 engine="rust",
             )
-
+            if index == 0:
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+            await logger.adebug(
+                f"Writing batch to delta table: index={index} mode={mode} schema_mode={schema_mode} batch_row_count={batch.num_rows}"
+            )
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
 
     await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
+    # row count validation warning
+    if job.rows_expected is not None:
+        if row_count != job.rows_expected:
+            await logger.awarning(
+                "Row count mismatch after materialization",
+                expected=job.rows_expected,
+                actual=row_count,
+            )
 
     if delta_table is None:
         delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
@@ -699,32 +712,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
 
     file_uris = delta_table.file_uris()
-    saved_query_table: DataWarehouseTable | None = None
-    if saved_query.table_id:
-        saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
-
-    await logger.adebug("Copying query files in S3")
-    folder_path = prepare_s3_files_for_querying(
-        folder_path=saved_query.folder_path,
-        table_name=saved_query.normalized_name,
-        file_uris=file_uris,
-        preserve_table_name_casing=True,
-        existing_queryable_folder=saved_query_table.queryable_folder if saved_query_table else None,
-        logger=logger,
-    )
-
-    await logger.adebug("Creating DataWarehouseTable model")
-    dwh_table = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
-
-    await database_sync_to_async(saved_query.refresh_from_db)()
-    saved_query.table_id = dwh_table.id
-    await database_sync_to_async(saved_query.save)()
-
-    # update table row count
-    if dwh_table:
-        dwh_table.row_count = row_count
-        await database_sync_to_async(dwh_table.save)()
-        await logger.ainfo(f"Updated row count for table {saved_query.name} to {row_count}")
 
     await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
     return MaterializeViewResult(
@@ -736,7 +723,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
 
 # TODO(andrew): reuse bill's
-@temporalio.activity.defn
+@activity.defn
 def copy_to_ducklake_activity(inputs: CopyToDuckLakeInputs) -> bool:
     """Copy materialized data to DuckLake."""
     bind_contextvars(team_id=inputs.team_id)
@@ -781,7 +768,50 @@ def copy_to_ducklake_activity(inputs: CopyToDuckLakeInputs) -> bool:
         conn.close()
 
 
-@temporalio.activity.defn
+@activity.defn
+async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs) -> PrepareQueryableTableResult:
+    """Prepare materialized files for querying and create DataWarehouseTable."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.prefetch_related("team").get)(
+        id=inputs.saved_query_id, team_id=inputs.team_id, deleted=False
+    )
+
+    saved_query_table: DataWarehouseTable | None = None
+    if saved_query.table_id:
+        saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
+
+    await logger.adebug("Copying query files in S3")
+    folder_path = prepare_s3_files_for_querying(
+        folder_path=saved_query.folder_path,
+        table_name=saved_query.normalized_name,
+        file_uris=inputs.file_uris,
+        preserve_table_name_casing=True,
+        existing_queryable_folder=saved_query_table.queryable_folder if saved_query_table else None,
+        logger=logger,
+    )
+
+    await logger.adebug("Creating DataWarehouseTable model")
+    dwh_table = await create_table_from_saved_query(inputs.job_id, inputs.saved_query_id, team.pk, folder_path)
+
+    await database_sync_to_async(saved_query.refresh_from_db)()
+    saved_query.table_id = dwh_table.id
+    await database_sync_to_async(saved_query.save)()
+
+    if dwh_table:
+        dwh_table.row_count = inputs.row_count
+        await database_sync_to_async(dwh_table.save)()
+        await logger.ainfo(f"Updated row count for table {saved_query.name} to {inputs.row_count}")
+
+    return PrepareQueryableTableResult(
+        folder_path=folder_path,
+        table_id=str(dwh_table.id),
+    )
+
+
+@activity.defn
 async def finish_materialization_activity(inputs: FinishMaterializationInputs) -> None:
     """Mark materialization as complete and update node properties."""
     bind_contextvars(team_id=inputs.team_id)
@@ -808,7 +838,7 @@ async def finish_materialization_activity(inputs: FinishMaterializationInputs) -
     await logger.ainfo(f"Finished materialization for node {node.name}")
 
 
-@temporalio.activity.defn
+@activity.defn
 async def fail_materialization_activity(inputs: FailMaterializationInputs) -> None:
     """Mark materialization as failed and update node properties."""
     bind_contextvars(team_id=inputs.team_id)

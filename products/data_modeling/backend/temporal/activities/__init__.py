@@ -4,11 +4,13 @@ from .materialize import (
     fail_materialization_activity,
     finish_materialization_activity,
     materialize_view_activity,
+    prepare_queryable_table_activity,
 )
 
 __all__ = [
     "create_materialization_job_activity",
     "materialize_view_activity",
+    "prepare_queryable_table_activity",
     "copy_to_ducklake_activity",
     "finish_materialization_activity",
     "fail_materialization_activity",
