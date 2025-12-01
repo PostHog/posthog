@@ -16,12 +16,12 @@ export const OnboardingStep = ({
     title,
     subtitle,
     children,
+    showContinue = true,
     showSkip = false,
     showHelpButton = false,
     onSkip,
     onContinue,
     continueText,
-    continueOverride,
     continueDisabledReason,
     hideHeader,
     breadcrumbHighlightName,
@@ -32,12 +32,12 @@ export const OnboardingStep = ({
     title: string
     subtitle?: string
     children: React.ReactNode
+    showContinue?: boolean
     showSkip?: boolean
     showHelpButton?: boolean
     onSkip?: () => void
     onContinue?: () => void
     continueText?: string
-    continueOverride?: JSX.Element
     continueDisabledReason?: string
     hideHeader?: boolean
     breadcrumbHighlightName?: OnboardingStepKey
@@ -52,6 +52,8 @@ export const OnboardingStep = ({
         throw new Error('stepKey is required in any OnboardingStep')
     }
     const breadcrumbStepKeys = onboardingStepKeys.filter((stepKey) => !breadcrumbExcludeSteps.includes(stepKey))
+
+    const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
     return (
         <>
@@ -113,24 +115,22 @@ export const OnboardingStep = ({
                         <LemonButton
                             type="secondary"
                             onClick={() => {
-                                onSkip && onSkip()
-                                !hasNextStep ? completeOnboarding() : goToNextStep()
+                                onSkip?.()
+                                advance()
                             }}
                             data-attr="onboarding-skip-button"
                         >
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
                     )}
-                    {continueOverride ? (
-                        continueOverride
-                    ) : (
+                    {showContinue && (
                         <LemonButton
                             type="primary"
                             status="alt"
                             data-attr="onboarding-continue"
                             onClick={() => {
                                 onContinue?.()
-                                !hasNextStep ? completeOnboarding() : goToNextStep()
+                                advance()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                             disabledReason={continueDisabledReason}

@@ -22,49 +22,6 @@ import { SDKSnippet } from './SDKSnippet'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
 import { sdksLogic } from './sdksLogic'
 
-export type SDKsProps = {
-    sdkInstructionMap: SDKInstructionsMap
-    productKey: ProductKey
-    stepKey?: OnboardingStepKey
-    listeningForName?: string
-    teamPropertyToVerify?: string
-}
-
-const NextButton = ({
-    installationComplete,
-    size = 'medium',
-}: {
-    installationComplete: boolean
-    size?: 'small' | 'medium'
-}): JSX.Element => {
-    const { hasNextStep } = useValues(onboardingLogic)
-    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
-
-    if (!installationComplete) {
-        return (
-            <LemonButton
-                type="secondary"
-                size={size}
-                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
-            >
-                Skip installation
-            </LemonButton>
-        )
-    }
-
-    return (
-        <LemonButton
-            data-attr="sdk-continue"
-            sideIcon={hasNextStep ? <IconArrowRight /> : null}
-            type="primary"
-            status="alt"
-            onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
-        >
-            Continue
-        </LemonButton>
-    )
-}
-
 export function SDKInstructionsModal({
     isOpen,
     onClose,
@@ -114,6 +71,15 @@ export function SDKInstructionsModal({
         </LemonModal>
     )
 }
+
+export type SDKsProps = {
+    sdkInstructionMap: SDKInstructionsMap
+    productKey: ProductKey
+    stepKey?: OnboardingStepKey
+    listeningForName?: string
+    teamPropertyToVerify?: string
+}
+
 export function OnboardingInstallStep({
     sdkInstructionMap,
     productKey,
@@ -141,7 +107,7 @@ export function OnboardingInstallStep({
         <OnboardingStep
             title="Install"
             stepKey={stepKey}
-            continueOverride={<NextButton installationComplete={installationComplete} />}
+            continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -242,5 +208,39 @@ export function OnboardingInstallStep({
                 />
             )}
         </OnboardingStep>
+    )
+}
+
+interface NextButtonProps {
+    installationComplete: boolean
+    size?: 'small' | 'medium'
+}
+
+const NextButton = ({ installationComplete, size = 'medium' }: NextButtonProps): JSX.Element => {
+    const { hasNextStep } = useValues(onboardingLogic)
+    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
+
+    if (!installationComplete) {
+        return (
+            <LemonButton
+                type="secondary"
+                size={size}
+                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+            >
+                Skip installation
+            </LemonButton>
+        )
+    }
+
+    return (
+        <LemonButton
+            data-attr="sdk-continue"
+            sideIcon={hasNextStep ? <IconArrowRight /> : null}
+            type="primary"
+            status="alt"
+            onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+        >
+            Continue
+        </LemonButton>
     )
 }
