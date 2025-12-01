@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
@@ -588,7 +590,7 @@ describe('maxThreadLogic', () => {
 
     describe('processNotebookUpdate', () => {
         it('navigates to notebook when not already on notebook page', async () => {
-            router.actions.push(urls.max())
+            router.actions.push(urls.ai())
 
             // Mock openNotebook to track its calls
             const openNotebookSpy = jest.spyOn(notebooksModel, 'openNotebook')
@@ -660,6 +662,7 @@ describe('maxThreadLogic', () => {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Test conversation',
+                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [
@@ -704,10 +707,11 @@ describe('maxThreadLogic', () => {
         })
 
         it('initializes threadRaw as empty array when conversation has no messages', async () => {
-            const conversationWithoutMessages = {
+            const conversationWithoutMessages: ConversationDetail = {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Empty conversation',
+                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
@@ -733,6 +737,7 @@ describe('maxThreadLogic', () => {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Test conversation',
+                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
@@ -1245,6 +1250,100 @@ describe('maxThreadLogic', () => {
             const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
                 .tool_calls as EnhancedToolCall[]
             expect(enhancedToolCalls?.[0].updates).toEqual([])
+        })
+    })
+
+    describe('retryCount', () => {
+        it('starts at 0', () => {
+            expect(logic.values.retryCount).toBe(0)
+        })
+
+        it('increments on retryLastMessage', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.retryLastMessage()
+            }).toMatchValues({
+                retryCount: 1,
+            })
+        })
+
+        it('increments multiple times', async () => {
+            logic.actions.retryLastMessage()
+            logic.actions.retryLastMessage()
+
+            await expectLogic(logic, () => {
+                logic.actions.retryLastMessage()
+            }).toMatchValues({
+                retryCount: 3,
+            })
+        })
+
+        it('resets to 0 on resetRetryCount', async () => {
+            logic.actions.retryLastMessage()
+            logic.actions.retryLastMessage()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetRetryCount()
+            }).toMatchValues({
+                retryCount: 0,
+            })
+        })
+
+        it('resets to 0 on resetThread', async () => {
+            logic.actions.retryLastMessage()
+            logic.actions.retryLastMessage()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetThread()
+            }).toMatchValues({
+                retryCount: 0,
+            })
+        })
+    })
+
+    describe('cancelCount', () => {
+        it('starts at 0', () => {
+            expect(logic.values.cancelCount).toBe(0)
+        })
+
+        it('increments on stopGeneration', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toMatchValues({
+                cancelCount: 1,
+            })
+        })
+
+        it('increments multiple times', async () => {
+            logic.actions.stopGeneration()
+            logic.actions.stopGeneration()
+
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toMatchValues({
+                cancelCount: 3,
+            })
+        })
+
+        it('resets to 0 on resetCancelCount', async () => {
+            logic.actions.stopGeneration()
+            logic.actions.stopGeneration()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetCancelCount()
+            }).toMatchValues({
+                cancelCount: 0,
+            })
+        })
+
+        it('resets to 0 on resetThread', async () => {
+            logic.actions.stopGeneration()
+            logic.actions.stopGeneration()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetThread()
+            }).toMatchValues({
+                cancelCount: 0,
+            })
         })
     })
 })

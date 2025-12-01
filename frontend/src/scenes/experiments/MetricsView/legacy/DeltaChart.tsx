@@ -549,6 +549,7 @@ export function DeltaChart({
                 duplicateMetric({ uuid: metric.uuid, isSecondary, newUuid })
                 updateExperimentMetrics()
             }}
+            onBreakdownChange={() => {}}
         />
     )
 

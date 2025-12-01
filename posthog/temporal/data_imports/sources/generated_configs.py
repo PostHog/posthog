@@ -45,9 +45,9 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 @config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
-    password: str
-    private_key: str
     selection: Literal["password", "keypair"] = "password"
+    password: str | None = None
+    private_key: str | None = None
     passphrase: str | None = None
 
 
@@ -66,6 +66,12 @@ class BigQuerySourceConfig(config.Config):
     )
     use_custom_region: BigQueryUseCustomRegionConfig | None = None
     dataset_project: BigQueryDatasetProjectConfig | None = None
+
+
+@config.config
+class BingAdsSourceConfig(config.Config):
+    account_id: str
+    bing_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -227,6 +233,18 @@ class StripeSourceConfig(config.Config):
 
 
 @config.config
+class SupabaseSourceConfig(config.Config):
+    host: str
+    database: str
+    user: str
+    password: str
+    schema: str
+    port: int = config.value(converter=int)
+    connection_string: str | None = None
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
 class TemporalIOSourceConfig(config.Config):
     host: str
     port: str
@@ -259,6 +277,7 @@ class ZendeskSourceConfig(config.Config):
 def get_config_for_source(source: ExternalDataSourceType):
     return {
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
+        ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
@@ -284,6 +303,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
+        ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,

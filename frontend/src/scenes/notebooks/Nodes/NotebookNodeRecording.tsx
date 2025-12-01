@@ -70,7 +70,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                           insertAfter({
                               type: NotebookNodeType.Person,
                               attrs: {
-                                  id: String(person.distinct_ids[0]),
+                                  id: person.uuid,
                               },
                           })
                       },

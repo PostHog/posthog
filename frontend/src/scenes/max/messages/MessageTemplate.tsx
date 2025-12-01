@@ -23,6 +23,7 @@ export const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateP
                 className
             )}
             ref={ref}
+            data-message-type={type}
         >
             <div className={twMerge('max-w-full', wrapperClassName)}>
                 {header}

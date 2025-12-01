@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -29,7 +29,8 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Logs',
-            category: 'Unreleased',
+            intents: [ProductKey.LOGS],
+            category: 'Tools',
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),

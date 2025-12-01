@@ -18,9 +18,7 @@ export const getProjectsHandler: ToolBase<typeof schema>['handler'] = async (con
         throw new Error(`Failed to get projects: ${projectsResult.error.message}`)
     }
 
-    return {
-        content: [{ type: 'text', text: JSON.stringify(projectsResult.data) }],
-    }
+    return projectsResult.data
 }
 
 const tool = (): ToolBase<typeof schema> => ({

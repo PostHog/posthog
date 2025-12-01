@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from prometheus_client import Counter
 
-from posthog.schema import QueryTiming
+from posthog.schema import QueryTiming, ResolvedDateRangeResponse
 
 insight_cache_read_counter = Counter(
     "posthog_cloud_insight_cache_read",
@@ -28,6 +28,7 @@ class InsightResult:
     query_status: Optional[Any] = None
     hogql: Optional[str] = None
     types: Optional[list] = None
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = None
 
 
 @dataclass(frozen=True)

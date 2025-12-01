@@ -471,7 +471,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
-        split_person.delay(person.id, request.data.get("main_distinct_id", None), None)
+        split_person.delay(person.id, person.team_id, request.data.get("main_distinct_id", None), None)
 
         log_activity(
             organization_id=self.organization.id,
@@ -686,7 +686,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             resp = capture_internal(
-                token=instance.team.api_token,
+                token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
                 distinct_id=distinct_id,
@@ -871,7 +871,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         temporal = sync_connect()
         input = RecordingsWithPersonInput(
             distinct_ids=person.distinct_ids,
-            team_id=person.team.id,
+            team_id=self.team_id,
         )
         workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
 

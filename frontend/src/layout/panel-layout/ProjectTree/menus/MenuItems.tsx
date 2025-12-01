@@ -8,6 +8,7 @@ import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
+    ContextMenuGroup,
     ContextMenuItem,
     ContextMenuSeparator,
     ContextMenuSub,
@@ -15,6 +16,7 @@ import {
     ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
@@ -67,6 +69,7 @@ export function MenuItems({
     const {
         createFolder,
         deleteItem,
+        deleteCheckedItems,
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
@@ -78,12 +81,14 @@ export function MenuItems({
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
 
+    const shouldDeleteCheckedItems = checkedItemCountNumeric > 1 && checkedItems[item.id]
+
     const MenuItem = type === 'context' ? ContextMenuItem : DropdownMenuItem
     const MenuSeparator = type === 'context' ? ContextMenuSeparator : DropdownMenuSeparator
     const MenuSub = type === 'context' ? ContextMenuSub : DropdownMenuSub
     const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
     const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
-
+    const MenuGroup = type === 'context' ? ContextMenuGroup : DropdownMenuGroup
     const showSelectMenuItems =
         root === 'project://' && item.record?.path && !item.disableSelect && !onlyTree && showSelectMenuOption
 
@@ -98,6 +103,7 @@ export function MenuItems({
             <>
                 <ProductAnalyticsMenuItems
                     MenuItem={MenuItem}
+                    MenuGroup={MenuGroup}
                     MenuSeparator={MenuSeparator}
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
@@ -110,6 +116,7 @@ export function MenuItems({
                     MenuSub={MenuSub}
                     MenuSubTrigger={MenuSubTrigger}
                     MenuSubContent={MenuSubContent}
+                    MenuGroup={MenuGroup}
                     MenuSeparator={MenuSeparator}
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
@@ -122,6 +129,7 @@ export function MenuItems({
                     MenuSub={MenuSub}
                     MenuSubTrigger={MenuSubTrigger}
                     MenuSubContent={MenuSubContent}
+                    MenuGroup={MenuGroup}
                     MenuSeparator={MenuSeparator}
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
@@ -215,19 +223,20 @@ export function MenuItems({
                 </>
             ) : null}
             {item.record?.path ? (
-                root === 'shortcuts://' ? (
-                    item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/') ? (
-                        <MenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                item.record && deleteShortcut(item.record?.id)
-                            }}
-                            data-attr="tree-item-menu-remove-from-shortcuts-button"
-                        >
-                            <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
-                        </MenuItem>
-                    ) : null
+                (root === 'shortcuts://' || root === 'custom-products://') &&
+                (item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            if (item.record) {
+                                deleteShortcut(item.record?.id)
+                            }
+                        }}
+                        data-attr="tree-item-menu-remove-from-shortcuts-button"
+                    >
+                        <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
+                    </MenuItem>
                 ) : isItemAlreadyInShortcut ? (
                     <MenuItem asChild disabled={true} data-attr="tree-item-menu-add-to-shortcuts-disabled-button">
                         <ButtonPrimitive menuItem disabled={true}>
@@ -239,7 +248,9 @@ export function MenuItems({
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            item.record && addShortcutItem(item.record as FileSystemEntry)
+                            if (item.record) {
+                                addShortcutItem(item.record as FileSystemEntry)
+                            }
                         }}
                         data-attr="tree-item-menu-add-to-shortcuts-button"
                     >
@@ -319,7 +330,11 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        if (shouldDeleteCheckedItems) {
+                            deleteCheckedItems()
+                        } else {
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        }
                     }}
                     data-attr="tree-item-menu-delete-shortcut-button"
                 >
@@ -332,11 +347,30 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        if (shouldDeleteCheckedItems) {
+                            deleteCheckedItems()
+                        } else {
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        }
                     }}
                     data-attr="tree-item-menu-delete-folder-button"
                 >
                     <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                </MenuItem>
+            ) : item.record?.path && (item.id.startsWith('project/') || item.id.startsWith('project://')) ? (
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        if (shouldDeleteCheckedItems) {
+                            deleteCheckedItems()
+                        } else {
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                        }
+                    }}
+                    data-attr="tree-item-menu-delete-item-button"
+                >
+                    <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
                 </MenuItem>
             ) : root === 'persons://' && item.record?.category === 'Groups' && item.record?.href ? (
                 <MenuItem

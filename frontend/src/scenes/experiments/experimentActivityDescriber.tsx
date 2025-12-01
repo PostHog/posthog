@@ -224,6 +224,28 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 ),
             }
         })
+        .with({ activity: 'deleted' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['deleted experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'restored' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['restored experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
         .with({ activity: 'updated' }, ({ item_id, detail: updateLogDetail }) => {
             /**
              * This is the catch all for all experiment updates

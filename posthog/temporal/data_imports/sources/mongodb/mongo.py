@@ -39,7 +39,7 @@ def get_indexes(connection_string: str, collection_name: str) -> list[str]:
     """Get all indexes for a MongoDB collection."""
     try:
         connection_params = _parse_connection_string(connection_string)
-        with mongo_client(connection_string, connection_params) as client:
+        with mongo_client(connection_string) as client:
             db = client[connection_params["database"]]
             collection = db[collection_name]
 
@@ -97,44 +97,10 @@ def _build_query(
 
 
 @contextlib.contextmanager
-def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> Iterator[MongoClient]:
-    """Yield a MongoDB client with the given parameters."""
-    # For SRV connections, use the full connection string
-    if connection_params["is_srv"]:
-        client: MongoClient = MongoClient(
-            connection_string, serverSelectionTimeoutMS=10000, tls=True, tlsCAFile=certifi.where()
-        )
-        try:
-            yield client
-        finally:
-            client.close()
-        return
-
-    # For regular connections
-    connection_kwargs = {
-        "host": connection_params["host"],
-        "port": connection_params["port"] or 27017,
-        "serverSelectionTimeoutMS": 5000,
-    }
-
-    if connection_params["user"] and connection_params["password"]:
-        connection_kwargs.update(
-            {
-                "username": connection_params["user"],
-                "password": connection_params["password"],
-                "authSource": connection_params["auth_source"],
-            }
-        )
-
-    if connection_params["direct_connection"]:
-        connection_kwargs["directConnection"] = True
-
-    if connection_params["tls"]:
-        connection_kwargs["tls"] = True
-        connection_kwargs["tlsCAFile"] = certifi.where()
-
-    client = MongoClient(**connection_kwargs)
-
+def mongo_client(connection_string: str) -> Iterator[MongoClient]:
+    client: MongoClient = MongoClient(
+        connection_string, serverSelectionTimeoutMS=10000, tls=True, tlsCAFile=certifi.where()
+    )
     try:
         yield client
     finally:
@@ -175,10 +141,14 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
     """Parse MongoDB connection string and extract connection parameters."""
     from urllib.parse import parse_qs, urlparse
 
+    # TODO require TLS
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
     # Handle mongodb:// and mongodb+srv:// schemes
     parsed = urlparse(connection_string)
 
     if parsed.scheme not in ["mongodb", "mongodb+srv"]:
+        # TODO require TLS
+        # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
         raise ValueError("Connection string must start with mongodb:// or mongodb+srv://")
 
     # Extract basic connection info
@@ -297,7 +267,7 @@ def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]
 
     connection_params = _parse_connection_string(config.connection_string)
 
-    with mongo_client(config.connection_string, connection_params) as client:
+    with mongo_client(config.connection_string) as client:
         if not connection_params["database"]:
             raise ValueError("Database name is required in connection string")
 
@@ -347,7 +317,7 @@ def mongo_source(
         raise ValueError("Database name is required in connection string")
 
     # Create MongoDB client
-    with mongo_client(connection_string, connection_params) as client:
+    with mongo_client(connection_string) as client:
         db = client[connection_params["database"]]
         collection = db[collection_name]
 
@@ -367,7 +337,7 @@ def mongo_source(
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
-        with mongo_client(connection_string, connection_params) as read_client:
+        with mongo_client(connection_string) as read_client:
             read_db = read_client[connection_params["database"]]
             read_collection = read_db[collection_name]
 

@@ -32,7 +32,7 @@ impl ConfigContext {
         Self {
             config: context.state.config.clone(),
             database_pools: context.state.database_pools.clone(),
-            redis: context.state.redis_reader.clone(),
+            redis: context.state.redis_client.clone(),
             session_replay_billing_limiter: context.state.session_replay_billing_limiter.clone(),
             headers: context.headers.clone(),
         }
@@ -239,6 +239,7 @@ mod tests {
         handler::{config_response_builder::apply_core_config_fields, session_recording},
         team::team_models::Team,
     };
+    use chrono::Utc;
     use serde_json::json;
     use sqlx::types::{Json, Uuid};
     use std::collections::HashMap;
@@ -249,7 +250,6 @@ mod tests {
             id: 1,
             name: "Test Team".to_string(),
             api_token: "test-token".to_string(),
-            project_id: Some(1),
             uuid: Uuid::new_v4(),
             organization_id: None,
             autocapture_opt_out: None,
@@ -288,6 +288,7 @@ mod tests {
             flags: HashMap::new(),
             quota_limited: None,
             request_id: StdUuid::new_v4(),
+            evaluated_at: Utc::now().timestamp_millis(),
             config: ConfigResponse::default(),
         }
     }

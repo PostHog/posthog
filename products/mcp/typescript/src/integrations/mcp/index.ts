@@ -4,9 +4,11 @@ import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import { getPostHogClient } from '@/integrations/mcp/utils/client'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
 import { CUSTOM_BASE_URL, MCP_DOCS_URL } from '@/lib/constants'
+import { ErrorCode } from '@/lib/errors'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
 import { DurableObjectCache } from '@/lib/utils/cache/DurableObjectCache'
@@ -200,7 +202,15 @@ export class MyMCP extends McpAgent<Env> {
                     input: params,
                     output: result,
                 })
-                return result
+
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: formatResponse(result),
+                        },
+                    ],
+                }
             } catch (error: any) {
                 const distinctId = await this.getDistinctId()
                 return handleToolError(
@@ -252,6 +262,17 @@ export class MyMCP extends McpAgent<Env> {
             this.registerTool(tool, async (params) => tool.handler(context, params))
         }
     }
+}
+
+const responseHandler = async (response: Response): Promise<Response> => {
+    if (!response.ok) {
+        const body = await response.clone().text()
+        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
+            return new Response('OAuth token is inactive', { status: 401 })
+        }
+    }
+
+    return response
 }
 
 export default {
@@ -306,11 +327,11 @@ export default {
         ctx.props = { ...ctx.props, features }
 
         if (url.pathname.startsWith('/mcp')) {
-            return MyMCP.serve('/mcp').fetch(request, env, ctx)
+            return MyMCP.serve('/mcp').fetch(request, env, ctx).then(responseHandler)
         }
 
         if (url.pathname.startsWith('/sse')) {
-            return MyMCP.serveSSE('/sse').fetch(request, env, ctx)
+            return MyMCP.serveSSE('/sse').fetch(request, env, ctx).then(responseHandler)
         }
 
         return new Response('Not found', { status: 404 })

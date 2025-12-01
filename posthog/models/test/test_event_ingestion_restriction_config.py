@@ -299,3 +299,101 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         self.assertEqual(
             sorted(data, key=lambda x: x["distinct_id"]), sorted(expected_entries, key=lambda x: x["distinct_id"])
         )
+
+    def test_regenerate_redis_removes_deleted_entries(self):
+        """Test that deleting a config regenerates Redis and removes only that config's entries"""
+        # Create two configs with same restriction type
+        config1 = EventIngestionRestrictionConfig.objects.create(
+            token="test_token_1",
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+            pipelines=["analytics"],
+        )
+
+        EventIngestionRestrictionConfig.objects.create(
+            token="test_token_2",
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+            pipelines=["session_recordings"],
+        )
+
+        redis_key = config1.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 2)
+
+        # Delete the first config
+        config1.delete()
+
+        # Verify only config2 remains in Redis
+        redis_data = self.redis_client.get(redis_key)
+        self.assertIsNotNone(redis_data)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data, [{"token": "test_token_2", "pipelines": ["session_recordings"]}])
+
+    def test_regenerate_redis_with_multiple_configs_different_pipelines(self):
+        """Test that regenerating Redis correctly handles multiple configs with different pipelines"""
+        # Create configs with same token but in different restriction types (allowed by unique_together)
+        config1 = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+            pipelines=["analytics"],
+        )
+
+        config2 = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.FORCE_OVERFLOW_FROM_INGESTION,
+            pipelines=["session_recordings"],
+        )
+
+        # Check that each restriction type has its own Redis key with correct data
+        redis_key1 = config1.get_redis_key()
+        redis_data1 = self.redis_client.get(redis_key1)
+        data1 = json.loads(redis_data1 if redis_data1 is not None else b"[]")
+        self.assertEqual(data1, [{"token": "test_token", "pipelines": ["analytics"]}])
+
+        redis_key2 = config2.get_redis_key()
+        redis_data2 = self.redis_client.get(redis_key2)
+        data2 = json.loads(redis_data2 if redis_data2 is not None else b"[]")
+        self.assertEqual(data2, [{"token": "test_token", "pipelines": ["session_recordings"]}])
+
+        # Delete config1, verify it's removed from its Redis key but config2 remains
+        config1.delete()
+
+        redis_data1 = self.redis_client.get(redis_key1)
+        self.assertIsNone(redis_data1)
+
+        redis_data2 = self.redis_client.get(redis_key2)
+        self.assertIsNotNone(redis_data2)
+        data2 = json.loads(redis_data2 if redis_data2 is not None else b"[]")
+        self.assertEqual(data2, [{"token": "test_token", "pipelines": ["session_recordings"]}])
+
+    def test_regenerate_redis_preserves_other_configs(self):
+        """Test that updating one config doesn't affect other configs in the same restriction type"""
+        config1 = EventIngestionRestrictionConfig.objects.create(
+            token="test_token_1",
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            distinct_ids=["id1"],
+            pipelines=["analytics"],
+        )
+
+        EventIngestionRestrictionConfig.objects.create(
+            token="test_token_2",
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            distinct_ids=["id2"],
+            pipelines=["session_recordings"],
+        )
+
+        # Update config1
+        config1.pipelines = ["analytics", "session_recordings"]
+        config1.save()
+
+        # Verify both configs are in Redis with correct values
+        redis_key = config1.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+
+        self.assertEqual(len(data), 2)
+        self.assertIn(
+            {"token": "test_token_1", "distinct_id": "id1", "pipelines": ["analytics", "session_recordings"]}, data
+        )
+        self.assertIn({"token": "test_token_2", "distinct_id": "id2", "pipelines": ["session_recordings"]}, data)

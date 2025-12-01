@@ -61,6 +61,21 @@ def test_get_parents_from_model_query(query: str, parents: set[str]):
 
 
 class TestModelPath(BaseTest):
+    def test_create_from_static_query(self):
+        """Test creation of a model path from a query that returns a static set of rows."""
+        query = "SELECT 1 AS a, 2 AS b, NOW() AS c"
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": query},
+        )
+
+        model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
+
+        paths = [model_path.path for model_path in model_paths]
+        self.assertEqual(len(paths), 1)
+        self.assertIn([saved_query.id.hex], paths)
+
     def test_create_from_posthog_root_nodes_query(self):
         """Test creation of a model path from a query that reads from PostHog root tables."""
         query = """\
@@ -226,37 +241,6 @@ class TestModelPath(BaseTest):
         self.assertIn(["events", child_saved_query.id.hex], child_paths)
         self.assertEqual(len(grand_child_paths), 1)
         self.assertIn(["events", child_saved_query.id.hex, grand_child_saved_query.id.hex], grand_child_paths)
-
-    def test_get_longest_common_ancestor_path(self):
-        """Test resolving the longest common ancestor of two simple queries."""
-        query_1 = """\
-          select
-            events.event
-          from events
-          where events.event = 'login'
-        """
-        query_2 = """\
-          select
-            events.person_id as person_id
-          from events
-          where events.event = 'logout'
-        """
-
-        saved_query_1 = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="my_model1",
-            query={"query": query_1},
-        )
-        saved_query_2 = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="my_model2",
-            query={"query": query_2},
-        )
-        DataWarehouseModelPath.objects.create_from_saved_query(saved_query_1)
-        DataWarehouseModelPath.objects.create_from_saved_query(saved_query_2)
-
-        lca = DataWarehouseModelPath.objects.get_longest_common_ancestor_path([saved_query_1, saved_query_2])
-        self.assertEqual(lca, "events")
 
     def test_get_dag(self):
         """Test the generation of a DAG with a couple simple models."""

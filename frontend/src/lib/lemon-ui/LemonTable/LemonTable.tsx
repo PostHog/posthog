@@ -32,7 +32,10 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /** Color to mark each row with. */
     rowRibbonColor?: string | ((record: T, rowIndex: number) => string | null | undefined)
     /** Status of each row. Defaults no status. */
-    rowStatus?: 'highlighted' | ((record: T, rowIndex: number) => 'highlighted' | null)
+    rowStatus?:
+        | 'highlighted'
+        | 'highlight-new'
+        | ((record: T, rowIndex: number) => 'highlighted' | 'highlight-new' | null)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** How tall should rows be. The default value is `"middle"`. */

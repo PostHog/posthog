@@ -4,6 +4,10 @@ import clsx from 'clsx'
 
 import { IconInfo } from '@posthog/icons'
 
+import { PayGateIcon } from 'lib/components/PayGateMini/PayGateButton'
+
+import { AvailableFeature } from '~/types'
+
 import { Link, LinkProps } from '../Link'
 import { Tooltip } from '../Tooltip'
 
@@ -14,6 +18,7 @@ export interface LemonLabelProps
     showOptional?: boolean
     onExplanationClick?: () => void
     htmlFor?: string
+    premiumFeature?: AvailableFeature
 }
 
 export function LemonLabel({
@@ -24,6 +29,7 @@ export function LemonLabel({
     onExplanationClick,
     infoLink,
     htmlFor,
+    premiumFeature,
     ...props
 }: LemonLabelProps): JSX.Element {
     return (
@@ -49,6 +55,8 @@ export function LemonLabel({
                     )}
                 </Tooltip>
             ) : null}
+
+            {premiumFeature && <PayGateIcon feature={premiumFeature} />}
         </label>
     )
 }

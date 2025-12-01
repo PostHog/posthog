@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests
@@ -42,6 +43,8 @@ from posthog.schema import (
     MatchedRecordingEvent,
     MatchingEventsResponse,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     QueryTiming,
@@ -73,13 +76,18 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import list_blocks
-from posthog.session_recordings.utils import clean_prompt_whitespace
+from posthog.session_recordings.utils import (
+    clean_prompt_whitespace,
+    filter_from_params_to_query,
+    query_as_params_to_dict,
+)
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
+from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -174,19 +182,6 @@ def _get_session_ids_from_comment_search(
     return list(base_query.values_list("item_id", flat=True).distinct())
 
 
-def filter_from_params_to_query(params: dict) -> RecordingsQuery:
-    data_dict = query_as_params_to_dict(params)
-    # we used to send `version` and it's not part of query, so we pop to make sure
-    data_dict.pop("version", None)
-    # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
-    data_dict.pop("hogql_filtering", None)
-
-    try:
-        return RecordingsQuery.model_validate(data_dict)
-    except ValidationError as pydantic_validation_error:
-        raise exceptions.ValidationError(json.dumps(pydantic_validation_error.errors()))
-
-
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -265,7 +260,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_error_count",
             "start_url",
             "person",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -290,7 +284,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -477,28 +470,6 @@ class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
 class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
-
-
-def query_as_params_to_dict(params_dict: dict) -> dict:
-    """
-    before (if ever) we convert this to a query runner that takes a post
-    we need to convert to a valid dict from the data that arrived in query params
-    """
-    converted = {}
-    for key in params_dict:
-        try:
-            converted[key] = json.loads(params_dict[key]) if isinstance(params_dict[key], str) else params_dict[key]
-        except JSONDecodeError:
-            converted[key] = params_dict[key]
-
-    # we used to accept this value,
-    # but very unlikely to receive it now
-    # it's safe to pop
-    # to make sure any old URLs or filters don't error
-    # if they still include it
-    converted.pop("as_query", None)
-
-    return converted
 
 
 def clean_referer_url(current_url: str | None) -> str:
@@ -941,21 +912,6 @@ class SessionRecordingViewSet(
             {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
 
-    @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=True)
-    def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = self.get_object()
-
-        if not settings.EE_AVAILABLE:
-            raise exceptions.ValidationError("LTS persistence is only available in the full version of PostHog")
-
-        # Indicates it is not yet persisted
-        # "Persistence" is simply saving a record in the DB currently - the actual save to S3 is done on a worker
-        if recording.storage == "object_storage":
-            recording.save()
-
-        return Response({"success": True})
-
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
     @action(
@@ -1115,8 +1071,8 @@ class SessionRecordingViewSet(
 
             ProductIntent.register(
                 team=team,
-                product_type="session_replay",
-                context="session_replay_set_filters",
+                product_type=ProductKey.SESSION_REPLAY,
+                context=ProductIntentContext.SESSION_REPLAY_SET_FILTERS,
                 user=cast(User, request.user),
                 metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )
@@ -1269,12 +1225,23 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
-
+        session_id = str(recording.session_id)
+        # Track streaming summary start (no completion tracking for streaming)
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=user,
+            team=self.team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            is_streaming=True,
+            session_ids=[session_id],
+            video_validation_enabled=None,  # Not checked for streaming endpoint
+        )
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
-        session_id = recording.session_id
         return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
+            stream_recording_summary(session_id=session_id, user=user, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
 
@@ -1607,7 +1574,7 @@ def list_recordings_from_query(
             with timer("load_prepend_recording"), tracer.start_as_current_span("load_prepend_recording"):
                 s3_persisted_recording = (
                     SessionRecording.objects.filter(team=team, session_id=session_recording_id_to_prepend)
-                    .exclude(object_storage_path=None)
+                    .exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
                     .first()
                 )
 
@@ -1642,7 +1609,7 @@ def list_recordings_from_query(
 
             persisted_recordings_queryset = SessionRecording.objects.filter(
                 team=team, session_id__in=sorted_session_ids
-            ).exclude(object_storage_path=None)
+            ).exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
 
             persisted_recordings = persisted_recordings_queryset.all()
 
@@ -1716,10 +1683,20 @@ def list_recordings_from_query(
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
+        # Use prefetch_related with explicit Person filter to include team_id in Person query
+        from django.db.models import Prefetch
+
+        from posthog.models.person.person import Person
+
         person_distinct_ids = (
             PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(distinct_id__in=distinct_ids, team=team)
-            .select_related("person")
+            .prefetch_related(
+                Prefetch(
+                    "person",
+                    queryset=Person.objects.filter(team_id=team.id),
+                )
+            )
         )
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
