@@ -40,7 +40,7 @@ export function VirtualizedLogsList({
     fixedHeight,
     disableInfiniteScroll = false,
 }: VirtualizedLogsListProps): JSX.Element {
-    const { togglePinLog, setHighlightedLogId, loadMoreLogs } = useActions(logsLogic)
+    const { togglePinLog, setHighlightedLogId, fetchNextLogsPage } = useActions(logsLogic)
     const { highlightedLogId, hasMoreLogsToLoad, logsLoading } = useValues(logsLogic)
     const listRef = useRef<List>(null)
     const scrollTopRef = useRef<number>(0)
@@ -164,9 +164,9 @@ export function VirtualizedLogsList({
         if (disableInfiniteScroll) {
             return
         }
-        const threshold = 75 // Start loading next page when 75 rows from the end
+        const threshold = 100 // Start loading next page when 100 rows from the end
         if (hasMoreLogsToLoad && !logsLoading && stopIndex >= dataSource.length - threshold) {
-            loadMoreLogs()
+            fetchNextLogsPage(250)
         }
     }
 
