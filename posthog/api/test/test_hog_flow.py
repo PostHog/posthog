@@ -147,7 +147,7 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         action["filters"] = {
-            "properties": [{"key": "event", "type": "event_metadata", "value": ["foo_bar_event"], "operator": "exact"}]
+            "properties": [{"key": "event", "type": "event_metadata", "value": ["custom_event"], "operator": "exact"}]
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -182,7 +182,7 @@ class TestHogFlowAPI(APIBaseTest):
                                 {
                                     "key": "event",
                                     "type": "event_metadata",
-                                    "value": ["note_created"],
+                                    "value": ["custom_event"],
                                     "operator": "exact",
                                 }
                             ]
@@ -277,7 +277,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 400, response.json()
         assert response.json() == {
-            "attr": "actions__1__config__conditions__0__filters",
+            "attr": "actions__1__non_field_errors",
             "code": "invalid_input",
             "detail": "Event filters are not allowed in conditionals",
             "type": "validation_error",
