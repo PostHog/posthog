@@ -201,7 +201,11 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
         if self.query.searchTerm:
             # shlex.split preserves quoted strings as single tokens: "hello world" → ["hello world"]
-            for token in shlex.split(self.query.searchTerm):
+            try:
+                tokens = shlex.split(self.query.searchTerm)
+            except ValueError:
+                tokens = self.query.searchTerm.split()
+            for token in tokens:
                 if token == "!":
                     continue
                 if token.startswith("!"):
