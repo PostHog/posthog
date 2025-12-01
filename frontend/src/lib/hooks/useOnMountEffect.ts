@@ -34,8 +34,25 @@ export function useOnMountEffect(effect: React.EffectCallback): void {
     useEffect(effect, []) // oxlint-disable-line react-hooks/exhaustive-deps
 }
 
+/**
+ * useDelayedOnMountEffect - A hook that runs an effect once on mount, after a specified delay
+ *
+ * This is similar to useOnMountEffect, but it delays the execution of the effect by the given timeout (default 500ms).
+ * It's useful when you want to defer setup logic slightly after mount (e.g., letting initial UI render before firing side effects).
+ *
+ * Usage:
+ * ```tsx
+ * useDelayedOnMountEffect(() => {
+ *     checkAuth()
+ * }, 1000)
+ * ```
+ *
+ * Note: If you need cleanup that clears the timer, use a custom implementation. For most usage in onboarding/pages,
+ * not cleaning up is generally fine. This hook does not return a cleanup callback.
+ */
+
 export function useDelayedOnMountEffect(effect: React.EffectCallback, timeout = 500): void {
-    useEffect(() => {
+    useOnMountEffect(() => {
         window.setTimeout(effect, timeout)
-    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
+    })
 }
