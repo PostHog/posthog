@@ -147,7 +147,7 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         action["filters"] = {
-            "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}],
+            "properties": [{"key": "event", "type": "event_metadata", "value": ["foo_bar_event"], "operator": "exact"}]
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -178,7 +178,14 @@ class TestHogFlowAPI(APIBaseTest):
                 "conditions": [
                     {
                         "filters": {
-                            "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}]
+                            "properties": [
+                                {
+                                    "key": "event",
+                                    "type": "event_metadata",
+                                    "value": ["note_created"],
+                                    "operator": "exact",
+                                }
+                            ]
                         }
                     }
                 ],
