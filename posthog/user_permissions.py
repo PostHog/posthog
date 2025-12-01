@@ -203,23 +203,25 @@ class UserTeamPermissions:
             return cast("OrganizationMembership.Level", organization_membership.level)
 
         # Check for direct member access through AccessControl entries
-        user_access_from_access_controls = next(
-            (
-                ac
-                for ac in access_controls
-                if ac["resource_id"] == str(self.team.id)
-                and ac["organization_member_id"] == organization_membership.id
-                and ac["access_level"] in ["member", "admin"]
-            ),
-            None,
+        user_has_admin_access = any(
+            ac["resource_id"] == str(self.team.id)
+            and ac["organization_member_id"] == organization_membership.id
+            and ac["access_level"] == "admin"
+            for ac in access_controls
         )
 
-        if user_access_from_access_controls is not None:
-            access_level = user_access_from_access_controls["access_level"]
-            if access_level == "member":
-                return OrganizationMembership.Level.MEMBER
-            if access_level == "admin":
-                return OrganizationMembership.Level.ADMIN
+        if user_has_admin_access:
+            return OrganizationMembership.Level.ADMIN
+
+        user_has_member_access = any(
+            ac["resource_id"] == str(self.team.id)
+            and ac["organization_member_id"] == organization_membership.id
+            and ac["access_level"] == "member"
+            for ac in access_controls
+        )
+
+        if user_has_member_access:
+            return OrganizationMembership.Level.MEMBER
 
         # Check if the team is private
         team_is_private = any(
