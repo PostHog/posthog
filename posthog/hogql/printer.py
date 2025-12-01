@@ -738,7 +738,7 @@ class _Printer(Visitor[str]):
             if v.value == "" or v.value is None or not isinstance(v.value, str):
                 return None
 
-        # IN with an empty or all null set of values is always false
+        # IN with an empty set of values is always false
         if len(values) == 0:
             return "0"
 
