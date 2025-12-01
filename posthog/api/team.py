@@ -188,6 +188,7 @@ TEAM_CONFIG_FIELDS = (
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
+    "business_model",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)

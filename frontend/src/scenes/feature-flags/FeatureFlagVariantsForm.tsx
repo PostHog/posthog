@@ -1,6 +1,6 @@
 import 'kea'
 
-import { IconBalance, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
+import { IconBalance, IconMessage, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -8,8 +8,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
+import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
 
-import { FeatureFlagGroupType, MultivariateFlagVariant } from '~/types'
+import { FeatureFlagGroupType, MultivariateFlagVariant, Survey } from '~/types'
 
 import { VariantError } from './featureFlagLogic'
 
@@ -25,9 +26,11 @@ export interface FeatureFlagVariantsFormProps {
     isDraftExperiment?: boolean
     readOnly?: boolean
     onViewRecordings?: (variantKey: string) => void
+    onGetFeedback?: (variantKey: string) => void
     onVariantChange?: (index: number, field: 'key' | 'name' | 'rollout_percentage', value: any) => void
     onPayloadChange?: (index: number, value: any) => void
     variantErrors: VariantError[]
+    surveys?: Survey[]
 }
 
 export function focusVariantKeyField(index: number): void {
@@ -49,12 +52,19 @@ export function FeatureFlagVariantsForm({
     isDraftExperiment = false,
     readOnly = false,
     onViewRecordings,
+    onGetFeedback,
     onVariantChange,
     onPayloadChange,
     variantErrors,
+    surveys,
 }: FeatureFlagVariantsFormProps): JSX.Element {
     const variantRolloutSum = variants.reduce((sum, variant) => sum + (variant.rollout_percentage || 0), 0)
     const areVariantRolloutsValid = variantRolloutSum === 100
+
+    const getSurveyButtonText = (variantKey: string): string => {
+        const survey = getSurveyForFeatureFlagVariant(variantKey, surveys)
+        return survey ? 'Review survey' : 'Get feedback'
+    }
 
     function variantConcatWithPunctuation(phrases: string[]): string {
         if (phrases === null || phrases.length < 3) {
@@ -103,16 +113,28 @@ export function FeatureFlagVariantsForm({
                                 )}
                             </div>
                             <div>{variant.rollout_percentage}%</div>
-                            {onViewRecordings && (
-                                <div className="col-span-2">
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={<IconRewindPlay />}
-                                        type="secondary"
-                                        onClick={() => onViewRecordings(variant.key)}
-                                    >
-                                        View recordings
-                                    </LemonButton>
+                            {(onViewRecordings || onGetFeedback) && (
+                                <div className="col-span-2 flex gap-2 items-start">
+                                    {onViewRecordings && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconRewindPlay />}
+                                            type="secondary"
+                                            onClick={() => onViewRecordings(variant.key)}
+                                        >
+                                            View recordings
+                                        </LemonButton>
+                                    )}
+                                    {onGetFeedback && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconMessage />}
+                                            type="secondary"
+                                            onClick={() => onGetFeedback(variant.key)}
+                                        >
+                                            {getSurveyButtonText(variant.key)}
+                                        </LemonButton>
+                                    )}
                                 </div>
                             )}
                         </div>

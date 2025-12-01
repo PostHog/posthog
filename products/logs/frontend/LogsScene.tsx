@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import {
-    IconClock,
-    IconFilter,
-    IconMinusSquare,
-    IconPin,
-    IconPinFilled,
-    IconPlusSquare,
-    IconRefresh,
-} from '@posthog/icons'
+import { IconFilter, IconMinusSquare, IconPin, IconPinFilled, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -20,6 +12,7 @@ import {
     LemonTag,
     LemonTagType,
     SpinnerOverlay,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -27,12 +20,15 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -64,29 +60,50 @@ export function LogsScene(): JSX.Element {
         sparklineData,
         logsLoading,
         sparklineLoading,
-        timestampFormat,
         isPinned,
         hasMoreLogsToLoad,
         logsPageSize,
         logsRemainingToLoad,
     } = useValues(logsLogic)
-    const { runQuery, setDateRangeFromSparkline, loadMoreLogs } = useActions(logsLogic)
+    const {
+        runQuery,
+        setDateRangeFromSparkline,
+        loadMoreLogs,
+        highlightNextLog,
+        highlightPreviousLog,
+        toggleExpandLog,
+    } = useActions(logsLogic)
+    const { highlightedLogId: sceneHighlightedLogId } = useValues(logsLogic)
 
     useEffect(() => {
         runQuery()
     }, [runQuery])
 
+    useKeyboardHotkeys(
+        {
+            arrowdown: { action: highlightNextLog },
+            j: { action: highlightNextLog },
+            arrowup: { action: highlightPreviousLog },
+            k: { action: highlightPreviousLog },
+            enter: {
+                action: () => {
+                    if (sceneHighlightedLogId) {
+                        toggleExpandLog(sceneHighlightedLogId)
+                    }
+                },
+            },
+        },
+        [sceneHighlightedLogId]
+    )
+
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
         setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
     }
 
-    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> =
-        timestampFormat === 'absolute'
-            ? {
-                  formatDate: 'YYYY-MM-DD',
-                  formatTime: 'HH:mm:ss.SSS',
-              }
-            : {}
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
+        formatDate: 'YYYY-MM-DD',
+        formatTime: 'HH:mm:ss.SSS',
+    }
 
     return (
         <SceneContent>
@@ -117,7 +134,6 @@ export function LogsScene(): JSX.Element {
                 customHog={ListHog}
                 isEmpty={false}
             />
-            <SceneDivider />
             <Filters />
             <div className="relative h-40 flex flex-col">
                 {sparklineData.data.length > 0 ? (
@@ -208,8 +224,8 @@ function LogsTable({
     showPinnedWithOpacity = false,
     showHeader = true,
 }: LogsTableProps): JSX.Element {
-    const { togglePinLog } = useActions(logsLogic)
-    const { highlightedLogId } = useValues(logsLogic)
+    const { togglePinLog, setHighlightedLogId, toggleExpandLog } = useActions(logsLogic)
+    const { highlightedLogId, expandedLogIds } = useValues(logsLogic)
     const tableRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -233,7 +249,9 @@ function LogsTable({
                 size="small"
                 embedded
                 rowKey="uuid"
-                rowStatus={(record) => (record.uuid === highlightedLogId ? 'highlighted' : null)}
+                rowStatus={(record) =>
+                    record.uuid === highlightedLogId ? 'highlighted' : record.new ? 'highlight-new' : null
+                }
                 rowClassName={(record) =>
                     isPinned(record.uuid) ? cn('bg-primary-highlight', showPinnedWithOpacity && 'opacity-50') : 'group'
                 }
@@ -242,13 +260,28 @@ function LogsTable({
                         title: '#',
                         key: 'row_number',
                         width: 0,
-                        render: (_, record, index) => (
-                            <span
-                                className={cn('text-muted font-mono text-xs', isPinned(record.uuid) ? 'opacity-0' : '')}
-                            >
-                                {index + 1}
-                            </span>
-                        ),
+                        className: 'relative',
+                        render: (_, record, index) => {
+                            const isHighlighted = record.uuid === highlightedLogId
+                            return (
+                                <Tooltip title="Click to highlight (↑↓ or j/k to navigate, Enter to expand)">
+                                    <button
+                                        type="button"
+                                        onClick={() => setHighlightedLogId(isHighlighted ? null : record.uuid)}
+                                        className="absolute inset-0 cursor-pointer"
+                                    />
+                                    <span
+                                        className={cn(
+                                            'font-mono text-xs pointer-events-none transition-colors',
+                                            isPinned(record.uuid) ? 'opacity-0' : '',
+                                            isHighlighted ? 'text-primary font-semibold' : 'text-muted'
+                                        )}
+                                    >
+                                        {index + 1}
+                                    </span>
+                                </Tooltip>
+                            )
+                        },
                     },
                     {
                         title: '',
@@ -299,7 +332,7 @@ function LogsTable({
                         render: (_, { cleanBody, parsedBody }) => {
                             if (parsedBody && prettifyJson) {
                                 return (
-                                    <pre className={cn('text-xs', wrapBody ? '' : 'whitespace-nowrap')}>
+                                    <pre className={cn('text-xs m-0', wrapBody ? '' : 'whitespace-nowrap')}>
                                         {JSON.stringify(parsedBody, null, 2)}
                                     </pre>
                                 )
@@ -312,6 +345,9 @@ function LogsTable({
                 expandable={{
                     noIndent: true,
                     expandedRowRender: (log) => <ExpandedLog log={log} />,
+                    isRowExpanded: (record) => expandedLogIds.has(record.uuid),
+                    onRowExpand: (record) => toggleExpandLog(record.uuid),
+                    onRowCollapse: (record) => toggleExpandLog(record.uuid),
                 }}
             />
         </div>
@@ -412,8 +448,8 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 }
 
 const Filters = (): JSX.Element => {
-    const { logsLoading } = useValues(logsLogic)
-    const { runQuery, zoomDateRange } = useActions(logsLogic)
+    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsLogic)
+    const { runQuery, zoomDateRange, setLiveTailRunning } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
@@ -441,9 +477,19 @@ const Filters = (): JSX.Element => {
                         icon={<IconRefresh />}
                         type="secondary"
                         onClick={() => runQuery()}
-                        loading={logsLoading}
+                        loading={logsLoading || liveTailRunning}
+                        disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
                     >
-                        {logsLoading ? 'Loading...' : 'Search'}
+                        {liveTailRunning ? 'Tailing...' : logsLoading ? 'Loading...' : 'Search'}
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type={liveTailRunning ? 'primary' : 'secondary'}
+                        icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
+                        onClick={() => setLiveTailRunning(!liveTailRunning)}
+                        disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
+                    >
+                        Live tail
                     </LemonButton>
                 </div>
             </div>
@@ -453,17 +499,9 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const {
-        orderBy,
-        wrapBody,
-        prettifyJson,
-        timestampFormat,
-        logsPageSize,
-        totalLogsMatchingFilters,
-        parsedLogs,
-        sparklineLoading,
-    } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody, setPrettifyJson, setTimestampFormat, setLogsPageSize } = useActions(logsLogic)
+    const { orderBy, wrapBody, prettifyJson, logsPageSize, totalLogsMatchingFilters, parsedLogs, sparklineLoading } =
+        useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setPrettifyJson, setLogsPageSize } = useActions(logsLogic)
 
     return (
         <div className="flex justify-between">
@@ -491,17 +529,6 @@ const DisplayOptions = (): JSX.Element => {
                     label="Prettify JSON"
                     size="small"
                 />
-                <LemonSelect
-                    value={timestampFormat}
-                    icon={<IconClock />}
-                    onChange={(value) => setTimestampFormat(value)}
-                    size="small"
-                    type="secondary"
-                    options={[
-                        { value: 'absolute', label: 'Absolute' },
-                        { value: 'relative', label: 'Relative' },
-                    ]}
-                />
             </div>
             <div className="flex items-center gap-4">
                 {!sparklineLoading && totalLogsMatchingFilters > 0 && (
@@ -524,6 +551,17 @@ const DisplayOptions = (): JSX.Element => {
                         ]}
                     />
                 </LemonField.Pure>
+                <span className="text-muted text-xs flex items-center gap-1">
+                    <KeyboardShortcut arrowup />
+                    <KeyboardShortcut arrowdown />
+                    or
+                    <KeyboardShortcut j />
+                    <KeyboardShortcut k />
+                    navigate
+                    <span className="mx-1">·</span>
+                    <KeyboardShortcut enter />
+                    expand
+                </span>
             </div>
         </div>
     )
