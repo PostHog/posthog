@@ -198,6 +198,10 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 return
             }
 
+            if (!values.dataProcessingAccepted) {
+                return
+            }
+
             const teamId = values.currentTeamId
             if (!teamId) {
                 return
