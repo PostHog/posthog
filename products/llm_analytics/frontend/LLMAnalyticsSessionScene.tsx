@@ -95,6 +95,7 @@ function SessionSceneWrapper(): JSX.Element {
                                     {sessionStats.totalLatency.toFixed(2)}s
                                 </LemonTag>
                             )}
+                            {/* This is an internal component, it's lazy loaded and behind feature flag. */}
                             {showFeedback && (
                                 <Suspense fallback={<Spinner />}>
                                     <LLMASessionFeedbackDisplay sessionId={sessionId} />
