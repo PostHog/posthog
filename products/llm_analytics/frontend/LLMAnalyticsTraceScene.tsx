@@ -1026,11 +1026,13 @@ function DisplayOptionsSelect(): JSX.Element {
             value: DisplayOption.ExpandAll,
             label: 'Expand all',
             tooltip: 'Show all messages and full conversation history',
+            'data-attr': 'llma-trace-display-expand-all',
         },
         {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
             tooltip: 'Focus on the most recent input and final output',
+            'data-attr': 'llma-trace-display-expand-last',
         },
         ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
@@ -1039,6 +1041,7 @@ function DisplayOptionsSelect(): JSX.Element {
                       value: DisplayOption.TextView,
                       label: 'Text view',
                       tooltip: 'Simple human readable text view, for humans',
+                      'data-attr': 'llma-trace-display-text-view',
                   },
               ]
             : []),
