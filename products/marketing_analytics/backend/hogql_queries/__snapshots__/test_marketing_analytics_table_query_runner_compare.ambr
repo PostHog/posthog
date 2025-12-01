@@ -182,7 +182,7 @@
   GROUP BY
               conv.campaign,
               conv.id,
-              conv.source) AS ucg ON and(or(equals(campaign_costs.campaign, ucg.campaign), equals(campaign_costs.id, ucg.id)), equals(campaign_costs.source, ucg.source))) AS current_period
+              conv.source) AS ucg ON and(equals(campaign_costs.id, ucg.id), equals(campaign_costs.source, ucg.source))) AS current_period
       LEFT JOIN (
   SELECT
           campaign_costs.id AS ID,
@@ -298,7 +298,7 @@
   GROUP BY
               conv.campaign,
               conv.id,
-              conv.source) AS ucg ON and(or(equals(campaign_costs.campaign, ucg.campaign), equals(campaign_costs.id, ucg.id)), equals(campaign_costs.source, ucg.source))) AS previous_period ON and(equals(current_period.Campaign, previous_period.Campaign), equals(current_period.Source, previous_period.Source))
+              conv.source) AS ucg ON and(equals(campaign_costs.id, ucg.id), equals(campaign_costs.source, ucg.source))) AS previous_period ON and(equals(current_period.Campaign, previous_period.Campaign), equals(current_period.Source, previous_period.Source))
   ORDER BY
       Cost DESC
   

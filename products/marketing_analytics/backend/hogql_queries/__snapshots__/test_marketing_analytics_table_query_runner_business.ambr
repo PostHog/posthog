@@ -167,7 +167,7 @@
   GROUP BY
           conv.campaign,
           conv.id,
-          conv.source) AS ucg ON and(or(equals(campaign_costs.campaign, ucg.campaign), equals(campaign_costs.id, ucg.id)), equals(campaign_costs.source, ucg.source))
+          conv.source) AS ucg ON and(equals(campaign_costs.campaign, ucg.campaign), equals(campaign_costs.source, ucg.source))
   ORDER BY
       Cost DESC
   

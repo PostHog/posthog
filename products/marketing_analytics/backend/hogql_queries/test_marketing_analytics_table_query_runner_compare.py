@@ -429,6 +429,11 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         ]
         self._setup_team_source_configs(source_configs)
 
+        # Configure MetaAds to use campaign_id matching
+        config = self.team.marketing_analytics_config
+        config.campaign_field_preferences = {"MetaAds": {"match_field": "campaign_id"}}
+        config.save()
+
         test_action = _create_action(self.team, "test_conversion_action")
 
         conversion_goal = ConversionGoalFilter2(

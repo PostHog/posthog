@@ -139,6 +139,32 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
         )
 
+    def _get_campaign_match_field(self) -> str:
+        """
+        Determine which field to use for campaign matching based on team preferences.
+
+        ClickHouse doesn't support OR in JOIN ON conditions, so instead of:
+            (campaign_costs.campaign = ucg.campaign OR campaign_costs.id = ucg.id)
+
+        We use either campaign or id field based on team's matching preference:
+        - If any source is configured to match on campaign_id, use the id field
+        - Otherwise, use the campaign field (default)
+        """
+        try:
+            preferences = self.team.marketing_analytics_config.campaign_field_preferences
+        except Exception:
+            preferences = {}
+
+        if not preferences:
+            return self.config.campaign_field
+
+        # If any source is configured for campaign_id matching, use id field
+        for prefs in preferences.values():
+            if prefs.get("match_field") == "campaign_id":
+                return self.config.id_field
+
+        return self.config.campaign_field
+
     def _build_compare_join(
         self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
     ) -> ast.JoinExpr:
@@ -275,6 +301,11 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         # Add single unified conversion goals join if we have conversion goals
         if conversion_aggregator:
             join_type = "FULL OUTER JOIN" if self.query.includeAllConversions else "LEFT JOIN"
+
+            # Determine which field to use for matching (campaign or id)
+            # This replaces the OR condition which ClickHouse doesn't support in JOIN ON clauses
+            match_field = self._get_campaign_match_field()
+
             unified_join = ast.JoinExpr(
                 join_type=join_type,
                 table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
@@ -282,32 +313,11 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 constraint=ast.JoinConstraint(
                     expr=ast.And(
                         exprs=[
-                            # Join on campaign OR id to support both campaign_name and campaign_id matching
-                            # When campaign_name matching is used, campaign fields match
-                            # When campaign_id matching is used, id fields match
-                            ast.Or(
-                                exprs=[
-                                    ast.CompareOperation(
-                                        left=ast.Field(
-                                            chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)
-                                        ),
-                                        op=ast.CompareOperationOp.Eq,
-                                        right=ast.Field(
-                                            chain=self.config.get_unified_conversion_field_chain(
-                                                self.config.campaign_field
-                                            )
-                                        ),
-                                    ),
-                                    ast.CompareOperation(
-                                        left=ast.Field(
-                                            chain=self.config.get_campaign_cost_field_chain(self.config.id_field)
-                                        ),
-                                        op=ast.CompareOperationOp.Eq,
-                                        right=ast.Field(
-                                            chain=self.config.get_unified_conversion_field_chain(self.config.id_field)
-                                        ),
-                                    ),
-                                ]
+                            # Join on campaign or id field based on team preferences
+                            ast.CompareOperation(
+                                left=ast.Field(chain=self.config.get_campaign_cost_field_chain(match_field)),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(chain=self.config.get_unified_conversion_field_chain(match_field)),
                             ),
                             self._build_flexible_source_join_condition(),
                         ]
