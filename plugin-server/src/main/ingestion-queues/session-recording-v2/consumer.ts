@@ -235,9 +235,19 @@ export class SessionRecordingIngester {
         this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
-            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
-                this.sessionBatchManager.flush()
-            )
+            try {
+                await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+                    this.sessionBatchManager.flush()
+                )
+            } catch (error) {
+                logger.error('🔁', 'blob_ingester_consumer_v2 - flush failed, continuing without crash', {
+                    error,
+                    errorMessage: error instanceof Error ? error.message : String(error),
+                })
+                captureException(error)
+                // Don't rethrow - allow consumer to continue processing messages
+                // The batch will be recreated on next flush attempt
+            }
         }
     }
 
