@@ -504,12 +504,12 @@ export function Experiments(): JSX.Element {
                         label: 'Archived experiments',
                         content: <ExperimentsTable openDuplicateModal={setDuplicateModalExperiment} />,
                     },
-                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <Holdouts /> },
                     {
                         key: ExperimentsTabs.SharedMetrics,
                         label: 'Shared metrics',
                         content: <SharedMetrics />,
                     },
+                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <Holdouts /> },
                     {
                         key: ExperimentsTabs.History,
                         label: 'History',

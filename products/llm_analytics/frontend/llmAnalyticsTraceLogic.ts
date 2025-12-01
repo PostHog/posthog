@@ -177,7 +177,13 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             0,
             {
                 loadCommentCount: async (_, breakpoint) => {
-                    if (!values.traceId || !values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS]) {
+                    if (
+                        !values.traceId ||
+                        !(
+                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
+                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+                        )
+                    ) {
                         return 0
                     }
 
@@ -262,7 +268,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 return {
                     activity_scope: ActivityScope.LLM_TRACE,
                     activity_item_id: traceId || '',
-                    discussions_disabled: !featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS],
+                    discussions_disabled: !(
+                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
+                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+                    ),
                     activity_item_context: { trace_id: traceId || '' },
                 }
             },

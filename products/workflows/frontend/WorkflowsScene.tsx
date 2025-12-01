@@ -155,7 +155,6 @@ export function WorkflowsScene(): JSX.Element {
             key: 'library',
             content: (
                 <>
-                    <p>Create and manage messages</p>
                     <MessageTemplatesTable />
                 </>
             ),

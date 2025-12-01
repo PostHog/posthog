@@ -3,15 +3,9 @@ import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import type { customProductsLogicType } from './customProductsLogicType'
+import type { UserProductListItem } from '~/queries/schema/schema-general'
 
-export interface UserProductListItem {
-    id: string
-    product_path: string
-    enabled: boolean
-    created_at: string
-    updated_at: string
-}
+import type { customProductsLogicType } from './customProductsLogicType'
 
 export const customProductsLogic = kea<customProductsLogicType>([
     path(['layout', 'panel-layout', 'ProjectTree', 'customProductsLogic']),

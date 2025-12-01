@@ -1,6 +1,5 @@
 import {
     FunnelsQuery,
-    InsightNodeKind,
     InsightQueryNode,
     LifecycleQuery,
     NodeKind,
@@ -107,7 +106,13 @@ const lifecycleQueryDefault: LifecycleQuery = {
     ],
 }
 
-export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> = {
+/** Product Analytics insight node kinds that support tab switching in the insight UI */
+export type ProductAnalyticsInsightNodeKind = Exclude<
+    InsightQueryNode['kind'],
+    NodeKind.WebStatsTableQuery | NodeKind.WebOverviewQuery
+>
+
+export const nodeKindToDefaultQuery: Record<ProductAnalyticsInsightNodeKind, InsightQueryNode> = {
     [NodeKind.TrendsQuery]: trendsQueryDefault,
     [NodeKind.FunnelsQuery]: funnelsQueryDefault,
     [NodeKind.RetentionQuery]: retentionQueryDefault,
