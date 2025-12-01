@@ -1,3 +1,4 @@
+import shlex
 import datetime as dt
 from zoneinfo import ZoneInfo
 
@@ -199,29 +200,11 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             )
 
         if self.query.searchTerm:
-            tokens = self.query.searchTerm.split()
-
-            # group consecutive positive tokens, negative tokens break the group
-            current_positive_group: list[str] = []
-            for token in tokens:
-                if token.startswith("!") and len(token) > 1:
-                    # negative tokens break consecutive positive groups into separate LIKE conditions
-                    if len(current_positive_group) > 0:
-                        positive_term = " ".join(current_positive_group)
-                        exprs.append(
-                            parse_expr(
-                                "body LIKE {searchTerm}",
-                                placeholders={"searchTerm": ast.Constant(value=f"%{positive_term}%")},
-                            )
-                        )
-                        exprs.append(
-                            parse_expr(
-                                "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
-                                placeholders={"searchTerm": ast.Constant(value=f"{positive_term}")},
-                            )
-                        )
-                        current_positive_group = []
-                    # add negative condition
+            # shlex.split preserves quoted strings as single tokens: "hello world" → ["hello world"]
+            for token in shlex.split(self.query.searchTerm):
+                if token == "!":
+                    continue
+                if token.startswith("!"):
                     exprs.append(
                         parse_expr(
                             "body NOT LIKE {searchTerm}",
@@ -229,24 +212,19 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                         )
                     )
                 else:
-                    current_positive_group.append(token)
-
-            if len(current_positive_group) > 0:
-                positive_term = " ".join(current_positive_group)
-                exprs.append(
-                    parse_expr(
-                        "body LIKE {searchTerm}",
-                        placeholders={"searchTerm": ast.Constant(value=f"%{positive_term}%")},
+                    exprs.append(
+                        parse_expr(
+                            "body LIKE {searchTerm}",
+                            placeholders={"searchTerm": ast.Constant(value=f"%{token}%")},
+                        )
                     )
-                )
-                # ip addresses are particularly bad at full text searches with our ngram 3 index
-                # match them separately against a materialized column of ip addresses
-                exprs.append(
-                    parse_expr(
-                        "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
-                        placeholders={"searchTerm": ast.Constant(value=f"{positive_term}")},
+                    # ip addresses are particularly bad at full text searches with our ngram 3 index
+                    exprs.append(
+                        parse_expr(
+                            "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
+                            placeholders={"searchTerm": ast.Constant(value=f"{token}")},
+                        )
                     )
-                )
 
         if self.query.filterGroup:
             exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
