@@ -199,19 +199,44 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             )
 
         if self.query.searchTerm:
-            # negative search match if first character of search string is !
-            if self.query.searchTerm.startswith("!") and len(self.query.searchTerm) > 1:
-                exprs.append(
-                    parse_expr(
-                        "body NOT LIKE {searchTerm}",
-                        placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm[1:]}%")},
+            tokens = self.query.searchTerm.split()
+
+            # group consecutive positive tokens, negative tokens break the group
+            current_positive_group: list[str] = []
+            for token in tokens:
+                if token.startswith("!") and len(token) > 1:
+                    # negative tokens break consecutive positive groups into separate LIKE conditions
+                    if len(current_positive_group) > 0:
+                        positive_term = " ".join(current_positive_group)
+                        exprs.append(
+                            parse_expr(
+                                "body LIKE {searchTerm}",
+                                placeholders={"searchTerm": ast.Constant(value=f"%{positive_term}%")},
+                            )
+                        )
+                        exprs.append(
+                            parse_expr(
+                                "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
+                                placeholders={"searchTerm": ast.Constant(value=f"{positive_term}")},
+                            )
+                        )
+                        current_positive_group = []
+                    # add negative condition
+                    exprs.append(
+                        parse_expr(
+                            "body NOT LIKE {searchTerm}",
+                            placeholders={"searchTerm": ast.Constant(value=f"%{token[1:]}%")},
+                        )
                     )
-                )
-            else:
+                else:
+                    current_positive_group.append(token)
+
+            if len(current_positive_group) > 0:
+                positive_term = " ".join(current_positive_group)
                 exprs.append(
                     parse_expr(
                         "body LIKE {searchTerm}",
-                        placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
+                        placeholders={"searchTerm": ast.Constant(value=f"%{positive_term}%")},
                     )
                 )
                 # ip addresses are particularly bad at full text searches with our ngram 3 index
@@ -219,7 +244,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 exprs.append(
                     parse_expr(
                         "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
-                        placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
+                        placeholders={"searchTerm": ast.Constant(value=f"{positive_term}")},
                     )
                 )
 
