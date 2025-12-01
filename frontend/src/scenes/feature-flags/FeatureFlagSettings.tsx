@@ -119,7 +119,7 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
 }
 
 export function FlagsSecureApiKeys(): JSX.Element {
-    const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { deleteSecretTokenBackup, rotateSecretToken } = useActions(teamLogic)
 
     const openResetDialog = (): void => {
@@ -180,14 +180,12 @@ export function FlagsSecureApiKeys(): JSX.Element {
             </h3>
             <CodeSnippet
                 actions={
-                    isTeamTokenResetAvailable ? (
-                        <LemonButton
-                            icon={<IconRefresh />}
-                            noPadding
-                            onClick={openResetDialog}
-                            tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
-                        />
-                    ) : undefined
+                    <LemonButton
+                        icon={<IconRefresh />}
+                        noPadding
+                        onClick={openResetDialog}
+                        tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
+                    />
                 }
                 className={currentTeam?.secret_api_token ? '' : 'text-muted'}
                 thing="Primary Feature Flags Secure API key"
