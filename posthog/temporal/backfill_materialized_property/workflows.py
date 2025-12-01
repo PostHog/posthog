@@ -1,6 +1,5 @@
 """Workflow for backfilling materialized property columns."""
 
-import os
 import json
 import datetime as dt
 import dataclasses
@@ -53,10 +52,6 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BackfillMaterializedPropertyInputs) -> None:
         """Execute the backfill workflow."""
-
-        # Disable logging in tests (workflow.logger hangs in Temporal test environments)
-        is_test = os.environ.get("PYTEST_CURRENT_TEST") is not None
-
         try:
             # Wait for plugin-server TeamManager cache to refresh
             # IMPORTANT: plugin-server/src/utils/team-manager.ts has refreshAgeMs=2min + refreshJitterMs=30s
@@ -64,23 +59,21 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
             # This prevents a gap where new events come in after backfill completes
             # but before the ingestion server knows about the new materialized column
             if inputs.cache_refresh_wait_seconds > 0:
-                if not is_test:
-                    workflow.logger.info(
-                        "Waiting for ingestion cache refresh",
-                        team_id=inputs.team_id,
-                        slot_id=inputs.slot_id,
-                        wait_seconds=inputs.cache_refresh_wait_seconds,
-                    )
+                workflow.logger.info(
+                    "Waiting for ingestion cache refresh",
+                    team_id=inputs.team_id,
+                    slot_id=inputs.slot_id,
+                    wait_seconds=inputs.cache_refresh_wait_seconds,
+                )
                 await workflow.sleep(dt.timedelta(seconds=inputs.cache_refresh_wait_seconds))
 
             # Run backfill
-            if not is_test:
-                workflow.logger.info(
-                    "Starting backfill",
-                    team_id=inputs.team_id,
-                    property_name=inputs.property_name,
-                    mat_column_name=inputs.mat_column_name,
-                )
+            workflow.logger.info(
+                "Starting backfill",
+                team_id=inputs.team_id,
+                property_name=inputs.property_name,
+                mat_column_name=inputs.mat_column_name,
+            )
             await workflow.execute_activity(
                 backfill_materialized_column,
                 BackfillMaterializedColumnInputs(
@@ -98,8 +91,7 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
             )
 
             # Update state to READY
-            if not is_test:
-                workflow.logger.info("Backfill complete, updating state to READY", slot_id=inputs.slot_id)
+            workflow.logger.info("Backfill complete, updating state to READY", slot_id=inputs.slot_id)
             await workflow.execute_activity(
                 update_slot_state,
                 UpdateSlotStateInputs(slot_id=inputs.slot_id, state="READY"),
@@ -111,13 +103,11 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
                 ),
             )
 
-            if not is_test:
-                workflow.logger.info("Workflow completed successfully", slot_id=inputs.slot_id)
+            workflow.logger.info("Workflow completed successfully", slot_id=inputs.slot_id)
 
         except Exception as e:
             # Update state to ERROR
-            if not is_test:
-                workflow.logger.error("Workflow failed", slot_id=inputs.slot_id, error=str(e))
+            workflow.logger.error("Workflow failed", slot_id=inputs.slot_id, error=str(e))
 
             try:
                 await workflow.execute_activity(
@@ -135,13 +125,12 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
                     ),
                 )
             except Exception as state_update_error:
-                if not is_test:
-                    workflow.logger.error(
-                        "Failed to update state to ERROR",
-                        slot_id=inputs.slot_id,
-                        original_error=str(e),
-                        state_update_error=str(state_update_error),
-                    )
+                workflow.logger.error(
+                    "Failed to update state to ERROR",
+                    slot_id=inputs.slot_id,
+                    original_error=str(e),
+                    state_update_error=str(state_update_error),
+                )
 
             # Re-raise the original exception
             raise

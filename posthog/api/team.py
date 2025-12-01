@@ -105,6 +105,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "autocapture_exceptions_errors_to_ignore",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
+            "extra_settings",
             "secret_api_token",
             "secret_api_token_backup",
             "session_recording_opt_in",
@@ -188,6 +189,7 @@ TEAM_CONFIG_FIELDS = (
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
     "receive_org_level_activity_logs",
+    "business_model",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -228,6 +230,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     )
     campaign_name_mappings = serializers.JSONField(required=False)
     custom_source_mappings = serializers.JSONField(required=False)
+    campaign_field_preferences = serializers.JSONField(required=False)
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
@@ -238,6 +241,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
             "attribution_mode",
             "campaign_name_mappings",
             "custom_source_mappings",
+            "campaign_field_preferences",
         ]
 
     def update(self, instance, validated_data):
@@ -269,6 +273,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
 
         if "custom_source_mappings" in validated_data:
             instance.custom_source_mappings = validated_data["custom_source_mappings"]
+
+        if "campaign_field_preferences" in validated_data:
+            instance.campaign_field_preferences = validated_data["campaign_field_preferences"]
 
         instance.save()
         return instance

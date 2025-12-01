@@ -17,7 +17,13 @@ from posthog.schema import (
     SessionData,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import HogQLQueryExecutor
+
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.models import Team
 
 from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
@@ -26,6 +32,21 @@ from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
+
+
+def get_experiment_query_sql(experiment_query_ast: ast.SelectQuery, team: Team) -> str:
+    """
+    Generate raw SQL for debugging from experiment query AST
+    """
+    executor = HogQLQueryExecutor(
+        query=experiment_query_ast,
+        team=team,
+        modifiers=create_default_modifiers_for_team(team),
+    )
+    clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()
+
+    # Substitute the parameters to get the final executable query
+    return substitute_params(clickhouse_sql_with_params, clickhouse_context_with_values.values)
 
 
 def _parse_enum_config(value: Any, enum_class: type[Enum], default: Any) -> Any:

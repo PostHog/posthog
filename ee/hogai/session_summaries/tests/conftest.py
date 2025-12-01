@@ -504,7 +504,9 @@ def mock_raw_metadata(mock_session_id: str) -> dict[str, Any]:
 
 @pytest.fixture
 def mock_session_metadata(mock_raw_metadata: dict[str, Any]) -> SessionSummaryMetadata:
-    return SessionSummaryPromptData()._prepare_metadata(mock_raw_metadata)
+    return SessionSummaryPromptData()._prepare_metadata(
+        raw_session_metadata=mock_raw_metadata, session_id="test_session_id"
+    )
 
 
 @pytest.fixture

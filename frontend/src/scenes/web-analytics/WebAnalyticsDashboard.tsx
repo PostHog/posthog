@@ -124,7 +124,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                     })
                 }}
             >
-                Open as new Insight
+                Open as new insight
             </LemonButton>
         ) : null,
         tile.canOpenModal ? (
@@ -583,12 +583,12 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 <LemonButton
                     type="secondary"
                     size="small"
-                    icon={<IconShare />}
+                    icon={<IconShare fontSize="16" />}
+                    tooltip="Share"
+                    tooltipPlacement="top"
                     onClick={handleShare}
                     data-attr="web-analytics-share-button"
-                >
-                    Share
-                </LemonButton>
+                />
             }
         />
     )

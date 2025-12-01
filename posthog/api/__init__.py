@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from posthog.api import data_color_theme, hog_flow, llm_gateway, metalytics, my_notifications, project
+from posthog.api import data_color_theme, feed, hog_flow, llm_gateway, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
@@ -99,6 +99,7 @@ from . import (
     plugin_log_entry,
     proxy_record,
     query,
+    quick_filters,
     scheduled_change,
     schema_property_group,
     search,
@@ -727,18 +728,32 @@ projects_router.register(
     ["project_id"],
 )
 
-register_grandfathered_environment_nested_viewset(
+environments_router.register(
     r"error_tracking/releases",
     ErrorTrackingReleaseViewSet,
     "environment_error_tracking_release",
     ["team_id"],
 )
 
-register_grandfathered_environment_nested_viewset(
+projects_router.register(
+    r"error_tracking/releases",
+    ErrorTrackingReleaseViewSet,
+    "project_error_tracking_release",
+    ["project_id"],
+)
+
+environments_router.register(
     r"error_tracking/symbol_sets",
     ErrorTrackingSymbolSetViewSet,
     "environment_error_tracking_symbol_set",
     ["team_id"],
+)
+
+projects_router.register(
+    r"error_tracking/symbol_sets",
+    ErrorTrackingSymbolSetViewSet,
+    "project_error_tracking_symbol_set",
+    ["project_id"],
 )
 
 environments_router.register(
@@ -794,6 +809,13 @@ environments_router.register(
     r"error_tracking/git-provider-file-links",
     GitProviderFileLinksViewSet,
     "environment_error_tracking_git_provider_file_links",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"quick_filters",
+    quick_filters.QuickFilterViewSet,
+    "project_quick_filters",
     ["team_id"],
 )
 
@@ -870,6 +892,8 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
+
+projects_router.register(r"feed", feed.FeedViewSet, "project_feed", ["project_id"])
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
