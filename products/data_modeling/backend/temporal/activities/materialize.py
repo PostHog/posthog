@@ -249,7 +249,8 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
                 new_columns.append(cast_col)
             except Exception:
                 reduced_decimal_type = pa.decimal128(precision, scale)
-                string_col = pc.cast(col, pa.string())
+                # signals to the type checker that the underlying type is a pa.StringArray
+                string_col = typing.cast(pa.StringArray, pc.cast(col, pa.string()))
                 truncated = pc.utf8_slice_codeunits(string_col, 0, precision)
                 cast_reduced = pc.cast(truncated, reduced_decimal_type)
                 new_fields.append(field.with_type(reduced_decimal_type))
@@ -348,37 +349,29 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         "IPv6": ("toString", ()),
     }
 
-    async with get_clickhouse_client() as client:
-        query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-        has_type_to_convert = False
+    has_type_to_convert = lambda ch_type: any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+    get_call_tuple = lambda ch_type: next(
+        iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
+    )
 
+    query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
+    async with get_clickhouse_client() as client:
         async with client.apost_query(
             query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
             for line in table_describe_response.decode("utf-8").splitlines():
-                split_arr = line.strip().split("\t")
-                column_name = split_arr[0]
-                ch_type = split_arr[1]
-
-                if any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion.keys()):
-                    call_tuples = [
-                        call_tuple
-                        for uat, call_tuple in arrow_type_conversion.items()
-                        if uat.lower() in ch_type.lower()
-                    ]
-                    call_tuple = call_tuples[0]
-                    has_type_to_convert = True
-                    query_typings.append((column_name, ch_type, call_tuple))
+                column_name, ch_type = line.strip().split("\t")
+                if has_type_to_convert(ch_type):
+                    query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
                 else:
                     query_typings.append((column_name, ch_type, None))
 
-    if has_type_to_convert:
+    if query_typings:
         await logger.adebug("Query has fields that need converting")
-
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
-            if call_tuple:
+            if call_tuple is not None:
                 await logger.adebug(
                     f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
                 )
@@ -390,7 +383,6 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                 )
             else:
                 select_fields.append(ast.Field(chain=[column_name]))
-
         query_node = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=query_node))
 
     context.output_format = "ArrowStream"
@@ -495,7 +487,7 @@ def _build_ducklake_source_glob(file_uris: list[str]) -> str:
     return f"{normalized_base.rstrip('/')}/**/*.parquet"
 
 
-def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger: FilteringBoundLogger) -> None:
+def _configure_source_storage(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("INSTALL httpfs")
     conn.execute("LOAD httpfs")
     conn.execute("INSTALL delta")
@@ -645,8 +637,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     except FileNotFoundError:
         await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
 
+    hogql_query = typing.cast(dict, saved_query.query)["query"]
     try:
-        hogql_query = saved_query.query["query"]
         rows_expected = await get_query_row_count(hogql_query, team, logger)
         await logger.ainfo(f"Expected rows: {rows_expected}")
         job.rows_expected = rows_expected
@@ -759,7 +751,7 @@ def copy_to_ducklake_activity(inputs: CopyToDuckLakeInputs) -> bool:
     alias = "ducklake_dev"
 
     try:
-        _configure_source_storage(conn, logger)
+        _configure_source_storage(conn)
         configure_connection(conn, config, install_extension=True)
         _ensure_ducklake_bucket_exists(config)
         _attach_ducklake_catalog(conn, config, alias=alias)
