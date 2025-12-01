@@ -194,7 +194,7 @@ const LemonTableLogs = (): JSX.Element => {
                 {parsedLogs.length > 0 && (
                     <div className="m-2 flex items-center">
                         <LemonButton
-                            onClick={fetchNextLogsPage}
+                            onClick={() => fetchNextLogsPage()}
                             loading={logsLoading}
                             fullWidth
                             center
@@ -235,6 +235,7 @@ const VirtualizedLogsListLogs = (): JSX.Element => {
                         tzLabelFormat={tzLabelFormat}
                         showPinnedWithOpacity
                         fixedHeight={100}
+                        disableInfiniteScroll
                     />
                 </div>
             )}

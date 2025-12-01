@@ -102,7 +102,7 @@ export function VirtualizedLogsList({
 
         return (
             <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
-                {({ registerChild, measure }) => (
+                {({ registerChild }) => (
                     <div ref={registerChild as React.LegacyRef<HTMLDivElement>} style={style} data-row-key={log.uuid}>
                         {/* Inner div with unique key when "new" to force animation restart on recycled DOM nodes */}
                         <div
@@ -135,7 +135,6 @@ export function VirtualizedLogsList({
                                     'flex-1 font-mono text-xs break-all',
                                     wrapBody || (prettifyJson && log.parsedBody) ? 'whitespace-pre-wrap' : 'truncate'
                                 )}
-                                onLoad={measure}
                             >
                                 {log.parsedBody && prettifyJson
                                     ? JSON.stringify(log.parsedBody, null, 2)
