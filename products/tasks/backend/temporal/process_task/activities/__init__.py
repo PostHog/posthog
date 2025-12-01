@@ -6,7 +6,7 @@ from .create_sandbox_from_snapshot import create_sandbox_from_snapshot
 from .create_snapshot import create_snapshot
 from .execute_task_in_sandbox import execute_task_in_sandbox
 from .get_sandbox_for_setup import get_sandbox_for_setup
-from .get_task_details import get_task_details
+from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
 from .setup_repository import setup_repository
 from .track_workflow_event import track_workflow_event
 
@@ -19,7 +19,8 @@ __all__ = [
     "create_snapshot",
     "execute_task_in_sandbox",
     "get_sandbox_for_setup",
-    "get_task_details",
+    "get_task_processing_context",
     "setup_repository",
     "track_workflow_event",
+    "TaskProcessingContext",
 ]

@@ -9,6 +9,7 @@ from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
 from products.tasks.backend.temporal.process_task.activities.create_snapshot import CreateSnapshotInput, create_snapshot
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
 @pytest.mark.skipif(
@@ -16,6 +17,16 @@ from products.tasks.backend.temporal.process_task.activities.create_snapshot imp
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
 class TestCreateSnapshotActivity:
+    def _create_context(self, github_integration, team, repository) -> TaskProcessingContext:
+        return TaskProcessingContext(
+            task_id="test-task-123",
+            run_id="test-run-456",
+            team_id=team.id,
+            github_integration_id=github_integration.id,
+            repository=repository,
+            distinct_id="test-user-id",
+        )
+
     @pytest.mark.django_db
     def test_create_snapshot_real(self, activity_environment, github_integration, team):
         config = SandboxConfig(
@@ -28,15 +39,8 @@ class TestCreateSnapshotActivity:
         created_snapshot_external_id = None
         try:
             sandbox = Sandbox.create(config)
-
-            input_data = CreateSnapshotInput(
-                sandbox_id=sandbox.id,
-                github_integration_id=github_integration.id,
-                team_id=team.id,
-                repository="test-owner/test-repo",
-                task_id="test-task-123",
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(github_integration, team, "test-owner/test-repo")
+            input_data = CreateSnapshotInput(context=context, sandbox_id=sandbox.id)
 
             result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
 
@@ -79,15 +83,8 @@ class TestCreateSnapshotActivity:
         created_snapshot_external_id = None
         try:
             sandbox = Sandbox.create(config)
-
-            input_data = CreateSnapshotInput(
-                sandbox_id=sandbox.id,
-                github_integration_id=github_integration.id,
-                team_id=team.id,
-                repository="new-owner/new-repo",
-                task_id="test-task-with-base",
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(github_integration, team, "new-owner/new-repo")
+            input_data = CreateSnapshotInput(context=context, sandbox_id=sandbox.id)
 
             result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
 
@@ -109,14 +106,8 @@ class TestCreateSnapshotActivity:
 
     @pytest.mark.django_db
     def test_create_snapshot_sandbox_not_found(self, activity_environment, github_integration, team):
-        input_data = CreateSnapshotInput(
-            sandbox_id="non-existent-sandbox-id",
-            github_integration_id=github_integration.id,
-            team_id=team.id,
-            repository="test-owner/test-repo",
-            task_id="test-task-not-found",
-            distinct_id="test-user-id",
-        )
+        context = self._create_context(github_integration, team, "test-owner/test-repo")
+        input_data = CreateSnapshotInput(context=context, sandbox_id="non-existent-sandbox-id")
 
         with pytest.raises(SandboxNotFoundError):
             async_to_sync(activity_environment.run)(create_snapshot, input_data)

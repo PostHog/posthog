@@ -6,10 +6,13 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.exceptions import TaskNotFoundError
-from products.tasks.backend.temporal.process_task.activities.get_task_details import TaskDetails, get_task_details
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+    TaskProcessingContext,
+    get_task_processing_context,
+)
 
 
-class TestGetTaskDetailsActivity:
+class TestGetTaskProcessingContextActivity:
     def _create_task_with_repo(self, team, user, github_integration, repo_config):
         return Task.objects.create(
             team=team,
@@ -25,11 +28,11 @@ class TestGetTaskDetailsActivity:
         task.soft_delete()
 
     @pytest.mark.django_db
-    def test_get_task_details_success(self, activity_environment, test_task):
+    def test_get_task_processing_context_success(self, activity_environment, test_task):
         task_run = test_task.create_run()
-        result = async_to_sync(activity_environment.run)(get_task_details, str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, str(task_run.id))
 
-        assert isinstance(result, TaskDetails)
+        assert isinstance(result, TaskProcessingContext)
         assert result.task_id == str(test_task.id)
         assert result.run_id == str(task_run.id)
         assert result.team_id == test_task.team_id
@@ -37,26 +40,28 @@ class TestGetTaskDetailsActivity:
         assert result.repository == "posthog/posthog-js"
 
     @pytest.mark.django_db
-    def test_get_task_details_task_not_found(self, activity_environment):
+    def test_get_task_processing_context_task_not_found(self, activity_environment):
         non_existent_run_id = "550e8400-e29b-41d4-a716-446655440000"
 
         with pytest.raises(TaskNotFoundError):
-            async_to_sync(activity_environment.run)(get_task_details, non_existent_run_id)
+            async_to_sync(activity_environment.run)(get_task_processing_context, non_existent_run_id)
 
     @pytest.mark.django_db
-    def test_get_task_details_invalid_uuid(self, activity_environment):
+    def test_get_task_processing_context_invalid_uuid(self, activity_environment):
         invalid_run_id = "not-a-uuid"
 
         with pytest.raises(ValidationError):
-            async_to_sync(activity_environment.run)(get_task_details, invalid_run_id)
+            async_to_sync(activity_environment.run)(get_task_processing_context, invalid_run_id)
 
     @pytest.mark.django_db
-    def test_get_task_details_with_different_repository(self, activity_environment, team, user, github_integration):
+    def test_get_task_processing_context_with_different_repository(
+        self, activity_environment, team, user, github_integration
+    ):
         task = self._create_task_with_repo(team, user, github_integration, "posthog/posthog-js")
         task_run = task.create_run()
 
         try:
-            result = async_to_sync(activity_environment.run)(get_task_details, str(task_run.id))
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, str(task_run.id))
 
             assert result.task_id == str(task.id)
             assert result.run_id == str(task_run.id)

@@ -13,6 +13,7 @@ from products.tasks.backend.temporal.process_task.activities.create_sandbox_from
     CreateSandboxFromSnapshotInput,
     create_sandbox_from_snapshot,
 )
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
 @pytest.mark.skipif(
@@ -20,6 +21,16 @@ from products.tasks.backend.temporal.process_task.activities.create_sandbox_from
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
 class TestCreateSandboxFromSnapshotActivity:
+    def _create_context(self, test_task) -> TaskProcessingContext:
+        return TaskProcessingContext(
+            task_id=str(test_task.id),
+            run_id="test-run-id",
+            team_id=test_task.team_id,
+            github_integration_id=test_task.github_integration_id,
+            repository=test_task.repository,
+            distinct_id="test-user-id",
+        )
+
     def _create_snapshot(self, github_integration, external_id=None, status=SandboxSnapshot.Status.COMPLETE):
         if external_id is None:
             external_id = str(uuid.uuid4())
@@ -43,13 +54,8 @@ class TestCreateSandboxFromSnapshotActivity:
         sandbox_id = None
 
         try:
-            input_data = CreateSandboxFromSnapshotInput(
-                snapshot_id=str(snapshot.id),
-                task_id=test_task.id,
-                distinct_id="test-user-id",
-                team_id=test_task.team_id,
-                github_integration_id=github_integration.id,
-            )
+            context = self._create_context(test_task)
+            input_data = CreateSandboxFromSnapshotInput(context=context, snapshot_id=str(snapshot.id))
             output = async_to_sync(activity_environment.run)(create_sandbox_from_snapshot, input_data)
 
             assert isinstance(output.sandbox_id, str)
@@ -78,14 +84,9 @@ class TestCreateSandboxFromSnapshotActivity:
                 self._cleanup_sandbox(sandbox_id)
 
     @pytest.mark.django_db
-    def test_create_sandbox_from_snapshot_not_found(self, activity_environment, github_integration):
-        input_data = CreateSandboxFromSnapshotInput(
-            snapshot_id=str(uuid.uuid4()),
-            task_id="test-task-456",
-            distinct_id="test-user-id",
-            team_id=github_integration.team_id,
-            github_integration_id=github_integration.id,
-        )
+    def test_create_sandbox_from_snapshot_not_found(self, activity_environment, github_integration, test_task):
+        context = self._create_context(test_task)
+        input_data = CreateSandboxFromSnapshotInput(context=context, snapshot_id=str(uuid.uuid4()))
 
         with pytest.raises(SnapshotNotFoundError):
             async_to_sync(activity_environment.run)(create_sandbox_from_snapshot, input_data)
@@ -98,13 +99,8 @@ class TestCreateSandboxFromSnapshotActivity:
         sandbox_id = None
 
         try:
-            input_data = CreateSandboxFromSnapshotInput(
-                snapshot_id=str(snapshot.id),
-                task_id=test_task.id,
-                distinct_id="test-user-id",
-                team_id=test_task.team_id,
-                github_integration_id=github_integration.id,
-            )
+            context = self._create_context(test_task)
+            input_data = CreateSandboxFromSnapshotInput(context=context, snapshot_id=str(snapshot.id))
 
             with pytest.raises(SandboxProvisionError):
                 output = async_to_sync(activity_environment.run)(create_sandbox_from_snapshot, input_data)

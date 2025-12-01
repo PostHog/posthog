@@ -6,17 +6,15 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.observability import log_activity_execution
+from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+
+from .get_task_processing_context import TaskProcessingContext
 
 
 @dataclass
 class CreateSnapshotInput:
+    context: TaskProcessingContext
     sandbox_id: str
-    github_integration_id: int
-    team_id: int
-    repository: str
-    task_id: str
-    distinct_id: str
 
 
 @activity.defn
@@ -25,24 +23,26 @@ def create_snapshot(input: CreateSnapshotInput) -> str:
     """
     Create and finalize snapshot. Creates and saves the snapshot record. Returns snapshot_id.
     """
+    ctx = input.context
+
     with log_activity_execution(
         "create_snapshot",
-        distinct_id=input.distinct_id,
-        task_id=input.task_id,
         sandbox_id=input.sandbox_id,
-        repository=input.repository,
+        **ctx.to_log_context(),
     ):
-        base_snapshot = SandboxSnapshot.get_latest_snapshot_for_integration(input.github_integration_id)
+        emit_agent_log(ctx.run_id, "info", "Creating development environment snapshot for future runs")
+
+        base_snapshot = SandboxSnapshot.get_latest_snapshot_for_integration(ctx.github_integration_id)
 
         base_repos = base_snapshot.repos if base_snapshot else []
-        new_repos: list[str] = list({*base_repos, input.repository})
+        new_repos: list[str] = list({*base_repos, ctx.repository})
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
         snapshot_external_id = sandbox.create_snapshot()
 
         snapshot = SandboxSnapshot.objects.create(
-            integration_id=input.github_integration_id,
+            integration_id=ctx.github_integration_id,
             repos=new_repos,
             external_id=snapshot_external_id,
             status=SandboxSnapshot.Status.COMPLETE,

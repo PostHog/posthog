@@ -12,6 +12,7 @@ from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_set
     GetSandboxForSetupInput,
     get_sandbox_for_setup,
 )
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
 @pytest.mark.skipif(
@@ -19,6 +20,16 @@ from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_set
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
 class TestGetSandboxForSetupActivity:
+    def _create_context(self, test_task, github_integration_id=None) -> TaskProcessingContext:
+        return TaskProcessingContext(
+            task_id=str(test_task.id),
+            run_id="test-run-id",
+            team_id=test_task.team_id,
+            github_integration_id=github_integration_id or test_task.github_integration_id,
+            repository=test_task.repository,
+            distinct_id="test-user-id",
+        )
+
     def _create_snapshot(self, github_integration, external_id=None, status=SandboxSnapshot.Status.COMPLETE):
         if external_id is None:
             external_id = str(uuid.uuid4())
@@ -44,12 +55,8 @@ class TestGetSandboxForSetupActivity:
         sandbox_id = None
 
         try:
-            input_data = GetSandboxForSetupInput(
-                github_integration_id=snapshot.integration_id,
-                team_id=team.id,
-                task_id=test_task.id,
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(test_task, github_integration_id=snapshot.integration_id)
+            input_data = GetSandboxForSetupInput(context=context)
             output = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
 
             assert isinstance(output.sandbox_id, str)
@@ -84,12 +91,8 @@ class TestGetSandboxForSetupActivity:
         sandbox_id = None
 
         try:
-            input_data = GetSandboxForSetupInput(
-                github_integration_id=github_integration.id,
-                team_id=team.id,
-                task_id=test_task.id,
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(test_task)
+            input_data = GetSandboxForSetupInput(context=context)
             output = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
 
             assert isinstance(output.sandbox_id, str)
@@ -116,12 +119,8 @@ class TestGetSandboxForSetupActivity:
         sandbox_id = None
 
         try:
-            input_data = GetSandboxForSetupInput(
-                github_integration_id=github_integration.id,
-                team_id=team.id,
-                task_id=test_task.id,
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(test_task)
+            input_data = GetSandboxForSetupInput(context=context)
             output = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
 
             assert isinstance(output.sandbox_id, str)
@@ -145,12 +144,8 @@ class TestGetSandboxForSetupActivity:
         sandbox_id = None
 
         try:
-            input_data = GetSandboxForSetupInput(
-                github_integration_id=github_integration.id,
-                team_id=team.id,
-                task_id=test_task.id,
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(test_task)
+            input_data = GetSandboxForSetupInput(context=context)
             output = async_to_sync(activity_environment.run)(get_sandbox_for_setup, input_data)
 
             assert isinstance(output.sandbox_id, str)

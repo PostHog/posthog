@@ -8,11 +8,16 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
-from products.tasks.backend.temporal.observability import log_with_activity_context
+from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 
 
 @dataclass
-class TaskDetails:
+class TaskProcessingContext:
+    """
+    Serializable context object passed to all activities in the task processing workflow.
+    Contains all the information needed to execute activities and emit logs.
+    """
+
     task_id: str
     run_id: str
     team_id: int
@@ -20,16 +25,29 @@ class TaskDetails:
     repository: str
     distinct_id: str
 
+    def to_log_context(self) -> dict:
+        """Return a dict suitable for structured logging."""
+        return {
+            "task_id": self.task_id,
+            "run_id": self.run_id,
+            "team_id": self.team_id,
+            "repository": self.repository,
+            "distinct_id": self.distinct_id,
+        }
+
 
 @activity.defn
 @asyncify
-def get_task_details(run_id: str) -> TaskDetails:
-    log_with_activity_context("Fetching task details", run_id=run_id)
+def get_task_processing_context(run_id: str) -> TaskProcessingContext:
+    """Fetch task details and create the processing context for the workflow."""
+    log_with_activity_context("Fetching task processing context", run_id=run_id)
 
     try:
         task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
     except ObjectDoesNotExist as e:
         raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
+
+    emit_agent_log(run_id, "info", "Fetching task details")
 
     task = task_run.task
 
@@ -67,7 +85,7 @@ def get_task_details(run_id: str) -> TaskDetails:
     distinct_id = task.created_by.distinct_id or "process_task_workflow"
 
     log_with_activity_context(
-        "Task details retrieved successfully",
+        "Task processing context created",
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
@@ -75,7 +93,7 @@ def get_task_details(run_id: str) -> TaskDetails:
         distinct_id=distinct_id,
     )
 
-    return TaskDetails(
+    return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
