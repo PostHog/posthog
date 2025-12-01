@@ -6,6 +6,13 @@ import React from 'react'
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -15,6 +22,7 @@ import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNoteb
 import { urlToResource } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -233,6 +241,19 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     ) : null)}
             </a>
         )
+
+        if (href && !externalLink) {
+            element = (
+                <ContextMenu key={props.key}>
+                    <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
+                    <ContextMenuContent className="max-w-[300px]">
+                        <ContextMenuGroup>
+                            <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
+                        </ContextMenuGroup>
+                    </ContextMenuContent>
+                </ContextMenu>
+            )
+        }
 
         if ((tooltip && to) || tooltipDocLink) {
             element = (

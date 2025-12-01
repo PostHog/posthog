@@ -26,7 +26,7 @@ export function BrowserLikeMenuItems({
                 }}
                 data-attr="tree-item-menu-open-link-button"
             >
-                <ButtonPrimitive menuItem>Open link in new PostHog tab</ButtonPrimitive>
+                <ButtonPrimitive menuItem>Open link in new tab</ButtonPrimitive>
             </MenuItem>
             <MenuItem
                 asChild
