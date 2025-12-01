@@ -27,6 +27,7 @@ from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
 from social_django.utils import load_backend, load_strategy
 
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -397,6 +398,85 @@ class VercelAuthentication(authentication.BaseAuthentication):
             issuer=self.VERCEL_ISSUER,
             audience=settings.VERCEL_CLIENT_INTEGRATION_ID,
             leeway=10,  # account for clock skew with 10 seconds of leeway
+        )
+
+
+class BillingServiceUser:
+    """
+    Represents an authenticated billing service request.
+    Contains the organization_id from the validated JWT.
+    """
+
+    def __init__(self, organization_id: str):
+        self.organization_id = organization_id
+
+    @property
+    def is_authenticated(self) -> bool:
+        return True
+
+
+class BillingServiceAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticates requests from the billing service to PostHog.
+
+    The billing service signs JWTs using the shared license secret (same secret PostHog
+    uses when calling the billing service, but in reverse direction).
+
+    Expected JWT payload:
+    - organization_id: The organization this request is for
+    - aud: "billing:posthog-proxy"
+    - exp: Expiration timestamp
+    """
+
+    EXPECTED_AUDIENCE = "billing:posthog-proxy"
+
+    def authenticate(self, request: Request) -> tuple[BillingServiceUser, None] | None:
+        token = self._get_bearer_token(request)
+        if not token:
+            raise AuthenticationFailed("Missing authorization token")
+
+        try:
+            payload = self._validate_jwt_token(token)
+            organization_id = payload.get("organization_id")
+            if not organization_id:
+                raise AuthenticationFailed("Missing organization_id in token")
+            return BillingServiceUser(organization_id=organization_id), None
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed("Token has expired")
+        except jwt.InvalidAudienceError:
+            raise AuthenticationFailed("Invalid token audience")
+        except jwt.InvalidTokenError as e:
+            logger.warning("Billing service auth failed", error=str(e))
+            raise AuthenticationFailed("Invalid authentication token")
+        except AuthenticationFailed:
+            raise
+        except Exception as e:
+            logger.exception("Billing service auth error", error=str(e))
+            raise AuthenticationFailed("Authentication failed")
+
+    def _get_bearer_token(self, request: Request) -> str | None:
+        if auth_header := request.headers.get("authorization"):
+            parts = auth_header.split()
+            if len(parts) == 2 and parts[0].lower() == "bearer":
+                return parts[1]
+        return None
+
+    def _validate_jwt_token(self, token: str) -> dict[str, Any]:
+        license = get_cached_instance_license()
+        if not license or not license.key:
+            raise AuthenticationFailed("No license configured")
+
+        # Extract the secret from the license key (format: "id::secret")
+        try:
+            license_secret = license.key.split("::")[1]
+        except IndexError:
+            raise AuthenticationFailed("Invalid license key format")
+
+        return jwt.decode(
+            token,
+            license_secret,
+            algorithms=["HS256"],
+            audience=self.EXPECTED_AUDIENCE,
         )
 
 
