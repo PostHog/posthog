@@ -67,7 +67,6 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
                 numberOfVariants
             )
 
@@ -131,7 +130,6 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
                 numberOfVariants
             )
 
@@ -200,7 +198,6 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
                 numberOfVariants
             )
 
