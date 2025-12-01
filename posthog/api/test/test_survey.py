@@ -3529,6 +3529,58 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(data.get(survey_id, 0), 0)
 
+    @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_filters_by_survey_ids(self):
+        survey_id_1 = str(uuid.uuid4())
+        survey_id_2 = str(uuid.uuid4())
+        survey_id_3 = str(uuid.uuid4())
+
+        Survey.objects.create(team_id=self.team.id, id=survey_id_1, start_date=datetime.now() - timedelta(days=10))
+
+        for survey_id, count in [(survey_id_1, 5), (survey_id_2, 3), (survey_id_3, 7)]:
+            for _ in range(count):
+                _create_event(
+                    event="survey sent",
+                    team=self.team,
+                    distinct_id=self.user.id,
+                    properties={"$survey_id": survey_id},
+                    timestamp=datetime.now() - timedelta(days=1),
+                )
+
+        # Without filter - should return all surveys
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[survey_id_1], 5)
+        self.assertEqual(data[survey_id_2], 3)
+        self.assertEqual(data[survey_id_3], 7)
+
+        # Filter to single survey
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids={survey_id_1}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data, {survey_id_1: 5})
+
+        # Filter to multiple surveys
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids={survey_id_1},{survey_id_2}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data, {survey_id_1: 5, survey_id_2: 3})
+
+        # Filter with spaces around IDs (should be trimmed)
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids= {survey_id_3} ")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data, {survey_id_3: 7})
+
+        # Empty survey_ids should return all
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids=")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 3)
+
 
 class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
     def test_survey_stats_nonexistent_survey(self):

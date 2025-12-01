@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -104,21 +105,23 @@ const Component = ({
     return (
         <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
-                <Query
-                    // use separate keys for the settings and visualization to avoid conflicts with insightProps
-                    uniqueKey={nodeId + '-component'}
-                    query={modifiedQuery}
-                    setQuery={(t) => {
-                        updateAttributes({
-                            query: {
-                                ...attributes.query,
-                                source: (t as DataTableNode | InsightVizNode).source,
-                            } as QuerySchema,
-                        })
-                    }}
-                    embedded
-                    readOnly
-                />
+                <ScrollableShadows direction="vertical" className="flex-1">
+                    <Query
+                        // use separate keys for the settings and visualization to avoid conflicts with insightProps
+                        uniqueKey={nodeId + '-component'}
+                        query={modifiedQuery}
+                        setQuery={(t) => {
+                            updateAttributes({
+                                query: {
+                                    ...attributes.query,
+                                    source: (t as DataTableNode | InsightVizNode).source,
+                                } as QuerySchema,
+                            })
+                        }}
+                        embedded
+                        readOnly
+                    />
+                </ScrollableShadows>
             </BindLogic>
         </div>
     )
