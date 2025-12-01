@@ -3,7 +3,7 @@
 from django.db import migrations
 
 DROP_DETECT_CYCLES = """\
-DROP FUNCTION IF EXISTS prosthog_datamodelingedge_detect_cycles();
+DROP FUNCTION IF EXISTS posthog_datamodelingedge_detect_cycles();
 """
 
 
