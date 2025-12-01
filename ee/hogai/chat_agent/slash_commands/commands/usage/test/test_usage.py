@@ -5,7 +5,7 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from ee.hogai.chat_agent.usage.queries import (
+from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     DEFAULT_FREE_TIER_CREDITS,
     DEFAULT_GA_LAUNCH_DATE,
     format_usage_message,
@@ -18,8 +18,8 @@ from ee.models.assistant import Conversation
 
 
 class TestUsage(BaseTest):
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
-    @patch("ee.hogai.chat_agent.usage.queries.get_instance_region")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region")
     def test_get_ai_free_tier_credits_default(self, mock_region, mock_payload):
         """Test that teams without custom limits get the default free tier."""
         mock_region.return_value = "EU"
@@ -27,8 +27,8 @@ class TestUsage(BaseTest):
         credits = get_ai_free_tier_credits(team_id=999)
         self.assertEqual(credits, DEFAULT_FREE_TIER_CREDITS)
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
-    @patch("ee.hogai.chat_agent.usage.queries.get_instance_region")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region")
     def test_get_ai_free_tier_credits_custom_eu(self, mock_region, mock_payload):
         """Test that EU internal team gets custom free tier limit from feature flag."""
         mock_region.return_value = "EU"
@@ -36,8 +36,8 @@ class TestUsage(BaseTest):
         credits = get_ai_free_tier_credits(team_id=1)
         self.assertEqual(credits, 9999999)
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
-    @patch("ee.hogai.chat_agent.usage.queries.get_instance_region")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region")
     def test_get_ai_free_tier_credits_custom_us(self, mock_region, mock_payload):
         """Test that US internal team gets custom free tier limit from feature flag."""
         mock_region.return_value = "US"
@@ -45,8 +45,8 @@ class TestUsage(BaseTest):
         credits = get_ai_free_tier_credits(team_id=2)
         self.assertEqual(credits, 9999999)
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
-    @patch("ee.hogai.chat_agent.usage.queries.get_instance_region")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region")
     def test_get_ai_free_tier_credits_fallback_when_region_unknown(self, mock_region, mock_payload):
         """Test that unknown regions fall back to default."""
         mock_region.return_value = None
@@ -54,8 +54,8 @@ class TestUsage(BaseTest):
         credits = get_ai_free_tier_credits(team_id=1)
         self.assertEqual(credits, DEFAULT_FREE_TIER_CREDITS)
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
-    @patch("ee.hogai.chat_agent.usage.queries.get_instance_region")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region")
     def test_get_ai_free_tier_credits_team_not_in_payload(self, mock_region, mock_payload):
         """Test that teams not in the payload get default credits."""
         mock_region.return_value = "EU"
@@ -63,8 +63,8 @@ class TestUsage(BaseTest):
         credits = get_ai_free_tier_credits(team_id=999)
         self.assertEqual(credits, DEFAULT_FREE_TIER_CREDITS)
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
-    @patch("ee.hogai.chat_agent.usage.queries.get_instance_region")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region")
     def test_get_ai_free_tier_credits_invalid_payload(self, mock_region, mock_payload):
         """Test that invalid payloads fall back to default."""
         mock_region.return_value = "EU"
@@ -90,21 +90,21 @@ class TestUsage(BaseTest):
         start_time = get_conversation_start_time(uuid4())
         self.assertIsNone(start_time)
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
     def test_get_ga_launch_date_from_payload(self, mock_payload):
         """Test that GA launch date is fetched from feature flag payload."""
         mock_payload.return_value = {"ga_launch_date": "2025-12-01", "EU": {"1": 10000}}
         ga_date = get_ga_launch_date()
         self.assertEqual(ga_date, datetime(2025, 12, 1, tzinfo=UTC))
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
     def test_get_ga_launch_date_fallback(self, mock_payload):
         """Test that GA launch date falls back to default when not in payload."""
         mock_payload.return_value = None
         ga_date = get_ga_launch_date()
         self.assertEqual(ga_date, DEFAULT_GA_LAUNCH_DATE)
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
     def test_get_ga_launch_date_invalid_format(self, mock_payload):
         """Test that invalid date format falls back to default."""
         mock_payload.return_value = {"ga_launch_date": "invalid-date"}
@@ -114,24 +114,22 @@ class TestUsage(BaseTest):
     def test_get_past_month_start_normal(self):
         """Test past month start when 30 days ago is after GA launch."""
         now = datetime(2025, 12, 20, tzinfo=UTC)
-        with patch("ee.hogai.chat_agent.usage.queries.datetime") as mock_datetime:
+        with patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.datetime") as mock_datetime:
             mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
             mock_datetime.now.return_value = now
             past_month_start = get_past_month_start()
             expected = datetime(2025, 11, 20, tzinfo=UTC)
             self.assertEqual(past_month_start, expected)
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
     def test_get_past_month_start_capped_at_ga_launch(self, mock_payload):
         """Test that past month start is capped at GA launch date."""
         mock_payload.return_value = None
-        # Set current time to shortly after GA launch
         now = DEFAULT_GA_LAUNCH_DATE + timedelta(days=10)
-        with patch("ee.hogai.chat_agent.usage.queries.datetime") as mock_datetime:
+        with patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.datetime") as mock_datetime:
             mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
             mock_datetime.now.return_value = now
             past_month_start = get_past_month_start()
-            # Should return DEFAULT_GA_LAUNCH_DATE since 30 days ago is before GA launch
             self.assertEqual(past_month_start, DEFAULT_GA_LAUNCH_DATE)
 
     def test_format_usage_message_no_usage(self):
@@ -169,7 +167,7 @@ class TestUsage(BaseTest):
         self.assertIn("**Overage**: 500 credits over limit", message)
         self.assertIn("125% of free tier", message)
 
-    @patch("ee.hogai.chat_agent.usage.queries.posthoganalytics.get_feature_flag_payload")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
     def test_format_usage_message_with_ga_cap(self, mock_payload):
         """Test formatting when GA cap is active."""
         mock_payload.return_value = None
@@ -197,13 +195,11 @@ class TestUsage(BaseTest):
 
     def test_format_usage_message_progress_bar(self):
         """Test that progress bar is rendered correctly."""
-        # 50% usage
         message = format_usage_message(
             conversation_credits=0,
             past_month_credits=1000,
             free_tier_credits=2000,
         )
-        # Should have exactly 10 filled blocks out of 20
         self.assertIn("█" * 10, message)
         self.assertIn("░" * 10, message)
 
@@ -214,6 +210,5 @@ class TestUsage(BaseTest):
             past_month_credits=2000,
             free_tier_credits=2000,
         )
-        # Should have all 20 blocks filled
         self.assertIn("█" * 20, message)
         self.assertNotIn("░", message)
