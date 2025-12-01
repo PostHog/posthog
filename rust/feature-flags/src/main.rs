@@ -31,7 +31,9 @@ async fn shutdown() {
         _ = interrupt.recv() => {},
     };
 
-    tracing::info!("Shutting down gracefully...");
+    tracing::info!("Received shutdown signal, waiting 5s for load balancer to drain...");
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    tracing::info!("Proceeding with graceful shutdown...");
 }
 
 fn init_tracer(
@@ -127,5 +129,5 @@ async fn main() {
         .await
         .expect("could not bind port");
     serve(config, listener, shutdown()).await;
-    unreachable!("Server exited unexpectedly");
+    tracing::info!("Server shut down cleanly");
 }
