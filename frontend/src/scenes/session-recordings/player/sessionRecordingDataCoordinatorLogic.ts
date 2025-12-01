@@ -63,8 +63,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadRecordingMetaSuccess',
                     'loadRecordingMetaFailure',
                     'maybeLoadRecordingMeta',
-                    'persistRecording',
-                    'maybePersistRecording',
                     'setTrackedWindow',
                     'loadSnapshots',
                     'loadSnapshotSources',

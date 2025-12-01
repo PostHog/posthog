@@ -3014,11 +3014,6 @@ class SnapshotSource(StrEnum):
     UNKNOWN = "unknown"
 
 
-class Storage(StrEnum):
-    OBJECT_STORAGE_LTS = "object_storage_lts"
-    OBJECT_STORAGE = "object_storage"
-
-
 class SessionReplayBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5517,7 +5512,6 @@ class SessionRecordingType(BaseModel):
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
-    storage: Storage | None = Field(default=None, description="Where this recording information was loaded from")
     summary: str | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")

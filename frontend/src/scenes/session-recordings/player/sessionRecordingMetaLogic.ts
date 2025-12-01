@@ -50,8 +50,6 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         loadRecordingMeta: true,
         loadRecordingFromFile: (recording: ExportedSessionRecordingFileV2['data']) => ({ recording }),
         maybeLoadRecordingMeta: true,
-        persistRecording: true,
-        maybePersistRecording: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
     }),
     reducers(() => ({
@@ -70,7 +68,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             },
         ],
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ props }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 if (!props.sessionRecordingId) {
@@ -84,19 +82,6 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 breakpoint()
 
                 return response
-            },
-
-            persistRecording: async (_, breakpoint) => {
-                if (!values.sessionPlayerMetaData) {
-                    return null
-                }
-                await breakpoint(100)
-                await api.recordings.persist(props.sessionRecordingId)
-
-                return {
-                    ...values.sessionPlayerMetaData,
-                    storage: 'object_storage_lts',
-                }
             },
         },
     })),
@@ -121,16 +106,6 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         maybeLoadRecordingMeta: () => {
             if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
-            }
-        },
-
-        maybePersistRecording: () => {
-            if (values.sessionPlayerMetaDataLoading) {
-                return
-            }
-
-            if (values.sessionPlayerMetaData?.storage === 'object_storage') {
-                actions.persistRecording()
             }
         },
     })),

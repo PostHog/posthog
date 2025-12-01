@@ -3324,10 +3324,6 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('persist').create()
-        },
-
         async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
             return await api.createResponse(
                 new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
