@@ -6,6 +6,7 @@ from django.conf import settings
 import structlog
 from boto3 import client
 from botocore.client import Config
+from botocore.exceptions import ClientError
 
 from posthog.exceptions_capture import capture_exception
 
@@ -183,6 +184,19 @@ class ObjectStorage(ObjectStorageClient):
         try:
             s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
             return s3_response["Body"].read()
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            if error_code == "NoSuchKey":
+                return None
+            logger.exception(
+                "object_storage.read_failed",
+                bucket=bucket,
+                file_name=key,
+                error=e,
+                s3_response=s3_response,
+            )
+            capture_exception(e)
+            raise ObjectStorageError("read failed") from e
         except Exception as e:
             logger.exception(
                 "object_storage.read_failed",
