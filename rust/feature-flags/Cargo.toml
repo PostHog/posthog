@@ -11,7 +11,6 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
-common-cache = { path = "../common/cache" }
 common-cookieless = { path = "../common/cookieless" }
 common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
@@ -74,3 +73,5 @@ futures = "0.3.30"
 test-case = "3.3.1"
 tokio = { workspace = true, features = ["test-util"] }
 metrics-util = { workspace = true }
+common-s3 = { path = "../common/s3" }
+serde-pickle = { version = "1.1.1" }

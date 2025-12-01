@@ -2,15 +2,14 @@ use crate::{
     api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
-    flags::flag_models::{
-        FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
-    },
+    flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use anyhow::Error;
 use axum::async_trait;
 use common_database::{get_pool, Client, CustomDatabaseError};
+use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{Person, PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
@@ -59,15 +58,19 @@ pub async fn insert_flags_for_team_in_redis(
     team_id: i32,
     json_value: Option<String>,
 ) -> Result<(), Error> {
-    let payload = match json_value {
-        Some(value) => value,
+    // Parse the flags array and wrap in hypercache format {"flags": [...]}
+    let flags_array: serde_json::Value = match json_value {
+        Some(value) => serde_json::from_str(&value).unwrap_or_else(|_| {
+            // If it's already a raw array string, parse it
+            json!([])
+        }),
         None => json!([{
             "id": 1,
             "key": "flag1",
             "name": "flag1 description",
             "active": true,
             "deleted": false,
-            "team_id": team_id,  // generate this?
+            "team_id": team_id,
             "filters": {
                 "groups": [
                     {
@@ -81,13 +84,16 @@ pub async fn insert_flags_for_team_in_redis(
                     },
                 ],
             },
-        }])
-        .to_string(),
+        }]),
     };
 
-    client
-        .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{team_id}"), payload)
-        .await?;
+    // Wrap in hypercache format: {"flags": [...]}
+    let payload = json!({ "flags": flags_array }).to_string();
+
+    // Write to hypercache key format with Django's version prefix
+    // Format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
+    let cache_key = format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json");
+    client.set(cache_key, payload).await?;
 
     Ok(())
 }
@@ -111,6 +117,62 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
     .await
     .expect("Failed to create redis client");
     Arc::new(client)
+}
+
+/// Create a HyperCacheReader for tests using the provided Redis client.
+/// Uses default test configuration for S3 (which won't be used in most tests
+/// since Redis should have the data).
+/// Returns Arc<HyperCacheReader> to match the production pattern where the reader
+/// is shared across requests.
+pub async fn setup_hypercache_reader(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Arc<HyperCacheReader> {
+    let config = HyperCacheConfig::new(
+        "feature_flags".to_string(),
+        "flags.json".to_string(),
+        "us-east-1".to_string(),
+        "posthog".to_string(),
+    );
+    Arc::new(
+        HyperCacheReader::new(redis_client, config)
+            .await
+            .expect("Failed to create HyperCacheReader"),
+    )
+}
+
+/// Create a HyperCacheReader for tests using a mock Redis client (synchronous).
+/// Uses a dummy S3 client that always returns NotFound.
+/// This is useful for tests that need to control Redis behavior via MockRedisClient.
+/// Returns Arc<HyperCacheReader> to match the production pattern.
+#[cfg(test)]
+pub fn setup_hypercache_reader_with_mock_redis(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Arc<HyperCacheReader> {
+    use axum::async_trait;
+    use common_s3::{S3Client, S3Error};
+
+    // Create a simple S3 client that always returns NotFound
+    struct DummyS3Client;
+
+    #[async_trait]
+    impl S3Client for DummyS3Client {
+        async fn get_string(&self, _bucket: &str, key: &str) -> Result<String, S3Error> {
+            Err(S3Error::NotFound(key.to_string()))
+        }
+    }
+
+    let config = HyperCacheConfig::new(
+        "feature_flags".to_string(),
+        "flags.json".to_string(),
+        "us-east-1".to_string(),
+        "posthog".to_string(),
+    );
+    let s3_client: Arc<dyn S3Client + Send + Sync> = Arc::new(DummyS3Client);
+    Arc::new(HyperCacheReader::new_with_s3_client(
+        redis_client,
+        s3_client,
+        config,
+    ))
 }
 
 pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
