@@ -1,3 +1,4 @@
+import random
 from datetime import datetime, time, timedelta
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
@@ -89,6 +90,11 @@ def query_events_list(
         request_get_query_dict["after"] = parse_timestamp(request_get_query_dict["after"], team.timezone_info)
     elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
         request_get_query_dict["after"] = now() - timedelta(hours=24)
+
+    if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 and request_get_query_dict.get("after"):
+        date_range = request_get_query_dict["before"] - request_get_query_dict["after"]
+        if date_range > timedelta(days=366) and (settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or random.random() < 0.01):
+            raise ValueError("Date range cannot exceed 1 year")
 
     bound_to_same_day = False
     if (
