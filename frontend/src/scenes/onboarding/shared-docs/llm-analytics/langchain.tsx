@@ -1,26 +1,16 @@
-import React from "react"
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export const LangChainInstallation = (): JSX.Element => {
-    const {
-        Steps,
-        Step,
-        CodeBlock,
-        CalloutBox,
-        ProductScreenshot,
-        OSButton,
-        Markdown,
-        Blockquote,
-        dedent,
-        snippets,
-    } = useMDXComponents()
-    
+    const { Steps, Step, CodeBlock, CalloutBox, ProductScreenshot, OSButton, Markdown, Blockquote, dedent, snippets } =
+        useMDXComponents()
+
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
     return (
         <Steps>
             <Step title="Install the PostHog SDK" badge="required">
                 <Markdown>
-                    Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works best with our Python and Node SDKs.
+                    Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works
+                    best with our Python and Node SDKs.
                 </Markdown>
 
                 <CodeBlock
@@ -70,18 +60,20 @@ export const LangChainInstallation = (): JSX.Element => {
 
                 <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                     <Markdown>
-                        These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the background to send the data.
-
-                        You can also use LLM analytics with other SDKs or our API, but you will need to capture the data in the right format. See the schema in the [manual capture section](/docs/llm-analytics/installation/manual-capture) for more details.
+                        These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
+                        background to send the data. You can also use LLM analytics with other SDKs or our API, but you
+                        will need to capture the data in the right format. See the schema in the [manual capture
+                        section](/docs/llm-analytics/installation/manual-capture) for more details.
                     </Markdown>
                 </CalloutBox>
             </Step>
 
             <Step title="Initialize PostHog and LangChain" badge="required">
                 <Markdown>
-                    Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass it to the LangChain `CallbackHandler` wrapper.
-
-                    Optionally, you can provide a user distinct ID, trace ID, PostHog properties, [groups](/docs/product-analytics/group-analytics), and privacy mode.
+                    Initialize PostHog with your project API key and host from [your project
+                    settings](https://app.posthog.com/settings/project), then pass it to the LangChain `CallbackHandler`
+                    wrapper. Optionally, you can provide a user distinct ID, trace ID, PostHog properties,
+                    [groups](/docs/product-analytics/group-analytics), and privacy mode.
                 </Markdown>
 
                 <CodeBlock
@@ -140,7 +132,9 @@ export const LangChainInstallation = (): JSX.Element => {
 
                 <Blockquote>
                     <Markdown>
-                        **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the `CallbackHandler`. See our docs on [anonymous vs identified events](/docs/data/anonymous-vs-identified-events) to learn more.
+                        **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the
+                        `CallbackHandler`. See our docs on [anonymous vs identified
+                        events](/docs/data/anonymous-vs-identified-events) to learn more.
                     </Markdown>
                 </Blockquote>
             </Step>
@@ -230,9 +224,15 @@ export const LangChainInstallation = (): JSX.Element => {
                 </Markdown>
             </Step>
 
-            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog" docsOnly>
+            <Step
+                checkpoint
+                title="Verify traces and generations"
+                subtitle="Confirm LLM events are being sent to PostHog"
+                docsOnly
+            >
                 <Markdown>
-                    Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you should see rows of data appear in the **Traces** and **Generations** tabs.
+                    Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you
+                    should see rows of data appear in the **Traces** and **Generations** tabs.
                 </Markdown>
 
                 <br />
@@ -245,11 +245,17 @@ export const LangChainInstallation = (): JSX.Element => {
                     padding={false}
                 />
 
-                <OSButton variant="secondary" asLink className="my-2" size="sm" to="https://app.posthog.com/llm-analytics/generations" external>
+                <OSButton
+                    variant="secondary"
+                    asLink
+                    className="my-2"
+                    size="sm"
+                    to="https://app.posthog.com/llm-analytics/generations"
+                    external
+                >
                     Check for LLM events in PostHog
                 </OSButton>
             </Step>
         </Steps>
     )
 }
-

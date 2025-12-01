@@ -1,5 +1,4 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import React from 'react'
 
 export const OpenAIInstallation = (): JSX.Element => {
     const { Steps, Step, CodeBlock, CalloutBox, ProductScreenshot, OSButton, Markdown, Blockquote, dedent } =
@@ -34,8 +33,8 @@ export const OpenAIInstallation = (): JSX.Element => {
 
             <Step title="Install the OpenAI SDK" badge="required">
                 <Markdown>
-                    Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI client. The
-                    PostHog SDK **does not** proxy your calls.
+                    Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI client.
+                    The PostHog SDK **does not** proxy your calls.
                 </Markdown>
 
                 <CodeBlock

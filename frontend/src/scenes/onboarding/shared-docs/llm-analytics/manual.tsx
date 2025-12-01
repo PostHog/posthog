@@ -1,4 +1,3 @@
-import React from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export const ManualInstallation = (): JSX.Element => {
