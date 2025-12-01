@@ -1,6 +1,6 @@
 import math
 from collections import defaultdict
-from typing import Optional
+from typing import Any, Optional
 
 import unittest
 from freezegun import freeze_time
@@ -78,14 +78,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
     def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
         # Tracks the per-person average for each path
-        per_path_user_avgs = defaultdict(list)
+        per_path_user_avgs = defaultdict[Any, list](list)
 
         # Track total count of all pageviews per path
-        total_view_counts = defaultdict(int)
+        total_view_counts = defaultdict[Any, int](int)
 
         for person in groups_of_pageviews:
             # per-user totals for this group
-            person_totals = defaultdict(lambda: {"count": 0, "duration_sum": 0.0})
+            person_totals = defaultdict[Any, dict[str, int | float]](lambda: {"count": 0, "duration_sum": 0.0})
 
             # accumulate totals
             for page_view in person:
@@ -165,7 +165,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                 },
             )
             session_id = str(uuid7(person_time))
-            prev_page_view_properties = None
+            prev_page_view_properties: PageViewProperties | None = None
 
             for page_view in list_page_view_properties:
                 prev_pathname = prev_page_view_properties.pathname if prev_page_view_properties else None
