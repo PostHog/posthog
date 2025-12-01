@@ -6,6 +6,7 @@ import { twMerge } from 'tailwind-merge'
 
 import {
     IconBrain,
+    IconBug,
     IconCheck,
     IconChevronRight,
     IconCollapse,
@@ -38,6 +39,7 @@ import {
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
@@ -843,6 +845,9 @@ interface ToolCallsAnswerProps {
 }
 
 function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
+    const { isDev } = useValues(preflightLogic)
+    const [showToolCallsJson, setShowToolCallsJson] = useState(false)
+
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -901,6 +906,25 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                             />
                         )
                     })}
+                </div>
+            )}
+
+            {isDev && toolCalls.length > 0 && (
+                <div className="ml-5 flex flex-col gap-1">
+                    <LemonButton
+                        size="xxsmall"
+                        type="secondary"
+                        icon={<IconBug />}
+                        onClick={() => setShowToolCallsJson(!showToolCallsJson)}
+                        tooltip="Development-only. Note: The JSON here is prettified"
+                        tooltipPlacement="top-start"
+                        className="w-fit"
+                    >
+                        {showToolCallsJson ? 'Hide' : 'Show'} above tool call(s) as JSON
+                    </LemonButton>
+                    {showToolCallsJson && (
+                        <CodeSnippet language={Language.JSON}>{JSON.stringify(toolCalls, null, 2)}</CodeSnippet>
+                    )}
                 </div>
             )}
         </>
