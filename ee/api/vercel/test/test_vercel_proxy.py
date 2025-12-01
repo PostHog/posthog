@@ -267,6 +267,23 @@ class TestVercelProxyAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "method" in response.json()
 
+    @patch("ee.api.vercel.vercel_proxy.forward_to_vercel")
+    def test_proxy_handles_network_errors(self, mock_forward, mock_license):
+        import requests as req
+
+        mock_license.return_value = self.license
+        mock_forward.side_effect = req.RequestException("Network error")
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {"path": "/billing/invoices", "method": "POST", "body": {}},
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert response.json() == {"error": "Failed to reach Vercel API"}
+
 
 @patch("ee.api.authentication.get_cached_instance_license")
 class TestBillingServiceAuthentication(BaseTest):

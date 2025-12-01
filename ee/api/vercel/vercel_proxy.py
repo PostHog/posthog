@@ -36,6 +36,8 @@ def _extract_access_token(integration: OrganizationIntegration) -> str:
 
 def forward_to_vercel(config_id: str, access_token: str, path: str, method: str, body: dict) -> requests.Response:
     """Forward request to Vercel API."""
+    if not path.startswith("/") or ".." in path:
+        raise ValueError(f"Invalid path format: {path}")
     url = f"{VERCEL_API_BASE_URL}/v1/installations/{config_id}{path}"
 
     headers = {
