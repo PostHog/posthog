@@ -292,12 +292,12 @@ function TabGroup({ tabs, children }: { tabs: string[]; children: ReactNode }): 
 
 function TabList(): JSX.Element {
     // Tab.List is not rendered, it's just for compatibility with Website tabs
-    return null
+    return <></>
 }
 
 function TabItem(): JSX.Element {
     // Individual Tab items are not rendered, it's just for compatibility with Website tabs
-    return null
+    return <></>
 }
 
 function TabPanels({ children }: { children: ReactNode }): JSX.Element {
