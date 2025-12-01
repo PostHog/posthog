@@ -953,6 +953,8 @@ class TestPrinter(BaseTest):
         assert_result_is_equal("[NULL, NULL, NULL]", {"null", "not_set"})
         assert_result_is_equal("('s', 1)", {"string", "int"})
         assert_result_is_equal("('s', '')", {"string", "empty_string"})
+        assert_result_is_equal("'null'", set())
+        assert_result_is_equal("'NULL'", set())
 
     def test_property_groups_select_with_aliases(self):
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
