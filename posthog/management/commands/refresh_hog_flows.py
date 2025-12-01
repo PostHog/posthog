@@ -114,7 +114,7 @@ class Command(BaseCommand):
                         "variables": hog_flow.variables,
                     }
 
-                    data.actions = remove_event_filters_from_conditionals(hog_flow.actions)
+                    data["actions"] = remove_event_filters_from_conditionals(hog_flow.actions)
 
                     # Process through serializer to regenerate bytecode
                     serializer = HogFlowSerializer(
