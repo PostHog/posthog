@@ -5,7 +5,6 @@ packages:
     - common/plugin_transpiler
     - common/storybook
     - common/tailwind
-    - ee/frontend
     - frontend
     - playwright
     - plugin-server
@@ -18,3 +17,4 @@ packages:
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
     - posthog-js
+    - node-forge
