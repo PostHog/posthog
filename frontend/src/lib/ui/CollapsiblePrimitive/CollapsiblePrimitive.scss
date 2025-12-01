@@ -10,19 +10,21 @@
     animation: slideUp 300ms ease-out;
 }
 
-@keyframes slideDown {
+@keyframes primitive-collapsible-content__open {
     from {
         height: 0;
     }
+
     to {
         height: var(--radix-collapsible-content-height);
     }
 }
 
-@keyframes slideUp {
+@keyframes primitive-collapsible-content__closed {
     from {
         height: var(--radix-collapsible-content-height);
     }
+
     to {
         height: 0;
     }
