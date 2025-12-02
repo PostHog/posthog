@@ -154,13 +154,14 @@ export const FEATURE_FLAGS = {
     DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite, usage: see `useWhyDidIRender.ts`
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra, usage: see `dataTableLogic.ts`
 
+    // Feature flags used to control opt-in for different behaviors
+    HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
+
     // Legacy flags, TBD if they need to be removed
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE #team-feature-flags
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
 
     // Temporary feature flags, should be removed when the feature is no longer needed
-    HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
-    PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: #team-posthog-ai
     WEB_ANALYTICS_HIGHER_CONCURRENCY: 'web-analytics-higher-concurrency', // owner: @lricoy #team-web-analytics
