@@ -1125,6 +1125,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     return {
                         ...baseTabProps,
+                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                         query: {
                             full: true,
                             kind: NodeKind.DataTableNode,
