@@ -347,36 +347,63 @@ export function isAnthropicDocumentMessage(input: unknown): boolean {
     )
 }
 
+/**
+ * Extracts inline data from Gemini messages, supporting both snake_case (Python SDK)
+ * and camelCase (Node SDK) property naming conventions.
+ */
+export function getGeminiInlineData(input: unknown): { data: string; mime_type: string } | null {
+    if (!input || typeof input !== 'object') {
+        return null
+    }
+
+    // Check snake_case first (Python SDK)
+    if ('inline_data' in input && typeof input.inline_data === 'object' && input.inline_data !== null) {
+        const d = input.inline_data as Record<string, unknown>
+        const data = d.data
+        const mimeType = d.mime_type ?? d.mimeType
+        if (typeof data === 'string' && typeof mimeType === 'string') {
+            return { data, mime_type: mimeType }
+        }
+    }
+
+    // Check camelCase (Node SDK)
+    if ('inlineData' in input && typeof input.inlineData === 'object' && input.inlineData !== null) {
+        const d = input.inlineData as Record<string, unknown>
+        const data = d.data
+        const mimeType = d.mimeType ?? d.mime_type
+        if (typeof data === 'string' && typeof mimeType === 'string') {
+            return { data, mime_type: mimeType }
+        }
+    }
+
+    return null
+}
+
 export function isGeminiImageMessage(input: unknown): boolean {
-    return (
-        !!input &&
-        typeof input === 'object' &&
-        'type' in input &&
-        input.type === 'image' &&
-        'inline_data' in input &&
-        typeof input.inline_data === 'object' &&
-        input.inline_data !== null &&
-        'data' in input.inline_data &&
-        'mime_type' in input.inline_data &&
-        typeof input.inline_data.data === 'string' &&
-        typeof input.inline_data.mime_type === 'string'
-    )
+    if (!input || typeof input !== 'object' || !('type' in input) || input.type !== 'image') {
+        return false
+    }
+    const inlineData = getGeminiInlineData(input)
+    return inlineData !== null && inlineData.mime_type.startsWith('image/')
 }
 
 export function isGeminiDocumentMessage(input: unknown): boolean {
-    return (
-        !!input &&
-        typeof input === 'object' &&
-        'type' in input &&
-        input.type === 'document' &&
-        'inline_data' in input &&
-        typeof input.inline_data === 'object' &&
-        input.inline_data !== null &&
-        'data' in input.inline_data &&
-        'mime_type' in input.inline_data &&
-        typeof input.inline_data.data === 'string' &&
-        typeof input.inline_data.mime_type === 'string'
-    )
+    if (!input || typeof input !== 'object' || !('type' in input)) {
+        return false
+    }
+    const inlineData = getGeminiInlineData(input)
+    if (!inlineData) {
+        return false
+    }
+    // Accept explicit 'document' type
+    if (input.type === 'document') {
+        return true
+    }
+    // Also accept 'image' type if MIME is not an image (SDK misdetection of PDFs)
+    if (input.type === 'image' && !inlineData.mime_type.startsWith('image/')) {
+        return true
+    }
+    return false
 }
 
 export function isGeminiAudioMessage(input: unknown): boolean {

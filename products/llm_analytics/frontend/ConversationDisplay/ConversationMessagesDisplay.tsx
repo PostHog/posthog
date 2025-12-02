@@ -17,6 +17,7 @@ import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, VercelSDKImageMessage } from '../types'
 import {
+    getGeminiInlineData,
     isAnthropicDocumentMessage,
     isAnthropicImageMessage,
     isGeminiAudioMessage,
@@ -281,9 +282,13 @@ function renderContentItem(item: any, searchQuery?: string): JSX.Element | null 
     }
 
     if (isGeminiImageMessage(item)) {
+        const inlineData = getGeminiInlineData(item)
+        if (!inlineData) {
+            return null
+        }
         return (
             <img
-                src={`data:${item.inline_data.mime_type};base64,${item.inline_data.data}`}
+                src={`data:${inlineData.mime_type};base64,${inlineData.data}`}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
             />
@@ -314,11 +319,15 @@ function renderContentItem(item: any, searchQuery?: string): JSX.Element | null 
     }
 
     if (isGeminiDocumentMessage(item)) {
-        const fileName = `document.${item.inline_data.mime_type.split('/')[1] || 'bin'}`
+        const inlineData = getGeminiInlineData(item)
+        if (!inlineData) {
+            return null
+        }
+        const fileName = `document.${inlineData.mime_type.split('/')[1] || 'bin'}`
         return (
             // eslint-disable-next-line react/forbid-elements
             <a
-                href={`data:${item.inline_data.mime_type};base64,${item.inline_data.data}`}
+                href={`data:${inlineData.mime_type};base64,${inlineData.data}`}
                 download={fileName}
                 className="text-link hover:underline"
             >
