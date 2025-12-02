@@ -15,7 +15,7 @@ from ee.hogai.session_summaries.local.input_data import (
     _get_production_session_events_locally,
     _get_production_session_metadata_locally,
 )
-from ee.hogai.session_summaries.utils import calculate_time_since_start, get_column_index
+from ee.hogai.session_summaries.utils import calculate_time_since_start, calculate_time_till_end, get_column_index
 
 logger = structlog.get_logger(__name__)
 
@@ -181,6 +181,7 @@ def add_context_and_filter_events(
     session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]],
     session_id: str,
     session_start_time: datetime.datetime,
+    session_end_time: datetime.datetime,
 ) -> tuple[list[str], list[tuple[str | datetime.datetime | list[str] | None, ...]]]:
     timestamp_index = get_column_index(session_events_columns, "timestamp")
     indexes = {
@@ -205,17 +206,22 @@ def add_context_and_filter_events(
     # Events are chronologically ordered, so once we find an event after replay start, all subsequent events are too
     past_replay_start = False
     for event in session_events:
-        # Filter out events that occurred before or exactly at replay start, as we can't confirm them with video
+        event_timestamp = event[timestamp_index]
+        if not isinstance(event_timestamp, str) and not isinstance(event_timestamp, datetime.datetime):
+            msg = f"Event timestamp is not a string or datetime: {event_timestamp}"
+            logger.error(msg, signals_type="session-summaries", session_id=session_id)
+            raise ValueError(msg)
+        # Filter out events that occurred before or near replay start, as we can't confirm them with video
         if not past_replay_start:
-            event_timestamp = event[timestamp_index]
-            if not isinstance(event_timestamp, str) and not isinstance(event_timestamp, datetime.datetime):
-                msg = f"Event timestamp is not a string or datetime: {event_timestamp}"
-                logger.error(msg, signals_type="session-summaries", session_id=session_id)
-                raise ValueError(msg)
             ms_since_start = calculate_time_since_start(event_timestamp, session_start_time)
             if ms_since_start <= SESSION_EVENTS_REPLAY_CUTOFF_MS:
                 continue
+            # No need to check the time from the start anymore, as events are sorted chronologically
             past_replay_start = True
+        # Filter out events that occurred after or near replay end, as we can't confirm them with video
+        ms_till_end = calculate_time_till_end(event_timestamp, session_end_time)
+        if ms_till_end <= SESSION_EVENTS_REPLAY_CUTOFF_MS:
+            continue
         updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
         # Check for errors worth keeping in the context
         if event[indexes["event"]] == "$exception":

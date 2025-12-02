@@ -231,6 +231,7 @@ def test_get_improved_elements_chain_elements():
 def test_add_context_and_filter_events(
     mock_event_indexes: dict[str, int],
     mock_session_start_time: datetime,
+    mock_session_end_time: datetime,
     input_event: tuple[Any, ...],
     expected_event: tuple[Any, ...] | None,
     should_keep: bool,
@@ -241,6 +242,7 @@ def test_add_context_and_filter_events(
         session_events=[input_event],
         session_id="test_session_id",
         session_start_time=mock_session_start_time,
+        session_end_time=mock_session_end_time,
     )
 
     # Check columns are updated (and columns excessive from LLM context are removed)
@@ -259,8 +261,12 @@ def test_add_context_and_filter_events(
 @pytest.mark.parametrize(
     "event_timestamps,expected_kept_count",
     [
-        # All events within 5s threshold - none kept
-        # Session starts at 18:40:32.302000, threshold is 5000ms, so events at or before 18:40:37.302000 are filtered
+        # Session starts at 18:40:32.302000, ends at 18:54:15.789000
+        # Events within 5s of start (<=18:40:37.302000) are filtered
+        # Events within 5s of end (>=18:54:10.789000) are filtered
+        #
+        # --- Before replay start filtering ---
+        # All events within 5s of start - none kept
         (
             [
                 datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start
@@ -269,7 +275,7 @@ def test_add_context_and_filter_events(
             ],
             0,
         ),
-        # First two within threshold, third after - only third kept
+        # First two within threshold of start, third after - only third kept
         (
             [
                 datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start (filtered)
@@ -278,16 +284,16 @@ def test_add_context_and_filter_events(
             ],
             1,
         ),
-        # All events after 5s threshold - all kept
+        # All events in valid middle range - all kept
         (
             [
-                datetime(2025, 3, 31, 18, 40, 38, 0, tzinfo=UTC),  # After threshold
-                datetime(2025, 3, 31, 18, 40, 39, 0, tzinfo=UTC),  # After threshold
-                datetime(2025, 3, 31, 18, 40, 40, 0, tzinfo=UTC),  # After threshold
+                datetime(2025, 3, 31, 18, 40, 38, 0, tzinfo=UTC),  # After start threshold
+                datetime(2025, 3, 31, 18, 45, 0, 0, tzinfo=UTC),  # Middle of session
+                datetime(2025, 3, 31, 18, 50, 0, 0, tzinfo=UTC),  # Still before end threshold
             ],
             3,
         ),
-        # Mix: two within threshold, one after - one kept
+        # Mix: two within start threshold, one after - one kept
         (
             [
                 datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start (filtered)
@@ -296,16 +302,56 @@ def test_add_context_and_filter_events(
             ],
             1,
         ),
+        #
+        # --- After replay end filtering ---
+        # All events within 5s of end - none kept (assuming they're after start threshold)
+        (
+            [
+                datetime(2025, 3, 31, 18, 54, 10, 789000, tzinfo=UTC),  # Exactly at end threshold (filtered)
+                datetime(2025, 3, 31, 18, 54, 15, 789000, tzinfo=UTC),  # Exactly at end (filtered)
+                datetime(2025, 3, 31, 18, 54, 20, 0, tzinfo=UTC),  # After end (filtered)
+            ],
+            0,
+        ),
+        # First event before end threshold, rest within - only first kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 54, 5, 0, tzinfo=UTC),  # Before end threshold (~10s before end)
+                datetime(2025, 3, 31, 18, 54, 12, 0, tzinfo=UTC),  # Within 5s of end (filtered)
+                datetime(2025, 3, 31, 18, 54, 20, 0, tzinfo=UTC),  # After end (filtered)
+            ],
+            1,
+        ),
+        #
+        # --- Combined before/after filtering ---
+        # Events at both ends filtered, middle kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 35, 0, tzinfo=UTC),  # Within start threshold (filtered)
+                datetime(2025, 3, 31, 18, 45, 0, 0, tzinfo=UTC),  # Middle of session (kept)
+                datetime(2025, 3, 31, 18, 54, 12, 0, tzinfo=UTC),  # Within end threshold (filtered)
+            ],
+            1,
+        ),
+        # All events outside valid range - none kept
+        (
+            [
+                datetime(2025, 3, 31, 18, 40, 30, 0, tzinfo=UTC),  # Before start (filtered)
+                datetime(2025, 3, 31, 18, 40, 37, 0, tzinfo=UTC),  # Within start threshold (filtered)
+                datetime(2025, 3, 31, 18, 54, 15, 789000, tzinfo=UTC),  # At end (filtered)
+            ],
+            0,
+        ),
     ],
 )
-def test_filter_events_before_replay_start(
+def test_filter_events_before_after_replay_session(
     mock_raw_events_columns: list[str],
     mock_session_start_time: datetime,
+    mock_session_end_time: datetime,
     event_timestamps: list[datetime],
     expected_kept_count: int,
 ):
-    """Test that events occurring before or exactly at replay start are filtered out."""
-    # Create events with different timestamps but valid context (so they're not filtered for other reasons)
+    """Test that events occurring before start or after end of replay session are filtered out."""
     events: list[tuple[Any, ...]] = []
     for i, ts in enumerate(event_timestamps):
         events.append(
@@ -334,6 +380,7 @@ def test_filter_events_before_replay_start(
         session_events=events,
         session_id="test_session_id",
         session_start_time=mock_session_start_time,
+        session_end_time=mock_session_end_time,
     )
 
     assert len(updated_events) == expected_kept_count

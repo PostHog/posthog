@@ -188,6 +188,7 @@ async def fetch_session_batch_events_activity(
             session_events=session_events,
             session_id=session_id,
             session_start_time=session_metadata["start_time"],
+            session_end_time=session_metadata["end_time"],
         )
         session_db_data = SessionSummaryDBData(
             session_metadata=session_metadata, session_events_columns=filtered_columns, session_events=filtered_events

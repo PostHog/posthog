@@ -482,7 +482,15 @@ def mock_session_start_time() -> datetime:
 
 
 @pytest.fixture
-def mock_raw_metadata(mock_session_id: str, mock_session_start_time: datetime) -> dict[str, Any]:
+def mock_session_end_time() -> datetime:
+    """Session replay end time - events after this should be filtered out"""
+    return datetime(2025, 3, 31, 18, 54, 15, 789000, tzinfo=UTC)
+
+
+@pytest.fixture
+def mock_raw_metadata(
+    mock_session_id: str, mock_session_start_time: datetime, mock_session_end_time: datetime
+) -> dict[str, Any]:
     return {
         "id": mock_session_id,
         # Anonymized distinct_id for testing
@@ -493,7 +501,7 @@ def mock_raw_metadata(mock_session_id: str, mock_session_start_time: datetime) -
         "active_seconds": 1947,
         "inactive_seconds": 3375,
         "start_time": mock_session_start_time,
-        "end_time": "2025-03-31T18:54:15.789000Z",
+        "end_time": mock_session_end_time,
         "click_count": 679,
         "keypress_count": 668,
         "mouse_activity_count": 6629,

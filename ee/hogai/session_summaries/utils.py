@@ -178,3 +178,13 @@ def calculate_time_since_start(event_timestamp: str | datetime, session_start_ti
     if isinstance(event_timestamp, str):
         event_timestamp = datetime.fromisoformat(event_timestamp)
     return max(0, int((event_timestamp - session_start_time).total_seconds() * 1000))
+
+
+def calculate_time_till_end(event_timestamp: str | datetime, session_end_time: datetime) -> int:
+    """
+    Calculate milliseconds remaining until session end time.
+    Returns 0 for events that occurred at or after session end.
+    """
+    if isinstance(event_timestamp, str):
+        event_timestamp = datetime.fromisoformat(event_timestamp)
+    return max(0, int((session_end_time - event_timestamp).total_seconds() * 1000))
