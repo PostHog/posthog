@@ -21,6 +21,7 @@ class RecordingsWithPersonInput(BaseModel):
 
 class RecordingsWithTeamInput(BaseModel):
     team_id: int
+    dry_run: bool = False
     batch_size: int = 100
 
 
