@@ -78,6 +78,7 @@ export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlo
                 TaxonomicFilterGroupType.HogQLExpression,
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
+            hideBehavioralCohorts
             metadataSource={{ kind: NodeKind.ActorsQuery }}
         />
     )
