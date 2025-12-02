@@ -28,8 +28,6 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         description=dedent(f"""
         User's question converted into a recordings query.
 
-        **CRITICAL: You MUST use the read_taxonomy tool to discover and clarify ALL properties and events before creating filters.**
-
         {PRODUCT_DESCRIPTION_PROMPT}
 
         {SESSION_REPLAY_EXAMPLES_PROMPT}
