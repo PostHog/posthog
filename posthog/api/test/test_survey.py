@@ -3101,6 +3101,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                                 "event": "$pageview",
                                                 "properties": None,
                                                 "selector": None,
+                                                "selector_regex": None,
                                                 "tag_name": None,
                                                 "text": None,
                                                 "text_matching": None,
