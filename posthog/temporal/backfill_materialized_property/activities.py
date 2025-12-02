@@ -6,7 +6,7 @@ from typing import Optional
 import structlog
 from temporalio import activity
 
-from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import AlterTableMutationRunner, get_cluster
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.property_definition import PropertyType
@@ -83,22 +83,16 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
     """
     Backfill a materialized column by running ALTER TABLE UPDATE on historical events.
 
+    Runs the mutation on all shards since sharded_events is a sharded table.
+
     Returns the number of rows affected (from ClickHouse mutation info).
     """
     # Generate the SQL expression for extracting the property (uses %(property_name)s placeholder)
     extraction_sql = _generate_property_extraction_sql(inputs.property_type)
 
-    # Build the ALTER TABLE UPDATE query
-    # partition_id is parameterized to prevent injection
+    # Build the UPDATE command (without ALTER TABLE prefix - that's added by the runner)
     partition_clause = "IN PARTITION %(partition_id)s" if inputs.partition_id else ""
-
-    # Note: Using sharded_events table directly (not distributed table)
-    query = f"""
-        ALTER TABLE sharded_events
-        UPDATE {inputs.mat_column_name} = {extraction_sql}
-        {partition_clause}
-        WHERE team_id = %(team_id)s
-    """
+    command = f"UPDATE {inputs.mat_column_name} = {extraction_sql} {partition_clause} WHERE team_id = %(team_id)s"
 
     # Build params dict - property_name is used in extraction_sql placeholder
     params: dict[str, str | int] = {
@@ -118,19 +112,25 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
     )
 
     try:
-        # Execute the ALTER TABLE UPDATE mutation
-        sync_execute(query, params)
+        # Use AlterTableMutationRunner to run on all shards
+        # sharded_events is a sharded table, so we must run on each shard
+        runner = AlterTableMutationRunner(
+            table="sharded_events",
+            commands={command},
+            parameters=params,
+        )
 
-        # Note: ClickHouse mutations are async, so we can't get exact row count immediately
-        # The mutation will complete in the background
+        cluster = get_cluster()
+        runner.run_on_shards(cluster)
+
         logger.info(
-            "Backfill mutation submitted successfully",
+            "Backfill mutation completed on all shards",
             team_id=inputs.team_id,
             property_name=inputs.property_name,
             mat_column_name=inputs.mat_column_name,
         )
 
-        # Return 0 since we don't have row count (mutation is async in ClickHouse)
+        # Return 0 since we don't have row count
         return 0
 
     except Exception as e:
