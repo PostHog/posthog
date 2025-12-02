@@ -659,7 +659,7 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
         ]
 
         if not memberships_to_email:
-            logger.warn("Skipping discussions mentioned email: no valid recipients after filtering")
+            logger.warning("Skipping discussions mentioned email: no valid recipients after filtering")
             return
 
         href = f"{settings.SITE_URL}{slug}"
