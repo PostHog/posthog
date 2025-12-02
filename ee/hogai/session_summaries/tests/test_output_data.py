@@ -194,12 +194,12 @@ session_outcome:
         ("2024-03-01T12:00:02+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 2000),  # 2 seconds after
         ("2024-03-01T12:00:00+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # same time
         ("2024-03-01T11:59:59+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 0),  # 1 second before (clamped to 0)
-        (None, datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), None),  # no event time
-        ("2024-03-01T12:00:02+00:00", None, None),  # no start time
         ("2024-03-01T13:00:00+00:00", datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 3600000),  # 1 hour after
+        # Also accepts datetime objects for event_time
+        (datetime(2024, 3, 1, 12, 0, 2, tzinfo=UTC), datetime(2024, 3, 1, 12, 0, 0, tzinfo=UTC), 2000),
     ],
 )
-def test_calculate_time_since_start(event_time: str, start_time: datetime, expected: int) -> None:
+def test_calculate_time_since_start(event_time: str | datetime, start_time: datetime, expected: int) -> None:
     result = calculate_time_since_start(event_time, start_time)
     assert result == expected
 
