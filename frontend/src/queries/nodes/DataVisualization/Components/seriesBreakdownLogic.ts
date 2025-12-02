@@ -148,11 +148,15 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     }
 
                     return breakdownColumnValues.map<AxisBreakdownSeries<number>>((value) => {
+                        const seriesName = multipleYSeries
+                            ? `${selectedYAxis.name} - ${value || '[No value]'}`
+                            : value || '[No value]'
+
                         // first filter data by breakdown column value
                         const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
                         if (filteredData.length === 0) {
                             return {
-                                name: value,
+                                name: seriesName,
                                 data: [],
                             }
                         }
@@ -196,7 +200,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                         })
 
                         return {
-                            name: (multipleYSeries ? `${selectedYAxis.name} - ${value}` : value) || '[No value]',
+                            name: seriesName,
                             data: dataset,
                             // we copy supported settings over from the selected
                             // y-axis since we don't support setting these on the
