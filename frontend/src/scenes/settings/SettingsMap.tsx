@@ -73,6 +73,7 @@ import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
     Bookmarklet,
     TeamAuthorizedURLs,
+    TeamBusinessModel,
     TeamDisplayName,
     TeamTimezone,
     TeamVariables,
@@ -139,6 +140,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Project ID',
                 component: <TeamVariables />,
             },
+
+            {
+                id: 'date-and-time',
+                title: 'Date & time',
+                component: <TeamTimezone />,
+            },
+            {
+                id: 'business-model',
+                title: 'Business model',
+                component: <TeamBusinessModel />,
+            },
         ],
     },
     {
@@ -204,11 +216,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
-            {
-                id: 'date-and-time',
-                title: 'Date & time',
-                component: <TeamTimezone />,
-            },
             {
                 id: 'base-currency',
                 title: 'Base currency',

@@ -86,6 +86,9 @@ const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
 const MAX_SUPPORTED_INGESTION_LAG_HOURS = 72 // if changing this, you will also need to change the TTLs
 
+// Result type for getSaltForDay which can fail if the date is out of range
+type SaltResult = { success: true; salt: Buffer } | { success: false; reason: 'date_out_of_range' }
+
 interface CookielessConfig {
     disabled: boolean
     forceStatelessMode: boolean
@@ -130,22 +133,22 @@ export class CookielessManager {
         this.cleanupInterval.unref()
     }
 
-    getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<Buffer> {
+    getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<SaltResult> {
         if (!isCalendarDateValid(yyyymmdd)) {
-            throw new Error('Date is out of range')
+            return Promise.resolve({ success: false, reason: 'date_out_of_range' })
         }
 
         // see if we have it locally
         if (this.localSaltMap[yyyymmdd]) {
-            return Promise.resolve(this.localSaltMap[yyyymmdd])
+            return Promise.resolve({ success: true, salt: this.localSaltMap[yyyymmdd] })
         }
 
         // get the salt for the day from redis, but only do this once for this node process
         return this.mutex.run({
-            fn: async (): Promise<Buffer> => {
+            fn: async (): Promise<SaltResult> => {
                 // check if we got the salt while waiting for the mutex
                 if (this.localSaltMap[yyyymmdd]) {
-                    return this.localSaltMap[yyyymmdd]
+                    return { success: true, salt: this.localSaltMap[yyyymmdd] }
                 }
 
                 // try to get it from redis instead
@@ -159,7 +162,7 @@ export class CookielessManager {
                     cookielessCacheHitCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
                     const salt = Buffer.from(saltBase64, 'base64')
                     this.localSaltMap[yyyymmdd] = salt
-                    return salt
+                    return { success: true, salt }
                 }
                 cookielessCacheMissCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
 
@@ -174,7 +177,7 @@ export class CookielessManager {
                 )
                 if (setResult === 'OK') {
                     this.localSaltMap[yyyymmdd] = newSalt
-                    return newSalt
+                    return { success: true, salt: newSalt }
                 }
 
                 // if we couldn't write, it means that it exists in redis already
@@ -191,7 +194,7 @@ export class CookielessManager {
                 const salt = Buffer.from(saltBase64Retry, 'base64')
                 this.localSaltMap[yyyymmdd] = salt
 
-                return salt
+                return { success: true, salt }
             },
             priority: timestampMs,
         })
@@ -241,11 +244,17 @@ export class CookielessManager {
         n?: number
         hashExtra?: string
         hashCache?: Record<string, Buffer>
-    }) {
+    }): Promise<SaltResult> {
         const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestampMs, eventTimeZone, teamTimeZone)
-        const salt = await this.getSaltForDay(yyyymmdd, timestampMs)
+        const saltResult = await this.getSaltForDay(yyyymmdd, timestampMs)
+        if (!saltResult.success) {
+            return saltResult
+        }
         const rootDomain = extractRootDomain(host)
-        return CookielessManager.doHash(salt, teamId, ip, rootDomain, userAgent, n, hashExtra, hashCache)
+        return {
+            success: true,
+            salt: CookielessManager.doHash(saltResult.salt, teamId, ip, rootDomain, userAgent, n, hashExtra, hashCache),
+        }
     }
 
     static doHash(
@@ -424,7 +433,7 @@ export class CookielessManager {
                 continue
             }
 
-            const baseHash = await this.doHashForDay({
+            const baseHashResult = await this.doHashForDay({
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone: team.timezone,
@@ -435,6 +444,24 @@ export class CookielessManager {
                 hashExtra,
                 hashCache,
             })
+
+            if (!baseHashResult.success) {
+                results[i] = drop(
+                    'cookieless_timestamp_out_of_range',
+                    [],
+                    [
+                        {
+                            type: 'cookieless_timestamp_out_of_range',
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                        },
+                    ]
+                )
+                continue
+            }
 
             eventsWithStatus.push({
                 event,
@@ -449,7 +476,7 @@ export class CookielessManager {
                     ip,
                     host,
                     hashExtra,
-                    baseHash,
+                    baseHash: baseHashResult.salt,
                 },
             })
         }
@@ -510,7 +537,7 @@ export class CookielessManager {
         // Do a third pass to set the distinct and device ID, and find the `sessionRedisKey`s we need to load from redis
         const sessionKeys = new Set<string>()
         for (const eventWithProcessing of eventsWithStatus) {
-            const { event, team, firstPass } = eventWithProcessing
+            const { event, team, firstPass, originalIndex } = eventWithProcessing
             if (!firstPass?.secondPass) {
                 continue
             }
@@ -534,7 +561,7 @@ export class CookielessManager {
                 n = identifiesCacheItem.identifyEventIds.size - 1
             }
 
-            const hashValue = await this.doHashForDay({
+            const hashValueResult = await this.doHashForDay({
                 timestampMs,
                 eventTimeZone,
                 teamTimeZone: team.timezone,
@@ -545,8 +572,14 @@ export class CookielessManager {
                 hashExtra,
                 n,
             })
-            const distinctId = hashToDistinctId(hashValue)
-            const sessionRedisKey = getRedisSessionsKey(hashValue, team.id)
+            // This should not fail since we already validated the timestamp in the first pass,
+            // but if it does, DLQ the event rather than failing the entire batch
+            if (!hashValueResult.success) {
+                results[originalIndex] = dlq('cookieless_unexpected_date_validation_failure')
+                continue
+            }
+            const distinctId = hashToDistinctId(hashValueResult.salt)
+            const sessionRedisKey = getRedisSessionsKey(hashValueResult.salt, team.id)
             sessionKeys.add(sessionRedisKey)
             secondPass.thirdPass = {
                 distinctId,

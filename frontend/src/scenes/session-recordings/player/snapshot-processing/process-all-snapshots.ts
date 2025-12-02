@@ -259,20 +259,20 @@ function processSnapshot(
     const windowId = snapshot.windowId
     const hasSeenFullForWindow = !!context.seenFullByWindow[windowId]
 
-    if (
-        snapshot.type === EventType.IncrementalSnapshot &&
-        !hasSeenFullForWindow &&
-        isLikelyMobileScreenshot(snapshot)
-    ) {
+    if (snapshot.type === EventType.IncrementalSnapshot && isLikelyMobileScreenshot(snapshot)) {
         const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
         const imgNode = extractImgNodeFromMobileIncremental(snapshot)
         const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp, imgNode)
-        const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
+
+        // Only patch meta if we haven't seen a full snapshot for this window yet
+        if (!hasSeenFullForWindow) {
+            const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
+            context.hasSeenMeta = context.hasSeenMeta || metaInserted
+            context.seenFullByWindow[windowId] = true
+        }
 
         context.result.push(syntheticFull)
         context.sourceResult.push(syntheticFull)
-        context.seenFullByWindow[windowId] = true
-        context.hasSeenMeta = context.hasSeenMeta || metaInserted
     }
 
     if (snapshot.type === EventType.FullSnapshot) {

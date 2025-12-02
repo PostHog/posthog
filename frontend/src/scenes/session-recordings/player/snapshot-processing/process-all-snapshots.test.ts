@@ -765,7 +765,7 @@ describe('process all snapshots', () => {
             expect(fullSnapshot?.timestamp).toBe(1999)
         })
 
-        it('handles multiple mobile events correctly (only first gets synthetic)', async () => {
+        it('handles multiple mobile screenshot events (each gets synthetic full)', async () => {
             const sessionId = 'test-mobile-session'
 
             const snapshotJson = JSON.stringify({
@@ -802,8 +802,9 @@ describe('process all snapshots', () => {
             )
 
             const fullSnapshots = results.filter((r) => r.type === 2)
-            expect(fullSnapshots).toHaveLength(1)
+            expect(fullSnapshots).toHaveLength(2)
             expect(fullSnapshots[0].timestamp).toBe(999)
+            expect(fullSnapshots[1].timestamp).toBe(1999)
 
             const incrementalSnapshots = results.filter((r) => r.type === 3)
             expect(incrementalSnapshots).toHaveLength(2)

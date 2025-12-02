@@ -44,7 +44,7 @@ const BillingUpgradeCTAWrapper: React.FC<{ platformAndSupportProduct: BillingPro
 
 export function CouponRedemption({ campaign, config, requiresBilling = true }: CouponRedemptionProps): JSX.Element {
     const logic = couponLogic({ campaign })
-    const { claimed, claimedDetails, isAdminOrOwner } = useValues(logic)
+    const { claimed, claimedDetails, isAdminOrOwner, isCouponSubmitting } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
 
     const platformAndSupportProduct = billing?.products?.find(
@@ -199,7 +199,13 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                                     <LemonInput placeholder="XXX-XXXXXXXXXXX" />
                                 </LemonField>
 
-                                <LemonButton type="primary" htmlType="submit" className="mt-4">
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    className="mt-4"
+                                    loading={isCouponSubmitting}
+                                    disabledReason={isCouponSubmitting ? 'Redeeming coupon...' : undefined}
+                                >
                                     Redeem coupon
                                 </LemonButton>
 

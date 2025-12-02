@@ -35,8 +35,6 @@ import { PlayerMetaBreakpoints } from './PlayerMeta'
 
 function PinToPlaylistButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
-    const nodeLogic = useNotebookNode()
 
     const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
     const description = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
@@ -45,11 +43,6 @@ function PinToPlaylistButton(): JSX.Element {
         <LemonButton
             size="xsmall"
             onClick={() => {
-                if (nodeLogic) {
-                    // If we are in a node, then pinning should persist that recording
-                    maybePersistRecording()
-                }
-
                 logicProps.setPinned?.(true)
             }}
             tooltip={tooltip}

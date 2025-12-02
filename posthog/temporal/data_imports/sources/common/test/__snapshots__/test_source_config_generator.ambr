@@ -70,6 +70,7 @@
           ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
           ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
           ExternalDataSourceType.STRIPE: StripeSourceConfig,
+          ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
           ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
           ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
           ExternalDataSourceType.VITALLY: VitallySourceConfig,
