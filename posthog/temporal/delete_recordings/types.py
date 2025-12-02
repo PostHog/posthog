@@ -19,11 +19,17 @@ class RecordingsWithPersonInput(BaseModel):
     batch_size: int = 100
 
 
+class RecordingsWithTeamInput(BaseModel):
+    team_id: int
+    batch_size: int = 100
+
+
 class RecordingsWithQueryInput(BaseModel):
     query: str
     team_id: int
     dry_run: bool = False
     batch_size: int = 100
+    query_limit: int = 100
 
 
 class RecordingBlockGroup(BaseModel):
