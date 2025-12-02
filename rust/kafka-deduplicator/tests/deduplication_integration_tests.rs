@@ -237,7 +237,7 @@ async fn consume_output_messages(
     Ok(messages)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_basic_deduplication() -> Result<()> {
     println!("Starting test_basic_deduplication");
 
@@ -467,7 +467,7 @@ async fn test_basic_deduplication() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_deduplication_with_different_events() -> Result<()> {
     let _guard = KAFKA_TEST_MUTEX
         .get_or_init(|| TokioMutex::new(()))
