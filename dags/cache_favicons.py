@@ -1,4 +1,3 @@
-import asyncio
 from typing import Optional
 
 from django.conf import settings
@@ -13,7 +12,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 logger = dagster.get_dagster_logger()
 
 
-async def download_favicon(domain: str, client: httpx.AsyncClient) -> tuple[str, Optional[bytes], Optional[str]]:
+def download_favicon(domain: str, client: httpx.Client) -> tuple[str, Optional[bytes], Optional[str]]:
     logger.info(f"Attempting to download favicon for domain '{domain}'")
     urls = [
         f"https://www.google.com/s2/favicons?sz=32&domain=https://{domain}",
@@ -22,7 +21,7 @@ async def download_favicon(domain: str, client: httpx.AsyncClient) -> tuple[str,
 
     for url in urls:
         try:
-            resp = await client.get(url, timeout=10)
+            resp = client.get(url, timeout=10)
             if resp.status_code == 200 and resp.content:
                 logger.info(f"Found favicon for {domain} at {url}")
                 return domain, resp.content, resp.headers.get("content-type")
@@ -33,21 +32,12 @@ async def download_favicon(domain: str, client: httpx.AsyncClient) -> tuple[str,
     return domain, None, None
 
 
-async def batch_download(domains, concurrency=20):
-    sem = asyncio.Semaphore(concurrency)
-    async with httpx.AsyncClient() as client:
-
-        async def worker(domain):
-            async with sem:
-                return await download_favicon(domain, client)
-
-        return await asyncio.gather(*(worker(domain) for domain in domains))
-
-
 def upload_if_missing(s3_client, bucket, key, data, content_type):
     # Ignore uploading if the favicon already exists in our cache
+    logger.info(f"Attempting to cache {key}")
     try:
         s3_client.head_object(Bucket=bucket, Key=key)
+        logger.info("Favicon already cached, skipping upload.")
         return key
     except s3_client.exceptions.ClientError:
         pass
@@ -58,11 +48,13 @@ def upload_if_missing(s3_client, bucket, key, data, content_type):
         Body=data,
         ContentType=content_type,
     )
+
+    logger.info(f"Favicon successfully cached.")
     return key
 
 
 @dagster.asset
-async def cache_favicons(s3: S3Resource, cluster: dagster.ResourceParam[ClickhouseCluster]):
+def cache_favicons(s3: S3Resource, cluster: dagster.ResourceParam[ClickhouseCluster]):
     top_referrer_query = """
         SELECT cutToFirstSignificantSubdomainWithWWW(JSONExtractString(properties, '$referrer')) AS referrer
         FROM events
@@ -80,22 +72,22 @@ async def cache_favicons(s3: S3Resource, cluster: dagster.ResourceParam[Clickhou
     domains = [result["referrer"] for result in results]
     logger.info(f"Found {len(domains)} results.")
 
-    items = await batch_download(domains, concurrency=25)
-
     s3_client = s3.get_client()
 
     uploaded = []
-    for domain, data, content_type in items:
-        if data is None:
-            continue
-        key = f"/favicons/{domain}.png"
-        upload_if_missing(
-            s3_client,
-            settings.DAGSTER_FAVICONS_S3_BUCKET,
-            key,
-            data,
-            content_type,
-        )
-        uploaded.append(key)
+    with httpx.Client() as client:
+        for domain in domains:
+            domain, data, content_type = download_favicon(domain, client)
+            if data is None:
+                continue
+            key = f"/favicons/{domain}.png"
+            upload_if_missing(
+                s3_client,
+                settings.DAGSTER_FAVICONS_S3_BUCKET,
+                key,
+                data,
+                content_type,
+            )
+            uploaded.append(key)
 
     return uploaded
