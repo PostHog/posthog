@@ -83,8 +83,8 @@ def get_table_name(entity: EntityNode):
 
 
 # collect all field and alias names from a select expression list, to return a list of aliases
-def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[ast.Alias]:
-    result: list[ast.Alias] = []
+def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[ast.Expr]:
+    result: list[ast.Expr] = []
     for col in columns:
         if isinstance(col, ast.Alias):
             result.append(ast.Alias(alias=col.alias, expr=ast.Field(chain=[table_alias, col.alias])))
@@ -238,7 +238,7 @@ class FunnelEventQuery:
                 event_steps = cast(Sequence[tuple[int, EventsNode | ActionsNode]], steps)
                 queries.append(_build_events_table_query(table_name, event_steps))
             else:
-                dwh_steps = cast(Sequence[tuple[int, EventsNode | ActionsNode]], steps)
+                dwh_steps = cast(Sequence[tuple[int, DataWarehouseNode]], steps)
                 queries.append(_build_data_warehouse_table_query(table_name, dwh_steps))
 
         if len(queries) == 1:
@@ -456,6 +456,7 @@ class FunnelEventQuery:
     ) -> list[ast.Expr]:
         def _expr_for(field: str) -> ast.Expr:
             if is_data_warehouse_source(source_kind):
+                assert isinstance(node, DataWarehouseNode)
                 if field == "uuid":
                     return ast.Alias(
                         alias="uuid",

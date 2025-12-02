@@ -105,7 +105,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         funnel_event_query = FunnelEventQuery(context=context).to_query()
 
-        select_1 = format_query(funnel_event_query.select_from.table.initial_select_query)
+        select_1 = format_query(funnel_event_query.select_from.table.initial_select_query)  # type: ignore
         expected_1 = dedent("""
             SELECT e.timestamp AS timestamp,
                    person_id AS aggregation_target,
@@ -118,7 +118,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select_1, expected_1)
 
-        select_2 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[0].select_query)
+        select_2 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[0].select_query)  # type: ignore
         expected_2 = dedent("""
             SELECT e.created_at AS timestamp,
                    toUUID(e.user_id) AS aggregation_target,
@@ -131,7 +131,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select_2, expected_2)
 
-        select_3 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[1].select_query)
+        select_3 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[1].select_query)  # type: ignore
         expected_3 = dedent("""
             SELECT e.ts AS timestamp,
                    toUUID(e.some_user_id) AS aggregation_target,

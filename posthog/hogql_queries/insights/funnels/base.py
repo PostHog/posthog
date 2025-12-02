@@ -247,11 +247,11 @@ class FunnelBase(ABC):
         sampling_factor: Optional[float] = None,
     ) -> dict[str, Any]:
         if isinstance(step, EventsNode):
-            type = "events"
+            step_type = "events"
         elif isinstance(step, ActionsNode):
-            type = "actions"
+            step_type = "actions"
         elif isinstance(step, DataWarehouseNode):
-            type = "data_warehouse"
+            step_type = "data_warehouse"
         else:
             raise TypeError(f"Unsupported step type {type(step)}")
 
@@ -263,7 +263,7 @@ class FunnelBase(ABC):
                 "order": index,
                 "people": people if people else [],
                 "count": correct_result_for_sampling(count, sampling_factor),
-                "type": type,
+                "type": step_type,
             }
 
         action_id: Optional[str | int]
@@ -285,7 +285,7 @@ class FunnelBase(ABC):
             "order": index,
             "people": people if people else [],
             "count": correct_result_for_sampling(count, sampling_factor),
-            "type": type,
+            "type": step_type,
         }
 
     @property
