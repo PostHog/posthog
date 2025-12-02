@@ -355,6 +355,20 @@ class _SessionSearch:
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
 
+    def _validate_specific_session_ids(self, session_ids: list[str]) -> list[str] | None:
+        """Validate that specific session IDs exist in the database."""
+        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+        replay_events = SessionReplayEvents()
+        sessions_found, _, _ = replay_events.sessions_found_with_timestamps(
+            session_ids=session_ids,
+            team=self._node._team,
+        )
+        if not sessions_found:
+            return None
+        # Preserve the original order, filtering out invalid sessions
+        return [sid for sid in session_ids if sid in sessions_found]
+
     async def _generate_filter_query(self, plain_text_query: str, config: RunnableConfig) -> str:
         """Generate a filter query for the user's summarization query to keep the search context clear"""
         messages = [
@@ -408,8 +422,13 @@ class _SessionSearch:
                 return self._node._create_error_response(self._node._base_error_instructions, state)
             # Use specific session IDs, if provided
             if state.specific_session_ids_to_summarize:
-                # Return session ids right away to use in the next step
-                return state.specific_session_ids_to_summarize
+                # Validate that sessions exist before using them
+                valid_session_ids = await database_sync_to_async(
+                    self._validate_specific_session_ids, thread_sensitive=False
+                )(state.specific_session_ids_to_summarize)
+                if not valid_session_ids:
+                    return None
+                return valid_session_ids
             # Use current filters, if provided
             if state.should_use_current_filters:
                 if not current_filters:

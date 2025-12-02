@@ -192,3 +192,33 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestSessionSummarizationNodeFilterGeneration.test_validate_specific_session_ids_all_invalid_returns_none
+  '''
+  
+  SELECT session_id,
+         min(min_first_timestamp) as min_timestamp,
+         max(max_last_timestamp) as max_timestamp,
+         max(retention_period_days) as retention_period_days,
+         dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 21)) as expiry_time
+  FROM session_replay_events PREWHERE team_id = 99999
+  AND session_id IN ['nonexistent-session-1', 'nonexistent-session-2']
+  AND min_first_timestamp <= '2025-09-03 12:00:00'
+  GROUP BY session_id
+  HAVING expiry_time >= '2025-09-03 12:00:00'
+  '''
+# ---
+# name: TestSessionSummarizationNodeFilterGeneration.test_validate_specific_session_ids_filters_invalid
+  '''
+  
+  SELECT session_id,
+         min(min_first_timestamp) as min_timestamp,
+         max(max_last_timestamp) as max_timestamp,
+         max(retention_period_days) as retention_period_days,
+         dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 21)) as expiry_time
+  FROM session_replay_events PREWHERE team_id = 99999
+  AND session_id IN ['01990f72-b600-7fa3-9a77-341582154177', '01990f72-b600-76df-a71a-f8d777d51361', 'nonexistent-session-1', 'nonexistent-session-2']
+  AND min_first_timestamp <= '2025-09-03 12:00:00'
+  GROUP BY session_id
+  HAVING expiry_time >= '2025-09-03 12:00:00'
+  '''
+# ---
