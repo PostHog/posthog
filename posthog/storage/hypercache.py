@@ -276,11 +276,12 @@ class HyperCache:
             timeout = ttl if ttl is not None else self.cache_ttl
             # Use sort_keys for deterministic serialization (consistent ETags)
             json_data = json.dumps(data, sort_keys=True)
-            self.cache_client.set(cache_key, json_data, timeout=timeout)
             if self.enable_etag:
                 etag = self._compute_etag(json_data)
-                self.cache_client.set(etag_key, etag, timeout=timeout)
+                # Write data and ETag in single Redis round trip
+                self.cache_client.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout)
             else:
+                self.cache_client.set(cache_key, json_data, timeout=timeout)
                 # Clean up stale ETag if ETags were previously enabled
                 self.cache_client.delete(etag_key)
 
