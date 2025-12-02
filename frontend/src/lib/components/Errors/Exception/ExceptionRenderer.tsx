@@ -16,7 +16,7 @@ export type ExceptionRendererProps = {
     frameFilter?: (frame: ErrorTrackingStackFrame) => boolean
     renderExceptionHeader: (exception: ErrorTrackingException) => React.ReactNode
 
-    renderEmptyTrace: (exception: ErrorTrackingException, knownException?: KnownException) => React.ReactNode
+    renderUndefinedTrace: (exception: ErrorTrackingException, knownException?: KnownException) => React.ReactNode
     renderResolvedTrace: StackTraceRenderer
     renderFilteredTrace: (exception: ErrorTrackingException, knownException?: KnownException) => React.ReactNode
 }
@@ -26,7 +26,7 @@ export function ExceptionRenderer({
     exception,
     frameFilter,
     renderExceptionHeader,
-    renderEmptyTrace,
+    renderUndefinedTrace,
     renderResolvedTrace,
     renderFilteredTrace,
 }: ExceptionRendererProps): JSX.Element {
@@ -38,7 +38,7 @@ export function ExceptionRenderer({
                 {match(exception.stacktrace)
                     .when(
                         (stack) => stack === null || stack === undefined || stack.frames.length === 0,
-                        () => renderEmptyTrace(exception, knownException)
+                        () => renderUndefinedTrace(exception, knownException)
                     )
                     .when(
                         (stack) => stack!.type === 'resolved',

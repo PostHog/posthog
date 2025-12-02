@@ -27,14 +27,15 @@ export function RawExceptionList({
         <div className={cn('flex flex-col gap-y-2', className)}>
             <ExceptionListRenderer
                 exceptionList={exceptionList}
-                renderException={(exception) => {
+                renderException={(exception, index) => {
                     return (
                         <ExceptionRenderer
                             exception={exception}
                             frameFilter={createFrameFilter(showAllFrames)}
                             renderExceptionHeader={(exception) => <RawExceptionHeader exception={exception} />}
                             renderFilteredTrace={() => {
-                                if (!showAllFrames) {
+                                if (!showAllFrames && index == 0) {
+                                    // Always show frames on the first exception
                                     setShowAllFrames(true)
                                 }
                                 return null
@@ -46,7 +47,7 @@ export function RawExceptionList({
                                     renderFrame={(frame, record) => <RawFrame frame={frame} record={record} />}
                                 />
                             )}
-                            renderEmptyTrace={(exception, known) => (
+                            renderUndefinedTrace={(exception, known) => (
                                 <EmptyStackTrace exception={exception} knownException={known} />
                             )}
                         />

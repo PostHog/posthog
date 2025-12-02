@@ -5,7 +5,7 @@ import { ErrorTrackingExceptionList } from '../types'
 type ExceptionListRendererProps = {
     className?: string
     exceptionList: ErrorTrackingExceptionList
-    renderException: (exception: ErrorTrackingExceptionList[number]) => React.ReactNode
+    renderException: (exception: ErrorTrackingExceptionList[number], index: number) => React.ReactNode
 }
 
 export function ExceptionListRenderer({
@@ -15,8 +15,8 @@ export function ExceptionListRenderer({
 }: ExceptionListRendererProps): JSX.Element {
     return (
         <div className={cn('space-y-2', className)}>
-            {exceptionList.map((exception) => (
-                <div key={exception.id}>{renderException(exception)}</div>
+            {exceptionList.map((exception, index) => (
+                <div key={exception.id}>{renderException(exception, index)}</div>
             ))}
         </div>
     )

@@ -40,7 +40,7 @@ export function CollapsibleExceptionList({
         <div className={cn('flex flex-col gap-y-2', className)}>
             <ExceptionListRenderer
                 exceptionList={exceptionList}
-                renderException={(exception) => {
+                renderException={(exception, index) => {
                     const part = getExceptionFingerprint(exception.id)
                     return (
                         <ExceptionRenderer
@@ -55,7 +55,8 @@ export function CollapsibleExceptionList({
                                 />
                             )}
                             renderFilteredTrace={() => {
-                                if (!showAllFrames) {
+                                if (!showAllFrames && index == 0) {
+                                    // Always show frames on the first exception
                                     setShowAllFrames(true)
                                 }
                                 return null
@@ -74,7 +75,7 @@ export function CollapsibleExceptionList({
                                     )}
                                 />
                             )}
-                            renderEmptyTrace={(exception, known) => (
+                            renderUndefinedTrace={(exception, known) => (
                                 <EmptyStackTrace exception={exception} knownException={known} />
                             )}
                         />
