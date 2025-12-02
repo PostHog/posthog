@@ -1395,13 +1395,38 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
-    // Conversations
+    // Conversations (Max AI)
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
     }
 
     public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
+    }
+
+    // Conversations (Support product)
+    public conversationsTickets(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('conversations').addPathComponent('tickets')
+    }
+
+    public conversationsTicket(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.conversationsTickets(teamId).addPathComponent(id)
+    }
+
+    public conversationsContent(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('conversations').addPathComponent('content')
+    }
+
+    public conversationsContentArticle(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.conversationsContent(teamId).addPathComponent(id)
+    }
+
+    public conversationsGuidance(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('conversations').addPathComponent('guidance')
+    }
+
+    public conversationsGuidanceRule(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.conversationsGuidance(teamId).addPathComponent(id)
     }
 
     // Notebooks
@@ -4656,6 +4681,135 @@ const api = {
 
         async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
+        },
+    },
+
+    conversationsTickets: {
+        async list(
+            params: {
+                status?: string
+                distinct_id?: string
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<any>> {
+            return await new ApiRequest().conversationsTickets().withQueryString(params).get()
+        },
+
+        async get(ticketId: string): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).get()
+        },
+
+        async create(data: {
+            distinct_id: string
+            anonymous_traits?: Record<string, any>
+            channel_source?: string
+        }): Promise<any> {
+            return await new ApiRequest().conversationsTickets().create({ data })
+        },
+
+        async update(
+            ticketId: string,
+            data: Partial<{
+                status: string
+                escalation_reason: string
+            }>
+        ): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).update({ data })
+        },
+
+        async delete(ticketId: string): Promise<void> {
+            return await new ApiRequest().conversationsTicket(ticketId).delete()
+        },
+    },
+
+    conversationsContent: {
+        async list(
+            params: {
+                is_enabled?: boolean
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<any>> {
+            return await new ApiRequest().conversationsContent().withQueryString(params).get()
+        },
+
+        async get(articleId: string): Promise<any> {
+            return await new ApiRequest().conversationsContentArticle(articleId).get()
+        },
+
+        async create(data: {
+            title: string
+            body: string
+            is_enabled?: boolean
+            channels?: string[]
+            embeddings?: any
+        }): Promise<any> {
+            return await new ApiRequest().conversationsContent().create({ data })
+        },
+
+        async update(
+            articleId: string,
+            data: Partial<{
+                title: string
+                body: string
+                is_enabled: boolean
+                channels: string[]
+                embeddings: any
+            }>
+        ): Promise<any> {
+            return await new ApiRequest().conversationsContentArticle(articleId).update({ data })
+        },
+
+        async delete(articleId: string): Promise<void> {
+            return await new ApiRequest().conversationsContentArticle(articleId).delete()
+        },
+    },
+
+    conversationsGuidance: {
+        async list(
+            params: {
+                is_active?: boolean
+                rule_type?: string
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<any>> {
+            return await new ApiRequest().conversationsGuidance().withQueryString(params).get()
+        },
+
+        async get(ruleId: string): Promise<any> {
+            return await new ApiRequest().conversationsGuidanceRule(ruleId).get()
+        },
+
+        async create(data: {
+            rule_type: string
+            name: string
+            content: string
+            is_active?: boolean
+            channels?: string[]
+        }): Promise<any> {
+            return await new ApiRequest().conversationsGuidance().create({ data })
+        },
+
+        async update(
+            ruleId: string,
+            data: Partial<{
+                rule_type: string
+                name: string
+                content: string
+                is_active: boolean
+                channels: string[]
+            }>
+        ): Promise<any> {
+            return await new ApiRequest().conversationsGuidanceRule(ruleId).update({ data })
+        },
+
+        async delete(ruleId: string): Promise<void> {
+            return await new ApiRequest().conversationsGuidanceRule(ruleId).delete()
         },
     },
 

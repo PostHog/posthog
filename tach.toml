@@ -136,6 +136,13 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.conversations"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.dashboards"
 depends_on = [
     "ee",
