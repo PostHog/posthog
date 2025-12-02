@@ -19,6 +19,7 @@ from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantMessage,
+    AssistantToolCallMessage,
     AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
@@ -36,7 +37,7 @@ from posthog.utils import get_instance_region
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_PROVIDER_ERROR_COUNTER, GenerationCanceled
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
-from ee.hogai.utils.helpers import extract_stream_update
+from ee.hogai.utils.helpers import extract_stream_update, find_last_message_of_type
 from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
@@ -62,7 +63,7 @@ class BaseAgentRunner(ABC):
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _session_id: Optional[str]
-    _latest_message: Optional[HumanMessage]
+    _latest_message: Optional[HumanMessage | AssistantToolCallMessage]
     _state: Optional[AssistantMaxGraphState]
     _callback_handlers: list[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
@@ -218,6 +219,8 @@ class BaseAgentRunner(ABC):
                     interrupt_messages = []
                     for task in state.tasks:
                         for interrupt in task.interrupts:
+                            if interrupt.value is None:
+                                continue  # Skip None interrupts (used by create_form)
                             interrupt_message = (
                                 AssistantMessage(content=interrupt.value, id=str(uuid4()))
                                 if isinstance(interrupt.value, str)
@@ -308,6 +311,10 @@ class BaseAgentRunner(ABC):
         snapshot = await self._graph.aget_state(config)
         saved_state = validate_state_update(snapshot.values, self._state_type)
         last_recorded_dt = saved_state.start_dt
+
+        # When resuming after a create_form interrupt, create the tool call response message
+        if form_response_message := self._get_form_response_message(saved_state):
+            self._latest_message = form_response_message
 
         # Add existing ids to streamed messages, so we don't send the messages again.
         for message in saved_state.messages:
@@ -405,4 +412,42 @@ class BaseAgentRunner(ABC):
                 "tag": "max_ai",
                 "$groups": event_usage.groups(team=self._team),
             },
+        )
+
+    def _get_form_response_message(self, saved_state: AssistantMaxGraphState) -> AssistantToolCallMessage | None:
+        """
+        When resuming after a create_form tool call (which raises NodeInterrupt(None)),
+        create an AssistantToolCallMessage with the user's response content and parsed answers in ui_payload.
+        """
+        if not saved_state.messages or not self._latest_message:
+            return None
+
+        # Form responses must come from a HumanMessage
+        if not isinstance(self._latest_message, HumanMessage):
+            return None
+
+        # Check if we have form answers in the ui_context
+        if not self._latest_message.ui_context or not self._latest_message.ui_context.form_answers:
+            return None
+
+        # Find the last assistant message with tool calls
+        last_assistant_message = find_last_message_of_type(saved_state.messages, AssistantMessage)
+        if not last_assistant_message or not last_assistant_message.tool_calls:
+            return None
+
+        # Find the create_form tool call
+        create_form_tool_call = next(
+            (tc for tc in last_assistant_message.tool_calls if tc.name == "create_form"),
+            None,
+        )
+        if not create_form_tool_call:
+            return None
+
+        answers = self._latest_message.ui_context.form_answers
+
+        return AssistantToolCallMessage(
+            content=self._latest_message.content or "",
+            id=str(uuid4()),
+            tool_call_id=create_form_tool_call.id,
+            ui_payload={"create_form": {"answers": answers}},
         )
