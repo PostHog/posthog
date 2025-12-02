@@ -18,7 +18,6 @@ import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consume
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
-import { CdpPersonPropertyEventsConsumer } from './cdp/consumers/cdp-person-property-events.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { defaultConfig } from './config/config'
 import {
@@ -276,14 +275,6 @@ export class PluginServer {
             if (capabilities.cdpBehaviouralEvents) {
                 serviceLoaders.push(async () => {
                     const worker = new CdpBehaviouralEventsConsumer(hub)
-                    await worker.start()
-                    return worker.service
-                })
-            }
-
-            if (capabilities.cdpPersonPropertyEvents) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpPersonPropertyEventsConsumer(hub)
                     await worker.start()
                     return worker.service
                 })

@@ -7,12 +7,17 @@ import {
     RealtimeSupportedFilterManagerCDP,
 } from '~/utils/realtime-supported-filter-manager-cdp'
 
-import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import {
+    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
+    KAFKA_EVENTS_JSON,
+} from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogFunctionFilterGlobals } from '../types'
+import { ProducedPersonPropertiesEvent } from '../types-person-properties'
 import { execHog } from '../utils/hog-exec'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -41,17 +46,20 @@ export const histogramBatchProcessingSteps = new Histogram({
 
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
-    private kafkaConsumer: KafkaConsumer
+    private eventKafkaConsumer: KafkaConsumer
     private realtimeSupportedFilterManager: RealtimeSupportedFilterManagerCDP
 
-    constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
+    constructor(hub: Hub) {
         super(hub)
-        this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
+        this.eventKafkaConsumer = new KafkaConsumer({
+            groupId: 'cdp-behavioural-events-consumer',
+            topic: KAFKA_EVENTS_JSON,
+        })
         this.realtimeSupportedFilterManager = new RealtimeSupportedFilterManagerCDP(hub.db.postgres)
     }
 
-    @instrumented('cdpBehaviouralEventsConsumer.publishEvents')
-    private async publishEvents(events: ProducedEvent[]): Promise<void> {
+    @instrumented('cdpBehaviouralEventsConsumer.publishBehavioralEvents')
+    private async publishBehavioralEvents(events: ProducedEvent[]): Promise<void> {
         if (!this.kafkaProducer || events.length === 0) {
             return
         }
@@ -64,15 +72,40 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
             await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS, messages })
         } catch (error) {
-            logger.error('Error publishing events', {
+            logger.error('Error publishing behavioral events', {
                 error,
                 queueLength: events.length,
             })
-            // Don't clear queue on error - messages will be retried with next batch
+            throw error
         }
     }
 
-    // Evaluate if event matches realtime supported filter using bytecode execution
+    @instrumented('cdpBehaviouralEventsConsumer.publishPersonPropertyEvents')
+    private async publishPersonPropertyEvents(events: ProducedPersonPropertiesEvent[]): Promise<void> {
+        if (!this.kafkaProducer || events.length === 0) {
+            return
+        }
+
+        try {
+            const messages = events.map((event) => ({
+                value: JSON.stringify(event.payload),
+                key: event.key,
+            }))
+
+            await this.kafkaProducer.queueMessages({
+                topic: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                messages,
+            })
+        } catch (error) {
+            logger.error('Error publishing person property events', {
+                error,
+                queueLength: events.length,
+            })
+            throw error
+        }
+    }
+
+    // Evaluate if event matches behavioral filter using bytecode execution
     private async evaluateEventAgainstRealtimeSupportedFilter(
         filterGlobals: HogFunctionFilterGlobals,
         filter: RealtimeSupportedFilter
@@ -88,7 +121,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
             return execResult?.result ?? false
         } catch (error) {
-            logger.error('Error executing realtime supported filter bytecode', {
+            logger.error('Error executing behavioral filter bytecode', {
                 conditionHash: filter.conditionHash,
                 cohortId: filter.cohort_id,
                 error,
@@ -97,11 +130,42 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
     }
 
-    // This consumer always parses from kafka and creates events directly
+    // Evaluate person properties against filter using bytecode execution
+    // Used for person_properties field from events
+    private async evaluatePersonPropertiesAgainstFilter(
+        personGlobals: { person: { id?: string; properties: any }; project: { id: number } },
+        filter: RealtimeSupportedFilter
+    ): Promise<boolean> {
+        if (!filter.bytecode) {
+            return false
+        }
+
+        try {
+            const { execResult } = await execHog(filter.bytecode, {
+                globals: personGlobals,
+            })
+
+            return execResult?.result ?? false
+        } catch (error) {
+            logger.error('Error executing person property filter bytecode', {
+                conditionHash: filter.conditionHash,
+                cohortId: filter.cohort_id,
+                personId: personGlobals.person.id,
+                error,
+            })
+            return false
+        }
+    }
+
+    // This consumer parses events from kafka and evaluates both behavioral and person property filters
     @instrumented('cdpBehaviouralEventsConsumer.handleEachBatch.parseKafkaMessages')
-    public async _parseKafkaBatch(messages: Message[]): Promise<ProducedEvent[]> {
+    public async _parseKafkaBatch(messages: Message[]): Promise<{
+        behavioralEvents: ProducedEvent[]
+        personPropertyEvents: ProducedPersonPropertiesEvent[]
+    }> {
         return await this.runWithHeartbeat(async () => {
-            const events: ProducedEvent[] = []
+            const behavioralEvents: ProducedEvent[] = []
+            const personPropertyEvents: ProducedPersonPropertiesEvent[] = []
 
             // Step 1: Parse all messages and group by team_id
             const eventsByTeam = new Map<number, RawClickHouseEvent[]>()
@@ -138,11 +202,12 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 try {
                     const allFilters = filtersByTeam[String(teamId)] || []
 
-                    // Only process behavioral filters (event-based)
-                    const filters = allFilters.filter((f) => f.filter_type === 'behavioral')
+                    // Split filters by type
+                    const behavioralFilters = allFilters.filter((f) => f.filter_type === 'behavioral')
+                    const personPropertyFilters = allFilters.filter((f) => f.filter_type === 'person_property')
 
-                    if (filters.length === 0) {
-                        // Skip teams with no behavioral filters
+                    if (behavioralFilters.length === 0 && personPropertyFilters.length === 0) {
+                        // Skip teams with no filters
                         continue
                     }
 
@@ -158,8 +223,8 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                         // Convert to filter globals for filter evaluation
                         const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
 
-                        // Evaluate event against each realtime supported filter for this team
-                        for (const filter of filters) {
+                        // Evaluate behavioral filters
+                        for (const filter of behavioralFilters) {
                             const matches = await this.evaluateEventAgainstRealtimeSupportedFilter(
                                 filterGlobals,
                                 filter
@@ -167,9 +232,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
                             // Only publish if event matches the filter (don't publish non-matches)
                             if (matches) {
-                                // Use the filter's conditionHash as the condition identifier
-                                // This ensures consistent condition hashes across cohorts
-
                                 const preCalculatedEvent: ProducedEvent = {
                                     key: filterGlobals.distinct_id,
                                     payload: {
@@ -183,7 +245,42 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                                     },
                                 }
 
-                                events.push(preCalculatedEvent)
+                                behavioralEvents.push(preCalculatedEvent)
+                            }
+                        }
+
+                        // Evaluate person property filters using person_properties from the event
+                        if (personPropertyFilters.length > 0 && clickHouseEvent.person_properties) {
+                            const personProperties = parseJSON(clickHouseEvent.person_properties)
+
+                            const personGlobals = {
+                                person: {
+                                    id: clickHouseEvent.person_id,
+                                    properties: personProperties,
+                                },
+                                project: {
+                                    id: clickHouseEvent.team_id,
+                                },
+                            }
+
+                            for (const filter of personPropertyFilters) {
+                                const matches = await this.evaluatePersonPropertiesAgainstFilter(personGlobals, filter)
+
+                                // CRITICAL: Always emit - both matches AND non-matches
+                                // Person properties are mutable state, need to track changes
+                                const personPropertyEvent: ProducedPersonPropertiesEvent = {
+                                    key: clickHouseEvent.person_id!,
+                                    payload: {
+                                        person_id: clickHouseEvent.person_id!,
+                                        team_id: clickHouseEvent.team_id,
+                                        evaluation_timestamp: evaluationTimestamp,
+                                        condition: filter.conditionHash,
+                                        matches: matches,
+                                        source: `cohort_filter_${filter.conditionHash}`,
+                                    },
+                                }
+
+                                personPropertyEvents.push(personPropertyEvent)
                             }
                         }
                     }
@@ -191,25 +288,30 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                     logger.error('Error processing team events', { teamId, error: e })
                 }
             }
-            return events
+            return { behavioralEvents, personPropertyEvents }
         })
     }
 
     public async start(): Promise<void> {
         await super.start()
 
-        // Start consuming messages
-        await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, {
+        await this.eventKafkaConsumer.connect(async (messages) => {
+            logger.info('🔁', `${this.name} - handling event batch`, {
                 size: messages.length,
             })
 
-            return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
-                const events = await this._parseKafkaBatch(messages)
-                // Publish events in background
-                const backgroundTask = this.publishEvents(events).catch((error) => {
-                    throw new Error(`Failed to publish behavioural events: ${error.message}`)
-                })
+            return await instrumentFn('cdpBehaviouralEventsConsumer.handleEventBatch', async () => {
+                const { behavioralEvents, personPropertyEvents } = await this._parseKafkaBatch(messages)
+
+                // Publish both types of events in parallel
+                const backgroundTask = Promise.all([
+                    this.publishBehavioralEvents(behavioralEvents).catch((error) => {
+                        throw new Error(`Failed to publish behavioral events: ${error.message}`)
+                    }),
+                    this.publishPersonPropertyEvents(personPropertyEvents).catch((error) => {
+                        throw new Error(`Failed to publish person property events: ${error.message}`)
+                    }),
+                ])
 
                 return { backgroundTask }
             })
@@ -217,15 +319,15 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     public async stop(): Promise<void> {
-        logger.info('💤', 'Stopping behavioural events consumer...')
-        await this.kafkaConsumer.disconnect()
+        logger.info('💤', `Stopping ${this.name}...`)
+        await this.eventKafkaConsumer.disconnect()
 
         // IMPORTANT: super always comes last
         await super.stop()
-        logger.info('💤', 'Behavioural events consumer stopped!')
+        logger.info('💤', `${this.name} stopped!`)
     }
 
     public isHealthy(): HealthCheckResult {
-        return this.kafkaConsumer.isHealthy()
+        return this.eventKafkaConsumer.isHealthy()
     }
 }

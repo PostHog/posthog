@@ -15,7 +15,7 @@ from posthog.temporal.messaging.precalculate_person_properties_workflow_coordina
 
 def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter]:
     """
-    Extract person property filters from a cohort that have conditionHash and bytecode.
+    Extract person property filters from a realtime cohort
 
     Returns a list of PersonPropertyFilter objects suitable for passing to the workflow.
     """

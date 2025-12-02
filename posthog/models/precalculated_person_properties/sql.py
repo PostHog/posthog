@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     date Date,
     person_id UUID,
     condition String,
-    matches Int8,
+    matches Bool,
     source String,
     _timestamp DateTime64(6),
     _partition UInt64,
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     date Date,
     person_id UUID,
     condition String,
-    matches Int8,
+    matches Bool,
     source String,
     _timestamp DateTime64(6),
     _partition UInt64,
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     evaluation_timestamp DateTime64(6),
     person_id UUID,
     condition String,
-    matches Int8,
+    matches Bool,
     source String
 ) ENGINE = {engine}
 SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1

@@ -1,4 +1,5 @@
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
@@ -10,13 +11,13 @@ from posthog.hogql.database.models import (
 
 
 class PrecalculatedPersonPropertiesTable(Table):
-    """Table for precalculated person properties evaluations populated by CdpPersonPropertyEventsConsumer."""
+    """Table for precalculated person properties evaluations populated by CdpBehaviouralEventsConsumer."""
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "person_id": UUIDDatabaseField(name="person_id", nullable=False),
         "condition": StringDatabaseField(name="condition", nullable=False),
-        "matches": IntegerDatabaseField(name="matches", nullable=False),
+        "matches": BooleanDatabaseField(name="matches", nullable=False),
         "date": DateDatabaseField(name="date", nullable=False),
         "source": StringDatabaseField(name="source", nullable=False),
         "_timestamp": DateTimeDatabaseField(name="_timestamp", nullable=False),

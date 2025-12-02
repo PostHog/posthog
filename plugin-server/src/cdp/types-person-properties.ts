@@ -5,7 +5,7 @@ export type PreCalculatedPersonProperties = {
     team_id: number
     evaluation_timestamp: string // ClickHouse DateTime64(6) format
     condition: string // 16-char conditionHash
-    matches: number // 0 = doesn't match, 1 = matches
+    matches: boolean // true = matches, false = doesn't match
     source: string // e.g., "cohort_filter_{conditionHash}"
 }
 

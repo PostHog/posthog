@@ -499,9 +499,6 @@ class CohortSerializer(serializers.ModelSerializer):
         else:
             cohort.enqueue_calculation(initiating_user=request.user)
 
-        # Trigger person property backfill for realtime cohorts with person property filters
-        self._trigger_person_property_backfill_if_needed(cohort, is_new=True)
-
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
 
@@ -625,42 +622,6 @@ class CohortSerializer(serializers.ModelSerializer):
         else:
             capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": self.context["team_id"]})
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.GENERIC_ERROR]})
-
-    def _trigger_person_property_backfill_if_needed(
-        self, cohort: Cohort, is_new: bool, old_filters: dict | None = None
-    ) -> None:
-        """
-        Trigger a Temporal workflow to backfill precalculated_person_properties if needed.
-
-        Triggers when:
-        - New realtime cohort with person property filters
-        - Updated cohort where person property filters changed
-        """
-        import asyncio
-
-        from posthog.models.cohort.precalculate_person_properties import (
-            should_trigger_backfill,
-            trigger_person_property_backfill,
-        )
-
-        try:
-            if should_trigger_backfill(cohort, is_new, old_filters):
-                # Run async function in sync context
-                workflow_id = asyncio.run(trigger_person_property_backfill(cohort))
-                logger.info(
-                    f"Triggered person property backfill workflow {workflow_id} for cohort {cohort.id}",
-                    cohort_id=cohort.id,
-                    team_id=cohort.team_id,
-                    workflow_id=workflow_id,
-                )
-        except Exception as e:
-            logger.exception(
-                f"Failed to trigger person property backfill for cohort {cohort.id}: {e}",
-                cohort_id=cohort.id,
-                team_id=cohort.team_id,
-                error=str(e),
-                exc_info=True,
-            )
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
@@ -807,9 +768,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
-
-        # Capture old filters to detect changes for backfill
-        old_filters = cohort.filters.copy() if cohort.filters else None
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
         if create_in_folder is not None:
@@ -966,9 +924,6 @@ class CohortSerializer(serializers.ModelSerializer):
                 insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
             else:
                 cohort.enqueue_calculation(initiating_user=request.user)
-
-        # Trigger person property backfill for realtime cohorts with person property filters
-        self._trigger_person_property_backfill_if_needed(cohort, is_new=False, old_filters=old_filters)
 
         report_user_action(
             request.user,
