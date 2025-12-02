@@ -288,6 +288,7 @@ export function EntityGroupNode({
                             groupType={TaxonomicFilterGroupType.Events}
                             value={null}
                             icon={<IconPlusSmall />}
+                            sideIcon={null}
                             onChange={(changedValue, taxonomicGroupType, item) => {
                                 handleAddEvent(changedValue, taxonomicGroupType, item)
                             }}
