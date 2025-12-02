@@ -55,7 +55,7 @@ We merge data into deltalake one partition at a time, deltalake doesn't support 
 
 ##### 6 - Nested dependent tables
 
-We have a handful of tables that require a parent object to cursor, for example, Stripe invoice line items requires a Strip invoice object, and so we have to list the invoices, and then iterate each line item for each invoice. It'd be good if we were able to utilize existing tables for these nested dependent tables
+We have a handful of tables that require a parent object to cursor, for example, Stripe invoice line items requires a Stripe invoice object, and so we have to list the invoices, and then iterate each line item for each invoice. It'd be good if we were able to utilize existing tables for these nested dependent tables
 
 ### Proposed pipeline
 
