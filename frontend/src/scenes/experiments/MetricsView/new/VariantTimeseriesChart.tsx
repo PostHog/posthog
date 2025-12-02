@@ -10,7 +10,10 @@ interface VariantTimeseriesChartProps {
     isRatioMetric?: boolean
 }
 
-export function VariantTimeseriesChart({ chartData: data, isRatioMetric = false }: VariantTimeseriesChartProps): JSX.Element {
+export function VariantTimeseriesChart({
+    chartData: data,
+    isRatioMetric = false,
+}: VariantTimeseriesChartProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
     const colors = useChartColors()
@@ -105,11 +108,15 @@ export function VariantTimeseriesChart({ chartData: data, isRatioMetric = false 
                                         if (dataPoint) {
                                             if (isRatioMetric) {
                                                 if (dataPoint.denominator_sum) {
-                                                    lines.push(`Denominator: ${dataPoint.denominator_sum.toLocaleString()}`)
+                                                    lines.push(
+                                                        `Denominator: ${dataPoint.denominator_sum.toLocaleString()}`
+                                                    )
                                                 }
                                             } else {
                                                 if (dataPoint.number_of_samples) {
-                                                    lines.push(`Exposures: ${dataPoint.number_of_samples.toLocaleString()}`)
+                                                    lines.push(
+                                                        `Exposures: ${dataPoint.number_of_samples.toLocaleString()}`
+                                                    )
                                                 }
                                             }
                                         }

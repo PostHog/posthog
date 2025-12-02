@@ -165,7 +165,10 @@ export function TimeseriesModal({
                         </div>
                         {hasTimeseriesData ? (
                             processedChartData ? (
-                                <VariantTimeseriesChart chartData={processedChartData} isRatioMetric={isExperimentRatioMetric(metric)} />
+                                <VariantTimeseriesChart
+                                    chartData={processedChartData}
+                                    isRatioMetric={isExperimentRatioMetric(metric)}
+                                />
                             ) : (
                                 <div className="p-10 text-center text-muted">
                                     No timeseries data available for this variant
