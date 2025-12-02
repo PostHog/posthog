@@ -144,6 +144,11 @@ export function EntityGroupNode({
             type: String(taxonomicGroupType) as any,
             order: values.length,
             uuid: uuid(),
+            ...(filter.math && { math: filter.math }),
+            ...(filter.math_property && { math_property: filter.math_property }),
+            ...(filter.math_property_type && { math_property_type: filter.math_property_type }),
+            ...(filter.math_hogql && { math_hogql: filter.math_hogql }),
+            ...(filter.math_group_type_index !== undefined && { math_group_type_index: filter.math_group_type_index }),
         }
         updateSeriesFilter({
             type: EntityTypes.GROUPS,
