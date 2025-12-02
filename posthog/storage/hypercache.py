@@ -143,7 +143,7 @@ class HyperCache:
                 return json.loads(data), "redis"
 
         try:
-            data = object_storage.read(cache_key)
+            data = object_storage.read(cache_key, missing_ok=True)
             if data:
                 response = json.loads(data)
                 HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
