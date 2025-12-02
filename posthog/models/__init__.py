@@ -71,6 +71,7 @@ from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
+from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
 from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
@@ -90,7 +91,12 @@ from .web_experiment import WebExperiment
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
+from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
+
 __all__ = [
+    "Approval",
+    "ApprovalPolicy",
+    "ChangeRequest",
     "AlertConfiguration",
     "Action",
     "ActionStep",
@@ -178,6 +184,7 @@ __all__ = [
     "Property",
     "PropertyDefinition",
     "ProxyRecord",
+    "QuickFilter",
     "RetentionFilter",
     "RemoteConfig",
     "EventSchema",

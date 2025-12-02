@@ -50,7 +50,6 @@
 !test-runner-jest.config.js
 !tsconfig.json
 !unit.json.tpl
-ee/frontend/node_modules
 common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist
@@ -63,6 +62,7 @@ rust/cyclotron-node/index.node
 rust/cyclotron-node/node_modules
 rust/docker
 rust/target
+**/__snapshots__
 !docker-compose.base.yml
 !docker-compose.dev.yml
 !docker

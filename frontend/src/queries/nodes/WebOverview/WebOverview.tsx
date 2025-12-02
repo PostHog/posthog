@@ -3,7 +3,6 @@ import { useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { urls } from 'scenes/urls'
 
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema/schema-general'
@@ -66,10 +65,6 @@ export function WebOverview(props: {
             samplingRate={samplingRate}
             usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
             labelFromKey={labelFromKey}
-            settingsLinkFromKey={settingsLinkFromKey}
-            dashboardLinkFromKey={dashboardLinkFromKey}
-            filterEmptyItems={filterEmptyRevenue}
-            showBetaTags={(key) => key === 'revenue' || key === 'conversion revenue'}
         />
     )
 }
@@ -94,38 +89,10 @@ const labelFromKey = (key: string): string => {
             return 'Total conversions'
         case 'unique conversions':
             return 'Unique conversions'
-        case 'revenue':
-            return 'Revenue'
-        case 'conversion revenue':
-            return 'Conversion revenue'
         default:
             return key
                 .split(' ')
                 .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
                 .join(' ')
     }
-}
-
-const settingsLinkFromKey = (key: string): string | null => {
-    switch (key) {
-        case 'revenue':
-        case 'conversion revenue':
-            return urls.revenueSettings()
-        default:
-            return null
-    }
-}
-
-const dashboardLinkFromKey = (key: string): string | null => {
-    switch (key) {
-        case 'revenue':
-        case 'conversion revenue':
-            return urls.revenueAnalytics()
-        default:
-            return null
-    }
-}
-
-const filterEmptyRevenue = (item: OverviewItem): boolean => {
-    return !(['revenue', 'conversion revenue'].includes(item.key) && item.value == null && item.previous == null)
 }

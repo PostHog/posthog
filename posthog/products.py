@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
@@ -78,3 +79,12 @@ class Products:
     def get_products_by_intent(intent: ProductKey) -> list[ProductItem]:
         """Get all products that the intent is associated with."""
         return [product for product in Products.products() if intent in product.intents]
+
+    @staticmethod
+    def get_products_by_category() -> dict[str, list[str]]:
+        """Get product mappings grouped by category."""
+        products_by_category: dict[str, list[str]] = defaultdict(list)
+        for product in Products.products():
+            category = product.category or "Other"
+            products_by_category[category].append(product.path)
+        return dict(products_by_category)
