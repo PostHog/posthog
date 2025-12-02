@@ -54,7 +54,7 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { sparklineData, sparklineLoading } = useValues(logsLogic)
+    const { sparklineData, sparklineLoading, logsLoading } = useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline, highlightNextLog, highlightPreviousLog, toggleExpandLog } =
         useActions(logsLogic)
     const { highlightedLogId: sceneHighlightedLogId } = useValues(logsLogic)
@@ -76,8 +76,9 @@ export function LogsScene(): JSX.Element {
                     }
                 },
             },
+            r: { action: () => !logsLoading && runQuery() },
         },
-        [sceneHighlightedLogId]
+        [sceneHighlightedLogId, logsLoading, runQuery]
     )
 
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
@@ -604,6 +605,9 @@ const DisplayOptions = (): JSX.Element => {
                     <span className="mx-1">·</span>
                     <KeyboardShortcut enter />
                     expand
+                    <span className="mx-1">·</span>
+                    <KeyboardShortcut r />
+                    refresh
                 </span>
             </div>
         </div>
@@ -655,6 +659,9 @@ const VirtualizedLogsListDisplayOptions = (): JSX.Element => {
                     <span className="mx-1">·</span>
                     <KeyboardShortcut enter />
                     expand
+                    <span className="mx-1">·</span>
+                    <KeyboardShortcut r />
+                    refresh
                 </span>
             </div>
         </div>
