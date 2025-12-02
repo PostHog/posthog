@@ -46,34 +46,42 @@ export function ErrorDisplayContent(): JSX.Element {
     const { sentryUrl, ingestionErrors, handled } = exceptionAttributes || {}
     const browserInfo = concatValues(exceptionAttributes, 'browser', 'browserVersion')
     const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
+    const [showAllFrames, setShowAllFrames] = useState(false)
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
-            <div className="flex flex-row gap-2 flex-wrap">
-                <TitledSnack
-                    type="success"
-                    title="captured by"
-                    value={
-                        sentryUrl ? (
-                            <Link
-                                className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
-                                to={sentryUrl}
-                                target="_blank"
-                            >
-                                Sentry
-                            </Link>
-                        ) : (
-                            'PostHog'
-                        )
-                    }
+            <div className="flex justify-between items-center">
+                <div className="flex flex-row gap-2 flex-wrap">
+                    <TitledSnack
+                        type="success"
+                        title="captured by"
+                        value={
+                            sentryUrl ? (
+                                <Link
+                                    className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
+                                    to={sentryUrl}
+                                    target="_blank"
+                                >
+                                    Sentry
+                                </Link>
+                            ) : (
+                                'PostHog'
+                            )
+                        }
+                    />
+                    <TitledSnack title="handled" value={String(handled)} />
+                    <TitledSnack
+                        title="library"
+                        value={concatValues(exceptionAttributes, 'lib', 'libVersion') ?? 'unknown'}
+                    />
+                    {browserInfo && <TitledSnack title="browser" value={browserInfo} />}
+                    {appInfo && <TitledSnack title="app" value={appInfo} />}
+                    <TitledSnack title="os" value={concatValues(exceptionAttributes, 'os', 'osVersion') ?? 'unknown'} />
+                </div>
+                <LemonSwitch
+                    checked={showAllFrames}
+                    label="Show entire stack trace"
+                    onChange={() => setShowAllFrames(!showAllFrames)}
                 />
-                <TitledSnack title="handled" value={String(handled)} />
-                <TitledSnack
-                    title="library"
-                    value={concatValues(exceptionAttributes, 'lib', 'libVersion') ?? 'unknown'}
-                />
-                {browserInfo && <TitledSnack title="browser" value={browserInfo} />}
-                {appInfo && <TitledSnack title="app" value={appInfo} />}
-                <TitledSnack title="os" value={concatValues(exceptionAttributes, 'os', 'osVersion') ?? 'unknown'} />
             </div>
 
             {ingestionErrors || hasStacktrace ? <LemonDivider dashed={true} /> : null}
@@ -88,23 +96,7 @@ export function ErrorDisplayContent(): JSX.Element {
                     </LemonBanner>
                 </>
             )}
-            <StackTrace />
-        </div>
-    )
-}
-
-const StackTrace = (): JSX.Element => {
-    const [showAllFrames, setShowAllFrames] = useState(false)
-    return (
-        <>
-            <div className="flex gap-1 mt-6 justify-between items-center">
-                <LemonSwitch
-                    checked={showAllFrames}
-                    label="Show entire stack trace"
-                    onChange={() => setShowAllFrames(!showAllFrames)}
-                />
-            </div>
             <CollapsibleExceptionList showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} />
-        </>
+        </div>
     )
 }
