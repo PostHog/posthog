@@ -47,7 +47,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0927_changerequest_approvalpolicy_approval_and_more"),
+        ("posthog", "0928_add_team_require_evaluation_tags"),
     ]
 
     operations = [
