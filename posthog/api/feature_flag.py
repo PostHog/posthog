@@ -46,9 +46,8 @@ from posthog.helpers.encrypted_flag_payloads import (
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
-from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.experiment import Experiment
@@ -1976,17 +1975,7 @@ class FeatureFlagViewSet(
     @validated_request(
         query_serializer=ActivityQuerySerializer,
         responses={
-            200: OpenApiResponse(
-                response=inline_serializer(
-                    name="FeatureFlagActivitiesPageResponse",
-                    fields={
-                        "results": ActivityLogSerializer(many=True),
-                        "next": serializers.URLField(allow_null=True),
-                        "previous": serializers.URLField(allow_null=True),
-                        "total_count": serializers.IntegerField(),
-                    },
-                )
-            ),
+            200: OpenApiResponse(response=ActivityLogPaginatedResponseSerializer),
         },
     )
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
@@ -2052,17 +2041,7 @@ class FeatureFlagViewSet(
     @validated_request(
         query_serializer=ActivityQuerySerializer,
         responses={
-            200: OpenApiResponse(
-                response=inline_serializer(
-                    name="FeatureFlagActivityPageResponse",
-                    fields={
-                        "results": ActivityLogSerializer(many=True),
-                        "next": serializers.URLField(allow_null=True),
-                        "previous": serializers.URLField(allow_null=True),
-                        "total_count": serializers.IntegerField(),
-                    },
-                )
-            ),
+            200: OpenApiResponse(response=ActivityLogPaginatedResponseSerializer),
             404: OpenApiResponse(response=None),
         },
     )
