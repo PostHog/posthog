@@ -165,7 +165,7 @@ export function ProjectTree({
         if (root === 'custom-products://' && (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed)) {
             treeData.push({
                 id: 'products/custom-products-helper-category',
-                name: 'Example apps',
+                name: 'Example custom products',
                 type: 'category',
                 displayName: (
                     <div
