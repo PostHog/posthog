@@ -1160,7 +1160,7 @@ class ErrorTrackingExplainIssueToolContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    issue_id: str
+    issue_name: str
     stacktrace: str
 
 
