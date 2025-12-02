@@ -11,7 +11,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0925_team_business_model"),
+        ("posthog", "0926_featureflag_bucketing_identifier"),
     ]
 
     operations = [
