@@ -631,8 +631,11 @@ class BaseHyperCacheCommand(BaseCommand):
             actual_batch_size = batch_size
             actual_invalidate_first = invalidate_first
 
-        # Progress callback to write to stdout
+        # Callbacks to write progress to stdout
         last_percent_reported = [0]  # Use list to allow mutation in closure
+
+        def batch_start_callback(batch_num: int, batch_len: int):
+            self.stdout.write(f"  Processing batch {batch_num} ({batch_len:,} teams)…")
 
         def progress_callback(processed: int, total: int, successful: int, failed: int):
             if total == 0:
@@ -656,6 +659,7 @@ class BaseHyperCacheCommand(BaseCommand):
             max_ttl_days=max_ttl_days,
             team_ids=team_ids,
             progress_callback=progress_callback,
+            batch_start_callback=batch_start_callback,
         )
 
         # Display results
