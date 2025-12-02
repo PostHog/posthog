@@ -222,7 +222,6 @@
         "$current_url": "http://localhost:8010/project/1/error_tracking/2845fb04-dbc7-4945-bb58-48d6f77d2015",
         "$feature/recordings-ai-regex": true,
         "free_allocation.platform_and_support": 0,
-        "$feature/debug-react-renders": true,
         "$session_entry_referrer": "$direct",
         "$session_id": "01960308-8727-77b1-85e3-618546b17720",
         "$os": "Mac OS X",
@@ -359,7 +358,6 @@
         "$feature/data-modeling": true,
         "usage_limit.data_warehouse": 1000000,
         "$active_feature_flags": [
-            "debug-react-renders",
             "auto-rollback-feature-flags",
             "onboarding-v2-demo",
             "query_running_time",

@@ -149,8 +149,11 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 // NOTE: Run `dev:sync-flags` locally to sync these flags into your local project
 // or if you're running flox + mprocs you can also run the `sync-feature-flags` process
 export const FEATURE_FLAGS = {
-    SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
-    DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite
+    // Eternal feature flags, shouldn't be removed, helpful for debugging reasons
+    SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite, usage: see `loadPosthogJS.tsx`
+    DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite, usage: see `useWhyDidIRender.ts`
+
+    // Temporary feature flags, should be removed when the feature is no longer needed
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra

@@ -202,7 +202,6 @@
         "$group_2": "http://localhost:8010",
         "$group_3": "cus_S1FJGJmSDsqyJ1",
         "$active_feature_flags": [
-            "debug-react-renders",
             "auto-rollback-feature-flags",
             "onboarding-v2-demo",
             "query_running_time",
@@ -515,7 +514,6 @@
         "free_allocation.session_replay": 5000,
         "$feature/settings-session-table-version": true,
         "$insert_id": "jm6idv33aklhj9uk",
-        "$feature/debug-react-renders": true,
         "current_total_amount_usd": "0",
         "unit_amount_usd.product_analytics": null,
         "$feature/site-destinations": true,

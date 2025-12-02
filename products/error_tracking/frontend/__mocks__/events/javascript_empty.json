@@ -88,7 +88,6 @@
         "$time": 1742805834.271,
         "commit_sha": "b8137faee9",
         "$feature/query_running_time": true,
-        "$feature/debug-react-renders": true,
         "$sent_at": "2025-03-24T08:43:56.185Z",
         "$feature/posthog-http-batch-exports": true,
         "$feature/web-analytics-data-warehouse-revenue-settings": true,
@@ -212,7 +211,6 @@
         "$feature/experiment-stats-v2": true,
         "$feature/hedgehog-skin-spiderhog": true,
         "$active_feature_flags": [
-            "debug-react-renders",
             "auto-rollback-feature-flags",
             "onboarding-v2-demo",
             "query_running_time",
