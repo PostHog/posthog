@@ -22,7 +22,7 @@
             letter-spacing: -0.025em;
         }
 
-        @media screen and (min-width: var(--breakpoint-md)) {
+        @media screen and (min-width: $md) {
             padding: 3rem 5rem 5rem;
 
             .InsightCard & {
@@ -38,4 +38,6 @@
         color: var(--color-text-secondary);
         cursor: default;
     }
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
+    @import '../../../../styles/screen-sizes';
 }

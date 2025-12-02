@@ -25,7 +25,7 @@
             width: 100%;
             max-width: 390px;
 
-            @media screen and (min-width: var(--breakpoint-md)) {
+            @media screen and (min-width: $md) {
                 width: auto;
                 max-width: 100%;
             }
@@ -35,7 +35,7 @@
             display: none;
             margin-right: 60px;
 
-            @media screen and (min-width: var(--breakpoint-md)) {
+            @media screen and (min-width: $md) {
                 display: block;
                 visibility: visible;
             }
@@ -121,7 +121,7 @@
                 }
             }
 
-            @media screen and (min-width: var(--breakpoint-md)) {
+            @media screen and (min-width: $md) {
                 display: block;
                 visibility: visible;
             }
@@ -135,14 +135,14 @@
             &.mobile {
                 display: block;
 
-                @media screen and (min-width: var(--breakpoint-md)) {
+                @media screen and (min-width: $md) {
                     display: none;
                 }
             }
         }
 
         &.BridgePage--fixed-width {
-            @media screen and (min-width: var(--breakpoint-md)) {
+            @media screen and (min-width: $md) {
                 .BridgePage__content {
                     width: 400px;
                     max-width: 400px;
@@ -150,4 +150,6 @@
             }
         }
     }
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
+    @import '../../../styles/screen-sizes';
 }

@@ -83,7 +83,7 @@
             width: calc(var(--bar-width) / 2) !important; // Also need to conserve space in cards
         }
 
-        @media screen and (min-width: var(--breakpoint-lg)) {
+        @media screen and (min-width: $lg) {
             width: var(--bar-width);
         }
     }
@@ -189,10 +189,11 @@
 
                 .EntityFilterInfo {
                     display: -webkit-box;
-                    -webkit-line-clamp: 5;
-                    -webkit-box-orient: vertical;
                     overflow: hidden;
                     overflow-wrap: break-word;
+                    -webkit-line-clamp: 5;
+                    line-clamp: 5;
+                    -webkit-box-orient: vertical;
                 }
             }
 
@@ -235,4 +236,6 @@
             padding-bottom: 0.25rem;
         }
     }
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
+    @import '../../../styles/screen-sizes';
 }

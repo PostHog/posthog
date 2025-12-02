@@ -21,7 +21,7 @@
                 display: none;
             }
 
-            @media screen and (min-width: var(--breakpoint-md)) {
+            @media screen and (min-width: $md) {
                 display: flex;
                 gap: 1rem;
                 align-items: center;
@@ -61,4 +61,6 @@
             padding: 0;
         }
     }
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
+    @import '../styles/screen-sizes';
 }

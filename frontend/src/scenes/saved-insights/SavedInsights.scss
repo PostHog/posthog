@@ -44,12 +44,14 @@
         display: grid;
         grid-gap: 1rem;
 
-        @media screen and (min-width: var(--breakpoint-xl)) {
+        @media screen and (min-width: $xl) {
             grid-template-columns: repeat(2, 1fr);
         }
 
-        @media screen and (min-width: var(--breakpoint-xxl)) {
+        @media screen and (min-width: $xxl) {
             grid-template-columns: repeat(3, 1fr);
         }
     }
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
+    @import '../../styles/screen-sizes';
 }
