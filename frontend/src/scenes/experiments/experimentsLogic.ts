@@ -106,6 +106,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             teamLogic,
             ['currentTeam'],
         ],
+        actions: [teamLogic, ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess']],
     })),
     actions({
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
@@ -115,6 +116,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             replace,
         }),
         resetFeatureFlagModalFilters: true,
+        openFeatureFlagModal: true,
     }),
     reducers({
         filters: [
@@ -147,7 +149,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setExperimentsFilters: async (_, breakpoint) => {
             /**
              * this debounces the search input. Yeah, I know.
@@ -161,6 +163,19 @@ export const experimentsLogic = kea<experimentsLogicType>([
         },
         resetFeatureFlagModalFilters: () => {
             actions.loadFeatureFlagModalFeatureFlags()
+        },
+        openFeatureFlagModal: () => {
+            actions.loadFeatureFlagModalFeatureFlags()
+        },
+        loadCurrentTeamSuccess: () => {
+            if (values.featureFlagModalFeatureFlags.results.length > 0) {
+                actions.loadFeatureFlagModalFeatureFlags()
+            }
+        },
+        updateCurrentTeamSuccess: () => {
+            if (values.featureFlagModalFeatureFlags.results.length > 0) {
+                actions.loadFeatureFlagModalFeatureFlags()
+            }
         },
     })),
     loaders(({ values }) => ({

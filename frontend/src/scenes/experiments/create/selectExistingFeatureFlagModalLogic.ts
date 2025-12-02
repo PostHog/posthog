@@ -35,7 +35,12 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
     path(['scenes', 'experiments', 'create', 'selectExistingFeatureFlagModalLogic']),
 
     connect({
-        actions: [eventUsageLogic, ['reportExperimentFeatureFlagModalOpened']],
+        actions: [
+            eventUsageLogic,
+            ['reportExperimentFeatureFlagModalOpened'],
+            teamLogic,
+            ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess'],
+        ],
         values: [teamLogic, ['currentTeam']],
     }),
 
@@ -68,7 +73,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setFilters: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadFeatureFlags()
@@ -79,6 +84,16 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         openSelectExistingFeatureFlagModal: () => {
             actions.reportExperimentFeatureFlagModalOpened()
             actions.loadFeatureFlags()
+        },
+        loadCurrentTeamSuccess: () => {
+            if (values.isModalOpen) {
+                actions.loadFeatureFlags()
+            }
+        },
+        updateCurrentTeamSuccess: () => {
+            if (values.isModalOpen) {
+                actions.loadFeatureFlags()
+            }
         },
     })),
 

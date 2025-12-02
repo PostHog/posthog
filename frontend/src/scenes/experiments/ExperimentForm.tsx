@@ -54,6 +54,7 @@ const ExperimentFormFields = (): JSX.Element => {
     const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
+    const { openFeatureFlagModal } = useActions(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -117,6 +118,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     size="xsmall"
                                     onClick={() => {
                                         reportExperimentFeatureFlagModalOpened()
+                                        openFeatureFlagModal()
                                         setShowFeatureFlagSelector(true)
                                     }}
                                 >
