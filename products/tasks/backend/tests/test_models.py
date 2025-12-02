@@ -758,7 +758,7 @@ class TestSandboxEnvironment(TestCase):
             created_by=self.user,
             name="Test Environment",
         )
-        self.assertEqual(env.network_access_level, SandboxEnvironment.NetworkAccessLevel.NONE)
+        self.assertEqual(env.network_access_level, SandboxEnvironment.NetworkAccessLevel.FULL)
         self.assertEqual(env.allowed_domains, [])
         self.assertFalse(env.include_default_domains)
         self.assertEqual(env.repositories, [])
@@ -837,7 +837,6 @@ class TestSandboxEnvironment(TestCase):
 
     @parameterized.expand(
         [
-            (SandboxEnvironment.NetworkAccessLevel.NONE, [], False, []),
             (SandboxEnvironment.NetworkAccessLevel.FULL, [], False, []),
             (SandboxEnvironment.NetworkAccessLevel.TRUSTED, [], False, ["github.com", "api.github.com"]),
             (SandboxEnvironment.NetworkAccessLevel.CUSTOM, ["custom.com"], False, ["custom.com"]),

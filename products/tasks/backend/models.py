@@ -421,7 +421,6 @@ class SandboxEnvironment(UUIDModel):
     """Configuration for sandbox execution environments including network access and secrets."""
 
     class NetworkAccessLevel(models.TextChoices):
-        NONE = "none", "None"
         TRUSTED = "trusted", "Trusted"
         FULL = "full", "Full"
         CUSTOM = "custom", "Custom"
@@ -434,7 +433,7 @@ class SandboxEnvironment(UUIDModel):
     network_access_level = models.CharField(
         max_length=20,
         choices=NetworkAccessLevel.choices,
-        default=NetworkAccessLevel.NONE,
+        default=NetworkAccessLevel.FULL,  # NOTE: Default should be TRUSTED once we have an egress proxy in place
     )
 
     allowed_domains = ArrayField(
@@ -488,14 +487,11 @@ class SandboxEnvironment(UUIDModel):
         return bool(re.match(pattern, key))
 
     def get_effective_domains(self) -> list[str]:
-        if self.network_access_level == self.NetworkAccessLevel.NONE:
+        if self.network_access_level == self.NetworkAccessLevel.FULL:
             return []
 
         if self.network_access_level == self.NetworkAccessLevel.TRUSTED:
             return DEFAULT_TRUSTED_DOMAINS.copy()
-
-        if self.network_access_level == self.NetworkAccessLevel.FULL:
-            return []
 
         if self.network_access_level == self.NetworkAccessLevel.CUSTOM:
             domains = list(self.allowed_domains)
