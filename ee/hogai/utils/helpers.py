@@ -329,6 +329,10 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
         ]
     messages[-1].tool_calls = tool_calls
 
+    if isinstance(message, AIMessageChunk):
+        for i, final_message in enumerate(messages):
+            final_message.id = f"temp-{i}"  # Assign each ephemeral message an index-based temp ID
+
     return messages
 
 

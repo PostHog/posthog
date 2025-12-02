@@ -235,7 +235,6 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         # normalize_ai_message() returns a list when server_tool_use blocks are present,
         # but we only stream the latest message for incremental updates
         messages = normalize_ai_message(self._chunks[run_id])
-        messages[-1].id = f"temp-{len(messages)-1}"
         return messages[-1] if messages else None
 
     def _handle_node_end(
