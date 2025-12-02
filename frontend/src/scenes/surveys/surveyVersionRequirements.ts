@@ -103,6 +103,12 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: { 'posthog-js': '1.299.0' },
         check: (s) => (s.conditions?.actions?.values?.length ?? 0) > 0,
     },
+    {
+        feature: 'Styling input appearance',
+        // TODO: update version once https://github.com/PostHog/posthog-js/pull/2677 is released
+        sdkVersions: { 'posthog-js': '1.300.0' },
+        check: (s) => s.appearance?.inputBackground !== undefined || s.appearance?.inputTextColor !== undefined,
+    },
 ]
 
 export function meetsVersionRequirement(version: string | null | undefined, minVersion: string): boolean {
