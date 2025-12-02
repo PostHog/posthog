@@ -9,10 +9,15 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 export interface AddEventButtonProps {
     onEventSelect: (eventName: string) => void
+    addButtonText?: string
     excludedEvents?: string[]
 }
 
-export function AddEventButton({ onEventSelect, excludedEvents = [] }: AddEventButtonProps): JSX.Element {
+export function AddEventButton({
+    onEventSelect,
+    addButtonText,
+    excludedEvents = [],
+}: AddEventButtonProps): JSX.Element {
     const [popoverOpen, setPopoverOpen] = useState(false)
 
     return (
@@ -46,7 +51,7 @@ export function AddEventButton({ onEventSelect, excludedEvents = [] }: AddEventB
                 size="small"
                 className="w-fit"
             >
-                Add event
+                {addButtonText ?? 'Add event'}
             </LemonButton>
         </Popover>
     )
