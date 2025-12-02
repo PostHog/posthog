@@ -48,20 +48,15 @@ class TestGetSandboxForRepositoryActivity:
             mock_sandbox = Sandbox.__new__(Sandbox)
             mock_sandbox.id = f"mock-sandbox-{uuid.uuid4().hex[:8]}"
 
-            with (
-                patch(
-                    "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository._trigger_snapshot_workflow"
-                ) as mock_trigger,
-                patch(
-                    "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository.Sandbox.create",
-                    return_value=mock_sandbox,
-                ) as mock_create,
-            ):
+            with patch(
+                "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository.Sandbox.create",
+                return_value=mock_sandbox,
+            ) as mock_create:
                 result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
 
                 assert result.sandbox_id == mock_sandbox.id
                 assert result.used_snapshot is True
-                mock_trigger.assert_not_called()
+                assert result.should_create_snapshot is False
 
                 call_args = mock_create.call_args
                 config = call_args[0][0]
@@ -71,7 +66,7 @@ class TestGetSandboxForRepositoryActivity:
             snapshot.delete()
 
     @pytest.mark.django_db
-    def test_get_sandbox_without_snapshot_triggers_workflow(
+    def test_get_sandbox_without_snapshot_returns_should_create_snapshot(
         self, activity_environment, github_integration, test_task, test_task_run
     ):
         sandbox_id = None
@@ -79,20 +74,13 @@ class TestGetSandboxForRepositoryActivity:
             context = self._create_context(github_integration, test_task, test_task_run)
             input_data = GetSandboxForRepositoryInput(context=context)
 
-            with patch(
-                "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository._trigger_snapshot_workflow"
-            ) as mock_trigger:
-                result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
+            result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
 
-                assert result.sandbox_id is not None
-                assert result.used_snapshot is False
-                mock_trigger.assert_called_once_with(
-                    github_integration.id,
-                    test_task.repository,
-                    test_task.team_id,
-                )
+            assert result.sandbox_id is not None
+            assert result.used_snapshot is False
+            assert result.should_create_snapshot is True
 
-                sandbox_id = result.sandbox_id
+            sandbox_id = result.sandbox_id
 
         finally:
             if sandbox_id:
@@ -111,19 +99,16 @@ class TestGetSandboxForRepositoryActivity:
             context = self._create_context(github_integration, test_task, test_task_run)
             input_data = GetSandboxForRepositoryInput(context=context)
 
-            with patch(
-                "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository._trigger_snapshot_workflow"
-            ):
-                result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
+            result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
 
-                sandbox_id = result.sandbox_id
+            sandbox_id = result.sandbox_id
 
-                sandbox = Sandbox.get_by_id(sandbox_id)
-                assert sandbox is not None
+            sandbox = Sandbox.get_by_id(sandbox_id)
+            assert sandbox is not None
 
-                check_result = sandbox.execute("echo 'sandbox is running'")
-                assert check_result.exit_code == 0
-                assert "sandbox is running" in check_result.stdout
+            check_result = sandbox.execute("echo 'sandbox is running'")
+            assert check_result.exit_code == 0
+            assert "sandbox is running" in check_result.stdout
 
         finally:
             if sandbox_id:
@@ -142,20 +127,17 @@ class TestGetSandboxForRepositoryActivity:
             context = self._create_context(github_integration, test_task, test_task_run)
             input_data = GetSandboxForRepositoryInput(context=context)
 
-            with patch(
-                "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository._trigger_snapshot_workflow"
-            ):
-                result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
+            result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
 
-                sandbox_id = result.sandbox_id
-                sandbox = Sandbox.get_by_id(sandbox_id)
+            sandbox_id = result.sandbox_id
+            sandbox = Sandbox.get_by_id(sandbox_id)
 
-                check_github = sandbox.execute("echo $GITHUB_TOKEN")
-                assert check_github.exit_code == 0
+            check_github = sandbox.execute("echo $GITHUB_TOKEN")
+            assert check_github.exit_code == 0
 
-                check_posthog = sandbox.execute("echo $POSTHOG_PERSONAL_API_KEY")
-                assert check_posthog.exit_code == 0
-                assert check_posthog.stdout.strip() != ""
+            check_posthog = sandbox.execute("echo $POSTHOG_PERSONAL_API_KEY")
+            assert check_posthog.exit_code == 0
+            assert check_posthog.stdout.strip() != ""
 
         finally:
             if sandbox_id:

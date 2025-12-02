@@ -1,14 +1,10 @@
-import asyncio
 import logging
-import threading
 from dataclasses import dataclass
 
 from django.conf import settings
 
 from temporalio import activity
-from temporalio.common import WorkflowIDReusePolicy
 
-from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxSnapshot, Task
@@ -32,36 +28,7 @@ class GetSandboxForRepositoryInput:
 class GetSandboxForRepositoryOutput:
     sandbox_id: str
     used_snapshot: bool
-
-
-def _trigger_snapshot_workflow(github_integration_id: int, repository: str, team_id: int) -> None:
-    def run_workflow() -> None:
-        try:
-            asyncio.run(_start_snapshot_workflow(github_integration_id, repository, team_id))
-        except Exception as e:
-            logger.exception(f"Snapshot workflow failed for {repository}: {e}")
-
-    thread = threading.Thread(target=run_workflow, daemon=True)
-    thread.start()
-
-
-async def _start_snapshot_workflow(github_integration_id: int, repository: str, team_id: int) -> None:
-    from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-
-    client = await async_connect()
-    workflow_id = f"create-snapshot-for-repository-{github_integration_id}-{repository.replace('/', '-')}"
-
-    await client.start_workflow(
-        "create-snapshot-for-repository",
-        CreateSnapshotForRepositoryInput(
-            github_integration_id=github_integration_id,
-            repository=repository,
-            team_id=team_id,
-        ),
-        id=workflow_id,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.TASKS_TASK_QUEUE,
-    )
+    should_create_snapshot: bool
 
 
 @activity.defn
@@ -128,8 +95,10 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
 
-            _trigger_snapshot_workflow(ctx.github_integration_id, ctx.repository, ctx.team_id)
-
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 
-        return GetSandboxForRepositoryOutput(sandbox_id=sandbox.id, used_snapshot=used_snapshot)
+        return GetSandboxForRepositoryOutput(
+            sandbox_id=sandbox.id,
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
+        )

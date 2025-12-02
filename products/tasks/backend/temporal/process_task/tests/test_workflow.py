@@ -120,9 +120,7 @@ class TestProcessTaskWorkflow:
 
     async def test_workflow_without_snapshot_still_succeeds(self, test_task_run, github_integration):
         """When no snapshot exists, workflow should still complete successfully using base image."""
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository._trigger_snapshot_workflow"
-        ):
+        with patch.object(ProcessTaskWorkflow, "_trigger_snapshot_workflow"):
             result = await self._run_workflow(test_task_run.id)
 
             assert result.success is True

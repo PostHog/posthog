@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
 
-import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
@@ -41,7 +40,7 @@ class CreateSnapshotForRepositoryOutput:
     error: Optional[str] = None
 
 
-@temporalio.workflow.defn(name="create-snapshot-for-repository")
+@workflow.defn(name="create-snapshot-for-repository")
 class CreateSnapshotForRepositoryWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[SnapshotContext] = None
@@ -61,7 +60,7 @@ class CreateSnapshotForRepositoryWorkflow(PostHogWorkflow):
             team_id=loaded["team_id"],
         )
 
-    @temporalio.workflow.run
+    @workflow.run
     async def run(self, input: CreateSnapshotForRepositoryInput) -> CreateSnapshotForRepositoryOutput:
         sandbox_id = None
 

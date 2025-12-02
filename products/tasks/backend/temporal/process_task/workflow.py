@@ -4,11 +4,16 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
 
+from django.conf import settings
+
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+
+from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 
 from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
@@ -64,6 +69,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             sandbox_output = await self._get_sandbox_for_repository()
             sandbox_id = sandbox_output.sandbox_id
+
+            if sandbox_output.should_create_snapshot:
+                await self._trigger_snapshot_workflow()
 
             result = await self._execute_task_in_sandbox(sandbox_id)
 
@@ -158,5 +166,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             track_workflow_event,
             track_input,
             start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+    async def _trigger_snapshot_workflow(self) -> None:
+        workflow_id = (
+            f"create-snapshot-for-repository-{self.context.github_integration_id}-"
+            f"{self.context.repository.replace('/', '-')}"
+        )
+
+        await workflow.start_child_workflow(
+            workflow="create-snapshot-for-repository",
+            arg=CreateSnapshotForRepositoryInput(
+                github_integration_id=self.context.github_integration_id,
+                repository=self.context.repository,
+                team_id=self.context.team_id,
+            ),
+            id=workflow_id,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            parent_close_policy=ParentClosePolicy.ABANDON,
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
