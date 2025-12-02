@@ -94,6 +94,10 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.data_modeling.backend.temporal import (
+    ACTIVITIES as NEW_DATA_MODELING_ACTIVITIES,
+    WORKFLOWS as NEW_DATA_MODELING_WORKFLOWS,
+)
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -117,8 +121,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
-        DATA_MODELING_WORKFLOWS,
-        DATA_MODELING_ACTIVITIES,
+        DATA_MODELING_WORKFLOWS + NEW_DATA_MODELING_WORKFLOWS,
+        DATA_MODELING_ACTIVITIES + NEW_DATA_MODELING_ACTIVITIES,
     ),
     (
         settings.GENERAL_PURPOSE_TASK_QUEUE,
