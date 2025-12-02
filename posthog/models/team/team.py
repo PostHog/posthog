@@ -449,8 +449,8 @@ class Team(UUIDTClassicModel):
 
     default_data_theme = models.IntegerField(null=True, blank=True)
 
-    # Generic field for storing any team-specific context that is more temporary in nature and thus
-    # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
+    # Generic field for storing any team-specific context
+    # that likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
     # during feature releases.
     extra_settings = models.JSONField(null=True, blank=True)
 

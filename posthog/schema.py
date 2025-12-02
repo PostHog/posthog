@@ -1444,6 +1444,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
 
 
 class ExternalDataSourceType(StrEnum):
+    ASHBY = "Ashby"
     SUPABASE = "Supabase"
     CUSTOMER_IO = "CustomerIO"
     GITHUB = "Github"
@@ -3012,11 +3013,6 @@ class SnapshotSource(StrEnum):
     WEB = "web"
     MOBILE = "mobile"
     UNKNOWN = "unknown"
-
-
-class Storage(StrEnum):
-    OBJECT_STORAGE_LTS = "object_storage_lts"
-    OBJECT_STORAGE = "object_storage"
 
 
 class SessionReplayBlock(BaseModel):
@@ -4617,6 +4613,12 @@ class FileSystemImport(BaseModel):
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
+    reason: UserProductListReason | None = Field(
+        default=None, description="Reason for custom product suggestion (from UserProductList)"
+    )
+    reasonText: str | None = Field(
+        default=None, description="Custom reason text for custom product suggestion (from UserProductList)"
+    )
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
     sceneKey: str | None = Field(default=None, description="Match this with the a base scene key or a specific one")
     sceneKeys: list[str] | None = Field(default=None, description="List of all scenes exported by the app")
@@ -5517,7 +5519,6 @@ class SessionRecordingType(BaseModel):
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
-    storage: Storage | None = Field(default=None, description="Where this recording information was loaded from")
     summary: str | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
