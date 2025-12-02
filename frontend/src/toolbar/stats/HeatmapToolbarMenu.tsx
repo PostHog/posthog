@@ -191,6 +191,10 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 the event can be mapped to a specific element found on the page you are viewing but less
                                 data is usually captured.
                             </p>
+                            <p className="text-xs italic">
+                                Tip: Hold <kbd className="border rounded px-1 py-0.5 bg-surface-tertiary">shift</kbd> to
+                                interact with the page beneath the clickmap.
+                            </p>
                             <div className="flex items-center justify-between pb-2">
                                 <div className="flex items-center gap-1">
                                     <LemonLabel
