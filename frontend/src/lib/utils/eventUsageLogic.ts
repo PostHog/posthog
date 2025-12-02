@@ -105,14 +105,14 @@ export function getEventPropertiesForMetric(
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return {
             kind: NodeKind.ExperimentFunnelsQuery,
-            steps_count: metric.funnels_query.series.length,
-            filter_test_accounts: metric.funnels_query.filterTestAccounts,
+            steps_count: metric.funnels_query?.series?.length,
+            filter_test_accounts: metric.funnels_query?.filterTestAccounts,
         }
     }
     return {
         kind: NodeKind.ExperimentTrendsQuery,
-        series_kind: metric.count_query.series[0].kind,
-        filter_test_accounts: metric.count_query.filterTestAccounts,
+        series_kind: metric.count_query?.series?.[0]?.kind,
+        filter_test_accounts: metric.count_query?.filterTestAccounts,
     }
 }
 
