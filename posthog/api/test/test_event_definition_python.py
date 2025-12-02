@@ -81,7 +81,7 @@ class TestPythonGenerator(APIBaseTest):
         self.assertEqual(name3, "file_name_3")
 
     def test_generate_capture_method_without_properties(self):
-        method = self.generator._generate_capture_method("simple_event", [])
+        method = self.generator._generate_capture_method("simple_event", [], set())
 
         self.assertEqual(
             method.strip(),
@@ -102,6 +102,7 @@ class TestPythonGenerator(APIBaseTest):
                 self._create_mock_property("label", "String", required=False),
                 self._create_mock_property("value", "Numeric", required=False),
             ],
+            set(),
         )
 
         self.assertEqual(
@@ -128,6 +129,38 @@ class TestPythonGenerator(APIBaseTest):
         return self.capture("file_downloaded", properties=properties, **kwargs)''',
         )
 
+    def test_generate_capture_method_with_method_name_clash(self):
+        used_method_names: set[str] = set()
+        method_one = self.generator._generate_capture_method(
+            "file_downloaded",
+            [],
+            used_method_names,
+        )
+        method_two = self.generator._generate_capture_method("file-downloaded", [], used_method_names)
+
+        self.assertEqual(
+            method_one.strip(),
+            '''def capture_file_downloaded(
+        self,
+        *,
+        extra_properties: Optional[Dict[str, Any]] = None,
+        **kwargs: Unpack[OptionalCaptureArgs],
+    ) -> Optional[str]:
+        """Capture a `file_downloaded` event."""
+        return self.capture("file_downloaded", properties=extra_properties, **kwargs)''',
+        )
+        self.assertEqual(
+            method_two.strip(),
+            '''def capture_file_downloaded_2(
+        self,
+        *,
+        extra_properties: Optional[Dict[str, Any]] = None,
+        **kwargs: Unpack[OptionalCaptureArgs],
+    ) -> Optional[str]:
+        """Capture a `file-downloaded` event."""
+        return self.capture("file-downloaded", properties=extra_properties, **kwargs)''',
+        )
+
     def test_generate_capture_method_with_mixed_properties(self):
         method = self.generator._generate_capture_method(
             "file_downloaded",
@@ -141,6 +174,7 @@ class TestPythonGenerator(APIBaseTest):
                 self._create_mock_property('foo"bar', "String", required=True),
                 self._create_mock_property("class", "String", required=False),
             ],
+            set(),
         )
 
         self.assertEqual(

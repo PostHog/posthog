@@ -22,6 +22,7 @@ class PythonGenerator(EventDefinitionGenerator):
         now = datetime.now().isoformat()
 
         capture_method_blocks: list[str] = []
+        used_method_names: set[str] = set()
         datetime_import = ""
 
         for event_def in event_definitions:
@@ -31,7 +32,7 @@ class PythonGenerator(EventDefinitionGenerator):
             if not datetime_import and any(prop.property_type == "DateTime" for prop in properties):
                 datetime_import = "from datetime import datetime\n"
 
-            capture_method = self._generate_capture_method(event_name, properties)
+            capture_method = self._generate_capture_method(event_name, properties, used_method_names)
             capture_method_blocks.append(capture_method)
 
         capture_methods_section = "\n\n".join(capture_method_blocks) if capture_method_blocks else "    pass"
@@ -88,9 +89,11 @@ from posthog.args import OptionalCaptureArgs
 
         return header + class_definition
 
-    def _generate_capture_method(self, event_name: str, properties: list[SchemaPropertyGroupProperty]) -> str:
+    def _generate_capture_method(
+        self, event_name: str, properties: list[SchemaPropertyGroupProperty], used_method_names: set[str]
+    ) -> str:
         """Generate a capture_<event_name>() method for the PosthogTyped class."""
-        method_name = self._to_method_name(event_name)
+        method_name = self._get_unique_name(self._to_method_name(event_name), used_method_names)
         escaped_event_name = self._escape_python_string(event_name)
 
         if not properties:
