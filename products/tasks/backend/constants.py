@@ -1,3 +1,12 @@
+DEFAULT_TRUSTED_DOMAINS = [
+    "github.com",
+    "api.github.com",
+    "raw.githubusercontent.com",
+    "registry.npmjs.org",
+    "pypi.org",
+    "files.pythonhosted.org",
+]
+
 SETUP_REPOSITORY_PROMPT = """
 Your goal is to setup the repository in the current environment.
 
