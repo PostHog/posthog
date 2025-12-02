@@ -158,6 +158,7 @@ export const FEATURE_FLAGS = {
     // Feature flags used to control opt-in for different behaviors, should not be removed
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: #team-batch-exports
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion
+    AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features
 
     // Legacy flags, TBD if they need to be removed
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE #team-feature-flags
@@ -167,6 +168,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
+    SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
 
     // Temporary feature flags, should be removed when the feature is no longer needed
     WEB_ANALYTICS_HIGHER_CONCURRENCY: 'web-analytics-higher-concurrency', // owner: @lricoy #team-web-analytics
@@ -175,9 +177,6 @@ export const FEATURE_FLAGS = {
     EXTERNAL_SURVEYS: 'external-surveys', // owner: #team-surveys
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
-    SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
-    AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features
-    SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-billing
     THEME: 'theme', // owner: @aprilfools
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
