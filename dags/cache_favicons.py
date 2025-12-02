@@ -49,7 +49,7 @@ def upload_if_missing(s3_client, bucket, key, data, content_type):
         ContentType=content_type,
     )
 
-    logger.info(f"Favicon succesfully cached.")
+    logger.info(f"Favicon successfully cached.")
     return key
 
 
