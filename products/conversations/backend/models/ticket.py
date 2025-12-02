@@ -2,23 +2,10 @@ from django.db import models
 
 from posthog.models.utils import UUIDTModel
 
-from .constants import Channel
+from .constants import Channel, Status
 
 
 class Ticket(UUIDTModel):
-    """
-    Support ticket from any channel.
-    Status flow: New → Open → Pending → Resolved
-    On hold can be set at any time.
-    """
-
-    class Status(models.TextChoices):
-        NEW = "new", "New"
-        OPEN = "open", "Open"
-        PENDING = "pending", "Pending"
-        ON_HOLD = "on_hold", "On hold"
-        RESOLVED = "resolved", "Resolved"
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     channel_source = models.CharField(max_length=20, choices=Channel.choices, default=Channel.WIDGET)
     distinct_id = models.CharField(max_length=400)

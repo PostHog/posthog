@@ -3,18 +3,10 @@ from django.db import models
 
 from posthog.models.utils import UUIDTModel
 
-from .constants import Channel
+from .constants import Channel, RuleType
 
 
 class GuidanceRule(UUIDTModel):
-    """
-    Behavioral rule that controls how the AI responds.
-    """
-
-    class RuleType(models.TextChoices):
-        TONE = "tone", "Tone"
-        ESCALATION = "escalation", "Escalation"
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     rule_type = models.CharField(max_length=20, choices=RuleType.choices)
     name = models.CharField(max_length=200)

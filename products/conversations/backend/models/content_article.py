@@ -7,10 +7,6 @@ from .constants import Channel
 
 
 class ContentArticle(UUIDTModel):
-    """
-    Knowledge base article that AI uses to answer questions.
-    """
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     title = models.CharField(max_length=500)
     body = models.TextField()
