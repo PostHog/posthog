@@ -73,7 +73,7 @@ describe('logsLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.highlightNextLog()
-                }).toDispatchActions(['highlightNextLog', 'loadMoreLogs'])
+                }).toDispatchActions(['highlightNextLog', 'fetchNextLogsPage'])
             })
 
             it('does nothing when at last log and no more to load', async () => {
@@ -86,7 +86,7 @@ describe('logsLogic', () => {
                     logic.actions.highlightNextLog()
                 })
                     .toDispatchActions(['highlightNextLog'])
-                    .toNotHaveDispatchedActions(['setHighlightedLogId', 'loadMoreLogs'])
+                    .toNotHaveDispatchedActions(['setHighlightedLogId', 'fetchNextLogsPage'])
             })
 
             it('does nothing when logs are empty', async () => {
