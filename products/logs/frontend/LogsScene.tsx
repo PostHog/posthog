@@ -54,7 +54,7 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { sparklineData, sparklineLoading } = useValues(logsLogic)
+    const { sparklineData, sparklineLoading, logsLoading } = useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline, highlightNextLog, highlightPreviousLog, toggleExpandLog } =
         useActions(logsLogic)
     const { highlightedLogId: sceneHighlightedLogId } = useValues(logsLogic)
@@ -76,7 +76,7 @@ export function LogsScene(): JSX.Element {
                     }
                 },
             },
-            r: { action: () => runQuery() },
+            r: { action: () => !logsLoading && runQuery() },
         },
         [sceneHighlightedLogId, runQuery]
     )
