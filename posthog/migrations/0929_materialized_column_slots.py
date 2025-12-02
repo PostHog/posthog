@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0925_team_business_model"),
+        ("posthog", "0928_add_team_require_evaluation_tags"),
     ]
 
     operations = [

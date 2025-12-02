@@ -652,6 +652,7 @@ export interface TeamType extends TeamBasicType {
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
     default_evaluation_environments_enabled: boolean
+    require_evaluation_environment_tags: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
@@ -3096,8 +3097,13 @@ export interface SurveyDisplayConditions {
             name: string
         }[]
     } | null
+    /** events that trigger surveys */
     events: {
         repeatedActivation?: boolean
+        values: SurveyEventsWithProperties[]
+    } | null
+    /** events that cancel "pending" (time-delayed) surveys */
+    cancelEvents?: {
         values: SurveyEventsWithProperties[]
     } | null
 }

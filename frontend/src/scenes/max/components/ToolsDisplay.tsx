@@ -232,7 +232,10 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                         if (!acc[tool.product]) {
                             acc[tool.product] = []
                         }
-                        acc[tool.product]!.push(tool)
+                        // Dedupe tools with the same name within a product
+                        if (!acc[tool.product]!.some((t) => t.name === tool.name)) {
+                            acc[tool.product]!.push(tool)
+                        }
                         return acc
                     },
                     {} as Partial<Record<Scene, ToolDefinition[]>>

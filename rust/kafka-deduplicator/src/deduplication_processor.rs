@@ -443,7 +443,7 @@ impl DeduplicationProcessor {
         &self,
         raw_event: RawEvent,
         original_payload: Vec<u8>,
-        original_headers: OwnedHeaders,
+        original_headers: Option<&OwnedHeaders>,
         ctx: MessageContext<'_>,
     ) -> Result<bool> {
         // Get the store for this partition
@@ -508,7 +508,7 @@ impl DeduplicationProcessor {
                     .publish_event(
                         producer,
                         &original_payload,
-                        Some(&original_headers),
+                        original_headers,
                         ctx.key,
                         output_topic,
                     )
@@ -670,7 +670,7 @@ impl MessageProcessor for DeduplicationProcessor {
 
         // Process the event through deduplication, passing the original payload and headers for publishing
         match self
-            .process_raw_event(raw_event, orig_payload, orig_headers, ctx)
+            .process_raw_event(raw_event, orig_payload.to_vec(), orig_headers, ctx)
             .await
         {
             Ok(published) => {
