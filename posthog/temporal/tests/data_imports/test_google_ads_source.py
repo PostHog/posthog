@@ -244,6 +244,7 @@ class TestGoogleAdsSourceValidation:
         is_valid, error = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is False
+        assert error is not None
         assert "is not correct" in error
 
     @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
@@ -257,6 +258,7 @@ class TestGoogleAdsSourceValidation:
         is_valid, error = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is False
+        assert error is not None
         assert "Insufficient permissions" in error
 
     @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
@@ -270,6 +272,7 @@ class TestGoogleAdsSourceValidation:
         is_valid, error = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is False
+        assert error is not None
         assert "not associated with any Google Ads accounts" in error
 
     @mock.patch("posthog.temporal.data_imports.sources.google_ads.source.google_ads_client")
@@ -281,4 +284,5 @@ class TestGoogleAdsSourceValidation:
         is_valid, error = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is False
+        assert error is not None
         assert "Error validating credentials" in error
