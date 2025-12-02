@@ -878,7 +878,7 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
             {"name": "Hacked Name"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_can_update_other_user_team_environment(self):
         other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
@@ -906,7 +906,7 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         )
 
         response = self.client.delete(f"/api/projects/@current/sandbox_environments/{env.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cannot_retrieve_other_user_private_environment(self):
         other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")

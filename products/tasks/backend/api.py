@@ -540,19 +540,19 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = self.request.user
         qs = queryset.filter(team=self.team)
 
-        # For list, filter by privacy: show user's own + team-wide (non-private)
+        # Filter by privacy: show user's own + team-wide (non-private)
         if self.action == "list":
             include_team = self.request.query_params.get("include_team", "true").lower() == "true"
-
-            if include_team:
-                qs = qs.filter(Q(created_by=user) | Q(private=False))
-            else:
-                qs = qs.filter(created_by=user)
+            if not include_team:
+                return qs.filter(created_by=user).order_by("-created_at")
 
             # Filter by repository if specified
             repository = self.request.query_params.get("repository")
             if repository:
                 qs = qs.filter(repositories__contains=[repository.lower()])
+
+        # For all actions: only show own private + all non-private
+        qs = qs.filter(Q(created_by=user) | Q(private=False))
 
         return qs.order_by("-created_at")
 
@@ -561,14 +561,3 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(team=self.team, created_by=self.request.user)
-
-    def check_object_permissions(self, request, obj):
-        super().check_object_permissions(request, obj)
-
-        # For modify/delete operations on private environments, only creator can access
-        if self.action in ["update", "partial_update", "destroy"]:
-            if obj.private and obj.created_by != request.user:
-                self.permission_denied(
-                    request,
-                    message="You do not have permission to modify this private environment.",
-                )
