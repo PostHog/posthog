@@ -129,8 +129,10 @@ if read_host:
 # Used for migrations: python manage.py migrate --database=default_direct
 direct_host = os.getenv("POSTHOG_POSTGRES_DIRECT_HOST")
 if direct_host:
-    DATABASES["default_direct"] = postgres_config(direct_host)
-    # Override port for direct connection (PgBouncer uses 6543, Postgres uses 5432)
+    # Copy from default database config (works with both DATABASE_URL and POSTHOG_DB_NAME setups)
+    DATABASES["default_direct"] = DATABASES["default"].copy()
+    # Override host and port for direct connection (bypassing PgBouncer)
+    DATABASES["default_direct"]["HOST"] = direct_host
     DATABASES["default_direct"]["PORT"] = os.getenv("POSTHOG_POSTGRES_DIRECT_PORT", "5432")
     # Disable server-side cursors is not needed for direct connection
     DATABASES["default_direct"]["DISABLE_SERVER_SIDE_CURSORS"] = False
