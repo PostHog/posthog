@@ -105,6 +105,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "autocapture_exceptions_errors_to_ignore",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
+            "extra_settings",
             "secret_api_token",
             "secret_api_token_backup",
             "session_recording_opt_in",
