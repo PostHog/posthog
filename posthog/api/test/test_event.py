@@ -973,13 +973,14 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert patch_query_with_columns.call_count == 3
 
     @patch("posthog.models.event.query_event_list.insight_query_with_columns", wraps=insight_query_with_columns)
+    @override_settings(PATCH_EVENT_LIST_MAX_OFFSET=2)
     def test_default_after(self, patch_query_with_columns):
         [
             _create_event(
                 team=self.team,
                 event="$pageview",
                 distinct_id="2",
-                timestamp=datetime(2024, 1, _, _, _, 0, 12345),
+                timestamp=datetime(2024, 1, _, _, _, 0, 12345, tzinfo=self.team.timezone_info),
                 properties={"key": "test_val"},
             )
             for _ in range(1, 10)
@@ -993,9 +994,13 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert len(response["results"]) == 1
         assert patch_query_with_columns.call_count == 3
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-10T01:01:02Z&limit=1").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-10T09:01:02Z&limit=1").json()
         assert len(response["results"]) == 1
         assert patch_query_with_columns.call_count == 5
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-10T10:20:02Z&limit=1").json()
+        assert len(response["results"]) == 0
+        assert patch_query_with_columns.call_count == 7
 
     @patch("posthog.models.event.query_event_list.insight_query_with_columns", wraps=insight_query_with_columns)
     def test_optimize_query_with_bounded_dates(self, patch_query_with_columns):

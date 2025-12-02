@@ -91,7 +91,7 @@ def query_events_list(
     if request_get_query_dict.get("after"):
         request_get_query_dict["after"] = parse_timestamp(request_get_query_dict["after"], team.timezone_info)
     elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
-        request_get_query_dict["after"] = datetime.now(team.timezone_info) - timedelta(hours=24)
+        request_get_query_dict["after"] = request_get_query_dict["before"] - timedelta(hours=24)
 
     if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 and request_get_query_dict.get("after"):
         date_range = request_get_query_dict["before"] - request_get_query_dict["after"]
