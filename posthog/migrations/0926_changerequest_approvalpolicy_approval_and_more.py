@@ -61,8 +61,14 @@ class Migration(migrations.Migration):
                         max_length=16,
                     ),
                 ),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL, null=True, blank=True
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True, null=True, blank=True)),
+                ("updated_at", models.DateTimeField(auto_now=True, null=True, blank=True)),
                 ("expires_at", models.DateTimeField()),
                 ("applied_at", models.DateTimeField(blank=True, null=True)),
                 ("apply_error", models.TextField(blank=True)),
@@ -111,14 +117,20 @@ class Migration(migrations.Migration):
                 ("allow_self_approve", models.BooleanField(default=False)),
                 ("bypass_roles", models.JSONField(default=list)),
                 (
+                    "created_by",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL, null=True, blank=True
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True, null=True, blank=True)),
+                ("updated_at", models.DateTimeField(auto_now=True, null=True, blank=True)),
+                (
                     "expires_after",
                     models.DurationField(
                         default=datetime.timedelta(days=14), help_text="Auto-expire change requests after this duration"
                     ),
                 ),
                 ("enabled", models.BooleanField(default=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
                 (
                     "organization",
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.organization"),
@@ -148,7 +160,14 @@ class Migration(migrations.Migration):
                     models.CharField(choices=[("approved", "Approved"), ("rejected", "Rejected")], max_length=16),
                 ),
                 ("reason", models.TextField(blank=True)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL, null=True, blank=True
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True, null=True, blank=True)),
+                ("updated_at", models.DateTimeField(auto_now=True, null=True, blank=True)),
                 ("actor", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to=settings.AUTH_USER_MODEL)),
                 (
                     "change_request",
@@ -198,6 +217,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterUniqueTogether(
             name="approval",
-            unique_together={("change_request", "actor")},
+            unique_together={("change_request", "created_by")},
         ),
     ]

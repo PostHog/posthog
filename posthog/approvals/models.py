@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from django.db import models
 
-from posthog.models.utils import uuid7
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
 class ChangeRequestState(models.TextChoices):
@@ -21,10 +21,8 @@ class ValidationStatus(models.TextChoices):
     STALE = "stale", "Stale (resource changed)"
 
 
-class ChangeRequest(models.Model):
+class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     """A pending approval request for a gated action"""
-
-    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
 
     action_key = models.CharField(max_length=128)
     action_version = models.IntegerField(default=1)
@@ -53,12 +51,6 @@ class ChangeRequest(models.Model):
         default=ChangeRequestState.PENDING,
     )
 
-    requested_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name="change_requests_created",
-    )
     applied_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -67,8 +59,6 @@ class ChangeRequest(models.Model):
         related_name="change_requests_applied",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
     expires_at = models.DateTimeField()
     applied_at = models.DateTimeField(null=True, blank=True)
 
@@ -94,17 +84,14 @@ class ApprovalDecision(models.TextChoices):
     REJECTED = "rejected", "Rejected"
 
 
-class Approval(models.Model):
+class Approval(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     """A single approval vote on a ChangeRequest"""
 
-    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     change_request = models.ForeignKey(
         ChangeRequest,
         on_delete=models.CASCADE,
         related_name="approvals",
     )
-
-    actor = models.ForeignKey("posthog.User", on_delete=models.PROTECT)
 
     decision = models.CharField(
         max_length=16,
@@ -112,11 +99,9 @@ class Approval(models.Model):
     )
     reason = models.TextField(blank=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)
-
     class Meta:
         app_label = "posthog"
-        unique_together = [["change_request", "actor"]]
+        unique_together = [["change_request", "created_by"]]
         indexes = [
             models.Index(fields=["change_request", "decision"]),
         ]
@@ -131,10 +116,8 @@ class ApprovalPolicyManager(models.Manager):
         return self.filter(enabled=True)
 
 
-class ApprovalPolicy(models.Model):
+class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     """Defines when an action requires approval and who can approve"""
-
-    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
 
     organization = models.ForeignKey(
         "posthog.Organization",
@@ -162,8 +145,6 @@ class ApprovalPolicy(models.Model):
     )
 
     enabled = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     objects = ApprovalPolicyManager()
 
