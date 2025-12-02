@@ -254,7 +254,7 @@ export function Playlist({
                             </div>
                         </div>
                     </div>
-                    {firstRecordingItem && featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION_BUTTON] && (
+                    {featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION_BUTTON] && (
                         <LemonButton
                             icon={<IconMagicWand />}
                             type="primary"
@@ -264,6 +264,7 @@ export function Playlist({
                             fullWidth
                             size="small"
                             className="mt-2"
+                            disabledReason={!firstRecordingItem ? 'No recordings in the list' : undefined}
                         >
                             Summarize above recordings
                             <LemonTag type="warning" size="small" className="ml-auto uppercase">
