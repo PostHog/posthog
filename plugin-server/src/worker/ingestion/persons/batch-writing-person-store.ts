@@ -519,8 +519,20 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                         this.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
                         return person
                     } else {
-                        this.setCachedPersonForUpdate(teamId, distinctId, null)
-                        return null
+                        // Before caching null, check if another async operation populated
+                        // the cache while we were awaiting the DB query. This can happen when:
+                        // 1. This operation starts DB query for a distinct ID (cache empty)
+                        // 2. Another operation creates a person for that distinct ID and caches it
+                        // 3. This DB query returns null (person didn't exist when query started)
+                        // 4. Without this check, we would overwrite the other operation's cached person
+                        //
+                        // From this point, all operations are synchronous to avoid further race conditions.
+                        const currentCache = this.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+                        if (currentCache === undefined) {
+                            this.setCachedPersonForUpdate(teamId, distinctId, null)
+                            return null
+                        }
+                        return currentCache === null ? null : toInternalPerson(currentCache)
                     }
                 } finally {
                     this.fetchPromisesForUpdate.delete(cacheKey)

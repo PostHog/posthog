@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
+from django.utils import timezone
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from rest_framework import status
@@ -324,6 +326,102 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("where", query_sql)
             self.assertIn("$lib", query_sql)
             self.assertEqual(query_payload["kind"], "HogQLQuery")
+
+    def test_stale_materialized_data_uses_inline_execution(self):
+        """Test that stale materialized data triggers inline execution instead of using cached table."""
+        # Create a materialized endpoint with a saved_query
+        now = timezone.now()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="stale_data_endpoint",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=1),
+            last_run_at=now - timedelta(hours=2),  # Last run 2 hours ago, sync every 1 hour = stale
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="stale_data_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        endpoint = Endpoint.objects.create(
+            name="stale_data_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            saved_query=saved_query,
+        )
+
+        # Mock the execution methods to track which path is taken
+        with (
+            mock.patch.object(
+                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+            ) as mock_materialized,
+            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Should use inline execution because data is stale
+            mock_inline.assert_called_once()
+            mock_materialized.assert_not_called()
+
+    def test_fresh_materialized_data_uses_materialized_table(self):
+        """Test that fresh materialized data uses the materialized table for faster execution."""
+        # Create a materialized endpoint with fresh data
+        now = timezone.now()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="fresh_data_endpoint",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=1),
+            last_run_at=now - timedelta(minutes=30),  # Last run 30 min ago, sync every 1 hour = fresh
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="fresh_data_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        endpoint = Endpoint.objects.create(
+            name="fresh_data_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            saved_query=saved_query,
+        )
+
+        # Mock the execution methods to track which path is taken
+        with (
+            mock.patch.object(
+                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+            ) as mock_materialized,
+            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Should use materialized table because data is fresh
+            mock_materialized.assert_called_once()
+            mock_inline.assert_not_called()
 
 
 @pytest.mark.asyncio
