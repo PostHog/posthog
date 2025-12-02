@@ -48,8 +48,17 @@ from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads impo
 TEST_DATE_FROM = "2024-01-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
-EXPECTED_COLUMN_COUNT = 7
-EXPECTED_COLUMN_ALIASES = ["campaign", "id", "source", "impressions", "clicks", "cost", "reported_conversion"]
+EXPECTED_COLUMN_COUNT = 8
+EXPECTED_COLUMN_ALIASES = [
+    "campaign",
+    "id",
+    "source",
+    "impressions",
+    "clicks",
+    "cost",
+    "reported_conversion",
+    "match_key",
+]
 
 
 logger = logging.getLogger(__name__)
@@ -1701,3 +1710,132 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             assert result.is_valid, "All adapters should validate successfully"
 
         adapters.clear()
+
+    # ================================================================
+    # MATCH KEY PREFERENCE TESTS
+    # ================================================================
+
+    def test_match_key_uses_campaign_id_when_configured(self):
+        """Test that match_key uses campaign_id field when campaign_field_preferences is set to campaign_id."""
+        # Configure the team to use campaign_id for MetaAds
+        self.team.marketing_analytics_config.campaign_field_preferences = {"MetaAds": {"match_field": "campaign_id"}}
+        self.team.marketing_analytics_config.save()
+
+        # Create MetaAdsAdapter with mock tables
+        campaign_table = self._create_mock_table("metaads_campaigns", "MetaAds")
+        stats_table = self._create_mock_table("metaads_campaign_stats", "MetaAds")
+
+        config = MetaAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="MetaAds",
+            source_id="meta_ads_id_preference",
+        )
+
+        adapter = MetaAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "MetaAdsAdapter should generate a query"
+
+        # Find the match_key column
+        match_key_col = next(
+            (col for col in query.select if hasattr(col, "alias") and col.alias == "match_key"),
+            None,
+        )
+        assert match_key_col is not None, "Should have match_key column"
+
+        # Convert to HogQL to check the field used
+        hogql_query = query.to_hogql()
+
+        # Verify the match_key uses the id field, not the name field
+        # The id field in Meta Ads is referenced as "metaads_campaigns.id"
+        assert (
+            "metaads_campaigns.id" in hogql_query
+        ), f"match_key should use campaign id field (metaads_campaigns.id), but got: {hogql_query}"
+        # Verify it's in the match_key alias context (not just anywhere in the query)
+        # The pattern should be: toString(metaads_campaigns.id) AS match_key
+        assert "AS match_key" in hogql_query, "match_key alias should exist"
+
+        # Snapshot the query to confirm id is used
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_match_key_uses_campaign_name_by_default(self):
+        """Test that match_key uses campaign_name field by default (no preferences set)."""
+        # Don't set any preferences - use default behavior
+        self.team.marketing_analytics_config.campaign_field_preferences = {}
+        self.team.marketing_analytics_config.save()
+
+        # Create MetaAdsAdapter with mock tables
+        campaign_table = self._create_mock_table("metaads_campaigns", "MetaAds")
+        stats_table = self._create_mock_table("metaads_campaign_stats", "MetaAds")
+
+        config = MetaAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="MetaAds",
+            source_id="meta_ads_default",
+        )
+
+        adapter = MetaAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "MetaAdsAdapter should generate a query"
+
+        # Convert to HogQL to check the field used
+        hogql_query = query.to_hogql()
+
+        # Verify the match_key uses the name field, not the id field
+        # The name field in Meta Ads is referenced as "metaads_campaigns.name"
+        assert (
+            "metaads_campaigns.name" in hogql_query
+        ), f"match_key should use campaign name field by default (metaads_campaigns.name), but got: {hogql_query}"
+
+        # Snapshot the query to confirm name is used
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_match_key_preference_per_integration(self):
+        """Test that different integrations can have different match_key preferences."""
+        # Configure MetaAds to use campaign_id, but leave GoogleAds with default (campaign_name)
+        self.team.marketing_analytics_config.campaign_field_preferences = {
+            "MetaAds": {"match_field": "campaign_id"},
+            # GoogleAds not specified, should use campaign_name by default
+        }
+        self.team.marketing_analytics_config.save()
+
+        # Create MetaAdsAdapter
+        meta_campaign_table = self._create_mock_table("metaads_campaigns", "MetaAds")
+        meta_stats_table = self._create_mock_table("metaads_campaign_stats", "MetaAds")
+        meta_config = MetaAdsConfig(
+            campaign_table=meta_campaign_table,
+            stats_table=meta_stats_table,
+            source_type="MetaAds",
+            source_id="meta_ads_mixed",
+        )
+        meta_adapter = MetaAdsAdapter(config=meta_config, context=self.context)
+        meta_query = meta_adapter.build_query()
+
+        # Create GoogleAdsAdapter
+        google_campaign_table = self._create_mock_table("google_ads_campaign", "GoogleAds")
+        google_stats_table = self._create_mock_table("google_ads_stats", "GoogleAds")
+        google_config = GoogleAdsConfig(
+            campaign_table=google_campaign_table,
+            stats_table=google_stats_table,
+            source_type="GoogleAds",
+            source_id="google_ads_mixed",
+        )
+        google_adapter = GoogleAdsAdapter(config=google_config, context=self.context)
+        google_query = google_adapter.build_query()
+
+        assert meta_query is not None, "MetaAdsAdapter should generate a query"
+        assert google_query is not None, "GoogleAdsAdapter should generate a query"
+
+        meta_hogql = meta_query.to_hogql()
+        google_hogql = google_query.to_hogql()
+
+        # Meta should use id field
+        assert "metaads_campaigns.id" in meta_hogql, f"MetaAds match_key should use id field, but got: {meta_hogql}"
+
+        # Google should use name field (default)
+        assert (
+            "google_ads_campaign.campaign_name" in google_hogql
+        ), f"GoogleAds match_key should use campaign_name field by default, but got: {google_hogql}"

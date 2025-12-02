@@ -45,6 +45,7 @@ class MarketingAnalyticsConfig:
     campaign_field: str = MarketingSourceAdapter.campaign_name_field
     id_field: str = MarketingSourceAdapter.campaign_id_field
     source_field: str = MarketingSourceAdapter.source_name_field
+    match_key_field: str = MarketingSourceAdapter.match_key_field
 
     # Column aliases for output
     campaign_column_alias: str = MarketingAnalyticsBaseColumns.CAMPAIGN
