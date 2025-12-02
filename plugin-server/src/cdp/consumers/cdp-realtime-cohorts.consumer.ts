@@ -38,27 +38,27 @@ export type ProducedEvent = {
 }
 
 export const histogramBatchProcessingSteps = new Histogram({
-    name: 'cdp_behavioural_batch_processing_steps_duration_ms',
+    name: 'cdp_realtime_cohorts_batch_processing_steps_duration_ms',
     help: 'Time spent in different batch processing steps',
     labelNames: ['step'],
     buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
 })
 
-export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
-    protected name = 'CdpBehaviouralEventsConsumer'
+export class CdpRealtimeCohortsConsumer extends CdpConsumerBase {
+    protected name = 'CdpRealtimeCohortsConsumer'
     private eventKafkaConsumer: KafkaConsumer
     private realtimeSupportedFilterManager: RealtimeSupportedFilterManagerCDP
 
     constructor(hub: Hub) {
         super(hub)
         this.eventKafkaConsumer = new KafkaConsumer({
-            groupId: 'cdp-behavioural-events-consumer',
+            groupId: 'cdp-realtime-cohorts-consumer',
             topic: KAFKA_EVENTS_JSON,
         })
         this.realtimeSupportedFilterManager = new RealtimeSupportedFilterManagerCDP(hub.db.postgres)
     }
 
-    @instrumented('cdpBehaviouralEventsConsumer.publishBehavioralEvents')
+    @instrumented('cdpRealtimeCohortsConsumer.publishBehavioralEvents')
     private async publishBehavioralEvents(events: ProducedEvent[]): Promise<void> {
         if (!this.kafkaProducer || events.length === 0) {
             return
@@ -80,7 +80,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
     }
 
-    @instrumented('cdpBehaviouralEventsConsumer.publishPersonPropertyEvents')
+    @instrumented('cdpRealtimeCohortsConsumer.publishPersonPropertyEvents')
     private async publishPersonPropertyEvents(events: ProducedPersonPropertiesEvent[]): Promise<void> {
         if (!this.kafkaProducer || events.length === 0) {
             return
@@ -158,7 +158,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     // This consumer parses events from kafka and evaluates both behavioral and person property filters
-    @instrumented('cdpBehaviouralEventsConsumer.handleEachBatch.parseKafkaMessages')
+    @instrumented('cdpRealtimeCohortsConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<{
         behavioralEvents: ProducedEvent[]
         personPropertyEvents: ProducedPersonPropertiesEvent[]
@@ -300,7 +300,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 size: messages.length,
             })
 
-            return await instrumentFn('cdpBehaviouralEventsConsumer.handleEventBatch', async () => {
+            return await instrumentFn('cdpRealtimeCohortsConsumer.handleEventBatch', async () => {
                 const { behavioralEvents, personPropertyEvents } = await this._parseKafkaBatch(messages)
 
                 // Publish both types of events in parallel

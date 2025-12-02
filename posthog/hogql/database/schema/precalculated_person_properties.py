@@ -11,7 +11,7 @@ from posthog.hogql.database.models import (
 
 
 class PrecalculatedPersonPropertiesTable(Table):
-    """Table for precalculated person properties evaluations populated by CdpBehaviouralEventsConsumer."""
+    """Table for precalculated person properties evaluations populated by CdpRealtimeCohortsConsumer."""
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),

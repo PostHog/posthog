@@ -598,7 +598,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         """
         Query precalculated_events using conditionHash for realtime behavioral matching.
-        Uses the precalculated_events table populated by CdpBehaviouralEventsConsumer.
+        Uses the precalculated_events table populated by CdpRealtimeCohortsConsumer.
         """
         condition_hash = getattr(prop, "conditionHash", None)
         if not condition_hash:
