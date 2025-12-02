@@ -35,6 +35,7 @@ from posthog.utils import get_instance_region
 
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_PROVIDER_ERROR_COUNTER, GenerationCanceled
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 from ee.hogai.utils.helpers import extract_stream_update
 from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.types.base import (
@@ -121,6 +122,7 @@ class BaseAgentRunner(ABC):
                     distinct_id=user.distinct_id if user else None,
                     properties=callback_properties,
                     trace_id=trace_id,
+                    privacy_mode=is_privacy_mode_enabled(team),
                 )
 
             # Local deployment or hobby

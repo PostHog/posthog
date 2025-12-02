@@ -11,3 +11,16 @@ def has_agent_modes_feature_flag(team: Team, user: User) -> bool:
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
+
+
+def is_privacy_mode_enabled(team: Team) -> bool:
+    """
+    Check if privacy mode is enabled for a team's organization.
+    """
+    return posthoganalytics.feature_enabled(
+        "phai-privacy-mode",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
