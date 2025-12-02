@@ -110,7 +110,7 @@ export function VirtualizedLogsList({
                         <div
                             key={isNew ? `new-${log.uuid}` : log.uuid}
                             className={cn(
-                                'flex items-start gap-3 px-3 py-1.5 border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
+                                'flex items-center gap-3 px-3 py-1.5 border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
                                 isHighlighted && 'bg-primary-highlight',
                                 pinned && 'bg-warning-highlight',
                                 pinned && showPinnedWithOpacity && 'opacity-50',
