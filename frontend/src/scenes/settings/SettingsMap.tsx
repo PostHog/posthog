@@ -32,6 +32,8 @@ import { urls } from 'scenes/urls'
 import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
+import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
     ActivityLogNotifications,
@@ -71,6 +73,7 @@ import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
     Bookmarklet,
     TeamAuthorizedURLs,
+    TeamBusinessModel,
     TeamDisplayName,
     TeamTimezone,
     TeamVariables,
@@ -137,6 +140,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Project ID',
                 component: <TeamVariables />,
             },
+
+            {
+                id: 'date-and-time',
+                title: 'Date & time',
+                component: <TeamTimezone />,
+            },
+            {
+                id: 'business-model',
+                title: 'Business model',
+                component: <TeamBusinessModel />,
+            },
         ],
     },
     {
@@ -184,10 +198,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <GroupAnalyticsConfig />,
             },
             {
-                id: 'crm-usage-metrics',
+                id: 'customer-analytics-usage-metrics',
                 title: 'Usage metrics',
                 component: <UsageMetricsConfig />,
-                flag: 'CRM_USAGE_METRICS',
+                flag: 'CUSTOMER_ANALYTICS',
+            },
+            {
+                id: 'customer-analytics-dashboard-events',
+                title: 'Dashboard events',
+                component: <CustomerAnalyticsDashboardEvents />,
+                flag: 'CUSTOMER_ANALYTICS',
             },
         ],
     },
@@ -196,11 +216,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
-            {
-                id: 'date-and-time',
-                title: 'Date & time',
-                component: <TeamTimezone />,
-            },
             {
                 id: 'base-currency',
                 title: 'Base currency',

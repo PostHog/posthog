@@ -110,6 +110,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
     input_data = prepare_single_session_summary_input(
         session_id=inputs.session_id,
         user_id=inputs.user_id,
+        user_distinct_id_to_log=inputs.user_distinct_id_to_log,
         summary_data=summary_data,
         model_to_use=inputs.model_to_use,
     )
@@ -440,7 +441,7 @@ async def _check_handle_data(handle: WorkflowHandle) -> tuple[WorkflowExecutionS
 
 def _prepare_execution(
     session_id: str,
-    user_id: int,
+    user: User,
     team: Team,
     model_to_use: str,
     stream: bool = False,
@@ -452,7 +453,7 @@ def _prepare_execution(
     # Using session id instead of random UUID to be able to check the data in Redis
     shared_id = session_id
     # Prepare the input data
-    redis_key_base = f"session-summary:single:{user_id}-{team.id}:{shared_id}"
+    redis_key_base = f"session-summary:single:{user.id}-{team.id}:{shared_id}"
     redis_client = get_client()
     redis_input_key = generate_state_key(
         key_base=redis_key_base, label=StateActivitiesEnum.SESSION_DB_DATA, state_id=session_id
@@ -466,7 +467,8 @@ def _prepare_execution(
         raise ApplicationError(msg, non_retryable=True)
     session_input = SingleSessionSummaryInputs(
         session_id=session_id,
-        user_id=user_id,
+        user_id=user.id,
+        user_distinct_id_to_log=user.distinct_id,
         team_id=team.id,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
@@ -475,14 +477,14 @@ def _prepare_execution(
         video_validation_enabled=video_validation_enabled,
     )
     workflow_id = (
-        f"session-summary:single:{'stream' if stream else 'direct'}:{session_id}:{user_id}:{shared_id}:{uuid.uuid4()}"
+        f"session-summary:single:{'stream' if stream else 'direct'}:{session_id}:{user.id}:{shared_id}:{uuid.uuid4()}"
     )
     return redis_client, redis_input_key, redis_output_key, session_input, workflow_id
 
 
 async def execute_summarize_session(
     session_id: str,
-    user_id: int,
+    user: User,
     team: Team,
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
@@ -495,7 +497,7 @@ async def execute_summarize_session(
     """
     _, _, _, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
-        user_id=user_id,
+        user=user,
         team=team,
         stream=False,
         model_to_use=model_to_use,
@@ -521,7 +523,7 @@ async def execute_summarize_session(
 
 def execute_summarize_session_stream(
     session_id: str,
-    user_id: int,
+    user: User,
     team: Team,
     model_to_use: str = SESSION_SUMMARIES_STREAMING_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
@@ -534,7 +536,7 @@ def execute_summarize_session_stream(
     """
     redis_client, redis_input_key, redis_output_key, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
-        user_id=user_id,
+        user=user,
         team=team,
         stream=True,
         model_to_use=model_to_use,

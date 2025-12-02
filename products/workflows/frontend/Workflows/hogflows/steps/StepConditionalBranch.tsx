@@ -59,10 +59,7 @@ export function StepConditionalBranchConfiguration({
             throw new Error('Continue edge not found')
         }
 
-        setConditions([
-            ...conditions,
-            { filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events' }] } },
-        ])
+        setConditions([...conditions, { filters: {} }])
         setWorkflowActionEdges(action.id, [
             ...branchEdges,
             {
