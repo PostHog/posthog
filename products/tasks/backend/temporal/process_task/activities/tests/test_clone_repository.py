@@ -11,6 +11,7 @@ from products.tasks.backend.temporal.process_task.activities.clone_repository im
     CloneRepositoryInput,
     clone_repository,
 )
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
 @pytest.mark.skipif(
@@ -18,6 +19,16 @@ from products.tasks.backend.temporal.process_task.activities.clone_repository im
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
 class TestCloneRepositoryActivity:
+    def _create_context(self, github_integration, repository) -> TaskProcessingContext:
+        return TaskProcessingContext(
+            task_id="test-task-123",
+            run_id="test-run-123",
+            team_id=github_integration.team_id,
+            github_integration_id=github_integration.id,
+            repository=repository,
+            distinct_id="test-user-id",
+        )
+
     @pytest.mark.django_db
     def test_clone_repository_success_and_directory_structure(self, activity_environment, github_integration):
         config = SandboxConfig(
@@ -28,15 +39,8 @@ class TestCloneRepositoryActivity:
         sandbox = None
         try:
             sandbox = Sandbox.create(config)
-
-            input_data = CloneRepositoryInput(
-                sandbox_id=sandbox.id,
-                repository="PostHog/posthog-js",
-                github_integration_id=github_integration.id,
-                run_id="test-run-123",
-                task_id="test-task-123",
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(github_integration, "PostHog/posthog-js")
+            input_data = CloneRepositoryInput(context=context, sandbox_id=sandbox.id)
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
@@ -76,15 +80,8 @@ class TestCloneRepositoryActivity:
         sandbox = None
         try:
             sandbox = Sandbox.create(config)
-
-            input_data = CloneRepositoryInput(
-                sandbox_id=sandbox.id,
-                repository="PostHog/posthog-js",
-                github_integration_id=github_integration.id,
-                task_id="test-task-idempotent",
-                run_id="test-run-idempotent",
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(github_integration, "PostHog/posthog-js")
+            input_data = CloneRepositoryInput(context=context, sandbox_id=sandbox.id)
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
@@ -123,15 +120,8 @@ class TestCloneRepositoryActivity:
         sandbox = None
         try:
             sandbox = Sandbox.create(config)
-
-            input_data = CloneRepositoryInput(
-                sandbox_id=sandbox.id,
-                repository="PostHog/private-test-repo-that-does-not-exist",
-                github_integration_id=github_integration.id,
-                task_id="test-task-auth-fail",
-                run_id="test-run-auth-fail",
-                distinct_id="test-user-id",
-            )
+            context = self._create_context(github_integration, "PostHog/private-test-repo-that-does-not-exist")
+            input_data = CloneRepositoryInput(context=context, sandbox_id=sandbox.id)
 
             with patch(
                 "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
@@ -169,14 +159,8 @@ class TestCloneRepositoryActivity:
                 mock_get_token.return_value = ""  # Public repos don't need auth
 
                 for repo in repos:
-                    input_data = CloneRepositoryInput(
-                        sandbox_id=sandbox.id,
-                        repository=repo,
-                        github_integration_id=github_integration.id,
-                        task_id=f"test-task-{repo.split('/')[1]}",
-                        run_id="test-run-multiple-repos",
-                        distinct_id="test-user-id",
-                    )
+                    context = self._create_context(github_integration, repo)
+                    input_data = CloneRepositoryInput(context=context, sandbox_id=sandbox.id)
 
                     result = async_to_sync(activity_environment.run)(clone_repository, input_data)
                     repo_name = repo.split("/")[1]
@@ -200,14 +184,8 @@ class TestCloneRepositoryActivity:
 
     @pytest.mark.django_db
     def test_clone_repository_sandbox_not_found(self, activity_environment, github_integration):
-        input_data = CloneRepositoryInput(
-            sandbox_id="non-existent-sandbox-id",
-            repository="posthog/posthog-js",
-            github_integration_id=github_integration.id,
-            task_id="test-task-not-found",
-            run_id="test-run-not-found",
-            distinct_id="test-user-id",
-        )
+        context = self._create_context(github_integration, "posthog/posthog-js")
+        input_data = CloneRepositoryInput(context=context, sandbox_id="non-existent-sandbox-id")
 
         with patch(
             "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"

@@ -58,6 +58,7 @@ import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -879,13 +880,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 )}
             </div>
             <QuickSurveyModal
-                flag={featureFlag}
+                context={{
+                    type: QuickSurveyType.FEATURE_FLAG,
+                    flag: featureFlag,
+                    initialVariantKey: quickSurveyVariantKey,
+                }}
+                info="This survey will display to all users in this feature flag, filtered by any conditions you specify below."
                 isOpen={isQuickSurveyModalOpen}
-                onClose={() => {
+                onCancel={() => {
                     setIsQuickSurveyModalOpen(false)
                     setQuickSurveyVariantKey(null)
                 }}
-                initialVariantKey={quickSurveyVariantKey}
             />
         </>
     )
