@@ -278,7 +278,8 @@ class HyperCache:
             json_data = json.dumps(data, sort_keys=True)
             if self.enable_etag:
                 etag = self._compute_etag(json_data)
-                # Write data and ETag in single Redis round trip
+                # Write data and ETag via pipeline (single Redis round trip)
+                # Note this is not strictly atomic, but good enough for our use case
                 self.cache_client.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout)
             else:
                 self.cache_client.set(cache_key, json_data, timeout=timeout)

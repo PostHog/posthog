@@ -98,6 +98,7 @@ def extract_etag_from_header(header_value: str | None) -> str | None:
     Extract ETag value from an If-None-Match header.
 
     Handles both strong ETags ("abc123") and weak ETags (W/"abc123") per RFC 7232.
+    Malformed weak ETags (ex. "W/abc123" where quotes are missing) are returned as-is.
     Returns None if the header is empty or None.
     """
     if not header_value:
