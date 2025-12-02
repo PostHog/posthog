@@ -29,7 +29,10 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
-from products.llm_analytics.backend.summarization.constants import SUMMARIZATION_FEATURE_FLAG
+from products.llm_analytics.backend.summarization.constants import (
+    EARLY_ADOPTERS_FEATURE_FLAG,
+    SUMMARIZATION_FEATURE_FLAG,
+)
 from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.text_repr.formatters import (
     FormatterOptions,
@@ -115,9 +118,10 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             return
 
         # Check feature flag using user's distinct_id to match against person-based cohorts
-        if not posthoganalytics.feature_enabled(
-            SUMMARIZATION_FEATURE_FLAG,
-            str(request.user.distinct_id),
+        distinct_id = str(request.user.distinct_id)
+        if not (
+            posthoganalytics.feature_enabled(SUMMARIZATION_FEATURE_FLAG, distinct_id)
+            or posthoganalytics.feature_enabled(EARLY_ADOPTERS_FEATURE_FLAG, distinct_id)
         ):
             raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this user")
 

@@ -22,6 +22,7 @@ from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     create_session_batch_events_query,
 )
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -183,7 +184,11 @@ async def fetch_session_batch_events_activity(
             continue
         # Prepare the data to be used by the next activity
         filtered_columns, filtered_events = add_context_and_filter_events(
-            session_events_columns=columns, session_events=session_events, session_id=session_id
+            session_events_columns=columns,
+            session_events=session_events,
+            session_id=session_id,
+            session_start_time=session_metadata["start_time"],
+            session_end_time=session_metadata["end_time"],
         )
         session_db_data = SessionSummaryDBData(
             session_metadata=session_metadata, session_events_columns=filtered_columns, session_events=filtered_events
@@ -200,6 +205,7 @@ async def fetch_session_batch_events_activity(
         input_data = prepare_single_session_summary_input(
             session_id=session_id,
             user_id=inputs.user_id,
+            user_distinct_id_to_log=inputs.user_distinct_id_to_log,
             summary_data=summary_data,
             model_to_use=inputs.model_to_use,
         )
@@ -309,6 +315,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             single_session_input = SingleSessionSummaryInputs(
                 session_id=session_id,
                 user_id=inputs.user_id,
+                user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                 team_id=inputs.team_id,
                 redis_key_base=inputs.redis_key_base,
                 model_to_use=inputs.model_to_use,
@@ -468,6 +475,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 chunk_summaries_input = SessionGroupSummaryOfSummariesInputs(
                     single_session_summaries_inputs=chunk_inputs,
                     user_id=inputs.user_id,
+                    user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                     team_id=inputs.team_id,
                     summary_title=inputs.summary_title,
                     model_to_use=inputs.model_to_use,
@@ -515,6 +523,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 redis_keys_of_chunks_to_combine=redis_keys_of_chunks_to_combine,
                 session_ids=session_ids_with_patterns_extracted,
                 user_id=inputs.user_id,
+                user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                 team_id=inputs.team_id,
                 redis_key_base=inputs.redis_key_base,
                 extra_summary_context=inputs.extra_summary_context,
@@ -539,6 +548,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
                 user_id=inputs.user_id,
+                user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                 team_id=inputs.team_id,
                 summary_title=inputs.summary_title,
                 model_to_use=inputs.model_to_use,
@@ -564,6 +574,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=single_session_summaries_inputs,
                 user_id=inputs.user_id,
+                user_distinct_id_to_log=inputs.user_distinct_id_to_log,
                 team_id=inputs.team_id,
                 summary_title=inputs.summary_title,
                 model_to_use=inputs.model_to_use,
@@ -675,7 +686,7 @@ def _generate_shared_id(session_ids: list[str]) -> str:
 
 async def execute_summarize_session_group(
     session_ids: list[str],
-    user_id: int,
+    user: User,
     team: Team,
     min_timestamp: datetime,
     max_timestamp: datetime,
@@ -697,10 +708,11 @@ async def execute_summarize_session_group(
     # Use shared identifier to be able to construct all the ids to check/debug.
     shared_id = _generate_shared_id(session_ids)
     # Prepare the input data
-    redis_key_base = f"session-summary:group:{user_id}-{team.id}:{shared_id}"
+    redis_key_base = f"session-summary:group:{user.id}-{team.id}:{shared_id}"
     session_group_input = SessionGroupSummaryInputs(
         session_ids=session_ids,
-        user_id=user_id,
+        user_id=user.id,
+        user_distinct_id_to_log=user.distinct_id,
         team_id=team.id,
         redis_key_base=redis_key_base,
         summary_title=summary_title,
@@ -712,7 +724,7 @@ async def execute_summarize_session_group(
         video_validation_enabled=video_validation_enabled,
     )
     # Connect to Temporal and execute the workflow
-    workflow_id = f"session-summary:group:{user_id}-{team.id}:{shared_id}:{uuid.uuid4()}"
+    workflow_id = f"session-summary:group:{user.id}-{team.id}:{shared_id}:{uuid.uuid4()}"
     # Yield status updates and final result
     async for update in _start_session_group_summary_workflow(inputs=session_group_input, workflow_id=workflow_id):
         yield update
