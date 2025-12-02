@@ -120,7 +120,6 @@
         "$feature/data-modeling": true,
         "$feature/audit-logs-access": true,
         "$current_url": "http://localhost:8010/project/1/error_tracking?orderBy=first_seen&status=active&filterTestAccounts=false&orderDirection=ASC&dateRange=%7B%22date_from%22%3A%22-14d%22%2C%22date_to%22%3Anull%7D",
-        "$feature/historical-exports-v2": true,
         "$feature/hog": true,
         "$transformations_failed": [],
         "$configured_session_timeout_ms": 1800000,
@@ -214,7 +213,6 @@
         "$feature/experiment-stats-v2": true,
         "$feature/hedgehog-skin-spiderhog": true,
         "$active_feature_flags": [
-            "historical-exports-v2",
             "ingestion-warnings-enabled",
             "debug-react-renders",
             "auto-rollback-feature-flags",

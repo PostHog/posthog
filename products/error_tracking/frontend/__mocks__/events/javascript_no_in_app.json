@@ -202,7 +202,6 @@
         "$group_2": "http://localhost:8010",
         "$group_3": "cus_S1FJGJmSDsqyJ1",
         "$active_feature_flags": [
-            "historical-exports-v2",
             "ingestion-warnings-enabled",
             "debug-react-renders",
             "auto-rollback-feature-flags",
@@ -466,7 +465,6 @@
         "$feature/session-replay-export-mobile-data": true,
         "$recording_status": "disabled",
         "free_allocation.data_warehouse": 1000000,
-        "$feature/historical-exports-v2": true,
         "$feature/multiple-breakdowns": true,
         "percentage_usage.data_warehouse": 0,
         "$session_entry_host": "localhost:8010",

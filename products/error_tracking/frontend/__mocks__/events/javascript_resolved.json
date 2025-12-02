@@ -333,7 +333,6 @@
         "$feature/feature-flag-cohort-creation": true,
         "$feature/site-destinations": true,
         "$feature/discussions": true,
-        "$feature/historical-exports-v2": true,
         "$group_2": "http://localhost:8010",
         "$pageview_id": "0196032f-56e7-76c4-ac64-9a86ee6a738a",
         "$replay_minimum_duration": null,
@@ -361,7 +360,6 @@
         "$feature/data-modeling": true,
         "usage_limit.data_warehouse": 1000000,
         "$active_feature_flags": [
-            "historical-exports-v2",
             "ingestion-warnings-enabled",
             "debug-react-renders",
             "auto-rollback-feature-flags",

@@ -146,13 +146,9 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
     Teams: 'office.com',
 }
 
-// NOTE: Run `DEBUG=1 python manage.py sync_feature_flags` locally to sync these flags into your local project
-// By default all flags are boolean but you can add `multivariate` to the comment to have it created as multivariate with "test" and "control" values
-
+// NOTE: Run `dev:sync-flags` locally to sync these flags into your local project
+// or if you're running flox + mprocs you can also run the `sync-feature-flags` process
 export const FEATURE_FLAGS = {
-    // Experiments / beta features
-    FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
-    HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite
