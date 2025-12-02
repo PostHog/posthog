@@ -133,6 +133,17 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        updateOption: ({ index, updates }) => {
+            if (updates.value !== undefined) {
+                const currentOption = values.options[index]
+                if (currentOption && !currentOption.label) {
+                    const autoLabel = Array.isArray(updates.value) ? updates.value.join(', ') : (updates.value ?? '')
+                    if (autoLabel) {
+                        actions.updateOption(index, { label: autoLabel })
+                    }
+                }
+            }
+        },
         setPropertyName: ({ propertyName }) => {
             if (propertyName) {
                 actions.loadPropertySuggestions(propertyName, '')

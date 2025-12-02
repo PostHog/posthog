@@ -1629,6 +1629,7 @@ export type LifecycleFilter = {
     stacked?: boolean
 }
 
+// See posthog/hogql_queries/query_runner.py `ExecutionMode` for details on what the types mean
 export type RefreshType =
     | 'async'
     | 'async_except_on_cache_miss'
