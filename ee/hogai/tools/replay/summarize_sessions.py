@@ -27,6 +27,11 @@ from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStr
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.stringify import SessionGroupSummaryStringifier
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.tracking import (
+    capture_session_summary_generated,
+    capture_session_summary_started,
+    generate_tracking_id,
+)
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.state import prepare_reasoning_progress_message
@@ -222,23 +227,6 @@ class SummarizeSessionsToolArgs(BaseModel):
         * If there's not enough context to generated the summary name - keep it an empty string ("")
         """.strip()
     )
-    session_summarization_limit: int = Field(
-        description="""
-        - The maximum number of sessions to summarize
-        - This will be used to apply to DB query to limit the results.
-        - Extract the limit from the user's query if present. Set to -1 if not present.
-        - IMPORTANT: Extract the limit only if the user's query explicitly mentions a number of sessions to summarize.
-        - Examples:
-          * 'summarize all sessions from yesterday' -> limit: -1
-          * 'summarize last 100 sessions' -> limit: 100
-          * 'summarize these sessions' -> limit: -1
-          * 'summarize first 10 of these sessions' -> limit: 10
-          * 'summarize the sessions of the users with at least 10 events' -> limit: -1
-          * 'summarize the sessions of the last 30 days' -> limit: -1
-          * 'summarize last 500 sessions of the MacOS users from US' -> limit: 500
-          * and similar
-        """.strip()
-    )
 
 
 class SummarizeSessionsTool(MaxTool):
@@ -276,7 +264,7 @@ class SummarizeSessionsTool(MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, search_query: MaxRecordingUniversalFilters, summary_title: str, session_summarization_limit: int
+        self, search_query: MaxRecordingUniversalFilters, summary_title: str
     ) -> tuple[str, ToolMessagesArtifact | None]:
         # Stream filters to the user at the start
         self._stream_filters(search_query)
@@ -285,52 +273,102 @@ class SummarizeSessionsTool(MaxTool):
         recordings_query = self._convert_max_filters_to_recordings_query(search_query)
 
         # Determine query limit
-        query_limit = session_summarization_limit
-        if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+        if (
+            not recordings_query.limit
+            or recordings_query.limit <= 0
+            or recordings_query.limit > MAX_SESSIONS_TO_SUMMARIZE
+        ):
             # If no limit provided (none or negative) or too large - use the default limit
-            query_limit = MAX_SESSIONS_TO_SUMMARIZE
+            recordings_query.limit = MAX_SESSIONS_TO_SUMMARIZE
 
         # Get session IDs
         session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-            recordings_query, query_limit
+            recordings_query
         )
 
         # No sessions found
         if not session_ids:
             return "No sessions were found matching the specified criteria.", None
-
-        # Summarize the sessions
-        summaries_content, session_group_summary_id = await self._summarize_sessions(
-            session_ids=session_ids,
-            summary_title=summary_title,
+        # We have session IDs - start tracking
+        summary_type: Literal["single", "group"] = (
+            "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
         )
-
-        # Build messages artifact for group summaries (with "Open report" button)
-        if session_group_summary_id:
-            messages = [
-                AssistantMessage(
-                    meta={
-                        "form": {
-                            "options": [
-                                {
-                                    "value": "Open report",
-                                    "href": f"/session-summaries/{session_group_summary_id}",
-                                    "variant": "primary",
-                                }
-                            ]
-                        }
-                    },
-                    content=f"Report complete: {summary_title or 'Sessions summary'}",
-                    id=str(uuid4()),
-                ),
-                AssistantToolCallMessage(
-                    content=summaries_content, tool_call_id=self._state.root_tool_call_id or "unknown", id=str(uuid4())
-                ),
-            ]
-            # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
-            return "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
-
-        return summaries_content, None
+        video_validation_enabled = self._has_video_validation_feature_flag()
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+        )
+        try:
+            # Summarize the sessions
+            summaries_content, session_group_summary_id = await self._summarize_sessions(
+                session_ids=session_ids,
+                summary_title=summary_title,
+            )
+            # Build messages artifact for group summaries (with "Open report" button)
+            content, artifact = None, None
+            if session_group_summary_id:
+                messages = [
+                    AssistantMessage(
+                        meta={
+                            "form": {
+                                "options": [
+                                    {
+                                        "value": "Open report",
+                                        "href": f"/session-summaries/{session_group_summary_id}",
+                                        "variant": "primary",
+                                    }
+                                ]
+                            }
+                        },
+                        content=f"Report complete: {summary_title or 'Sessions summary'}",
+                        id=str(uuid4()),
+                    ),
+                    AssistantToolCallMessage(
+                        content=summaries_content,
+                        tool_call_id=self._state.root_tool_call_id or "unknown",
+                        id=str(uuid4()),
+                    ),
+                ]
+                # Providing string to avoid feeding the context twice, as AssistantToolCallMessage is required for proper rendering of the report button
+                content, artifact = "Sessions summarized successfully", ToolMessagesArtifact(messages=messages)
+            else:
+                content, artifact = summaries_content, None
+        except Exception as err:
+            # The session summarization failed
+            capture_session_summary_generated(
+                user=self._user,
+                team=self._team,
+                tracking_id=tracking_id,
+                summary_source="chat",
+                summary_type=summary_type,
+                is_streaming=False,
+                session_ids=session_ids,
+                video_validation_enabled=video_validation_enabled,
+                success=False,
+                error_type=type(err).__name__,
+                error_message=str(err),
+            )
+            raise
+        # The session successfully summarized
+        capture_session_summary_generated(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+            success=True,
+        )
+        return content, artifact
 
     def _has_video_validation_feature_flag(self) -> bool | None:
         """
@@ -362,6 +400,7 @@ class SummarizeSessionsTool(MaxTool):
             date_to=replay_filters.date_to,
             properties=properties,
             filter_test_accounts=replay_filters.filter_test_accounts,
+            limit=replay_filters.limit,
             order=replay_filters.order,
             # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
             having_predicates=(
@@ -375,15 +414,14 @@ class SummarizeSessionsTool(MaxTool):
         )
         return recordings_query
 
-    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
-        replay_filters.limit = limit
         try:
             query_runner = SessionRecordingListFromQuery(
-                team=self._team, query=replay_filters, hogql_query_modifiers=None, limit=limit
+                team=self._team, query=replay_filters, hogql_query_modifiers=None
             )
             results = query_runner.run()
         except Exception as e:
@@ -407,7 +445,7 @@ class SummarizeSessionsTool(MaxTool):
             nonlocal completed
             result = await execute_summarize_session(
                 session_id=session_id,
-                user_id=self._user.id,
+                user=self._user,
                 team=self._team,
                 model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                 video_validation_enabled=video_validation_enabled,
@@ -444,7 +482,7 @@ class SummarizeSessionsTool(MaxTool):
 
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
-            user_id=self._user.id,
+            user=self._user,
             team=self._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,

@@ -90,7 +90,8 @@ export class PersonPropertyService {
             propertyUpdates.toSet,
             propertyUpdates.toUnset,
             otherUpdates,
-            this.context.distinctId
+            this.context.distinctId,
+            propertyUpdates.shouldForceUpdate
         )
         const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
         return [updatedPerson, kafkaAck]

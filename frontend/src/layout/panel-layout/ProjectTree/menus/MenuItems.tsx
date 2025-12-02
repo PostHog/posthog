@@ -8,6 +8,7 @@ import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
+    ContextMenuGroup,
     ContextMenuItem,
     ContextMenuSeparator,
     ContextMenuSub,
@@ -15,6 +16,7 @@ import {
     ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
@@ -86,7 +88,7 @@ export function MenuItems({
     const MenuSub = type === 'context' ? ContextMenuSub : DropdownMenuSub
     const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
     const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
-
+    const MenuGroup = type === 'context' ? ContextMenuGroup : DropdownMenuGroup
     const showSelectMenuItems =
         root === 'project://' && item.record?.path && !item.disableSelect && !onlyTree && showSelectMenuOption
 
@@ -101,6 +103,7 @@ export function MenuItems({
             <>
                 <ProductAnalyticsMenuItems
                     MenuItem={MenuItem}
+                    MenuGroup={MenuGroup}
                     MenuSeparator={MenuSeparator}
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
@@ -113,6 +116,7 @@ export function MenuItems({
                     MenuSub={MenuSub}
                     MenuSubTrigger={MenuSubTrigger}
                     MenuSubContent={MenuSubContent}
+                    MenuGroup={MenuGroup}
                     MenuSeparator={MenuSeparator}
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
@@ -125,6 +129,7 @@ export function MenuItems({
                     MenuSub={MenuSub}
                     MenuSubTrigger={MenuSubTrigger}
                     MenuSubContent={MenuSubContent}
+                    MenuGroup={MenuGroup}
                     MenuSeparator={MenuSeparator}
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />

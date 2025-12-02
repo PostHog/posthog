@@ -1,6 +1,6 @@
 import time
 import asyncio
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 import structlog
@@ -32,6 +32,11 @@ from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStr
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.stringify import SessionGroupSummaryStringifier
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.tracking import (
+    capture_session_summary_generated,
+    capture_session_summary_started,
+    generate_tracking_id,
+)
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.state import prepare_reasoning_progress_message
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -86,26 +91,43 @@ class SessionSummarizationNode(AssistantNode):
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         # Search for session ids with filters (current or generated)
         search_result = await self._session_search.search_sessions(state, conversation_id, start_time, config)
+        # No sessions were found
+        if not search_result:
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content="No sessions were found.",
+                        tool_call_id=state.root_tool_call_id or "unknown",
+                        id=str(uuid4()),
+                    ),
+                ],
+                session_summarization_query=None,
+                root_tool_call_id=None,
+            )
+        # The search failed or clarification is needed
+        if isinstance(search_result, PartialAssistantState):
+            return search_result
+        # We have session IDs - start tracking
+        session_ids = search_result
+        summary_type: Literal["single", "group"] = (
+            "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
+        )
+        video_validation_enabled = self._has_video_validation_feature_flag()
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+        )
         try:
-            # No sessions were found
-            if not search_result:
-                return PartialAssistantState(
-                    messages=[
-                        AssistantToolCallMessage(
-                            content="No sessions were found.",
-                            tool_call_id=state.root_tool_call_id or "unknown",
-                            id=str(uuid4()),
-                        ),
-                    ],
-                    session_summarization_query=None,
-                    root_tool_call_id=None,
-                )
-            # The search failed or clarification is needed
-            if isinstance(search_result, PartialAssistantState):
-                return search_result
             # Summarize sessions
             summaries_content, session_group_summary_id = await self._session_summarizer.summarize_sessions(
-                session_ids=search_result, state=state
+                session_ids=session_ids, state=state
             )
             # Build messages list
             messages: list = []
@@ -136,10 +158,39 @@ class SessionSummarizationNode(AssistantNode):
                     id=str(uuid4()),
                 ),
             )
-            return PartialAssistantState(messages=messages, session_summarization_query=None, root_tool_call_id=None)
+            ready_state = PartialAssistantState(
+                messages=messages, session_summarization_query=None, root_tool_call_id=None
+            )
         except Exception as err:
+            # The session summarization failed
             self._log_failure("Session summarization failed", conversation_id, start_time, err)
+            capture_session_summary_generated(
+                user=self._user,
+                team=self._team,
+                tracking_id=tracking_id,
+                summary_source="chat",
+                summary_type=summary_type,
+                is_streaming=False,
+                session_ids=session_ids,
+                video_validation_enabled=video_validation_enabled,
+                success=False,
+                error_type=type(err).__name__,
+                error_message=str(err),
+            )
             return self._create_error_response(self._base_error_instructions, state)
+        # The session successfully summarized
+        capture_session_summary_generated(
+            user=self._user,
+            team=self._team,
+            tracking_id=tracking_id,
+            summary_source="chat",
+            summary_type=summary_type,
+            is_streaming=False,
+            session_ids=session_ids,
+            video_validation_enabled=video_validation_enabled,
+            success=True,
+        )
+        return ready_state
 
     def _create_error_response(self, message: str, state: AssistantState) -> PartialAssistantState:
         return PartialAssistantState(
@@ -260,6 +311,7 @@ class _SessionSearch:
             date_to=replay_filters.date_to,
             properties=properties,
             filter_test_accounts=replay_filters.filter_test_accounts,
+            limit=replay_filters.limit,
             order=replay_filters.order,
             # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
             having_predicates=(
@@ -282,15 +334,14 @@ class _SessionSearch:
         recordings_query = convert_filters_to_recordings_query(temp_playlist)
         return recordings_query
 
-    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
-        replay_filters.limit = limit
         try:
             query_runner = SessionRecordingListFromQuery(
-                team=self._node._team, query=replay_filters, hogql_query_modifiers=None, limit=limit
+                team=self._node._team, query=replay_filters, hogql_query_modifiers=None
             )
             results = query_runner.run()
         except Exception as e:
@@ -404,12 +455,15 @@ class _SessionSearch:
                 replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
                 self._node._stream_filters(filter_generation_result)
             # Query the filters to get session ids
-            query_limit = state.session_summarization_limit
-            if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+            if (
+                not replay_filters.limit
+                or replay_filters.limit <= 0
+                or replay_filters.limit > MAX_SESSIONS_TO_SUMMARIZE
+            ):
                 # If no limit provided (none or negative) or too large - use the default limit
-                query_limit = MAX_SESSIONS_TO_SUMMARIZE
+                replay_filters.limit = MAX_SESSIONS_TO_SUMMARIZE
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                replay_filters, query_limit
+                replay_filters
             )
             return session_ids
         except Exception as e:
@@ -437,7 +491,7 @@ class _SessionSummarizer:
             nonlocal completed
             result = await execute_summarize_session(
                 session_id=session_id,
-                user_id=self._node._user.id,
+                user=self._node._user,
                 team=self._node._team,
                 model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                 video_validation_enabled=video_validation_enabled,
@@ -470,7 +524,7 @@ class _SessionSummarizer:
 
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
-            user_id=self._node._user.id,
+            user=self._node._user,
             team=self._node._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,

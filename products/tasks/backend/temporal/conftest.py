@@ -8,8 +8,9 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
-from products.tasks.backend.models import SandboxSnapshot, Task
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
 @pytest.fixture
@@ -83,14 +84,40 @@ def test_task(team, user, github_integration):
         title="Test Task for Temporal Activities",
         description="This is a test task for testing temporal activities",
         origin_product=Task.OriginProduct.USER_CREATED,
-        position=0,
         github_integration=github_integration,
-        repository_config={"organization": "PostHog", "repository": "posthog-js"},
+        repository="posthog/posthog-js",
     )
 
     yield task
 
-    task.delete()
+    task.soft_delete()
+
+
+@pytest.fixture
+def test_task_run(test_task):
+    """Create a test task run."""
+    task_run = TaskRun.objects.create(
+        task=test_task,
+        team=test_task.team,
+        status=TaskRun.Status.QUEUED,
+    )
+
+    yield task_run
+
+    # NOTE: TaskRun does not get deleted
+
+
+@pytest.fixture
+def task_context(test_task, test_task_run) -> TaskProcessingContext:
+    """Create a TaskProcessingContext for testing."""
+    return TaskProcessingContext(
+        task_id=str(test_task.id),
+        run_id=str(test_task_run.id),
+        team_id=test_task.team_id,
+        github_integration_id=test_task.github_integration_id,
+        repository=test_task.repository,
+        distinct_id=test_task.created_by.distinct_id or "test-distinct-id",
+    )
 
 
 @pytest.fixture(autouse=True)
