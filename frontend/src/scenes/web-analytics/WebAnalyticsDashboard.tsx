@@ -600,7 +600,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
 }
 
 const getEmptyOnboardingContent = (
-    featureFlags: Record<string, boolean | string | undefined>,
+    featureFlags: FeatureFlagsSet,
     currentTeamLoading: boolean,
     currentTeam: TeamType | TeamPublicType | null
 ): JSX.Element | null => {
