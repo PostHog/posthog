@@ -413,6 +413,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 loadLLMDashboards: async () => {
                     const response = await api.dashboards.list({
                         tags: 'llm-analytics',
+                        creation_mode: 'unlisted',
                     })
                     const dashboards = response.results || []
                     return dashboards.map((d) => ({

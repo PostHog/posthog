@@ -2026,3 +2026,38 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("already exists", response.json()["error"])
+
+    def test_filter_dashboards_by_creation_mode(self):
+        """Test that dashboards can be filtered by creation_mode query param"""
+        # Create dashboards with different creation modes
+        unlisted = Dashboard.objects.create(
+            team=self.team,
+            name="Unlisted Dashboard",
+            creation_mode="unlisted",
+        )
+        normal = Dashboard.objects.create(
+            team=self.team,
+            name="Normal Dashboard",
+            creation_mode="default",
+        )
+        template = Dashboard.objects.create(
+            team=self.team,
+            name="Template Dashboard",
+            creation_mode="template",
+        )
+
+        # Filter by unlisted
+        response = self.client.get(f"/api/environments/{self.team.id}/dashboards/?creation_mode=unlisted")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [d["id"] for d in response.json()["results"]]
+        self.assertIn(unlisted.id, ids)
+        self.assertNotIn(normal.id, ids)
+        self.assertNotIn(template.id, ids)
+
+        # Filter by default
+        response = self.client.get(f"/api/environments/{self.team.id}/dashboards/?creation_mode=default")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [d["id"] for d in response.json()["results"]]
+        self.assertNotIn(unlisted.id, ids)
+        self.assertIn(normal.id, ids)
+        self.assertNotIn(template.id, ids)
