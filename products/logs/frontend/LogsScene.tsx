@@ -76,8 +76,9 @@ export function LogsScene(): JSX.Element {
                     }
                 },
             },
+            r: { action: () => runQuery() },
         },
-        [sceneHighlightedLogId]
+        [sceneHighlightedLogId, runQuery]
     )
 
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
@@ -604,6 +605,9 @@ const DisplayOptions = (): JSX.Element => {
                     <span className="mx-1">·</span>
                     <KeyboardShortcut enter />
                     expand
+                    <span className="mx-1">·</span>
+                    <KeyboardShortcut r />
+                    refresh
                 </span>
             </div>
         </div>
@@ -655,6 +659,9 @@ const VirtualizedLogsListDisplayOptions = (): JSX.Element => {
                     <span className="mx-1">·</span>
                     <KeyboardShortcut enter />
                     expand
+                    <span className="mx-1">·</span>
+                    <KeyboardShortcut r />
+                    refresh
                 </span>
             </div>
         </div>
