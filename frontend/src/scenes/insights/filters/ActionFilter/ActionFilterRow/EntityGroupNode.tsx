@@ -5,7 +5,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions } from 'kea'
 
 import { IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -221,20 +221,24 @@ export function EntityGroupNode({
 
                     {!readOnly && (
                         <>
-                            <LemonButton
-                                size="small"
-                                icon={<IconTrash />}
-                                onClick={() => removeLocalFilter({ index })}
-                                className="EntityGroupNode__delete-btn"
-                                data-attr={`group-filter-delete-${index}`}
-                            />
-                            <LemonButton
-                                size="small"
-                                icon={<IconUndo />}
-                                onClick={() => splitLocalFilter(index)}
-                                className="EntityGroupNode__split-btn"
-                                data-attr={`group-filter-split-${index}`}
-                            />
+                            <Tooltip title="Remove group">
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconTrash />}
+                                    onClick={() => removeLocalFilter({ index })}
+                                    className="EntityGroupNode__delete-btn"
+                                    data-attr={`group-filter-delete-${index}`}
+                                />
+                            </Tooltip>
+                            <Tooltip title="Split events">
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconUndo />}
+                                    onClick={() => splitLocalFilter(index)}
+                                    className="EntityGroupNode__split-btn"
+                                    data-attr={`group-filter-split-${index}`}
+                                />
+                            </Tooltip>
                         </>
                     )}
                 </div>

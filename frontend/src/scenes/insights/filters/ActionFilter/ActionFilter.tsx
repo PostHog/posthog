@@ -204,6 +204,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
     const sortedItemIds = localFilters.map((i) => i.uuid)
+    const isTrendsContext = isTrendsFilter(filters)
 
     return (
         <div
@@ -237,7 +238,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             strategy={verticalListSortingStrategy}
                         >
                             {localFilters.map((filter, index) =>
-                                filter.type === EntityTypes.GROUPS ? (
+                                isTrendsContext && filter.type === EntityTypes.GROUPS ? (
                                     <EntityGroupNode
                                         key={filter.uuid}
                                         logic={logic}
