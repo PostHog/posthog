@@ -64,7 +64,7 @@ We have a handful of tables that require a parent object to cursor, for example,
 - Possibly moving to ducklake instead of deltalake
   - using duckdb to do the data merging - more efficient, less memory intensive
   - Utilising the work Jams/Bill is doing on the duck kubernetes controller
-    - FirecrakerVMs
+    - FirecrackerVMs
   - Data will be in the same format as the query engine
   - Scalable catalog via postgres
 
