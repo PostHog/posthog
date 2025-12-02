@@ -585,6 +585,143 @@ describe('Event Pipeline E2E tests', () => {
         }
     )
 
+    testWithTeamIngester(
+        '$identify and $set events force person property updates even for filtered properties',
+        {},
+        async (ingester, hub, team) => {
+            const distinctId = new UUIDT().toString()
+            const timestamp = DateTime.now().toMillis()
+
+            // Chain of events: normal event with filtered props, then $identify with filtered props, then another normal event
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    // Event 1: Normal pageview with filtered properties (should be ignored on its own)
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$pageview')
+                        .withProperties({
+                            $set: { $browser: 'Chrome', utm_source: 'google' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                    // Event 2: $identify with ONLY filtered properties (should force update)
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { $browser: 'Safari', $geoip_city_name: 'San Francisco' },
+                        })
+                        .withTimestamp(timestamp + 1)
+                        .build(),
+                    // Event 3: Another normal event with filtered properties
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$pageview')
+                        .withProperties({
+                            $set: { utm_source: 'facebook' },
+                        })
+                        .withTimestamp(timestamp + 2)
+                        .build(),
+                ])
+            )
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toEqual(3)
+
+                // Event 0 (first pageview): Should have properties from first event only
+                expect(events[0].person_properties).toEqual({
+                    $browser: 'Chrome',
+                    $creator_event_uuid: events[0].uuid,
+                    utm_source: 'google',
+                })
+
+                // Event 1 ($identify): Should have accumulated properties from first two events
+                expect(events[1].person_properties).toEqual({
+                    $browser: 'Safari', // Updated by $identify
+                    $creator_event_uuid: events[0].uuid,
+                    utm_source: 'google', // Still from first event
+                    $geoip_city_name: 'San Francisco', // Added by $identify
+                })
+
+                // Event 2 (last pageview): Should have all accumulated properties
+                expect(events[2].person_properties).toEqual({
+                    $browser: 'Safari', // From $identify
+                    $creator_event_uuid: events[0].uuid,
+                    utm_source: 'facebook', // Updated by this event
+                    $geoip_city_name: 'San Francisco', // From $identify
+                })
+
+                // Verify the final state of the person in the database
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.properties).toEqual({
+                    $browser: 'Safari',
+                    $creator_event_uuid: events[0].uuid,
+                    utm_source: 'facebook',
+                    $geoip_city_name: 'San Francisco',
+                })
+            })
+        }
+    )
+
+    testWithTeamIngester(
+        '$set events force person property updates even for filtered properties',
+        {},
+        async (ingester, hub, team) => {
+            const distinctId = new UUIDT().toString()
+            const timestamp = DateTime.now().toMillis()
+
+            // Similar test but with $set event instead of $identify
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    // Event 1: Normal event with filtered properties
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$pageview')
+                        .withProperties({
+                            $set: { $browser: 'Chrome' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                    // Event 2: $set event with filtered properties (should force update)
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$set')
+                        .withProperties({
+                            $set: { utm_source: 'twitter', $geoip_country_code: 'US' },
+                        })
+                        .withTimestamp(timestamp + 1)
+                        .build(),
+                ])
+            )
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toEqual(2)
+
+                // Event 0 (first pageview): Should have properties from first event only
+                expect(events[0].person_properties).toEqual({
+                    $browser: 'Chrome',
+                    $creator_event_uuid: events[0].uuid,
+                })
+
+                // Event 1 ($set): Should have accumulated properties from both events
+                expect(events[1].person_properties).toEqual({
+                    $browser: 'Chrome', // From first event
+                    $creator_event_uuid: events[0].uuid,
+                    utm_source: 'twitter', // From $set event
+                    $geoip_country_code: 'US', // From $set event
+                })
+
+                // Verify the final state of the person in the database
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.properties).toEqual({
+                    $browser: 'Chrome',
+                    $creator_event_uuid: events[0].uuid,
+                    utm_source: 'twitter',
+                    $geoip_country_code: 'US',
+                })
+            })
+        }
+    )
+
     testWithTeamIngester('can handle events with $process_person_profile=false', {}, async (ingester, hub, team) => {
         const distinctId = new UUIDT().toString()
         const timestamp = DateTime.now().toMillis()

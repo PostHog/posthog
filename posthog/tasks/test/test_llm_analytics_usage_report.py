@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -59,7 +59,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
     ) -> None:
         """Helper to create AI events."""
         if timestamp is None:
-            timestamp = datetime.now() - timedelta(hours=12)
+            timestamp = datetime.now(UTC) - timedelta(hours=12)
 
         base_properties = properties or {}
 
@@ -903,7 +903,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
         # Create AI events for January 5th (within Jan 4th period when at="2022-01-05")
-        jan_5_timestamp = datetime(2022, 1, 5, 12, 0, 0)
+        jan_5_timestamp = datetime(2022, 1, 5, 12, 0, 0, tzinfo=UTC)
         self._create_ai_events(
             self.team,
             distinct_id,
@@ -913,7 +913,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         )
 
         # Create AI events for January 9th (within the default period based on freeze_time)
-        jan_9_timestamp = datetime(2022, 1, 9, 12, 0, 0)
+        jan_9_timestamp = datetime(2022, 1, 9, 12, 0, 0, tzinfo=UTC)
         self._create_ai_events(
             self.team,
             distinct_id,
