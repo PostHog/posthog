@@ -185,7 +185,7 @@ const OverviewItemCell = ({
                 )}
             >
                 {usedPreAggregatedTables && <PreAggregatedBadge />}
-                <div className="flex flex-row w-full items-center">
+                <div className="flex flex-row w-full justify-center">
                     <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>
                         {label}&nbsp;
                     </div>
