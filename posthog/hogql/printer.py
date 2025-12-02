@@ -1651,7 +1651,7 @@ class _Printer(Visitor[str]):
                     is_nullable=materialized_column.is_nullable,
                 )
 
-            if self.context.modifiers.propertyGroupsMode in (
+            if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):
