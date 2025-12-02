@@ -83,7 +83,19 @@ export function singleFilterToGroupFilter(filter: LocalFilter): LocalFilter {
     } as LocalFilter
 }
 
-// TODO: Split group filter to LocalFilters
+/**
+ * Convert a group filter back into individual LocalFilters
+ * Each nested value in the group becomes a separate filter in the parent list
+ * Preserves order and all filter properties
+ */
+export function splitGroupFilterToLocalFilters(groupFilter: LocalFilter, baseOrder: number): LocalFilter[] {
+    const values = (groupFilter.values as LocalFilter[] | null | undefined) || []
+    return values.map((nestedFilter, index) => ({
+        ...nestedFilter,
+        order: baseOrder + index,
+        uuid: uuid(),
+    }))
+}
 
 export interface EntityFilterProps {
     setFilters?: (filters: FilterType) => void
@@ -143,6 +155,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             type: filter.type,
             index: filter.index,
         }),
+        splitLocalFilter: (index: number) => ({ index }),
         addFilter: true,
         duplicateFilter: (filter: EntityFilter | ActionFilter) => ({ filter }),
         convertFilterToGroup: (index: number) => ({ index }),
@@ -304,6 +317,35 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             actions.setFilters(newFilters)
             actions.setLocalFilters(toFilters(newFilters))
             eventUsageLogic.actions.reportInsightFilterRemoved(index)
+        },
+        splitLocalFilter: async ({ index }) => {
+            const filter = values.localFilters[index]
+            if (!filter || filter.type !== EntityTypes.GROUPS) {
+                return
+            }
+
+            // Convert group filter into individual filters
+            const splitFilters = splitGroupFilterToLocalFilters(filter, filter.order)
+
+            // Replace the group filter with individual filters
+            // and adjust orders for filters after it
+            const newFilters = values.localFilters.reduce<LocalFilter[]>((acc, f, i) => {
+                if (i === index) {
+                    // Replace group filter with split filters
+                    acc.push(...splitFilters)
+                } else if (i > index) {
+                    // Adjust order for filters that come after
+                    acc.push({
+                        ...f,
+                        order: f.order + splitFilters.length - 1,
+                    })
+                } else {
+                    acc.push(f)
+                }
+                return acc
+            }, [])
+
+            actions.setFilters(newFilters)
         },
         addFilter: async () => {
             const previousLength = values.localFilters.length

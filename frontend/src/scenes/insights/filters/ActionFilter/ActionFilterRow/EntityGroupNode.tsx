@@ -1,33 +1,22 @@
 import './EntityGroupNode.scss'
 
-import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { BuiltLogic, useActions } from 'kea'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { uuid } from 'lib/utils'
-import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 
-import { actionsModel } from '~/models/actionsModel'
-import { ActionFilter, EntityTypes, FilterLogicalOperator } from '~/types'
+import { EntityTypes, FilterLogicalOperator } from '~/types'
 
 import { LocalFilter } from '../entityFilterLogic'
 import { entityFilterLogicType } from '../entityFilterLogicType'
-import { MathAvailability, MathSelector } from './ActionFilterRow'
-
-const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
-    <span className="ActionFilterRowDragHandle" key="drag-handle" {...props}>
-        <SortableDragIcon />
-    </span>
-)
+import { ActionFilterRow, MathAvailability, MathSelector } from './ActionFilterRow'
 
 interface EntityGroupNodeProps {
     logic: BuiltLogic<entityFilterLogicType>
@@ -52,8 +41,6 @@ export function EntityGroupNode({
     logic,
     filter,
     index,
-    filterCount,
-    sortable,
     disabled = false,
     readOnly = false,
     hasBreakdown,
@@ -64,20 +51,70 @@ export function EntityGroupNode({
     dataWarehousePopoverFields,
     excludedProperties,
     trendsDisplayCategory,
-}: Omit<EntityGroupNodeProps, 'hideDeleteBtn'>): JSX.Element {
-    const { updateFilter, removeLocalFilter } = useActions(logic)
+}: EntityGroupNodeProps): JSX.Element {
+    const { updateFilter: updateSeriesFilter, removeLocalFilter, splitLocalFilter } = useActions(logic)
 
-    const values = (filter.values as LocalFilter[] | null | undefined) || []
+    // Ensure nested filters have order set for entityFilterVisible tracking.
+    // This is critical after deletion: if we delete event[1] from [0,1,2], we get [0,2] but need [0,1].
+    // TODO: Probably handle in the logic
+    const values =
+        (filter.values as LocalFilter[] | null | undefined)?.map((val, i) => ({
+            ...val,
+            order: i,
+        })) || []
 
-    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
+    // Create a wrapped logic that intercepts nested filter updates
+    const createNestedLogicWrapper = (eventIndex: number): BuiltLogic<entityFilterLogicType> => {
+        return {
+            ...logic,
+            actions: {
+                ...logic.actions,
+                updateFilterProperty: (props: any) => {
+                    const newValues = [...values]
+                    newValues[eventIndex] = {
+                        ...newValues[eventIndex],
+                        properties: props.properties,
+                    }
+                    updateSeriesFilter({
+                        type: EntityTypes.GROUPS,
+                        operator: filter.operator,
+                        values: newValues,
+                        index,
+                    } as any)
+                },
+                updateFilter: (updates: any) => {
+                    const newValues = [...values]
+                    newValues[eventIndex] = {
+                        ...newValues[eventIndex],
+                        ...updates,
+                    }
+                    updateSeriesFilter({
+                        type: EntityTypes.GROUPS,
+                        operator: filter.operator,
+                        values: newValues,
+                        index,
+                    } as any)
+                },
+                removeLocalFilter: () => {
+                    const newValues = values.filter((_, i) => i !== eventIndex)
+                    updateSeriesFilter({
+                        type: EntityTypes.GROUPS,
+                        operator: filter.operator,
+                        values: newValues,
+                        index,
+                    } as any)
+                },
+                splitLocalFilter: () => {
+                    // Split is handled at parent level, not needed for nested
+                },
+            } as any,
+        } as any
+    }
 
-    const operatorOptions: LemonSelectOption<FilterLogicalOperator>[] = [
-        { value: FilterLogicalOperator.Or, label: 'OR' },
-        { value: FilterLogicalOperator.And, label: 'AND' },
-    ]
+    const { setNodeRef, attributes, transform, transition, isDragging } = useSortable({ id: filter.uuid })
 
     const handleOperatorChange = (operator: FilterLogicalOperator): void => {
-        updateFilter({
+        updateSeriesFilter({
             type: EntityTypes.GROUPS,
             operator,
             values,
@@ -86,10 +123,15 @@ export function EntityGroupNode({
     }
 
     const handleMathChange = (filterIndex: number, math: string): void => {
-        updateFilter({
+        // Propagate math to all nested values
+        const updatedValues = values.map((val) => ({
+            ...val,
+            math: math || undefined,
+        }))
+        updateSeriesFilter({
             type: EntityTypes.GROUPS,
             operator: filter.operator,
-            values,
+            values: updatedValues,
             math: math || undefined,
             index: filterIndex,
         } as any)
@@ -103,58 +145,12 @@ export function EntityGroupNode({
             order: values.length,
             uuid: uuid(),
         }
-        updateFilter({
+        updateSeriesFilter({
             type: EntityTypes.GROUPS,
             operator: filter.operator,
             values: [...values, newEvent],
             index,
         } as any)
-    }
-
-    const handleRemoveEvent = (eventIndex: number): void => {
-        const newValues = values.filter((_, i) => i !== eventIndex)
-        if (newValues.length === 0) {
-            removeLocalFilter({
-                ...filter,
-                index,
-            })
-        } else {
-            updateFilter({
-                type: EntityTypes.GROUPS,
-                operator: filter.operator,
-                values: newValues,
-                index,
-            } as any)
-        }
-    }
-
-    const handleEventChange = (eventIndex: number, changedValue: any, taxonomicGroupType: any, item: any): void => {
-        const newValues = [...values]
-        const eventTypeStr = String(taxonomicGroupType)
-        newValues[eventIndex] = {
-            ...newValues[eventIndex],
-            type: eventTypeStr as any,
-            id: changedValue ? String(changedValue) : null,
-            name: item?.name ?? '',
-        }
-        updateFilter({
-            type: EntityTypes.GROUPS,
-            operator: filter.operator,
-            values: newValues,
-            index,
-        } as any)
-    }
-
-    const { actions } = useValues(actionsModel)
-
-    const getValue = (actionFilter: ActionFilter): string | number | null | undefined => {
-        if (isAllEventsEntityFilter(actionFilter)) {
-            return 'All events'
-        } else if (actionFilter.type === 'actions') {
-            const action = actions.find((action) => action.id === actionFilter.id)
-            return action?.id || filter.id
-        }
-        return actionFilter.name || actionFilter.id
     }
 
     return (
@@ -171,107 +167,130 @@ export function EntityGroupNode({
             <div className="EntityGroupNode__wrapper">
                 {/* Top row: Series indicator, Operator, Aggregation */}
                 <div className="EntityGroupNode__header-row">
-                    <div className="EntityGroupNode__header-left">
-                        {sortable && filterCount > 1 && <DragHandle {...listeners} />}
-                        {showSeriesIndicator && (
-                            <div className="EntityGroupNode__series-indicator">
-                                {seriesIndicatorType === 'numeric' ? (
-                                    <span>{index + 1}</span>
-                                ) : (
-                                    <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
-                                )}
-                            </div>
-                        )}
-                    </div>
+                    {showSeriesIndicator && (
+                        <div className="EntityGroupNode__series-indicator">
+                            {seriesIndicatorType === 'numeric' ? (
+                                <span>{index + 1}</span>
+                            ) : (
+                                <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
+                            )}
+                        </div>
+                    )}
 
                     <div className="EntityGroupNode__header-controls">
-                        <LemonSelect
-                            value={filter.operator || FilterLogicalOperator.Or}
-                            options={operatorOptions}
-                            onChange={handleOperatorChange}
-                            disabled={disabled || readOnly || values.length < 2}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            data-attr={`group-operator-selector-${index}`}
-                        />
-                        <MathSelector
-                            math={filter.math}
-                            index={index}
-                            onMathSelect={handleMathChange}
-                            disabled={disabled || readOnly}
-                            mathAvailability={MathAvailability.All}
-                            trendsDisplayCategory={trendsDisplayCategory}
-                        />
+                        <div className="EntityGroupNode__control-group">
+                            <span className="EntityGroupNode__control-label">Operator:</span>
+                            <LemonSelect
+                                size="small"
+                                value={filter.operator || FilterLogicalOperator.Or}
+                                options={[
+                                    {
+                                        label: 'Or',
+                                        value: FilterLogicalOperator.Or,
+                                    },
+                                    {
+                                        label: 'And',
+                                        value: FilterLogicalOperator.And,
+                                    },
+                                ]}
+                                onChange={handleOperatorChange}
+                                disabled={disabled || readOnly}
+                                dropdownMatchSelectWidth={false}
+                                dropdownPlacement="bottom-start"
+                                data-attr={`group-operator-selector-${index}`}
+                            />
+                        </div>
+                        <div className="EntityGroupNode__control-group">
+                            <span className="EntityGroupNode__control-label">Math:</span>
+                            <MathSelector
+                                size="small"
+                                math={filter.math}
+                                index={index}
+                                onMathSelect={handleMathChange}
+                                disabled={disabled || readOnly}
+                                mathAvailability={MathAvailability.All}
+                                trendsDisplayCategory={trendsDisplayCategory}
+                            />
+                        </div>
                     </div>
+
+                    {!readOnly && (
+                        <>
+                            <LemonButton
+                                size="small"
+                                icon={<IconTrash />}
+                                onClick={() => removeLocalFilter({ index })}
+                                className="EntityGroupNode__delete-btn"
+                                data-attr={`group-filter-delete-${index}`}
+                            />
+                            <LemonButton
+                                size="small"
+                                icon={<IconUndo />}
+                                onClick={() => splitLocalFilter(index)}
+                                className="EntityGroupNode__split-btn"
+                                data-attr={`group-filter-split-${index}`}
+                            />
+                        </>
+                    )}
                 </div>
 
-                {/* Events section */}
-                <div className="EntityGroupNode__events-section">
-                    {values.map((eventFilter, eventIndex) => {
-                        return (
-                            <div key={eventFilter.uuid || eventIndex} className="EntityGroupNode__event-item">
-                                <TaxonomicPopover
-                                    data-attr={`group-event-${index}-${eventIndex}`}
-                                    fullWidth
-                                    groupType={eventFilter.type as TaxonomicFilterGroupType}
-                                    value={getValue(filter)}
-                                    filter={eventFilter}
-                                    onChange={(changedValue, taxonomicGroupType, item) => {
-                                        handleEventChange(eventIndex, changedValue, taxonomicGroupType, item)
-                                    }}
-                                    renderValue={() => (
-                                        <span className="EntityGroupNode__event-value">
-                                            {eventFilter.id ? (
-                                                <EntityFilterInfo filter={eventFilter} />
-                                            ) : (
-                                                <span className="EntityGroupNode__event-placeholder">Select event</span>
-                                            )}
-                                        </span>
-                                    )}
-                                    groupTypes={actionsTaxonomicGroupTypes}
-                                    placeholder="Select event"
-                                    disabled={disabled || readOnly}
-                                    showNumericalPropsOnly={showNumericalPropsOnly}
-                                    dataWarehousePopoverFields={dataWarehousePopoverFields}
-                                    excludedProperties={excludedProperties}
-                                />
-                                {!readOnly && values.length > 1 && (
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        size="small"
-                                        noPadding
-                                        onClick={() => handleRemoveEvent(eventIndex)}
-                                        title="Remove event"
-                                        data-attr={`remove-group-event-${index}-${eventIndex}`}
-                                        className="EntityGroupNode__event-delete"
-                                    />
-                                )}
-                            </div>
-                        )
-                    })}
-
-                    {/* Add event button with popover */}
-                    {!readOnly && values.length < 10 && (
-                        <div className="EntityGroupNode__add-event-wrapper">
-                            <TaxonomicPopover
-                                data-attr={`add-group-event-${index}`}
-                                groupType={TaxonomicFilterGroupType.Events}
-                                value={null}
-                                icon={<IconPlusSmall />}
-                                size="small"
-                                onChange={(changedValue, taxonomicGroupType, item) => {
-                                    handleAddEvent(changedValue, taxonomicGroupType, item)
-                                }}
-                                groupTypes={actionsTaxonomicGroupTypes}
-                                placeholder="Add event"
-                                placeholderClass=""
+                {/* Events section - render each value as ActionFilterRow */}
+                <ul className="EntityGroupNode__events-section">
+                    {values.map((eventFilter, eventIndex) => (
+                        <div key={eventFilter.uuid || eventIndex}>
+                            <ActionFilterRow
+                                logic={createNestedLogicWrapper(eventIndex)}
+                                filter={eventFilter}
+                                index={eventFilter.order}
+                                typeKey={`group-${index}-${eventIndex}`}
+                                mathAvailability={MathAvailability.None}
+                                hideRename
+                                hideDuplicate
+                                hideDeleteBtn={values.length <= 1 || readOnly}
+                                filterCount={values.length}
+                                sortable={false}
+                                hasBreakdown={hasBreakdown}
+                                disabled={disabled || readOnly}
+                                readOnly={readOnly}
+                                actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                                trendsDisplayCategory={trendsDisplayCategory}
                                 showNumericalPropsOnly={showNumericalPropsOnly}
                                 dataWarehousePopoverFields={dataWarehousePopoverFields}
                                 excludedProperties={excludedProperties}
                             />
+                            {eventIndex < values.length - 1 && (
+                                <div className="EntityGroupNode__operator-separator">
+                                    <div className="EntityGroupNode__operator-line EntityGroupNode__operator-line--left" />
+                                    <div className="EntityGroupNode__operator-text">
+                                        {filter.operator || FilterLogicalOperator.Or}
+                                    </div>
+                                    <div className="EntityGroupNode__operator-line EntityGroupNode__operator-line--right" />
+                                </div>
+                            )}
                         </div>
-                    )}
-                </div>
+                    ))}
+                </ul>
+
+                {/* Add event button with popover */}
+                {!readOnly && values.length < 10 && (
+                    <div className="EntityGroupNode__add-event-wrapper">
+                        <TaxonomicPopover
+                            data-attr={`add-group-event-${index}`}
+                            groupType={TaxonomicFilterGroupType.Events}
+                            value={null}
+                            icon={<IconPlusSmall />}
+                            onChange={(changedValue, taxonomicGroupType, item) => {
+                                handleAddEvent(changedValue, taxonomicGroupType, item)
+                            }}
+                            groupTypes={actionsTaxonomicGroupTypes}
+                            placeholder="Add event"
+                            placeholderClass=""
+                            showNumericalPropsOnly={showNumericalPropsOnly}
+                            dataWarehousePopoverFields={dataWarehousePopoverFields}
+                            excludedProperties={excludedProperties}
+                        />
+                    </div>
+                )}
             </div>
         </li>
     )
