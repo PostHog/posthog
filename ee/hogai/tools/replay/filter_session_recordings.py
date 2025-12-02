@@ -2,6 +2,7 @@ from textwrap import dedent
 from typing import Any, Literal
 
 import structlog
+from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
@@ -158,11 +159,9 @@ class FilterSessionRecordingsTool(MaxTool):
             query_results = await database_sync_to_async(self._get_recordings_with_filters, thread_sensitive=False)(
                 recordings_query
             )
-        except:
-            query_results = None
-
-        if query_results is None:
-            content = "⚠️ Updated session recordings filters, but encountered an issue fetching results."
+        except Exception as e:
+            capture_exception(e)
+            content = f"⚠️ Updated session recordings filters, but encountered an issue fetching results: {e}"
         else:
             total_count = len(query_results.results)
             if total_count == 0:
@@ -179,14 +178,13 @@ class FilterSessionRecordingsTool(MaxTool):
                     content += f"\n...and {total_count - 5} more recordings"
         return content, None
 
-    def _get_recordings_with_filters(self, recordings_query: RecordingsQuery, limit: int = 50) -> Any:
+    def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> Any:
         """Get recordings from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
-        recordings_query.limit = limit
         try:
             query_runner = SessionRecordingListFromQuery(
-                team=self._team, query=recordings_query, hogql_query_modifiers=None, limit=limit
+                team=self._team, query=recordings_query, hogql_query_modifiers=None
             )
             results = query_runner.run()
         except Exception as e:

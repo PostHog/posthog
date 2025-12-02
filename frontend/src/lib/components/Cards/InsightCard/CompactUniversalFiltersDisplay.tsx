@@ -81,7 +81,7 @@ export function CompactUniversalFiltersDisplay({
                                         {isFirstFilterOverall ? 'P' : 'p'}erformed action
                                         <Link
                                             to={urls.action(filterOrGroup.id as number)}
-                                            className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action mx-1"
+                                            className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
                                         >
                                             {filterOrGroup.name || filterOrGroup.id}
                                         </Link>
