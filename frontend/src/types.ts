@@ -995,7 +995,7 @@ export type AnyPersonScopeFilter =
 
 export type AnyGroupScopeFilter = GroupPropertyFilter | HogQLPropertyFilter
 
-export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
+export type AnyFilterLike = AnyPropertyFilter | ActionFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']
 

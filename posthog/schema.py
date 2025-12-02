@@ -4360,6 +4360,19 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
+class EntityFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: str | float | None = None
+    index: float | None = None
+    name: str | None = None
+    optionalInFunnel: bool | None = None
+    order: float | None = None
+    type: EntityType | None = None
+
+
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12446,6 +12459,48 @@ class WebVitalsQueryResponse(BaseModel):
     )
 
 
+class ActionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    days: list[str] | None = None
+    id: str | float | None = None
+    index: float | None = None
+    math: str | None = None
+    math_group_type_index: int | None = None
+    math_hogql: str | None = None
+    math_property: str | None = None
+    math_property_type: TaxonomicFilterGroupType | None = None
+    name: str | None = None
+    optionalInFunnel: bool | None = None
+    order: float | None = None
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = None
+    type: EntityType
+
+
 class ActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14730,7 +14785,8 @@ class SessionsQuery(BaseModel):
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
-            PropertyGroupFilter
+            ActionFilter
+            | PropertyGroupFilter
             | PropertyGroupFilterValue
             | EventPropertyFilter
             | PersonPropertyFilter
@@ -15587,7 +15643,8 @@ class SessionBatchEventsQuery(BaseModel):
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
-            PropertyGroupFilter
+            ActionFilter
+            | PropertyGroupFilter
             | PropertyGroupFilterValue
             | EventPropertyFilter
             | PersonPropertyFilter
@@ -15711,7 +15768,8 @@ class EventsQuery(BaseModel):
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[
-            PropertyGroupFilter
+            ActionFilter
+            | PropertyGroupFilter
             | PropertyGroupFilterValue
             | EventPropertyFilter
             | PersonPropertyFilter

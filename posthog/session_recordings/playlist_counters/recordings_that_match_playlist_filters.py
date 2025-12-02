@@ -417,7 +417,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             if should_skip_task(existing_value, playlist.filters):
                 return
 
-            query = convert_filters_to_recordings_query(playlist)
+            query = convert_playlist_to_recordings_query(playlist)
 
             # if we already have some data and the query is sorted by start_time,
             # we can query only new recordings, to (hopefully) reduce load on CH

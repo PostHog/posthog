@@ -1,5 +1,4 @@
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
@@ -76,7 +75,7 @@ The assistant used the todo list because:
 
 
 class SessionReplayAgentToolkit(AgentToolkit):
-    POSITIVE_TODO_EXAMPLES: ClassVar[Sequence[TodoWriteExample] | None] = [
+    POSITIVE_TODO_EXAMPLES = [
         TodoWriteExample(
             example=POSITIVE_EXAMPLE_FILTER_WITH_PROPERTIES,
             reasoning=POSITIVE_EXAMPLE_FILTER_WITH_PROPERTIES_REASONING,
