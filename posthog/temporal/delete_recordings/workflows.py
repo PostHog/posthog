@@ -137,23 +137,24 @@ class DeleteRecordingsWithTeamWorkflow(PostHogWorkflow):
             ),
         )
 
-        for batch in batched(session_ids, input.batch_size):
-            async with asyncio.TaskGroup() as delete_recordings:
-                for session_id in batch:
-                    delete_recordings.create_task(
-                        workflow.execute_child_workflow(
-                            DeleteRecordingWorkflow.run,
-                            Recording(session_id=session_id, team_id=input.team_id),
-                            parent_close_policy=ParentClosePolicy.ABANDON,
-                            execution_timeout=timedelta(hours=3),
-                            run_timeout=timedelta(hours=1),
-                            task_timeout=timedelta(minutes=30),
-                            retry_policy=common.RetryPolicy(
-                                maximum_attempts=2,
-                                initial_interval=timedelta(minutes=1),
-                            ),
+        if not input.dry_run:
+            for batch in batched(session_ids, input.batch_size):
+                async with asyncio.TaskGroup() as delete_recordings:
+                    for session_id in batch:
+                        delete_recordings.create_task(
+                            workflow.execute_child_workflow(
+                                DeleteRecordingWorkflow.run,
+                                Recording(session_id=session_id, team_id=input.team_id),
+                                parent_close_policy=ParentClosePolicy.ABANDON,
+                                execution_timeout=timedelta(hours=3),
+                                run_timeout=timedelta(hours=1),
+                                task_timeout=timedelta(minutes=30),
+                                retry_policy=common.RetryPolicy(
+                                    maximum_attempts=2,
+                                    initial_interval=timedelta(minutes=1),
+                                ),
+                            )
                         )
-                    )
 
 
 @workflow.defn(name="delete-recordings-with-query")
