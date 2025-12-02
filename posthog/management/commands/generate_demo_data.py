@@ -223,7 +223,7 @@ class Command(BaseCommand):
             )
 
             if options["say_on_complete"]:
-                os.system('say "demo data ready" || true')
+                os.system('say "initiating self destruct sequence" || true')
         else:
             print("Dry run - not saving results.")
             if options["say_on_complete"]:
