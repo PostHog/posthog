@@ -1,8 +1,11 @@
 import uuid
+from typing import cast
 
 import pytest
 
 from django.test import override_settings
+
+import duckdb
 
 import posthog.ducklake.verification.config as verification_config
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
@@ -388,12 +391,13 @@ def test_run_partition_verification_without_temporal_type():
         partition_column_type="String",
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-partition", model=metadata)
-    conn = FakeConn()
+    fake_conn = FakeConn()
+    conn = cast(duckdb.DuckDBPyConnection, fake_conn)
 
     result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
 
     assert result is not None and result.passed is True
-    assert conn.statements and "date_trunc" not in conn.statements[0]
+    assert fake_conn.statements and "date_trunc" not in fake_conn.statements[0]
 
 
 def test_run_partition_verification_with_temporal_type():
@@ -422,12 +426,13 @@ def test_run_partition_verification_with_temporal_type():
         partition_column_type="DateTime64",
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-partition", model=metadata)
-    conn = FakeConn()
+    fake_conn = FakeConn()
+    conn = cast(duckdb.DuckDBPyConnection, fake_conn)
 
     result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
 
     assert result is not None and result.passed is True
-    assert conn.statements and "date_trunc" in conn.statements[0]
+    assert fake_conn.statements and "date_trunc" in fake_conn.statements[0]
 
 
 @pytest.mark.asyncio
