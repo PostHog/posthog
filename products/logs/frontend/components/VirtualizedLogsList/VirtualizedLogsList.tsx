@@ -205,7 +205,7 @@ export function VirtualizedLogsList({
     }
 
     return (
-        <div className="h-full">
+        <div className="h-screen">
             <AutoSizer>
                 {({ width, height }) => (
                     <List
