@@ -117,7 +117,6 @@
         "$configured_session_timeout_ms": 1800000,
         "$feature/redirect-signups-to-instance": true,
         "$exception_level": "error",
-        "$feature/onboarding-session-replay-separate-step": true,
         "$feature/theme": true,
         "has_billing_plan": false,
         "$set_once": {
@@ -269,7 +268,6 @@
             "replay-flags-filters",
             "replay-landing-page",
             "web-revenue-tracking",
-            "onboarding-session-replay-separate-step",
             "experiments-interval-timeseries",
             "experiment-p-value",
             "recordings-ai-filter",
