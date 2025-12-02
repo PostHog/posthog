@@ -299,7 +299,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                 ) : null}
                                             </div>
                                             <div
-                                                className="SessionRecordingPlayer__body flex-1"
+                                                className="SessionRecordingPlayer__body"
                                                 draggable={draggable}
                                                 {...elementProps}
                                             >
