@@ -1090,7 +1090,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         title,
                         linkText,
                         insightProps: createInsightProps(tileId, tabId),
-                        canOpenModal: true,
                         ...tab,
                     }
 
