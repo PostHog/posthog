@@ -2137,8 +2137,8 @@ importers:
         specifier: ^0.7.4
         version: 0.7.4
       posthog-node:
-        specifier: ^4.18.0
-        version: 4.18.0
+        specifier: ^5.10.4
+        version: 5.10.4
       uuid:
         specifier: ^11.1.0
         version: 11.1.0
@@ -38345,12 +38345,6 @@ snapshots:
       fflate: 0.4.8
       preact: 10.27.2
       web-vitals: 4.2.4
-
-  posthog-node@4.18.0:
-    dependencies:
-      axios: 1.9.0
-    transitivePeerDependencies:
-      - debug
 
   posthog-node@5.10.4:
     dependencies:

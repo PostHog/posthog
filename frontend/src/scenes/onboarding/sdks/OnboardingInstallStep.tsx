@@ -8,6 +8,7 @@ import { InviteMembersButton } from 'lib/components/Account/InviteMembersButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -21,49 +22,6 @@ import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import { SDKSnippet } from './SDKSnippet'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
 import { sdksLogic } from './sdksLogic'
-
-export type SDKsProps = {
-    sdkInstructionMap: SDKInstructionsMap
-    productKey: ProductKey
-    stepKey?: OnboardingStepKey
-    listeningForName?: string
-    teamPropertyToVerify?: string
-}
-
-const NextButton = ({
-    installationComplete,
-    size = 'medium',
-}: {
-    installationComplete: boolean
-    size?: 'small' | 'medium'
-}): JSX.Element => {
-    const { hasNextStep } = useValues(onboardingLogic)
-    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
-
-    if (!installationComplete) {
-        return (
-            <LemonButton
-                type="secondary"
-                size={size}
-                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
-            >
-                Skip installation
-            </LemonButton>
-        )
-    }
-
-    return (
-        <LemonButton
-            data-attr="sdk-continue"
-            sideIcon={hasNextStep ? <IconArrowRight /> : null}
-            type="primary"
-            status="alt"
-            onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
-        >
-            Continue
-        </LemonButton>
-    )
-}
 
 export function SDKInstructionsModal({
     isOpen,
@@ -114,6 +72,15 @@ export function SDKInstructionsModal({
         </LemonModal>
     )
 }
+
+export type SDKsProps = {
+    sdkInstructionMap: SDKInstructionsMap
+    productKey: ProductKey
+    stepKey?: OnboardingStepKey
+    listeningForName?: string
+    teamPropertyToVerify?: string
+}
+
 export function OnboardingInstallStep({
     sdkInstructionMap,
     productKey,
@@ -141,7 +108,7 @@ export function OnboardingInstallStep({
         <OnboardingStep
             title="Install"
             stepKey={stepKey}
-            continueOverride={<NextButton installationComplete={installationComplete} />}
+            continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -242,5 +209,47 @@ export function OnboardingInstallStep({
                 />
             )}
         </OnboardingStep>
+    )
+}
+
+interface NextButtonProps {
+    installationComplete: boolean
+    size?: 'small' | 'medium'
+}
+
+const NextButton = ({ installationComplete, size = 'medium' }: NextButtonProps): JSX.Element => {
+    const { hasNextStep } = useValues(onboardingLogic)
+    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
+    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
+
+    const advance = !hasNextStep ? completeOnboarding : goToNextStep
+    const skipInstallation = (): void => {
+        reportOnboardingStepSkipped(OnboardingStepKey.INSTALL)
+        advance()
+    }
+
+    const continueInstallation = (): void => {
+        reportOnboardingStepCompleted(OnboardingStepKey.INSTALL)
+        advance()
+    }
+
+    if (!installationComplete) {
+        return (
+            <LemonButton type="secondary" size={size} onClick={skipInstallation}>
+                Skip installation
+            </LemonButton>
+        )
+    }
+
+    return (
+        <LemonButton
+            data-attr="sdk-continue"
+            sideIcon={hasNextStep ? <IconArrowRight /> : null}
+            type="primary"
+            status="alt"
+            onClick={continueInstallation}
+        >
+            Continue
+        </LemonButton>
     )
 }
