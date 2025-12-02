@@ -5821,6 +5821,16 @@ export interface CoreMemory {
 }
 
 export type FileSystemIconColor = [string] | [string, string]
+export type FileSystemState = {
+    name: string
+    value: any
+    render?: (value: any) => JSX.Element
+}
+export type FileSystemAction = {
+    name: string
+    if?: boolean
+    perform: () => Promise<any> | any
+}
 
 export interface FileSystemType {
     href?: (ref: string) => string
@@ -5834,6 +5844,10 @@ export interface FileSystemType {
     iconType?: FileSystemIconType
     // Color of the icon
     iconColor?: FileSystemIconColor
+    fetch?: (ref: string) => Promise<Record<string, any>>
+    getName?: (obj: any) => string
+    states?: (obj: any) => FileSystemState[]
+    actions?: (obj: any) => FileSystemAction[]
 }
 
 export interface ProductManifest {

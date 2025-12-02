@@ -1,9 +1,10 @@
+import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { ExperimentMetric, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { Experiment, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Experiments',
@@ -31,6 +32,21 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.experiment(ref),
             iconColor: ['var(--color-product-experiments-light)'],
             filterKey: 'experiment',
+            fetch: (ref: string) => api.experiments.get(parseInt(ref)),
+            getName: (obj: Experiment) => obj.name || 'Untitled Experiment',
+            states: (obj: Experiment) => [
+                {
+                    name: 'Started',
+                    value: obj.start_date,
+                },
+            ],
+            actions: (obj: Experiment) => [
+                {
+                    name: 'Archive experiment',
+                    if: !obj.archived,
+                    perform: () => api.experiments.update(parseInt(String(obj.id)), { archived: true }),
+                },
+            ],
         },
     },
     treeItemsNew: [

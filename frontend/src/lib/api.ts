@@ -1823,6 +1823,9 @@ const api = {
         async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
             return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
         },
+        async update(id: FeatureFlagType['id'], data: Partial<FeatureFlagType>): Promise<FeatureFlagType> {
+            return await new ApiRequest().featureFlag(id).update({ data })
+        },
         async getScheduledChanges(
             teamId: TeamType['id'],
             featureFlagId: FeatureFlagType['id']
@@ -2664,6 +2667,9 @@ const api = {
     experiments: {
         async get(id: number): Promise<Experiment> {
             return new ApiRequest().experimentsDetail(id).get()
+        },
+        async update(id: number, experiment: Partial<Experiment>): Promise<Experiment> {
+            return new ApiRequest().experimentsDetail(id).put({ data: experiment })
         },
         async createExposureCohort(id: number): Promise<{ cohort: CohortType }> {
             return await new ApiRequest().experimentCreateExposureCohort(id).create()

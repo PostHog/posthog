@@ -238,6 +238,9 @@ function buildProductManifests() {
     if (!globalNames.has('FileSystemImport')) {
         addImport('~/queries/schema/schema-general', 'typeNamed', 'FileSystemImport')
     }
+    if (!globalNames.has('FileSystemType')) {
+        addImport('~/types', 'typeNamed', 'FileSystemType')
+    }
 
     // 5. Serialise gathered imports → valid TypeScript code
     //    (no duplicate names, type/value kept separate)
@@ -313,7 +316,7 @@ function buildProductManifests() {
         export const productUrls = ${serializedProductUrls}
 
         ${autogenDisclaimer}
-        export const fileSystemTypes = ${serializedFileSystemTypes}
+        export const fileSystemTypes: Record<string, FileSystemType> = ${serializedFileSystemTypes}
 
         ${autogenDisclaimer}
         export const getTreeItemsNew = (): FileSystemImport[] => ${serializedTreeItemsNew}

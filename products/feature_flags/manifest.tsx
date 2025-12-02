@@ -1,8 +1,9 @@
+import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { FeatureFlagType, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Feature Flags',
@@ -18,6 +19,26 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.featureFlag(ref),
             iconColor: ['var(--color-product-feature-flags-light)'],
             filterKey: 'feature_flag',
+            fetch: (ref: string) => api.featureFlags.get(parseInt(ref)),
+            getName: (obj: FeatureFlagType) => obj.key || 'Untitled Feature Flag',
+            states: (obj: FeatureFlagType) => [
+                {
+                    name: 'Enabled',
+                    value: obj.status === 'ACTIVE',
+                },
+            ],
+            actions: (obj: FeatureFlagType) => [
+                {
+                    name: 'Enable',
+                    if: obj.status !== 'ACTIVE',
+                    perform: () => api.featureFlags.update(parseInt(String(obj.id)), { status: 'ACTIVE' }),
+                },
+                {
+                    name: 'Disable',
+                    if: obj.status === 'ACTIVE',
+                    perform: () => api.featureFlags.update(parseInt(String(obj.id)), { status: 'INACTIVE' }),
+                },
+            ],
         },
     },
     treeItemsNew: [

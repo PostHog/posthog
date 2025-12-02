@@ -11,6 +11,7 @@ import {
     ContextMenuContent,
     ContextMenuGroup,
     ContextMenuItem,
+    ContextMenuSeparator,
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import { isExternalLink } from 'lib/utils'
@@ -23,6 +24,7 @@ import { urlToResource } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
+import { ResourceMenuItems } from '~/layout/panel-layout/ProjectTree/menus/ResourceMenuItems'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -251,6 +253,19 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 <ContextMenu key={props.key}>
                     <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
                     <ContextMenuContent className="max-w-[300px]">
+                        {resource ? (
+                            <>
+                                <ContextMenuGroup>
+                                    <ResourceMenuItems
+                                        MenuItem={ContextMenuItem}
+                                        MenuSeparator={ContextMenuSeparator}
+                                        resource={resource}
+                                        resetPanelLayout={() => {}}
+                                    />
+                                </ContextMenuGroup>
+                                <ContextMenuSeparator />
+                            </>
+                        ) : null}
                         <ContextMenuGroup>
                             <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
                         </ContextMenuGroup>
