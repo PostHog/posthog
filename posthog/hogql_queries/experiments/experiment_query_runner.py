@@ -589,8 +589,8 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
         experiment_query_ast = self._get_experiment_query()
-        self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
         self.hogql = to_printed_hogql(experiment_query_ast, self.team)
+        self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
 
         response = execute_hogql_query(
             query_type="ExperimentQuery",
