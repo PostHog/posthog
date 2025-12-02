@@ -24,6 +24,7 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -1259,13 +1260,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 // Check if we have a full snapshot before adding incremental mutations
                 // This prevents the white screen bug where incremental mutations arrive before the full snapshot
-                if (newSnapshots.length > 0) {
+                // flag to test this in prod on select teams/recordings without affecting everyone
+                if (
+                    values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK] &&
+                    newSnapshots.length > 0
+                ) {
                     const hasFullSnapshotInExisting = currentEvents.some((e) => e.type === EventType.FullSnapshot)
                     const hasFullSnapshotInNew = newSnapshots.some((e) => e.type === EventType.FullSnapshot)
 
                     if (!hasFullSnapshotInExisting && !hasFullSnapshotInNew) {
                         // We have new snapshots but no full snapshot anywhere yet - wait for it
-                        // The subscription on sessionPlayerData will trigger another sync when the full snapshot arrives
                         return
                     }
                 }
