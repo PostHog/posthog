@@ -127,7 +127,6 @@
         "$feature/onboarding-session-replay-separate-step": true,
         "$feature/theme": true,
         "has_billing_plan": false,
-        "$feature/proxy-as-a-service": true,
         "$set_once": {
             "$initial_browser": "Chrome",
             "$initial_browser_version": 134,
@@ -233,7 +232,6 @@
             "audit-logs-access",
             "heatmaps-ui",
             "theme",
-            "proxy-as-a-service",
             "settings-persons-join-mode",
             "settings-persons-on-events-hidden",
             "hog",

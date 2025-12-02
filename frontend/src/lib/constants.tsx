@@ -154,6 +154,7 @@ export const FEATURE_FLAGS = {
     DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite, usage: see `useWhyDidIRender.ts`
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra, usage: see `dataTableLogic.ts`
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith, see `signupLogic.ts`
+    THEME_OVERRIDE: 'theme', // owner: @aprilfools, see `themeLogic.ts`
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: #team-batch-exports
@@ -177,8 +178,6 @@ export const FEATURE_FLAGS = {
     EXTERNAL_SURVEYS: 'external-surveys', // owner: #team-surveys
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
-    THEME: 'theme', // owner: @aprilfools
-    PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
     SETTINGS_PERSONS_ON_EVENTS_HIDDEN: 'settings-persons-on-events-hidden', // owner: @Twixes
     HOG: 'hog', // owner: @mariusandra
