@@ -4,6 +4,35 @@
  * PostHog API - tasks
  * OpenAPI spec version: 1.0.0
  */
+export type OriginProductEnum = (typeof OriginProductEnum)[keyof typeof OriginProductEnum]
+export const OriginProductEnum = {
+    error_tracking: 'error_tracking',
+    eval_clusters: 'eval_clusters',
+    user_created: 'user_created',
+    support_queue: 'support_queue',
+    session_summaries: 'session_summaries',
+} as const
+
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+export const RoleAtOrganizationEnum = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
 export interface PaginatedTaskList {
     count: number
     /** @nullable */
@@ -23,6 +52,12 @@ export interface Task {
     assignee?: string | null
 }
 
+/**
+ * JSON schema for the task. This is used to validate the output of the task.
+ * @nullable
+ */
+export type PatchedTaskJsonSchema = unknown | null
+
 export interface PatchedTask {
     readonly id?: string
     /** @nullable */
@@ -33,34 +68,24 @@ export interface PatchedTask {
     description?: string
     origin_product?: OriginProductEnum
     /**
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * @maxLength 255
+     * @nullable
      */
-    position?: number
+    repository?: string | null
     /**
      * GitHub integration for this task
      * @nullable
      */
     github_integration?: number | null
-    /** Repository configuration with organization and repository fields */
-    repository_config?: unknown
-    readonly repository_list?: string
-    readonly primary_repository?: string
+    /**
+     * JSON schema for the task. This is used to validate the output of the task.
+     * @nullable
+     */
+    json_schema?: PatchedTaskJsonSchema
     readonly latest_run?: string
     readonly created_at?: string
     readonly updated_at?: string
     readonly created_by?: UserBasic
-}
-
-export interface PatchedTaskUpdatePositionRequest {
-    /** New position for the task */
-    position?: number
-}
-
-export type ErrorResponseError = { [key: string]: unknown }
-
-export interface ErrorResponse {
-    error: ErrorResponseError
 }
 
 /**
@@ -70,16 +95,8 @@ export interface ErrorResponse {
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
  */
-export type OriginProductEnum = (typeof OriginProductEnum)[keyof typeof OriginProductEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OriginProductEnum = {
-    error_tracking: 'error_tracking',
-    eval_clusters: 'eval_clusters',
-    user_created: 'user_created',
-    support_queue: 'support_queue',
-    session_summaries: 'session_summaries',
-} as const
 
 /**
  * @nullable
@@ -127,31 +144,12 @@ export interface UserBasic {
  * `sales` - Sales / Success
  * `other` - Other
  */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 export type TasksListParams = {
     /**

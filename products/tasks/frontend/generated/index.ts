@@ -5,14 +5,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
-import type {
-    ErrorResponse,
-    PaginatedTaskList,
-    PatchedTask,
-    PatchedTaskUpdatePositionRequest,
-    Task,
-    TasksListParams,
-} from './index.schemas'
+import type { PaginatedTaskList, PatchedTask, Task, TasksListParams } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -221,7 +214,7 @@ export const tasksDestroy = async (
 }
 
 /**
- * Kick off the workflow for the task in its current stage.
+ * Create a new task run and kick off the workflow.
  * @summary Run task
  */
 export type tasksRunCreateResponse200 = {
@@ -255,56 +248,5 @@ export const tasksRunCreate = async (
     return apiMutator<tasksRunCreateResponse>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-    })
-}
-
-/**
- * Update the position of a task within its current stage
- * @summary Update task position
- */
-export type tasksUpdatePositionPartialUpdateResponse200 = {
-    data: Task
-    status: 200
-}
-
-export type tasksUpdatePositionPartialUpdateResponse400 = {
-    data: ErrorResponse
-    status: 400
-}
-
-export type tasksUpdatePositionPartialUpdateResponse404 = {
-    data: void
-    status: 404
-}
-
-export type tasksUpdatePositionPartialUpdateResponseSuccess = tasksUpdatePositionPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type tasksUpdatePositionPartialUpdateResponseError = (
-    | tasksUpdatePositionPartialUpdateResponse400
-    | tasksUpdatePositionPartialUpdateResponse404
-) & {
-    headers: Headers
-}
-
-export type tasksUpdatePositionPartialUpdateResponse =
-    | tasksUpdatePositionPartialUpdateResponseSuccess
-    | tasksUpdatePositionPartialUpdateResponseError
-
-export const getTasksUpdatePositionPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${id}/update_position/`
-}
-
-export const tasksUpdatePositionPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedTaskUpdatePositionRequest: PatchedTaskUpdatePositionRequest,
-    options?: RequestInit
-): Promise<tasksUpdatePositionPartialUpdateResponse> => {
-    return apiMutator<tasksUpdatePositionPartialUpdateResponse>(getTasksUpdatePositionPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTaskUpdatePositionRequest),
     })
 }

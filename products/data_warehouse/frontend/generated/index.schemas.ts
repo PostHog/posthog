@@ -4,33 +4,93 @@
  * PostHog API - data_warehouse
  * OpenAPI spec version: 1.0.0
  */
+
+// Re-exported from canonical sources (TS-owned types)
+export type {
+    DataModelingJob,
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDraft,
+    ExternalDataSourceRevenueAnalyticsConfig,
+    QueryTabState,
+} from '~/types'
+export type DataModelingJobStatusEnum = (typeof DataModelingJobStatusEnum)[keyof typeof DataModelingJobStatusEnum]
+export const DataModelingJobStatusEnum = {
+    Running: 'Running',
+    Completed: 'Completed',
+    Failed: 'Failed',
+    Cancelled: 'Cancelled',
+} as const
+
+export type SourceTypeEnum = (typeof SourceTypeEnum)[keyof typeof SourceTypeEnum]
+export const SourceTypeEnum = {
+    Supabase: 'Supabase',
+    CustomerIO: 'CustomerIO',
+    Github: 'Github',
+    Stripe: 'Stripe',
+    Hubspot: 'Hubspot',
+    Postgres: 'Postgres',
+    Zendesk: 'Zendesk',
+    Snowflake: 'Snowflake',
+    Salesforce: 'Salesforce',
+    MySQL: 'MySQL',
+    MongoDB: 'MongoDB',
+    MSSQL: 'MSSQL',
+    Vitally: 'Vitally',
+    BigQuery: 'BigQuery',
+    Chargebee: 'Chargebee',
+    GoogleAds: 'GoogleAds',
+    TemporalIO: 'TemporalIO',
+    DoIt: 'DoIt',
+    GoogleSheets: 'GoogleSheets',
+    MetaAds: 'MetaAds',
+    Klaviyo: 'Klaviyo',
+    Mailchimp: 'Mailchimp',
+    Braze: 'Braze',
+    Mailjet: 'Mailjet',
+    Redshift: 'Redshift',
+    Polar: 'Polar',
+    RevenueCat: 'RevenueCat',
+    LinkedinAds: 'LinkedinAds',
+    RedditAds: 'RedditAds',
+    TikTokAds: 'TikTokAds',
+    BingAds: 'BingAds',
+    Shopify: 'Shopify',
+} as const
+
+export const DataWarehouseSavedQueryStatusEnum = {
+    Cancelled: 'Cancelled',
+    Modified: 'Modified',
+    Completed: 'Completed',
+    Failed: 'Failed',
+    Running: 'Running',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+export const RoleAtOrganizationEnum = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
 export interface PaginatedDataModelingJobList {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
     results: DataModelingJob[]
-}
-
-export interface DataModelingJob {
-    readonly id: string
-    /** @nullable */
-    readonly saved_query_id: string | null
-    readonly status: DataModelingJobStatusEnum
-    readonly rows_materialized: number
-    /** @nullable */
-    readonly error: string | null
-    readonly created_at: string
-    readonly last_run_at: string
-    /** @nullable */
-    readonly workflow_id: string | null
-    /** @nullable */
-    readonly workflow_run_id: string | null
-    /**
-     * Total rows expected to be materialized
-     * @nullable
-     */
-    readonly rows_expected: number | null
 }
 
 export interface PaginatedExternalDataSourceSerializersList {
@@ -121,46 +181,6 @@ export type DataWarehouseSavedQueryStatus =
     | (typeof DataWarehouseSavedQueryStatus)[keyof typeof DataWarehouseSavedQueryStatus]
     | null
 
-export interface DataWarehouseSavedQuery {
-    readonly id: string
-    /** @nullable */
-    deleted?: boolean | null
-    /** @maxLength 128 */
-    name: string
-    /**
-     * HogQL query
-     * @nullable
-     */
-    query?: DataWarehouseSavedQueryQuery
-    readonly created_by: UserBasic
-    readonly created_at: string
-    readonly sync_frequency: string
-    readonly columns: string
-    /**
-   * The status of when this SavedQuery last ran.
-
-* `Cancelled` - Cancelled
-* `Modified` - Modified
-* `Completed` - Completed
-* `Failed` - Failed
-* `Running` - Running
-   * @nullable
-   */
-    readonly status: DataWarehouseSavedQueryStatus
-    /** @nullable */
-    readonly last_run_at: string | null
-    readonly managed_viewset_kind: string
-    /** @nullable */
-    readonly latest_error: string | null
-    /** @nullable */
-    edited_history_id?: string | null
-    readonly latest_history_id: string
-    /** @nullable */
-    soft_update?: boolean | null
-    /** @nullable */
-    readonly is_materialized: boolean | null
-}
-
 /**
  * HogQL query
  * @nullable
@@ -232,25 +252,6 @@ export interface PaginatedDataWarehouseSavedQueryDraftList {
     results: DataWarehouseSavedQueryDraft[]
 }
 
-export interface DataWarehouseSavedQueryDraft {
-    readonly id: string
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** HogQL query draft */
-    query?: unknown
-    /** @nullable */
-    saved_query_id?: string | null
-    /** @nullable */
-    name?: string | null
-    /**
-     * view history id that the draft branched from
-     * @maxLength 255
-     * @nullable
-     */
-    edited_history_id?: string | null
-}
-
 export interface PatchedDataWarehouseSavedQueryDraft {
     readonly id?: string
     readonly created_at?: string
@@ -290,20 +291,6 @@ export interface PaginatedQueryTabStateList {
  */
 export type QueryTabStateState = unknown | null
 
-export interface QueryTabState {
-    readonly id: string
-    /**
-   * 
-            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-            for a user.
-            
-   * @nullable
-   */
-    state?: QueryTabStateState
-}
-
 /**
  * 
             Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
@@ -327,97 +314,6 @@ export interface PatchedQueryTabState {
    * @nullable
    */
     state?: PatchedQueryTabStateState
-}
-
-/**
- * * `Running` - Running
- * `Completed` - Completed
- * `Failed` - Failed
- * `Cancelled` - Cancelled
- */
-export type DataModelingJobStatusEnum = (typeof DataModelingJobStatusEnum)[keyof typeof DataModelingJobStatusEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataModelingJobStatusEnum = {
-    Running: 'Running',
-    Completed: 'Completed',
-    Failed: 'Failed',
-    Cancelled: 'Cancelled',
-} as const
-
-/**
- * * `CustomerIO` - CustomerIO
- * `Github` - Github
- * `Stripe` - Stripe
- * `Hubspot` - Hubspot
- * `Postgres` - Postgres
- * `Zendesk` - Zendesk
- * `Snowflake` - Snowflake
- * `Salesforce` - Salesforce
- * `MySQL` - MySQL
- * `MongoDB` - MongoDB
- * `MSSQL` - MSSQL
- * `Vitally` - Vitally
- * `BigQuery` - BigQuery
- * `Chargebee` - Chargebee
- * `GoogleAds` - GoogleAds
- * `TemporalIO` - TemporalIO
- * `DoIt` - DoIt
- * `GoogleSheets` - GoogleSheets
- * `MetaAds` - MetaAds
- * `Klaviyo` - Klaviyo
- * `Mailchimp` - Mailchimp
- * `Braze` - Braze
- * `Mailjet` - Mailjet
- * `Redshift` - Redshift
- * `Polar` - Polar
- * `RevenueCat` - RevenueCat
- * `LinkedinAds` - LinkedinAds
- * `RedditAds` - RedditAds
- * `TikTokAds` - TikTokAds
- * `BingAds` - BingAds
- * `Shopify` - Shopify
- */
-export type SourceTypeEnum = (typeof SourceTypeEnum)[keyof typeof SourceTypeEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SourceTypeEnum = {
-    CustomerIO: 'CustomerIO',
-    Github: 'Github',
-    Stripe: 'Stripe',
-    Hubspot: 'Hubspot',
-    Postgres: 'Postgres',
-    Zendesk: 'Zendesk',
-    Snowflake: 'Snowflake',
-    Salesforce: 'Salesforce',
-    MySQL: 'MySQL',
-    MongoDB: 'MongoDB',
-    MSSQL: 'MSSQL',
-    Vitally: 'Vitally',
-    BigQuery: 'BigQuery',
-    Chargebee: 'Chargebee',
-    GoogleAds: 'GoogleAds',
-    TemporalIO: 'TemporalIO',
-    DoIt: 'DoIt',
-    GoogleSheets: 'GoogleSheets',
-    MetaAds: 'MetaAds',
-    Klaviyo: 'Klaviyo',
-    Mailchimp: 'Mailchimp',
-    Braze: 'Braze',
-    Mailjet: 'Mailjet',
-    Redshift: 'Redshift',
-    Polar: 'Polar',
-    RevenueCat: 'RevenueCat',
-    LinkedinAds: 'LinkedinAds',
-    RedditAds: 'RedditAds',
-    TikTokAds: 'TikTokAds',
-    BingAds: 'BingAds',
-    Shopify: 'Shopify',
-} as const
-
-export interface ExternalDataSourceRevenueAnalyticsConfig {
-    enabled?: boolean
-    include_invoiceless_charges?: boolean
 }
 
 /**
@@ -467,18 +363,8 @@ export type DataWarehouseSavedQueryStatusEnum =
     (typeof DataWarehouseSavedQueryStatusEnum)[keyof typeof DataWarehouseSavedQueryStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataWarehouseSavedQueryStatusEnum = {
-    Cancelled: 'Cancelled',
-    Modified: 'Modified',
-    Completed: 'Completed',
-    Failed: 'Failed',
-    Running: 'Running',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 /**
  * * `engineering` - Engineering
@@ -490,26 +376,10 @@ export const NullEnum = {} as const
  * `sales` - Sales / Success
  * `other` - Other
  */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
 
 export type EnvironmentsDataModelingJobsListParams = {
     /**

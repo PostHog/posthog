@@ -231,9 +231,12 @@ jobs:
 
             - name: Check if OpenAPI types are up to date
               run: |
-                  ./bin/build-openapi-schema.sh
-                  node frontend/bin/generate-openapi-types.mjs
-                  git diff --exit-code
+                  ./bin/hogli build:openapi
+                  if ! git diff --exit-code; then
+                      echo ""
+                      echo "::error::OpenAPI types are out of date. Run 'hogli build:openapi' locally to update."
+                      exit 1
+                  fi
 
     jest:
         runs-on: depot-ubuntu-24.04

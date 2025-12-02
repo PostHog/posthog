@@ -4,6 +4,26 @@
  * PostHog API - dashboards
  * OpenAPI spec version: 1.0.0
  */
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+export const RoleAtOrganizationEnum = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
 export interface PaginatedDataColorThemeList {
     count: number
     /** @nullable */
@@ -81,31 +101,12 @@ export interface UserBasic {
  * `sales` - Sales / Success
  * `other` - Other
  */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 export type EnvironmentsDataColorThemesListParams = {
     /**

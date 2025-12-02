@@ -4,6 +4,31 @@
  * PostHog API - early_access_features
  * OpenAPI spec version: 1.0.0
  */
+export type StageEnum = (typeof StageEnum)[keyof typeof StageEnum]
+export const StageEnum = {
+    draft: 'draft',
+    concept: 'concept',
+    alpha: 'alpha',
+    beta: 'beta',
+    'general-availability': 'general-availability',
+    archived: 'archived',
+} as const
+
+export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
+export const EvaluationRuntimeEnum = {
+    server: 'server',
+    client: 'client',
+    all: 'all',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
 export interface PaginatedEarlyAccessFeatureList {
     count: number
     /** @nullable */
@@ -62,17 +87,8 @@ export interface PatchedEarlyAccessFeature {
  * `general-availability` - general availability
  * `archived` - archived
  */
-export type StageEnum = (typeof StageEnum)[keyof typeof StageEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StageEnum = {
-    draft: 'draft',
-    concept: 'concept',
-    alpha: 'alpha',
-    beta: 'beta',
-    'general-availability': 'general-availability',
-    archived: 'archived',
-} as const
 
 export type MinimalFeatureFlagFilters = { [key: string]: unknown }
 
@@ -126,26 +142,12 @@ export interface MinimalFeatureFlag {
  * `client` - Client
  * `all` - All
  */
-export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EvaluationRuntimeEnum = {
-    server: 'server',
-    client: 'client',
-    all: 'all',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 export type EarlyAccessFeatureListParams = {
     /**

@@ -7,6 +7,138 @@
 /**
  * @nullable
  */
+
+// Re-exported from canonical sources (TS-owned types)
+export type {
+    ActionConversionGoal,
+    ActionsNode,
+    BreakdownFilter,
+    ClickhouseQueryProgress,
+    CompareFilter,
+    CurrencyCode,
+    CustomChannelCondition,
+    CustomChannelField,
+    CustomChannelOperator,
+    CustomChannelRule,
+    CustomEventConversionGoal,
+    DashboardFilter,
+    DataWarehouseEventsModifier,
+    DataWarehouseNode,
+    DateRange,
+    EndpointLastExecutionTimesRequest,
+    EndpointRequest,
+    EndpointRunRequest,
+    EventsNode,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
+    FunnelPathsFilter,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelsQueryResponse,
+    GoalLine,
+    HogQLFilters,
+    HogQLMetadataResponse,
+    HogQLNotice,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    HogQLQueryResponse,
+    HogQLVariable,
+    LifecycleFilter,
+    LifecycleQuery,
+    LifecycleQueryResponse,
+    MultipleBreakdownType,
+    PathsFilter,
+    PathsLink,
+    PathsQuery,
+    PathsQueryResponse,
+    QueryIndexUsage,
+    QueryLogTags,
+    QueryStatus,
+    QueryStatusResponse,
+    QueryTiming,
+    RefreshType,
+    ResolvedDateRangeResponse,
+    ResultCustomizationBy,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
+    RetentionFilter,
+    RetentionQuery,
+    RetentionQueryResponse,
+    RetentionResult,
+    RetentionValue,
+    RevenueCurrencyPropertyConfig,
+    SamplingRate,
+    StickinessComputationMode,
+    StickinessFilter,
+    StickinessOperator,
+    StickinessQuery,
+    StickinessQueryResponse,
+    TrendsFilter,
+    TrendsFormulaNode,
+    TrendsQuery,
+    TrendsQueryResponse,
+    WebAnalyticsItemKind,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
+    WebAnalyticsSampling,
+    WebOverviewItem,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+    WebStatsTableQueryResponse,
+} from '~/queries/schema'
+export type {
+    BaseMathType,
+    Breakdown,
+    BreakdownAttributionType,
+    BreakdownType,
+    CalendarHeatmapMathType,
+    ChartDisplayType,
+    CohortPropertyFilter,
+    CountPerActorMathType,
+    DataWarehousePersonPropertyFilter,
+    DataWarehousePropertyFilter,
+    DataWarehouseSyncInterval,
+    DurationType,
+    ElementPropertyFilter,
+    EmptyPropertyFilter,
+    EntityType,
+    ErrorTrackingIssueFilter,
+    EventMetadataPropertyFilter,
+    EventPropertyFilter,
+    ExperimentMetricMathType,
+    FeaturePropertyFilter,
+    FilterLogicalOperator,
+    FlagPropertyFilter,
+    FunnelConversionWindowTimeUnit,
+    FunnelMathType,
+    FunnelPathType,
+    FunnelStepReference,
+    FunnelVizType,
+    GroupPropertyFilter,
+    HogQLPropertyFilter,
+    IntervalType,
+    LifecycleToggle,
+    LogEntryPropertyFilter,
+    LogPropertyFilter,
+    PathCleaningFilter,
+    PathType,
+    PersonPropertyFilter,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyMathType,
+    PropertyOperator,
+    RecordingPropertyFilter,
+    RetentionDashboardDisplayType,
+    RetentionEntity,
+    RetentionEntityKind,
+    RetentionPeriod,
+    RetentionType,
+    RevenueAnalyticsPropertyFilter,
+    SessionPropertyFilter,
+    StepOrderValue,
+} from '~/types'
 export type EndpointRequestQuery =
     | HogQLQuery
     | TrendsQuery
@@ -15,32 +147,9 @@ export type EndpointRequestQuery =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | WebStatsTableQuery
+    | WebOverviewQuery
     | null
-
-export interface EndpointRequest {
-    /** @nullable */
-    cache_age_seconds?: number | null
-    /** @nullable */
-    derived_from_insight?: string | null
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    is_active?: boolean | null
-    /**
-     * Whether this endpoint's query results are materialized to S3
-     * @nullable
-     */
-    is_materialized?: boolean | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    query?: EndpointRequestQuery
-    /**
-     * How frequently should the underlying materialized view be updated
-     * @nullable
-     */
-    sync_frequency?: DataWarehouseSyncInterval
-}
 
 /**
  * Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}   The query executed will return the count of $identify events, instead of $pageview's
@@ -53,46 +162,6 @@ export type EndpointRunRequestQueryOverride = { [key: string]: unknown } | null
  * @nullable
  */
 export type EndpointRunRequestVariables = { [key: string]: unknown } | null
-
-export interface EndpointRunRequest {
-    /**
-     * Client provided query ID. Can be used to retrieve the status or cancel the query.
-     * @nullable
-     */
-    client_query_id?: string | null
-    /**
-   * A map for overriding insight query filters.
-
-Tip: Use to get data for a specific customer or user.
-   * @nullable
-   */
-    filters_override?: DashboardFilter
-    /**
-     * Map of Insight query keys to be overridden at execution time. For example:   Assuming query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]}   If query_override = {"series": [{"kind": "EventsNode","name": "$identify","event": "$identify","math": "total"}]}   The query executed will return the count of $identify events, instead of $pageview's
-     * @nullable
-     */
-    query_override?: EndpointRunRequestQueryOverride
-    /**
-   * Whether results should be calculated sync or async, and how much to rely on the cache:
-- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-   * @nullable
-   */
-    refresh?: RefreshType
-    /**
-     * A map for overriding HogQL query variables, where the key is the variable name and the value is the variable value. Variable must be set on the endpoint's query between curly braces (i.e. {variable.from_date}) For example: {"from_date": "1970-01-01"}
-     * @nullable
-     */
-    variables?: EndpointRunRequestVariables
-}
-
-export interface EndpointLastExecutionTimesRequest {
-    names: string[]
-}
-
-export interface QueryStatusResponse {
-    query_status: QueryStatus
-}
 
 export type HogQLQueryKind = (typeof HogQLQueryKind)[keyof typeof HogQLQueryKind]
 
@@ -112,44 +181,6 @@ export type HogQLQueryValues = { [key: string]: unknown } | null
  * @nullable
  */
 export type HogQLQueryVariables = { [key: string]: HogQLVariable } | null
-
-export interface HogQLQuery {
-    /** @nullable */
-    explain?: boolean | null
-    /** @nullable */
-    filters?: HogQLFilters
-    kind?: HogQLQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Client provided name of the query
-     * @nullable
-     */
-    name?: string | null
-    query: string
-    /** @nullable */
-    response?: HogQLQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * Constant values that can be referenced with the {placeholder} syntax in the query
-     * @nullable
-     */
-    values?: HogQLQueryValues
-    /**
-     * Variables to be substituted into the query
-     * @nullable
-     */
-    variables?: HogQLQueryVariables
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * Whether we should be comparing against a specific conversion goal
@@ -192,84 +223,6 @@ export type TrendsQueryProperties = TrendsQueryPropertiesAnyOfItem[] | PropertyG
 
 export type TrendsQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
 
-export interface TrendsQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Breakdown of the events and actions
-     * @nullable
-     */
-    breakdownFilter?: BreakdownFilter
-    /**
-     * Compare to date range
-     * @nullable
-     */
-    compareFilter?: CompareFilter
-    /**
-     * Whether we should be comparing against a specific conversion goal
-     * @nullable
-     */
-    conversionGoal?: TrendsQueryConversionGoal
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     * @nullable
-     */
-    interval?: IntervalType
-    kind?: TrendsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: TrendsQueryProperties
-    /** @nullable */
-    response?: TrendsQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /** Events and actions to include */
-    series: TrendsQuerySeriesItem[]
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * Properties specific to the trends insight
-     * @nullable
-     */
-    trendsFilter?: TrendsFilter
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type FunnelsQueryKind = (typeof FunnelsQueryKind)[keyof typeof FunnelsQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -305,74 +258,6 @@ export type FunnelsQueryProperties = FunnelsQueryPropertiesAnyOfItem[] | Propert
 
 export type FunnelsQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
 
-export interface FunnelsQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Breakdown of the events and actions
-     * @nullable
-     */
-    breakdownFilter?: BreakdownFilter
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Properties specific to the funnels insight
-     * @nullable
-     */
-    funnelsFilter?: FunnelsFilter
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     * @nullable
-     */
-    interval?: IntervalType
-    kind?: FunnelsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: FunnelsQueryProperties
-    /** @nullable */
-    response?: FunnelsQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /** Events and actions to include */
-    series: FunnelsQuerySeriesItem[]
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type RetentionQueryKind = (typeof RetentionQueryKind)[keyof typeof RetentionQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -406,64 +291,6 @@ export type RetentionQueryPropertiesAnyOfItem =
  */
 export type RetentionQueryProperties = RetentionQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
 
-export interface RetentionQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Breakdown of the events and actions
-     * @nullable
-     */
-    breakdownFilter?: BreakdownFilter
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    kind?: RetentionQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: RetentionQueryProperties
-    /** @nullable */
-    response?: RetentionQueryResponse
-    /** Properties specific to the retention insight */
-    retentionFilter: RetentionFilter
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type PathsQueryKind = (typeof PathsQueryKind)[keyof typeof PathsQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -496,64 +323,6 @@ export type PathsQueryPropertiesAnyOfItem =
  * @nullable
  */
 export type PathsQueryProperties = PathsQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
-
-export interface PathsQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Used for displaying paths in relation to funnel steps.
-     * @nullable
-     */
-    funnelPathsFilter?: FunnelPathsFilter
-    kind?: PathsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** Properties specific to the paths insight */
-    pathsFilter: PathsFilter
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: PathsQueryProperties
-    /** @nullable */
-    response?: PathsQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type StickinessQueryKind = (typeof StickinessQueryKind)[keyof typeof StickinessQueryKind]
 
@@ -590,74 +359,6 @@ export type StickinessQueryProperties = StickinessQueryPropertiesAnyOfItem[] | P
 
 export type StickinessQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
 
-export interface StickinessQuery {
-    /**
-     * Compare to date range
-     * @nullable
-     */
-    compareFilter?: CompareFilter
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     * @nullable
-     */
-    interval?: IntervalType
-    /**
-     * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
-     * @nullable
-     */
-    intervalCount?: number | null
-    kind?: StickinessQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: StickinessQueryProperties
-    /** @nullable */
-    response?: StickinessQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /** Events and actions to include */
-    series: StickinessQuerySeriesItem[]
-    /**
-     * Properties specific to the stickiness insight
-     * @nullable
-     */
-    stickinessFilter?: StickinessFilter
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type LifecycleQueryKind = (typeof LifecycleQueryKind)[keyof typeof LifecycleQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -693,70 +394,37 @@ export type LifecycleQueryProperties = LifecycleQueryPropertiesAnyOfItem[] | Pro
 
 export type LifecycleQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
 
-export interface LifecycleQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     * @nullable
-     */
-    interval?: IntervalType
-    kind?: LifecycleQueryKind
-    /**
-     * Properties specific to the lifecycle insight
-     * @nullable
-     */
-    lifecycleFilter?: LifecycleFilter
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: LifecycleQueryProperties
-    /** @nullable */
-    response?: LifecycleQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /** Events and actions to include */
-    series: LifecycleQuerySeriesItem[]
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
+/**
+ * @nullable
+ */
+export type WebStatsTableQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
 
-export type DataWarehouseSyncInterval = (typeof DataWarehouseSyncInterval)[keyof typeof DataWarehouseSyncInterval]
+export type WebStatsTableQueryKind = (typeof WebStatsTableQueryKind)[keyof typeof WebStatsTableQueryKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebStatsTableQueryKind = {
+    WebStatsTableQuery: 'WebStatsTableQuery',
+} as const
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebStatsTableQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
+export type WebStatsTableQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+
+/**
+ * @nullable
+ */
+export type WebOverviewQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+
+export type WebOverviewQueryKind = (typeof WebOverviewQueryKind)[keyof typeof WebOverviewQueryKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebOverviewQueryKind = {
+    WebOverviewQuery: 'WebOverviewQuery',
+} as const
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebOverviewQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
+export type WebOverviewQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DataWarehouseSyncInterval = {
@@ -790,21 +458,6 @@ export type DashboardFilterPropertiesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface DashboardFilter {
-    /** @nullable */
-    breakdown_filter?: BreakdownFilter
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
-    /** @nullable */
-    explicitDate?: boolean | null
-    /** @nullable */
-    properties?: DashboardFilterPropertiesItem[] | null
-}
-
-export type RefreshType = (typeof RefreshType)[keyof typeof RefreshType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RefreshType = {
     async: 'async',
@@ -820,54 +473,6 @@ export const RefreshType = {
  * @nullable
  */
 export type QueryStatusResults = unknown | null
-
-export interface QueryStatus {
-    /**
-     * Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.
-     * @nullable
-     */
-    complete?: boolean | null
-    /** @nullable */
-    dashboard_id?: number | null
-    /**
-     * When did the query execution task finish (whether successfully or not).
-     * @nullable
-     */
-    end_time?: string | null
-    /**
-     * If the query failed, this will be set to true. More information can be found in the error_message field.
-     * @nullable
-     */
-    error?: boolean | null
-    /** @nullable */
-    error_message?: string | null
-    /** @nullable */
-    expiration_time?: string | null
-    id: string
-    /** @nullable */
-    insight_id?: number | null
-    /** @nullable */
-    labels?: string[] | null
-    /**
-     * When was the query execution task picked up by a worker.
-     * @nullable
-     */
-    pickup_time?: string | null
-    /** ONLY async queries use QueryStatus. */
-    query_async?: boolean
-    /** @nullable */
-    query_progress?: ClickhouseQueryProgress
-    /** @nullable */
-    results?: QueryStatusResults
-    /**
-     * When was query execution task enqueued.
-     * @nullable
-     */
-    start_time?: string | null
-    /** @nullable */
-    task_id?: string | null
-    team_id: number
-}
 
 export type HogQLFiltersPropertiesItem =
     | EventPropertyFilter
@@ -889,163 +494,10 @@ export type HogQLFiltersPropertiesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface HogQLFilters {
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    properties?: HogQLFiltersPropertiesItem[] | null
-}
-
-export interface HogQLQueryModifiers {
-    /** @nullable */
-    bounceRateDurationSeconds?: number | null
-    /** @nullable */
-    bounceRatePageViewMode?: BounceRatePageViewMode
-    /** @nullable */
-    convertToProjectTimezone?: boolean | null
-    /** @nullable */
-    customChannelTypeRules?: CustomChannelRule[] | null
-    /** @nullable */
-    dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null
-    /** @nullable */
-    debug?: boolean | null
-    /** @nullable */
-    formatCsvAllowDoubleQuotes?: boolean | null
-    /** @nullable */
-    inCohortVia?: InCohortVia
-    /** @nullable */
-    materializationMode?: MaterializationMode
-    /** @nullable */
-    optimizeJoinedFilters?: boolean | null
-    /** @nullable */
-    optimizeProjections?: boolean | null
-    /** @nullable */
-    personsArgMaxVersion?: PersonsArgMaxVersion
-    /** @nullable */
-    personsJoinMode?: PersonsJoinMode
-    /** @nullable */
-    personsOnEventsMode?: PersonsOnEventsMode
-    /** @nullable */
-    propertyGroupsMode?: PropertyGroupsMode
-    /** @nullable */
-    s3TableUseInvalidColumns?: boolean | null
-    /** @nullable */
-    sessionTableVersion?: SessionTableVersion
-    /** @nullable */
-    sessionsV2JoinMode?: SessionsV2JoinMode
-    /** @nullable */
-    timings?: boolean | null
-    /** @nullable */
-    useMaterializedViews?: boolean | null
-    /**
-     * Try to automatically convert HogQL queries to use preaggregated tables at the AST level *
-     * @nullable
-     */
-    usePreaggregatedTableTransforms?: boolean | null
-    /** @nullable */
-    usePresortedEventsTable?: boolean | null
-    /** @nullable */
-    useWebAnalyticsPreAggregatedTables?: boolean | null
-}
-
-export interface HogQLQueryResponse {
-    /**
-     * Executed ClickHouse query
-     * @nullable
-     */
-    clickhouse?: string | null
-    /**
-     * Returned columns
-     * @nullable
-     */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Query explanation output
-     * @nullable
-     */
-    explain?: string[] | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Query metadata output
-     * @nullable
-     */
-    metadata?: HogQLMetadataResponse
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Input query string
-     * @nullable
-     */
-    query?: string | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /**
-     * Types of returned columns
-     * @nullable
-     */
-    types?: unknown[] | null
-}
-
-export interface QueryLogTags {
-    /**
-     * Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *
-     * @nullable
-     */
-    productKey?: string | null
-    /**
-     * Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *
-     * @nullable
-     */
-    scene?: string | null
-}
-
 /**
  * @nullable
  */
 export type HogQLVariableValue = unknown | null
-
-export interface HogQLVariable {
-    code_name: string
-    /** @nullable */
-    isNull?: boolean | null
-    /** @nullable */
-    value?: HogQLVariableValue
-    variableId: string
-}
 
 export type BreakdownFilterBreakdownAnyOfItem = string | number
 
@@ -1053,63 +505,6 @@ export type BreakdownFilterBreakdownAnyOfItem = string | number
  * @nullable
  */
 export type BreakdownFilterBreakdown = string | BreakdownFilterBreakdownAnyOfItem[] | number | null
-
-export interface BreakdownFilter {
-    /** @nullable */
-    breakdown?: BreakdownFilterBreakdown
-    /** @nullable */
-    breakdown_group_type_index?: number | null
-    /** @nullable */
-    breakdown_hide_other_aggregation?: boolean | null
-    /** @nullable */
-    breakdown_histogram_bin_count?: number | null
-    /** @nullable */
-    breakdown_limit?: number | null
-    /** @nullable */
-    breakdown_normalize_url?: boolean | null
-    /** @nullable */
-    breakdown_type?: BreakdownType
-    /**
-     * @maxItems 3
-     * @nullable
-     */
-    breakdowns?: Breakdown[] | null
-}
-
-export interface CompareFilter {
-    /**
-     * Whether to compare the current date range to a previous date range.
-     * @nullable
-     */
-    compare?: boolean | null
-    /**
-     * The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
-     * @nullable
-     */
-    compare_to?: string | null
-}
-
-export interface ActionConversionGoal {
-    actionId: number
-}
-
-export interface CustomEventConversionGoal {
-    customEventName: string
-}
-
-export interface DateRange {
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
-    /**
-     * Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.
-     * @nullable
-     */
-    explicitDate?: boolean | null
-}
-
-export type IntervalType = (typeof IntervalType)[keyof typeof IntervalType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IntervalType = {
@@ -1138,18 +533,6 @@ export type EventPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type EventPropertyFilterValue = EventPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface EventPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    /** @nullable */
-    operator?: PropertyOperator
-    /** Event properties */
-    type?: EventPropertyFilterType
-    /** @nullable */
-    value?: EventPropertyFilterValue
-}
-
 /**
  * Person properties
  */
@@ -1167,17 +550,6 @@ export type PersonPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type PersonPropertyFilterValue = PersonPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface PersonPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    /** Person properties */
-    type?: PersonPropertyFilterType
-    /** @nullable */
-    value?: PersonPropertyFilterValue
-}
-
 export type ElementPropertyFilterType = (typeof ElementPropertyFilterType)[keyof typeof ElementPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -1191,16 +563,6 @@ export type ElementPropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type ElementPropertyFilterValue = ElementPropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface ElementPropertyFilter {
-    key: Key
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: ElementPropertyFilterType
-    /** @nullable */
-    value?: ElementPropertyFilterValue
-}
 
 export type EventMetadataPropertyFilterType =
     (typeof EventMetadataPropertyFilterType)[keyof typeof EventMetadataPropertyFilterType]
@@ -1222,16 +584,6 @@ export type EventMetadataPropertyFilterValue =
     | boolean
     | null
 
-export interface EventMetadataPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: EventMetadataPropertyFilterType
-    /** @nullable */
-    value?: EventMetadataPropertyFilterValue
-}
-
 export type SessionPropertyFilterType = (typeof SessionPropertyFilterType)[keyof typeof SessionPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -1246,16 +598,6 @@ export type SessionPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type SessionPropertyFilterValue = SessionPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface SessionPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: SessionPropertyFilterType
-    /** @nullable */
-    value?: SessionPropertyFilterValue
-}
-
 export type CohortPropertyFilterKey = (typeof CohortPropertyFilterKey)[keyof typeof CohortPropertyFilterKey]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -1269,18 +611,6 @@ export type CohortPropertyFilterType = (typeof CohortPropertyFilterType)[keyof t
 export const CohortPropertyFilterType = {
     cohort: 'cohort',
 } as const
-
-export interface CohortPropertyFilter {
-    /** @nullable */
-    cohort_name?: string | null
-    key?: CohortPropertyFilterKey
-    /** @nullable */
-    label?: string | null
-    /** @nullable */
-    operator?: PropertyOperator
-    type?: CohortPropertyFilterType
-    value: number
-}
 
 export type RecordingPropertyFilterKey = DurationType | string
 
@@ -1298,16 +628,6 @@ export type RecordingPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type RecordingPropertyFilterValue = RecordingPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface RecordingPropertyFilter {
-    key: RecordingPropertyFilterKey
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: RecordingPropertyFilterType
-    /** @nullable */
-    value?: RecordingPropertyFilterValue
-}
-
 export type LogEntryPropertyFilterType = (typeof LogEntryPropertyFilterType)[keyof typeof LogEntryPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -1322,16 +642,6 @@ export type LogEntryPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type LogEntryPropertyFilterValue = LogEntryPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface LogEntryPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: LogEntryPropertyFilterType
-    /** @nullable */
-    value?: LogEntryPropertyFilterValue
-}
-
 export type GroupPropertyFilterType = (typeof GroupPropertyFilterType)[keyof typeof GroupPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -1345,18 +655,6 @@ export type GroupPropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type GroupPropertyFilterValue = GroupPropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface GroupPropertyFilter {
-    /** @nullable */
-    group_type_index?: number | null
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: GroupPropertyFilterType
-    /** @nullable */
-    value?: GroupPropertyFilterValue
-}
 
 /**
  * Event property with "$feature/" prepended
@@ -1374,17 +672,6 @@ export type FeaturePropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type FeaturePropertyFilterValue = FeaturePropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface FeaturePropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    /** Event property with "$feature/" prepended */
-    type?: FeaturePropertyFilterType
-    /** @nullable */
-    value?: FeaturePropertyFilterValue
-}
 
 /**
  * Only flag_evaluates_to operator is allowed for flag dependencies
@@ -1411,19 +698,6 @@ export const FlagPropertyFilterType = {
  */
 export type FlagPropertyFilterValue = boolean | string
 
-export interface FlagPropertyFilter {
-    /** The key should be the flag ID */
-    key: string
-    /** @nullable */
-    label?: string | null
-    /** Only flag_evaluates_to operator is allowed for flag dependencies */
-    operator?: FlagPropertyFilterOperator
-    /** Feature flag dependency */
-    type?: FlagPropertyFilterType
-    /** The value can be true, false, or a variant name */
-    value: FlagPropertyFilterValue
-}
-
 export type HogQLPropertyFilterType = (typeof HogQLPropertyFilterType)[keyof typeof HogQLPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -1437,19 +711,6 @@ export type HogQLPropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type HogQLPropertyFilterValue = HogQLPropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface HogQLPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    type?: HogQLPropertyFilterType
-    /** @nullable */
-    value?: HogQLPropertyFilterValue
-}
-
-export interface EmptyPropertyFilter {
-    [key: string]: unknown
-}
 
 export type DataWarehousePropertyFilterType =
     (typeof DataWarehousePropertyFilterType)[keyof typeof DataWarehousePropertyFilterType]
@@ -1471,16 +732,6 @@ export type DataWarehousePropertyFilterValue =
     | boolean
     | null
 
-export interface DataWarehousePropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: DataWarehousePropertyFilterType
-    /** @nullable */
-    value?: DataWarehousePropertyFilterValue
-}
-
 export type DataWarehousePersonPropertyFilterType =
     (typeof DataWarehousePersonPropertyFilterType)[keyof typeof DataWarehousePersonPropertyFilterType]
 
@@ -1501,16 +752,6 @@ export type DataWarehousePersonPropertyFilterValue =
     | boolean
     | null
 
-export interface DataWarehousePersonPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: DataWarehousePersonPropertyFilterType
-    /** @nullable */
-    value?: DataWarehousePersonPropertyFilterValue
-}
-
 export type ErrorTrackingIssueFilterType =
     (typeof ErrorTrackingIssueFilterType)[keyof typeof ErrorTrackingIssueFilterType]
 
@@ -1526,16 +767,6 @@ export type ErrorTrackingIssueFilterValueAnyOfItem = string | number | boolean
  */
 export type ErrorTrackingIssueFilterValue = ErrorTrackingIssueFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface ErrorTrackingIssueFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: ErrorTrackingIssueFilterType
-    /** @nullable */
-    value?: ErrorTrackingIssueFilterValue
-}
-
 export type LogPropertyFilterType = (typeof LogPropertyFilterType)[keyof typeof LogPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -1549,16 +780,6 @@ export type LogPropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type LogPropertyFilterValue = LogPropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface LogPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: LogPropertyFilterType
-    /** @nullable */
-    value?: LogPropertyFilterValue
-}
 
 export type RevenueAnalyticsPropertyFilterType =
     (typeof RevenueAnalyticsPropertyFilterType)[keyof typeof RevenueAnalyticsPropertyFilterType]
@@ -1580,61 +801,7 @@ export type RevenueAnalyticsPropertyFilterValue =
     | boolean
     | null
 
-export interface RevenueAnalyticsPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: RevenueAnalyticsPropertyFilterType
-    /** @nullable */
-    value?: RevenueAnalyticsPropertyFilterValue
-}
-
-export interface PropertyGroupFilter {
-    type: FilterLogicalOperator
-    values: PropertyGroupFilterValue[]
-}
-
 export type TrendsQueryResponseResultsItem = { [key: string]: unknown }
-
-export interface TrendsQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Wether more breakdown values are available.
-     * @nullable
-     */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: TrendsQueryResponseResultsItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
 
 export type EventsNodeFixedPropertiesItem =
     | EventPropertyFilter
@@ -1704,59 +871,6 @@ export type EventsNodePropertiesItem =
  */
 export type EventsNodeResponse = { [key: string]: unknown } | null
 
-export interface EventsNode {
-    /** @nullable */
-    custom_name?: string | null
-    /**
-     * The event or `null` for all events.
-     * @nullable
-     */
-    event?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: EventsNodeFixedPropertiesItem[] | null
-    kind?: EventsNodeKind
-    /** @nullable */
-    limit?: number | null
-    /** @nullable */
-    math?: EventsNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Columns to order by
-     * @nullable
-     */
-    orderBy?: string[] | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: EventsNodePropertiesItem[] | null
-    /** @nullable */
-    response?: EventsNodeResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ActionsNodeFixedPropertiesItem =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -1824,48 +938,6 @@ export type ActionsNodePropertiesItem =
  * @nullable
  */
 export type ActionsNodeResponse = { [key: string]: unknown } | null
-
-export interface ActionsNode {
-    /** @nullable */
-    custom_name?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: ActionsNodeFixedPropertiesItem[] | null
-    id: number
-    kind?: ActionsNodeKind
-    /** @nullable */
-    math?: ActionsNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: ActionsNodePropertiesItem[] | null
-    /** @nullable */
-    response?: ActionsNodeResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type DataWarehouseNodeFixedPropertiesItem =
     | EventPropertyFilter
@@ -1935,54 +1007,6 @@ export type DataWarehouseNodePropertiesItem =
  */
 export type DataWarehouseNodeResponse = { [key: string]: unknown } | null
 
-export interface DataWarehouseNode {
-    /** @nullable */
-    custom_name?: string | null
-    distinct_id_field: string
-    /** @nullable */
-    dw_source_type?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: DataWarehouseNodeFixedPropertiesItem[] | null
-    id: string
-    id_field: string
-    kind?: DataWarehouseNodeKind
-    /** @nullable */
-    math?: DataWarehouseNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: DataWarehouseNodePropertiesItem[] | null
-    /** @nullable */
-    response?: DataWarehouseNodeResponse
-    table_name: string
-    timestamp_field: string
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type TrendsFilterResultCustomizationsAnyOf = { [key: string]: ResultCustomizationByValue }
 
 export type TrendsFilterResultCustomizationsAnyOfTwo = { [key: string]: ResultCustomizationByPosition }
@@ -1996,80 +1020,6 @@ export type TrendsFilterResultCustomizations =
     | TrendsFilterResultCustomizationsAnyOfTwo
     | null
 
-export interface TrendsFilter {
-    /** @nullable */
-    aggregationAxisFormat?: AggregationAxisFormat
-    /** @nullable */
-    aggregationAxisPostfix?: string | null
-    /** @nullable */
-    aggregationAxisPrefix?: string | null
-    /** @nullable */
-    breakdown_histogram_bin_count?: number | null
-    /** @nullable */
-    confidenceLevel?: number | null
-    /** @nullable */
-    decimalPlaces?: number | null
-    /**
-     * detailed results table
-     * @nullable
-     */
-    detailedResultsAggregationType?: DetailedResultsAggregationType
-    /** @nullable */
-    display?: ChartDisplayType
-    /** @nullable */
-    formula?: string | null
-    /**
-     * List of formulas with optional custom names. Takes precedence over formula/formulas if set.
-     * @nullable
-     */
-    formulaNodes?: TrendsFormulaNode[] | null
-    /** @nullable */
-    formulas?: string[] | null
-    /**
-     * Goal Lines
-     * @nullable
-     */
-    goalLines?: GoalLine[] | null
-    /** @nullable */
-    hiddenLegendIndexes?: number[] | null
-    /** @nullable */
-    minDecimalPlaces?: number | null
-    /** @nullable */
-    movingAverageIntervals?: number | null
-    /**
-     * Wether result datasets are associated by their values or by their order.
-     * @nullable
-     */
-    resultCustomizationBy?: ResultCustomizationBy
-    /**
-     * Customizations for the appearance of result datasets.
-     * @nullable
-     */
-    resultCustomizations?: TrendsFilterResultCustomizations
-    /** @nullable */
-    showAlertThresholdLines?: boolean | null
-    /** @nullable */
-    showConfidenceIntervals?: boolean | null
-    /** @nullable */
-    showLabelsOnSeries?: boolean | null
-    /** @nullable */
-    showLegend?: boolean | null
-    /** @nullable */
-    showMovingAverage?: boolean | null
-    /** @nullable */
-    showMultipleYAxes?: boolean | null
-    /** @nullable */
-    showPercentStackView?: boolean | null
-    /** @nullable */
-    showTrendLines?: boolean | null
-    /** @nullable */
-    showValuesOnSeries?: boolean | null
-    /** @nullable */
-    smoothingIntervals?: number | null
-    /** @nullable */
-    yAxisScaleType?: YAxisScaleType
-}
-
 export type FunnelsFilterExclusionsItem = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 /**
@@ -2078,293 +1028,7 @@ export type FunnelsFilterExclusionsItem = FunnelExclusionEventsNode | FunnelExcl
  */
 export type FunnelsFilterResultCustomizations = { [key: string]: ResultCustomizationByValue } | null
 
-export interface FunnelsFilter {
-    /** @nullable */
-    binCount?: number | null
-    /** @nullable */
-    breakdownAttributionType?: BreakdownAttributionType
-    /** @nullable */
-    breakdownAttributionValue?: number | null
-    /** @nullable */
-    exclusions?: FunnelsFilterExclusionsItem[] | null
-    /** @nullable */
-    funnelAggregateByHogQL?: string | null
-    /** @nullable */
-    funnelFromStep?: number | null
-    /** @nullable */
-    funnelOrderType?: StepOrderValue
-    /** @nullable */
-    funnelStepReference?: FunnelStepReference
-    /**
-     * To select the range of steps for trends & time to convert funnels, 0-indexed
-     * @nullable
-     */
-    funnelToStep?: number | null
-    /** @nullable */
-    funnelVizType?: FunnelVizType
-    /** @nullable */
-    funnelWindowInterval?: number | null
-    /** @nullable */
-    funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnit
-    /**
-     * Goal Lines
-     * @nullable
-     */
-    goalLines?: GoalLine[] | null
-    /** @nullable */
-    hiddenLegendBreakdowns?: string[] | null
-    /** @nullable */
-    layout?: FunnelLayout
-    /**
-     * Customizations for the appearance of result datasets.
-     * @nullable
-     */
-    resultCustomizations?: FunnelsFilterResultCustomizations
-    /** @nullable */
-    showValuesOnSeries?: boolean | null
-    /** @nullable */
-    useUdf?: boolean | null
-}
-
-export interface FunnelsQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    isUdf?: boolean | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface RetentionQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RetentionResult[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface RetentionFilter {
-    /** @nullable */
-    cumulative?: boolean | null
-    /** @nullable */
-    dashboardDisplay?: RetentionDashboardDisplayType
-    /**
-     * controls the display of the retention graph
-     * @nullable
-     */
-    display?: ChartDisplayType
-    /** @nullable */
-    meanRetentionCalculation?: MeanRetentionCalculation
-    /** @nullable */
-    minimumOccurrences?: number | null
-    /** @nullable */
-    period?: RetentionPeriod
-    /**
-     * Custom brackets for retention calculations
-     * @nullable
-     */
-    retentionCustomBrackets?: number[] | null
-    /**
-     * Whether retention is with regard to initial cohort size, or that of the previous period.
-     * @nullable
-     */
-    retentionReference?: RetentionReference
-    /** @nullable */
-    retentionType?: RetentionType
-    /** @nullable */
-    returningEntity?: RetentionEntity
-    /**
-     * The selected interval to display across all cohorts (null = show all intervals for each cohort)
-     * @nullable
-     */
-    selectedInterval?: number | null
-    /** @nullable */
-    showTrendLines?: boolean | null
-    /** @nullable */
-    targetEntity?: RetentionEntity
-    /**
-     * The time window mode to use for retention calculations
-     * @nullable
-     */
-    timeWindowMode?: TimeWindowMode
-    /** @nullable */
-    totalIntervals?: number | null
-}
-
-export interface FunnelPathsFilter {
-    /** @nullable */
-    funnelPathType?: FunnelPathType
-    funnelSource: FunnelsQuery
-    /** @nullable */
-    funnelStep?: number | null
-}
-
-export interface PathsFilter {
-    /** @nullable */
-    edgeLimit?: number | null
-    /** @nullable */
-    endPoint?: string | null
-    /** @nullable */
-    excludeEvents?: string[] | null
-    /** @nullable */
-    includeEventTypes?: PathType[] | null
-    /** @nullable */
-    localPathCleaningFilters?: PathCleaningFilter[] | null
-    /** @nullable */
-    maxEdgeWeight?: number | null
-    /** @nullable */
-    minEdgeWeight?: number | null
-    /**
-     * Relevant only within actors query
-     * @nullable
-     */
-    pathDropoffKey?: string | null
-    /**
-     * Relevant only within actors query
-     * @nullable
-     */
-    pathEndKey?: string | null
-    /** @nullable */
-    pathGroupings?: string[] | null
-    /** @nullable */
-    pathReplacements?: boolean | null
-    /**
-     * Relevant only within actors query
-     * @nullable
-     */
-    pathStartKey?: string | null
-    /** @nullable */
-    pathsHogQLExpression?: string | null
-    /** @nullable */
-    showFullUrls?: boolean | null
-    /** @nullable */
-    startPoint?: string | null
-    /** @nullable */
-    stepLimit?: number | null
-}
-
-export interface PathsQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: PathsLink[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
 export type StickinessQueryResponseResultsItem = { [key: string]: unknown }
-
-export interface StickinessQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: StickinessQueryResponseResultsItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
 
 export type StickinessFilterResultCustomizationsAnyOf = { [key: string]: ResultCustomizationByValue }
 
@@ -2379,87 +1043,58 @@ export type StickinessFilterResultCustomizations =
     | StickinessFilterResultCustomizationsAnyOfTwo
     | null
 
-export interface StickinessFilter {
-    /** @nullable */
-    computedAs?: StickinessComputationMode
-    /** @nullable */
-    display?: ChartDisplayType
-    /** @nullable */
-    hiddenLegendIndexes?: number[] | null
-    /**
-     * Whether result datasets are associated by their values or by their order.
-     * @nullable
-     */
-    resultCustomizationBy?: ResultCustomizationBy
-    /**
-     * Customizations for the appearance of result datasets.
-     * @nullable
-     */
-    resultCustomizations?: StickinessFilterResultCustomizations
-    /** @nullable */
-    showLegend?: boolean | null
-    /** @nullable */
-    showMultipleYAxes?: boolean | null
-    /** @nullable */
-    showValuesOnSeries?: boolean | null
-    /** @nullable */
-    stickinessCriteria?: StickinessCriteria
-}
-
-export interface LifecycleFilter {
-    /** @nullable */
-    showLegend?: boolean | null
-    /** @nullable */
-    showValuesOnSeries?: boolean | null
-    /** @nullable */
-    stacked?: boolean | null
-    /** @nullable */
-    toggledLifecycles?: LifecycleToggle[] | null
-}
-
 export type LifecycleQueryResponseResultsItem = { [key: string]: unknown }
 
-export interface LifecycleQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: LifecycleQueryResponseResultsItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebStatsBreakdown = {
+    Page: 'Page',
+    InitialPage: 'InitialPage',
+    ExitPage: 'ExitPage',
+    ExitClick: 'ExitClick',
+    PreviousPage: 'PreviousPage',
+    ScreenName: 'ScreenName',
+    InitialChannelType: 'InitialChannelType',
+    InitialReferringDomain: 'InitialReferringDomain',
+    InitialUTMSource: 'InitialUTMSource',
+    InitialUTMCampaign: 'InitialUTMCampaign',
+    InitialUTMMedium: 'InitialUTMMedium',
+    InitialUTMTerm: 'InitialUTMTerm',
+    InitialUTMContent: 'InitialUTMContent',
+    InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
+    Browser: 'Browser',
+    OS: 'OS',
+    Viewport: 'Viewport',
+    DeviceType: 'DeviceType',
+    Country: 'Country',
+    Region: 'Region',
+    City: 'City',
+    Timezone: 'Timezone',
+    Language: 'Language',
+    FrustrationMetrics: 'FrustrationMetrics',
+} as const
 
-export interface ClickhouseQueryProgress {
-    active_cpu_time: number
-    bytes_read: number
-    estimated_rows_total: number
-    rows_read: number
-    time_elapsed: number
-}
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebAnalyticsOrderByFields = {
+    Visitors: 'Visitors',
+    Views: 'Views',
+    Clicks: 'Clicks',
+    BounceRate: 'BounceRate',
+    AverageScrollPercentage: 'AverageScrollPercentage',
+    ScrollGt80Percentage: 'ScrollGt80Percentage',
+    TotalConversions: 'TotalConversions',
+    UniqueConversions: 'UniqueConversions',
+    ConversionRate: 'ConversionRate',
+    ConvertingUsers: 'ConvertingUsers',
+    RageClicks: 'RageClicks',
+    DeadClicks: 'DeadClicks',
+    Errors: 'Errors',
+} as const
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebAnalyticsOrderByDirection = {
+    ASC: 'ASC',
+    DESC: 'DESC',
+} as const
 
 export type BounceRatePageViewMode = (typeof BounceRatePageViewMode)[keyof typeof BounceRatePageViewMode]
 
@@ -2469,20 +1104,6 @@ export const BounceRatePageViewMode = {
     uniq_urls: 'uniq_urls',
     uniq_page_screen_autocaptures: 'uniq_page_screen_autocaptures',
 } as const
-
-export interface CustomChannelRule {
-    channel_type: string
-    combiner: FilterLogicalOperator
-    id: string
-    items: CustomChannelCondition[]
-}
-
-export interface DataWarehouseEventsModifier {
-    distinct_id_field: string
-    id_field: string
-    table_name: string
-    timestamp_field: string
-}
 
 export type InCohortVia = (typeof InCohortVia)[keyof typeof InCohortVia]
 
@@ -2558,36 +1179,6 @@ export const SessionsV2JoinMode = {
     uuid: 'uuid',
 } as const
 
-export interface HogQLMetadataResponse {
-    /** @nullable */
-    ch_table_names?: string[] | null
-    errors: HogQLNotice[]
-    /** @nullable */
-    isUsingIndices?: QueryIndexUsage
-    /** @nullable */
-    isValid?: boolean | null
-    notices: HogQLNotice[]
-    /** @nullable */
-    query?: string | null
-    /** @nullable */
-    table_names?: string[] | null
-    warnings: HogQLNotice[]
-}
-
-export interface ResolvedDateRangeResponse {
-    date_from: string
-    date_to: string
-}
-
-export interface QueryTiming {
-    /** Key. Shortened to 'k' to save on data. */
-    k: string
-    /** Time in seconds. Shortened to 't' to save on data. */
-    t: number
-}
-
-export type BreakdownType = (typeof BreakdownType)[keyof typeof BreakdownType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BreakdownType = {
     cohort: 'cohort',
@@ -2603,20 +1194,6 @@ export const BreakdownType = {
 } as const
 
 export type BreakdownProperty = string | number
-
-export interface Breakdown {
-    /** @nullable */
-    group_type_index?: number | null
-    /** @nullable */
-    histogram_bin_count?: number | null
-    /** @nullable */
-    normalize_url?: boolean | null
-    property: BreakdownProperty
-    /** @nullable */
-    type?: MultipleBreakdownType
-}
-
-export type PropertyOperator = (typeof PropertyOperator)[keyof typeof PropertyOperator]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyOperator = {
@@ -2655,16 +1232,12 @@ export const Key = {
     selector: 'selector',
 } as const
 
-export type DurationType = (typeof DurationType)[keyof typeof DurationType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DurationType = {
     duration: 'duration',
     active_seconds: 'active_seconds',
     inactive_seconds: 'inactive_seconds',
 } as const
-
-export type FilterLogicalOperator = (typeof FilterLogicalOperator)[keyof typeof FilterLogicalOperator]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FilterLogicalOperator = {
@@ -2693,13 +1266,6 @@ export type PropertyGroupFilterValueValuesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface PropertyGroupFilterValue {
-    type: FilterLogicalOperator
-    values: PropertyGroupFilterValueValuesItem[]
-}
-
-export type BaseMathType = (typeof BaseMathType)[keyof typeof BaseMathType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BaseMathType = {
     total: 'total',
@@ -2711,16 +1277,12 @@ export const BaseMathType = {
     first_matching_event_for_user: 'first_matching_event_for_user',
 } as const
 
-export type FunnelMathType = (typeof FunnelMathType)[keyof typeof FunnelMathType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelMathType = {
     total: 'total',
     first_time_for_user: 'first_time_for_user',
     first_time_for_user_with_filters: 'first_time_for_user_with_filters',
 } as const
-
-export type PropertyMathType = (typeof PropertyMathType)[keyof typeof PropertyMathType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyMathType = {
@@ -2735,8 +1297,6 @@ export const PropertyMathType = {
     p99: 'p99',
 } as const
 
-export type CountPerActorMathType = (typeof CountPerActorMathType)[keyof typeof CountPerActorMathType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CountPerActorMathType = {
     avg_count_per_actor: 'avg_count_per_actor',
@@ -2748,8 +1308,6 @@ export const CountPerActorMathType = {
     p95_count_per_actor: 'p95_count_per_actor',
     p99_count_per_actor: 'p99_count_per_actor',
 } as const
-
-export type ExperimentMetricMathType = (typeof ExperimentMetricMathType)[keyof typeof ExperimentMetricMathType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExperimentMetricMathType = {
@@ -2763,8 +1321,6 @@ export const ExperimentMetricMathType = {
     unique_group: 'unique_group',
     hogql: 'hogql',
 } as const
-
-export type CalendarHeatmapMathType = (typeof CalendarHeatmapMathType)[keyof typeof CalendarHeatmapMathType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CalendarHeatmapMathType = {
@@ -2782,13 +1338,6 @@ export const MathGroupTypeIndex = {
     NUMBER_3: 3,
     NUMBER_4: 4,
 } as const
-
-export interface RevenueCurrencyPropertyConfig {
-    /** @nullable */
-    property?: string | null
-    /** @nullable */
-    static?: CurrencyCode
-}
 
 export type AggregationAxisFormat = (typeof AggregationAxisFormat)[keyof typeof AggregationAxisFormat]
 
@@ -2812,8 +1361,6 @@ export const DetailedResultsAggregationType = {
     median: 'median',
 } as const
 
-export type ChartDisplayType = (typeof ChartDisplayType)[keyof typeof ChartDisplayType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ChartDisplayType = {
     ActionsLineGraph: 'ActionsLineGraph',
@@ -2830,30 +1377,6 @@ export const ChartDisplayType = {
     CalendarHeatmap: 'CalendarHeatmap',
 } as const
 
-export interface TrendsFormulaNode {
-    /**
-     * Optional user-defined name for the formula
-     * @nullable
-     */
-    custom_name?: string | null
-    formula: string
-}
-
-export interface GoalLine {
-    /** @nullable */
-    borderColor?: string | null
-    /** @nullable */
-    displayIfCrossed?: boolean | null
-    /** @nullable */
-    displayLabel?: boolean | null
-    label: string
-    /** @nullable */
-    position?: Position
-    value: number
-}
-
-export type ResultCustomizationBy = (typeof ResultCustomizationBy)[keyof typeof ResultCustomizationBy]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ResultCustomizationBy = {
     value: 'value',
@@ -2868,14 +1391,6 @@ export const ResultCustomizationByValueAssignmentBy = {
     value: 'value',
 } as const
 
-export interface ResultCustomizationByValue {
-    assignmentBy?: ResultCustomizationByValueAssignmentBy
-    /** @nullable */
-    color?: DataColorToken
-    /** @nullable */
-    hidden?: boolean | null
-}
-
 export type ResultCustomizationByPositionAssignmentBy =
     (typeof ResultCustomizationByPositionAssignmentBy)[keyof typeof ResultCustomizationByPositionAssignmentBy]
 
@@ -2884,14 +1399,6 @@ export const ResultCustomizationByPositionAssignmentBy = {
     position: 'position',
 } as const
 
-export interface ResultCustomizationByPosition {
-    assignmentBy?: ResultCustomizationByPositionAssignmentBy
-    /** @nullable */
-    color?: DataColorToken
-    /** @nullable */
-    hidden?: boolean | null
-}
-
 export type YAxisScaleType = (typeof YAxisScaleType)[keyof typeof YAxisScaleType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -2899,8 +1406,6 @@ export const YAxisScaleType = {
     log10: 'log10',
     linear: 'linear',
 } as const
-
-export type BreakdownAttributionType = (typeof BreakdownAttributionType)[keyof typeof BreakdownAttributionType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BreakdownAttributionType = {
@@ -2981,61 +1486,6 @@ export type FunnelExclusionEventsNodePropertiesItem =
  */
 export type FunnelExclusionEventsNodeResponse = { [key: string]: unknown } | null
 
-export interface FunnelExclusionEventsNode {
-    /** @nullable */
-    custom_name?: string | null
-    /**
-     * The event or `null` for all events.
-     * @nullable
-     */
-    event?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: FunnelExclusionEventsNodeFixedPropertiesItem[] | null
-    funnelFromStep: number
-    funnelToStep: number
-    kind?: FunnelExclusionEventsNodeKind
-    /** @nullable */
-    limit?: number | null
-    /** @nullable */
-    math?: FunnelExclusionEventsNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Columns to order by
-     * @nullable
-     */
-    orderBy?: string[] | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: FunnelExclusionEventsNodePropertiesItem[] | null
-    /** @nullable */
-    response?: FunnelExclusionEventsNodeResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type FunnelExclusionActionsNodeFixedPropertiesItem =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -3107,52 +1557,6 @@ export type FunnelExclusionActionsNodePropertiesItem =
  */
 export type FunnelExclusionActionsNodeResponse = { [key: string]: unknown } | null
 
-export interface FunnelExclusionActionsNode {
-    /** @nullable */
-    custom_name?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: FunnelExclusionActionsNodeFixedPropertiesItem[] | null
-    funnelFromStep: number
-    funnelToStep: number
-    id: number
-    kind?: FunnelExclusionActionsNodeKind
-    /** @nullable */
-    math?: FunnelExclusionActionsNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: FunnelExclusionActionsNodePropertiesItem[] | null
-    /** @nullable */
-    response?: FunnelExclusionActionsNodeResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
-export type StepOrderValue = (typeof StepOrderValue)[keyof typeof StepOrderValue]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StepOrderValue = {
     strict: 'strict',
@@ -3160,15 +1564,11 @@ export const StepOrderValue = {
     ordered: 'ordered',
 } as const
 
-export type FunnelStepReference = (typeof FunnelStepReference)[keyof typeof FunnelStepReference]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelStepReference = {
     total: 'total',
     previous: 'previous',
 } as const
-
-export type FunnelVizType = (typeof FunnelVizType)[keyof typeof FunnelVizType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelVizType = {
@@ -3176,9 +1576,6 @@ export const FunnelVizType = {
     time_to_convert: 'time_to_convert',
     trends: 'trends',
 } as const
-
-export type FunnelConversionWindowTimeUnit =
-    (typeof FunnelConversionWindowTimeUnit)[keyof typeof FunnelConversionWindowTimeUnit]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelConversionWindowTimeUnit = {
@@ -3204,20 +1601,6 @@ export const FunnelLayout = {
  */
 export type RetentionResultBreakdownValue = string | number | null
 
-export interface RetentionResult {
-    /**
-     * Optional breakdown value for retention cohorts
-     * @nullable
-     */
-    breakdown_value?: RetentionResultBreakdownValue
-    date: string
-    label: string
-    values: RetentionValue[]
-}
-
-export type RetentionDashboardDisplayType =
-    (typeof RetentionDashboardDisplayType)[keyof typeof RetentionDashboardDisplayType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RetentionDashboardDisplayType = {
     table_only: 'table_only',
@@ -3234,8 +1617,6 @@ export const MeanRetentionCalculation = {
     none: 'none',
 } as const
 
-export type RetentionPeriod = (typeof RetentionPeriod)[keyof typeof RetentionPeriod]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RetentionPeriod = {
     Hour: 'Hour',
@@ -3251,8 +1632,6 @@ export const RetentionReference = {
     total: 'total',
     previous: 'previous',
 } as const
-
-export type RetentionType = (typeof RetentionType)[keyof typeof RetentionType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RetentionType = {
@@ -3286,28 +1665,6 @@ export type RetentionEntityPropertiesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface RetentionEntity {
-    /** @nullable */
-    custom_name?: string | null
-    /** @nullable */
-    id?: RetentionEntityId
-    /** @nullable */
-    kind?: RetentionEntityKind
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    order?: number | null
-    /**
-     * filters on the event
-     * @nullable
-     */
-    properties?: RetentionEntityPropertiesItem[] | null
-    /** @nullable */
-    type?: EntityType
-    /** @nullable */
-    uuid?: string | null
-}
-
 export type TimeWindowMode = (typeof TimeWindowMode)[keyof typeof TimeWindowMode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -3316,16 +1673,12 @@ export const TimeWindowMode = {
     '24_hour_windows': '24_hour_windows',
 } as const
 
-export type FunnelPathType = (typeof FunnelPathType)[keyof typeof FunnelPathType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelPathType = {
     funnel_path_before_step: 'funnel_path_before_step',
     funnel_path_between_steps: 'funnel_path_between_steps',
     funnel_path_after_step: 'funnel_path_after_step',
 } as const
-
-export type PathType = (typeof PathType)[keyof typeof PathType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PathType = {
@@ -3334,24 +1687,6 @@ export const PathType = {
     custom_event: 'custom_event',
     hogql: 'hogql',
 } as const
-
-export interface PathCleaningFilter {
-    /** @nullable */
-    alias?: string | null
-    /** @nullable */
-    order?: number | null
-    /** @nullable */
-    regex?: string | null
-}
-
-export interface PathsLink {
-    average_conversion_time: number
-    source: string
-    target: string
-    value: number
-}
-
-export type StickinessComputationMode = (typeof StickinessComputationMode)[keyof typeof StickinessComputationMode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StickinessComputationMode = {
@@ -3363,8 +1698,6 @@ export interface StickinessCriteria {
     operator: StickinessOperator
     value: number
 }
-
-export type LifecycleToggle = (typeof LifecycleToggle)[keyof typeof LifecycleToggle]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const LifecycleToggle = {
@@ -3379,26 +1712,6 @@ export const LifecycleToggle = {
  */
 export type CustomChannelConditionValue = string | string[] | null
 
-export interface CustomChannelCondition {
-    id: string
-    key: CustomChannelField
-    op: CustomChannelOperator
-    /** @nullable */
-    value?: CustomChannelConditionValue
-}
-
-export interface HogQLNotice {
-    /** @nullable */
-    end?: number | null
-    /** @nullable */
-    fix?: string | null
-    message: string
-    /** @nullable */
-    start?: number | null
-}
-
-export type QueryIndexUsage = (typeof QueryIndexUsage)[keyof typeof QueryIndexUsage]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const QueryIndexUsage = {
     undecisive: 'undecisive',
@@ -3406,8 +1719,6 @@ export const QueryIndexUsage = {
     partial: 'partial',
     yes: 'yes',
 } as const
-
-export type MultipleBreakdownType = (typeof MultipleBreakdownType)[keyof typeof MultipleBreakdownType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const MultipleBreakdownType = {
@@ -3420,8 +1731,6 @@ export const MultipleBreakdownType = {
     hogql: 'hogql',
     revenue_analytics: 'revenue_analytics',
 } as const
-
-export type CurrencyCode = (typeof CurrencyCode)[keyof typeof CurrencyCode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CurrencyCode = {
@@ -3608,21 +1917,11 @@ export const DataColorToken = {
     'preset-15': 'preset-15',
 } as const
 
-export interface RetentionValue {
-    count: number
-    /** @nullable */
-    label?: string | null
-}
-
-export type RetentionEntityKind = (typeof RetentionEntityKind)[keyof typeof RetentionEntityKind]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RetentionEntityKind = {
     ActionsNode: 'ActionsNode',
     EventsNode: 'EventsNode',
 } as const
-
-export type EntityType = (typeof EntityType)[keyof typeof EntityType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EntityType = {
@@ -3632,8 +1931,6 @@ export const EntityType = {
     new_entity: 'new_entity',
 } as const
 
-export type StickinessOperator = (typeof StickinessOperator)[keyof typeof StickinessOperator]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StickinessOperator = {
     gte: 'gte',
@@ -3641,7 +1938,13 @@ export const StickinessOperator = {
     exact: 'exact',
 } as const
 
-export type CustomChannelField = (typeof CustomChannelField)[keyof typeof CustomChannelField]
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebAnalyticsItemKind = {
+    unit: 'unit',
+    duration_s: 'duration_s',
+    percentage: 'percentage',
+    currency: 'currency',
+} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CustomChannelField = {
@@ -3653,8 +1956,6 @@ export const CustomChannelField = {
     pathname: 'pathname',
     hostname: 'hostname',
 } as const
-
-export type CustomChannelOperator = (typeof CustomChannelOperator)[keyof typeof CustomChannelOperator]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CustomChannelOperator = {

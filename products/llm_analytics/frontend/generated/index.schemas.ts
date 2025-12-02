@@ -4,6 +4,29 @@
  * PostHog API - llm_analytics
  * OpenAPI spec version: 1.0.0
  */
+
+// Re-exported from canonical sources (TS-owned types)
+export type { Dataset, DatasetItem } from '~/types'
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+export const RoleAtOrganizationEnum = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
 export interface PaginatedDatasetItemList {
     count: number
     /** @nullable */
@@ -27,36 +50,6 @@ export type DatasetItemOutput = unknown | null
  * @nullable
  */
 export type DatasetItemMetadata = unknown | null
-
-export interface DatasetItem {
-    readonly id: string
-    dataset: string
-    /** @nullable */
-    input?: DatasetItemInput
-    /** @nullable */
-    output?: DatasetItemOutput
-    /** @nullable */
-    metadata?: DatasetItemMetadata
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly created_by: UserBasic
-    readonly team: number
-}
 
 /**
  * @nullable
@@ -116,23 +109,6 @@ export interface PaginatedDatasetList {
  * @nullable
  */
 export type DatasetMetadata = unknown | null
-
-export interface Dataset {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    metadata?: DatasetMetadata
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by: UserBasic
-    readonly team: number
-}
 
 /**
  * @nullable
@@ -202,31 +178,12 @@ export interface UserBasic {
  * `sales` - Sales / Success
  * `other` - Other
  */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 export type EnvironmentsDatasetItemsListParams = {
     /**

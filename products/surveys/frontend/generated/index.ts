@@ -456,6 +456,7 @@ export const surveysActivityRetrieve = async (
 
 Args:
     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+    survey_ids: Optional comma-separated list of survey IDs to filter by
 
 Returns:
     Dictionary mapping survey IDs to response counts

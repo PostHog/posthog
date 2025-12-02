@@ -4,6 +4,43 @@
  * PostHog API - error_tracking
  * OpenAPI spec version: 1.0.0
  */
+
+// Re-exported from canonical sources (TS-owned types)
+export type { ErrorTrackingExternalReference, ErrorTrackingExternalReferenceIntegration } from '~/queries/schema'
+export const ErrorTrackingIssueFullStatusEnum = {
+    archived: 'archived',
+    active: 'active',
+    resolved: 'resolved',
+    pending_release: 'pending_release',
+    suppressed: 'suppressed',
+} as const
+
+export type KindEnum = (typeof KindEnum)[keyof typeof KindEnum]
+export const KindEnum = {
+    slack: 'slack',
+    salesforce: 'salesforce',
+    hubspot: 'hubspot',
+    'google-pubsub': 'google-pubsub',
+    'google-cloud-storage': 'google-cloud-storage',
+    'google-ads': 'google-ads',
+    'google-sheets': 'google-sheets',
+    snapchat: 'snapchat',
+    'linkedin-ads': 'linkedin-ads',
+    'reddit-ads': 'reddit-ads',
+    'tiktok-ads': 'tiktok-ads',
+    'bing-ads': 'bing-ads',
+    intercom: 'intercom',
+    email: 'email',
+    linear: 'linear',
+    github: 'github',
+    gitlab: 'gitlab',
+    'meta-ads': 'meta-ads',
+    twilio: 'twilio',
+    clickup: 'clickup',
+    vercel: 'vercel',
+    databricks: 'databricks',
+} as const
+
 export interface PaginatedErrorTrackingFingerprintList {
     count: number
     /** @nullable */
@@ -167,32 +204,10 @@ export type ErrorTrackingIssueFullStatusEnum =
     (typeof ErrorTrackingIssueFullStatusEnum)[keyof typeof ErrorTrackingIssueFullStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ErrorTrackingIssueFullStatusEnum = {
-    archived: 'archived',
-    active: 'active',
-    resolved: 'resolved',
-    pending_release: 'pending_release',
-    suppressed: 'suppressed',
-} as const
 
 export interface ErrorTrackingIssueAssignment {
     readonly id: string
     readonly type: string
-}
-
-export interface ErrorTrackingExternalReference {
-    readonly id: string
-    readonly integration: ErrorTrackingExternalReferenceIntegration
-    integration_id: number
-    config: unknown
-    issue: string
-    readonly external_url: string
-}
-
-export interface ErrorTrackingExternalReferenceIntegration {
-    readonly id: number
-    readonly kind: KindEnum
-    readonly display_name: string
 }
 
 /**
@@ -219,33 +234,8 @@ export interface ErrorTrackingExternalReferenceIntegration {
  * `vercel` - Vercel
  * `databricks` - Databricks
  */
-export type KindEnum = (typeof KindEnum)[keyof typeof KindEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const KindEnum = {
-    slack: 'slack',
-    salesforce: 'salesforce',
-    hubspot: 'hubspot',
-    'google-pubsub': 'google-pubsub',
-    'google-cloud-storage': 'google-cloud-storage',
-    'google-ads': 'google-ads',
-    'google-sheets': 'google-sheets',
-    snapchat: 'snapchat',
-    'linkedin-ads': 'linkedin-ads',
-    'reddit-ads': 'reddit-ads',
-    'tiktok-ads': 'tiktok-ads',
-    'bing-ads': 'bing-ads',
-    intercom: 'intercom',
-    email: 'email',
-    linear: 'linear',
-    github: 'github',
-    gitlab: 'gitlab',
-    'meta-ads': 'meta-ads',
-    twilio: 'twilio',
-    clickup: 'clickup',
-    vercel: 'vercel',
-    databricks: 'databricks',
-} as const
 
 export type EnvironmentsErrorTrackingFingerprintsListParams = {
     /**

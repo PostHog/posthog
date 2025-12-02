@@ -4,6 +4,33 @@
  * PostHog API - actions
  * OpenAPI spec version: 1.0.0
  */
+export type UrlMatchingEnum = (typeof UrlMatchingEnum)[keyof typeof UrlMatchingEnum]
+export const UrlMatchingEnum = {
+    contains: 'contains',
+    regex: 'regex',
+    exact: 'exact',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+export const RoleAtOrganizationEnum = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
 export interface PaginatedActionList {
     count: number
     /** @nullable */
@@ -178,19 +205,10 @@ export interface UserBasic {
  * `regex` - regex
  * `exact` - exact
  */
-export type UrlMatchingEnum = (typeof UrlMatchingEnum)[keyof typeof UrlMatchingEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UrlMatchingEnum = {
-    contains: 'contains',
-    regex: 'regex',
-    exact: 'exact',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 /**
  * * `engineering` - Engineering
@@ -202,26 +220,10 @@ export const NullEnum = {} as const
  * `sales` - Sales / Success
  * `other` - Other
  */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
 
 export type ActionsListParams = {
     format?: ActionsListFormat

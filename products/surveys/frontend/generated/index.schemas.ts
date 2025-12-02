@@ -4,6 +4,42 @@
  * PostHog API - surveys
  * OpenAPI spec version: 1.0.0
  */
+
+// Re-exported from canonical sources (TS-owned types)
+export type { Survey, SurveyAppearance, SurveyType } from '~/types'
+export const ResponseSamplingIntervalTypeEnum = {
+    day: 'day',
+    week: 'week',
+    month: 'month',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
+export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
+export const EvaluationRuntimeEnum = {
+    server: 'server',
+    client: 'client',
+    all: 'all',
+} as const
+
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+export const RoleAtOrganizationEnum = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
 export interface PaginatedSurveyList {
     count: number
     /** @nullable */
@@ -55,6 +91,7 @@ export type SurveySerializerCreateUpdateOnlyTargetingFlagFilters = unknown | nul
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
@@ -193,6 +230,7 @@ export interface SurveySerializerCreateUpdateOnly {
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
@@ -344,6 +382,7 @@ export interface SurveySerializerCreateUpdateOnly {
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
@@ -397,11 +436,6 @@ export interface SurveySerializerCreateUpdateOnly {
  */
 export type SurveyQuestions = unknown | null
 
-/**
- * @nullable
- */
-export type SurveyAppearance = unknown | null
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SurveyResponseSamplingIntervalType = {
     ...ResponseSamplingIntervalTypeEnum,
@@ -419,179 +453,6 @@ export type SurveyResponseSamplingIntervalType =
  * @nullable
  */
 export type SurveyResponseSamplingDailyLimits = unknown | null
-
-/**
- * Mixin for serializers to add user access control fields
- */
-export interface Survey {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    type: SurveyType
-    /** @nullable */
-    schedule?: string | null
-    readonly linked_flag: MinimalFeatureFlag
-    /** @nullable */
-    linked_flag_id?: number | null
-    /** @nullable */
-    linked_insight_id?: number | null
-    readonly targeting_flag: MinimalFeatureFlag
-    readonly internal_targeting_flag: MinimalFeatureFlag
-    /**
-   * 
-        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
-
-        Basic (open-ended question)
-        - `id`: The question ID
-        - `type`: `open`
-        - `question`: The text of the question.
-        - `description`: Optional description of the question.
-        - `descriptionContentType`: Content type of the description (`html` or `text`).
-        - `optional`: Whether the question is optional (`boolean`).
-        - `buttonText`: Text displayed on the submit button.
-        - `branching`: Branching logic for the question. See branching types below for details.
-
-        Link (a question with a link)
-        - `id`: The question ID
-        - `type`: `link`
-        - `question`: The text of the question.
-        - `description`: Optional description of the question.
-        - `descriptionContentType`: Content type of the description (`html` or `text`).
-        - `optional`: Whether the question is optional (`boolean`).
-        - `buttonText`: Text displayed on the submit button.
-        - `link`: The URL associated with the question.
-        - `branching`: Branching logic for the question. See branching types below for details.
-
-        Rating (a question with a rating scale)
-        - `id`: The question ID
-        - `type`: `rating`
-        - `question`: The text of the question.
-        - `description`: Optional description of the question.
-        - `descriptionContentType`: Content type of the description (`html` or `text`).
-        - `optional`: Whether the question is optional (`boolean`).
-        - `buttonText`: Text displayed on the submit button.
-        - `display`: Display style of the rating (`number` or `emoji`).
-        - `scale`: The scale of the rating (`number`).
-        - `lowerBoundLabel`: Label for the lower bound of the scale.
-        - `upperBoundLabel`: Label for the upper bound of the scale.
-        - `branching`: Branching logic for the question. See branching types below for details.
-
-        Multiple choice
-        - `id`: The question ID
-        - `type`: `single_choice` or `multiple_choice`
-        - `question`: The text of the question.
-        - `description`: Optional description of the question.
-        - `descriptionContentType`: Content type of the description (`html` or `text`).
-        - `optional`: Whether the question is optional (`boolean`).
-        - `buttonText`: Text displayed on the submit button.
-        - `choices`: An array of choices for the question.
-        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
-        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
-        - `branching`: Branching logic for the question. See branching types below for details.
-
-        Branching logic can be one of the following types:
-
-        Next question: Proceeds to the next question
-        ```json
-        {
-            "type": "next_question"
-        }
-        ```
-
-        End: Ends the survey, optionally displaying a confirmation message.
-        ```json
-        {
-            "type": "end"
-        }
-        ```
-
-        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
-        ```json
-        {
-            "type": "response_based",
-            "responseValues": {
-                "responseKey": "value"
-            }
-        }
-        ```
-
-        Specific question: Proceeds to a specific question by index.
-        ```json
-        {
-            "type": "specific_question",
-            "index": 2
-        }
-        ```
-        
-   * @nullable
-   */
-    questions?: SurveyQuestions
-    readonly conditions: string
-    /** @nullable */
-    appearance?: SurveyAppearance
-    readonly created_at: string
-    readonly created_by: UserBasic
-    /** @nullable */
-    start_date?: string | null
-    /** @nullable */
-    end_date?: string | null
-    archived?: boolean
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     * @nullable
-     */
-    responses_limit?: number | null
-    readonly feature_flag_keys: readonly unknown[]
-    /**
-     * @minimum 0
-     * @maximum 500
-     * @nullable
-     */
-    iteration_count?: number | null
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     * @nullable
-     */
-    iteration_frequency_days?: number | null
-    /** @nullable */
-    iteration_start_dates?: (string | null)[] | null
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     * @nullable
-     */
-    current_iteration?: number | null
-    /** @nullable */
-    current_iteration_start_date?: string | null
-    /** @nullable */
-    response_sampling_start_date?: string | null
-    /** @nullable */
-    response_sampling_interval_type?: SurveyResponseSamplingIntervalType
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     * @nullable
-     */
-    response_sampling_interval?: number | null
-    /**
-     * @minimum 0
-     * @maximum 2147483647
-     * @nullable
-     */
-    response_sampling_limit?: number | null
-    /** @nullable */
-    response_sampling_daily_limits?: SurveyResponseSamplingDailyLimits
-    /** @nullable */
-    enable_partial_responses?: boolean | null
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
-}
 
 /**
  * @nullable
@@ -635,6 +496,7 @@ export type PatchedSurveySerializerCreateUpdateOnlyTargetingFlagFilters = unknow
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
@@ -773,6 +635,7 @@ export interface PatchedSurveySerializerCreateUpdateOnly {
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
@@ -887,14 +750,6 @@ export interface PatchedSurveySerializerCreateUpdateOnly {
     _create_in_folder?: string
 }
 
-/**
- * * `popover` - popover
- * `widget` - widget
- * `external_survey` - external survey
- * `api` - api
- */
-export type SurveyType = (typeof SurveyType)[keyof typeof SurveyType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SurveyType = {
     popover: 'popover',
@@ -995,37 +850,18 @@ export type ResponseSamplingIntervalTypeEnum =
     (typeof ResponseSamplingIntervalTypeEnum)[keyof typeof ResponseSamplingIntervalTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ResponseSamplingIntervalTypeEnum = {
-    day: 'day',
-    week: 'week',
-    month: 'month',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 /**
  * * `server` - Server
  * `client` - Client
  * `all` - All
  */
-export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EvaluationRuntimeEnum = {
-    server: 'server',
-    client: 'client',
-    all: 'all',
-} as const
 
 /**
  * * `engineering` - Engineering
@@ -1037,19 +873,8 @@ export const EvaluationRuntimeEnum = {
  * `sales` - Sales / Success
  * `other` - Other
  */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
 
 export type SurveysListParams = {
     /**

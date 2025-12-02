@@ -262,8 +262,11 @@ build:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
     build:openapi-schema:
-        bin_script: build-openapi-schema.sh
-        description: Generate OpenAPI schema from the Django backend
+        cmd: |
+            mkdir -p frontend/tmp
+            OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json
+            echo "OpenAPI schema written to frontend/tmp/openapi.json"
+        description: Generate OpenAPI schema from Django backend (writes to gitignored temp location)
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema

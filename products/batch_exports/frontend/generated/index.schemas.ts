@@ -4,6 +4,9 @@
  * PostHog API - batch_exports
  * OpenAPI spec version: 1.0.0
  */
+
+// Re-exported from canonical sources (TS-owned types)
+export type { BatchExportRun } from '~/types'
 export type ModelEnum = (typeof ModelEnum)[keyof typeof ModelEnum]
 export const ModelEnum = {
     events: 'events',
@@ -142,80 +145,6 @@ export interface PaginatedBatchExportRunList {
     /** @nullable */
     previous?: string | null
     results: BatchExportRun[]
-}
-
-/**
- * Serializer for a BatchExportRun model.
- */
-export interface BatchExportRun {
-    readonly id: string
-    /** The status of this run.
-
-* `Cancelled` - Cancelled
-* `Completed` - Completed
-* `ContinuedAsNew` - Continued As New
-* `Failed` - Failed
-* `FailedRetryable` - Failed Retryable
-* `FailedBilling` - Failed Billing
-* `Terminated` - Terminated
-* `TimedOut` - Timedout
-* `Running` - Running
-* `Starting` - Starting */
-    status: BatchExportRunStatusEnum
-    /**
-     * The number of records that have been exported.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    records_completed?: number | null
-    /**
-     * The latest error that occurred during this run.
-     * @nullable
-     */
-    latest_error?: string | null
-    /**
-     * The start of the data interval.
-     * @nullable
-     */
-    data_interval_start?: string | null
-    /** The end of the data interval. */
-    data_interval_end: string
-    /**
-     * An opaque cursor that may be used to resume.
-     * @nullable
-     */
-    cursor?: string | null
-    /** The timestamp at which this BatchExportRun was created. */
-    readonly created_at: string
-    /**
-     * The timestamp at which this BatchExportRun finished, successfully or not.
-     * @nullable
-     */
-    finished_at?: string | null
-    /** The timestamp at which this BatchExportRun was last updated. */
-    readonly last_updated_at: string
-    /**
-     * The total count of records that should be exported in this BatchExportRun.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    records_total_count?: number | null
-    /**
-     * The number of bytes that have been exported in this BatchExportRun.
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
-     * @nullable
-     */
-    bytes_exported?: number | null
-    /** The BatchExport this run belongs to. */
-    readonly batch_export: string
-    /**
-     * The backfill this run belongs to.
-     * @nullable
-     */
-    backfill?: string | null
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare

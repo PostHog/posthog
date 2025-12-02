@@ -4,6 +4,52 @@
  * PostHog API - experiments
  * OpenAPI spec version: 1.0.0
  */
+
+// Re-exported from canonical sources (TS-owned types)
+export type { ExperimentExposureCriteria } from '~/queries/schema'
+export type { Experiment, ExperimentConclusion } from '~/types'
+export type ExperimentTypeEnum = (typeof ExperimentTypeEnum)[keyof typeof ExperimentTypeEnum]
+export const ExperimentTypeEnum = {
+    web: 'web',
+    product: 'product',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
+export type ConclusionEnum = (typeof ConclusionEnum)[keyof typeof ConclusionEnum]
+export const ConclusionEnum = {
+    won: 'won',
+    lost: 'lost',
+    inconclusive: 'inconclusive',
+    stopped_early: 'stopped_early',
+    invalid: 'invalid',
+} as const
+
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+export const RoleAtOrganizationEnum = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
+export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
+export const EvaluationRuntimeEnum = {
+    server: 'server',
+    client: 'client',
+    all: 'all',
+} as const
+
 export interface PaginatedExperimentHoldoutList {
     count: number
     /** @nullable */
@@ -72,11 +118,6 @@ export type ExperimentType = (typeof ExperimentType)[keyof typeof ExperimentType
 /**
  * @nullable
  */
-export type ExperimentExposureCriteria = unknown | null
-
-/**
- * @nullable
- */
 export type ExperimentMetrics = unknown | null
 
 /**
@@ -91,10 +132,6 @@ export type ExperimentStatsConfig = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExperimentConclusion = { ...ConclusionEnum, ...BlankEnum, ...NullEnum } as const
-/**
- * @nullable
- */
-export type ExperimentConclusion = (typeof ExperimentConclusion)[keyof typeof ExperimentConclusion] | null
 
 /**
  * @nullable
@@ -105,69 +142,6 @@ export type ExperimentPrimaryMetricsOrderedUuids = unknown | null
  * @nullable
  */
 export type ExperimentSecondaryMetricsOrderedUuids = unknown | null
-
-/**
- * Mixin for serializers to add user access control fields
- */
-export interface Experiment {
-    readonly id: number
-    /** @maxLength 400 */
-    name: string
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    description?: string | null
-    /** @nullable */
-    start_date?: string | null
-    /** @nullable */
-    end_date?: string | null
-    feature_flag_key: string
-    readonly feature_flag: MinimalFeatureFlag
-    readonly holdout: ExperimentHoldout
-    /** @nullable */
-    holdout_id?: number | null
-    /** @nullable */
-    readonly exposure_cohort: number | null
-    /** @nullable */
-    parameters?: ExperimentParameters
-    /** @nullable */
-    secondary_metrics?: ExperimentSecondaryMetrics
-    readonly saved_metrics: readonly ExperimentToSavedMetric[]
-    /** @nullable */
-    saved_metrics_ids?: unknown[] | null
-    filters?: unknown
-    archived?: boolean
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by: UserBasic
-    readonly created_at: string
-    readonly updated_at: string
-    /** @nullable */
-    type?: ExperimentType
-    /** @nullable */
-    exposure_criteria?: ExperimentExposureCriteria
-    /** @nullable */
-    metrics?: ExperimentMetrics
-    /** @nullable */
-    metrics_secondary?: ExperimentMetricsSecondary
-    /** @nullable */
-    stats_config?: ExperimentStatsConfig
-    _create_in_folder?: string
-    /** @nullable */
-    conclusion?: ExperimentConclusion
-    /** @nullable */
-    conclusion_comment?: string | null
-    /** @nullable */
-    primary_metrics_ordered_uuids?: ExperimentPrimaryMetricsOrderedUuids
-    /** @nullable */
-    secondary_metrics_ordered_uuids?: ExperimentSecondaryMetricsOrderedUuids
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
-}
 
 /**
  * @nullable
@@ -385,25 +359,12 @@ export interface ExperimentToSavedMetric {
  * * `web` - web
  * `product` - product
  */
-export type ExperimentTypeEnum = (typeof ExperimentTypeEnum)[keyof typeof ExperimentTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentTypeEnum = {
-    web: 'web',
-    product: 'product',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 /**
  * * `won` - Won
@@ -412,16 +373,8 @@ export const NullEnum = {} as const
  * `stopped_early` - Stopped Early
  * `invalid` - Invalid
  */
-export type ConclusionEnum = (typeof ConclusionEnum)[keyof typeof ConclusionEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ConclusionEnum = {
-    won: 'won',
-    lost: 'lost',
-    inconclusive: 'inconclusive',
-    stopped_early: 'stopped_early',
-    invalid: 'invalid',
-} as const
 
 /**
  * * `engineering` - Engineering
@@ -433,33 +386,16 @@ export const ConclusionEnum = {
  * `sales` - Sales / Success
  * `other` - Other
  */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
 
 /**
  * * `server` - Server
  * `client` - Client
  * `all` - All
  */
-export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EvaluationRuntimeEnum = {
-    server: 'server',
-    client: 'client',
-    all: 'all',
-} as const
 
 export type ExperimentHoldoutsListParams = {
     /**

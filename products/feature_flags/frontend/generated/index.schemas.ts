@@ -4,6 +4,45 @@
  * PostHog API - feature_flags
  * OpenAPI spec version: 1.0.0
  */
+
+// Re-exported from canonical sources (TS-owned types)
+export type { FeatureFlagEvaluationRuntime, FeatureFlagFilters, FeatureFlagRollbackConditions } from '~/types'
+export type CreationContextEnum = (typeof CreationContextEnum)[keyof typeof CreationContextEnum]
+export const CreationContextEnum = {
+    feature_flags: 'feature_flags',
+    experiments: 'experiments',
+    surveys: 'surveys',
+    early_access_features: 'early_access_features',
+    web_experiments: 'web_experiments',
+} as const
+
+export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
+export const EvaluationRuntimeEnum = {
+    server: 'server',
+    client: 'client',
+    all: 'all',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+export const RoleAtOrganizationEnum = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
 export interface PaginatedFeatureFlagList {
     count: number
     /** @nullable */
@@ -13,30 +52,12 @@ export interface PaginatedFeatureFlagList {
     results: FeatureFlag[]
 }
 
-export type FeatureFlagFilters = { [key: string]: unknown }
-
 export type FeatureFlagSurveys = { [key: string]: unknown }
 
 export type FeatureFlagFeatures = { [key: string]: unknown }
 
-/**
- * @nullable
- */
-export type FeatureFlagRollbackConditions = unknown | null
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, ...BlankEnum, ...NullEnum } as const
-/**
- * Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All
- * @nullable
- */
-export type FeatureFlagEvaluationRuntime =
-    | (typeof FeatureFlagEvaluationRuntime)[keyof typeof FeatureFlagEvaluationRuntime]
-    | null
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
@@ -252,42 +273,20 @@ export interface UserBasic {
  * `early_access_features` - early_access_features
  * `web_experiments` - web_experiments
  */
-export type CreationContextEnum = (typeof CreationContextEnum)[keyof typeof CreationContextEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CreationContextEnum = {
-    feature_flags: 'feature_flags',
-    experiments: 'experiments',
-    surveys: 'surveys',
-    early_access_features: 'early_access_features',
-    web_experiments: 'web_experiments',
-} as const
 
 /**
  * * `server` - Server
  * `client` - Client
  * `all` - All
  */
-export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EvaluationRuntimeEnum = {
-    server: 'server',
-    client: 'client',
-    all: 'all',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 /**
  * * `engineering` - Engineering
@@ -299,19 +298,8 @@ export const NullEnum = {} as const
  * `sales` - Sales / Success
  * `other` - Other
  */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
 
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive

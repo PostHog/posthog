@@ -5,13 +5,328 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendRoot, '..')
 const productsDir = path.resolve(repoRoot, 'products')
 
-const defaultSchemaPath = path.resolve(frontendRoot, 'src', 'types', 'api', 'openapi.json')
+/**
+ * Canonical type sources - these are the authoritative definitions for TS-owned types.
+ * Generated types matching these will be replaced with re-exports.
+ * Types marked @deprecated are excluded (allows gradual migration to generated types).
+ */
+const CANONICAL_TYPE_SOURCES = [
+    { path: 'frontend/src/types.ts', importPath: '~/types' },
+    { path: 'frontend/src/queries/schema/schema-general.ts', importPath: '~/queries/schema' },
+    { path: 'frontend/src/queries/schema/schema-surveys.ts', importPath: '~/queries/schema' },
+    { path: 'frontend/src/queries/schema/schema-assistant-replay.ts', importPath: '~/queries/schema' },
+    { path: 'frontend/src/queries/schema/schema-assistant-queries.ts', importPath: '~/queries/schema' },
+    { path: 'frontend/src/queries/schema/schema-assistant-messages.ts', importPath: '~/queries/schema' },
+]
+
+/**
+ * Extract exported type/interface/enum names from a TypeScript file.
+ * Returns Map of typeName → { isDeprecated: boolean }
+ */
+function getExportedTypeNames(filePath) {
+    if (!fs.existsSync(filePath)) {
+        return new Map()
+    }
+
+    const content = fs.readFileSync(filePath, 'utf8')
+    const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true)
+    const types = new Map()
+
+    ts.forEachChild(sourceFile, (node) => {
+        const isExported = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+        if (!isExported) {
+            return
+        }
+
+        let name = null
+        if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node)) {
+            name = node.name.text
+        }
+
+        if (name) {
+            // Check for @deprecated JSDoc tag
+            const jsDocTags = ts.getJSDocTags(node)
+            const isDeprecated = jsDocTags.some((tag) => tag.tagName.text === 'deprecated')
+            types.set(name, { isDeprecated })
+        }
+    })
+
+    return types
+}
+
+/**
+ * Build a map of canonical type names → { importPath, isDeprecated }
+ * Merges all canonical sources, with earlier sources taking precedence.
+ */
+function buildCanonicalTypesMap() {
+    const canonicalTypes = new Map()
+
+    for (const source of CANONICAL_TYPE_SOURCES) {
+        const fullPath = path.resolve(repoRoot, source.path)
+        const types = getExportedTypeNames(fullPath)
+
+        for (const [typeName, info] of types) {
+            if (!canonicalTypes.has(typeName)) {
+                canonicalTypes.set(typeName, {
+                    importPath: source.importPath,
+                    sourcePath: source.path,
+                    isDeprecated: info.isDeprecated,
+                })
+            }
+        }
+    }
+
+    return canonicalTypes
+}
+
+/**
+ * Batch check type equivalence for multiple types at once.
+ * Returns a Set of type names that ARE equivalent (passed the check).
+ * Uses TypeScript compiler API directly (no subprocess).
+ *
+ * @param {string} generatedFile - Path to the generated schema file
+ * @param {Array<{typeName: string, canonicalFile: string}>} candidates - Types to check
+ * @returns {Set<string>} - Type names that are equivalent to their canonical versions
+ */
+function batchCheckTypeEquivalence(generatedFile, candidates) {
+    if (candidates.length === 0) {
+        return new Set()
+    }
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-type-check-'))
+    const checkFile = path.join(tmpDir, 'check.ts')
+
+    // Calculate relative paths from check file
+    const genRelPath = path.relative(tmpDir, generatedFile).replace(/\.ts$/, '').replace(/\\/g, '/')
+
+    // Group candidates by canonical file for import efficiency
+    const byCanonicalFile = new Map()
+    for (const c of candidates) {
+        if (!byCanonicalFile.has(c.canonicalFile)) {
+            byCanonicalFile.set(c.canonicalFile, [])
+        }
+        byCanonicalFile.get(c.canonicalFile).push(c.typeName)
+    }
+
+    // Build imports
+    const imports = [`import type * as Gen from '${genRelPath}'`]
+    let aliasCounter = 0
+    const canonicalAliases = new Map() // file → alias
+    for (const canonFile of byCanonicalFile.keys()) {
+        const alias = `Canon${aliasCounter++}`
+        const relPath = path.relative(tmpDir, canonFile).replace(/\.ts$/, '').replace(/\\/g, '/')
+        imports.push(`import type * as ${alias} from '${relPath}'`)
+        canonicalAliases.set(canonFile, alias)
+    }
+
+    // Build individual check types - each one that compiles means equivalence
+    const checks = []
+    for (const c of candidates) {
+        const alias = canonicalAliases.get(c.canonicalFile)
+        checks.push(
+            `type _Check_${c.typeName}_Forward = Gen.${c.typeName} extends ${alias}.${c.typeName} ? true : never`
+        )
+        checks.push(
+            `type _Check_${c.typeName}_Backward = ${alias}.${c.typeName} extends Gen.${c.typeName} ? true : never`
+        )
+        checks.push(`const _verify_${c.typeName}: _Check_${c.typeName}_Forward & _Check_${c.typeName}_Backward = true`)
+    }
+
+    const checkContent = imports.join('\n') + '\n\n' + checks.join('\n')
+    fs.writeFileSync(checkFile, checkContent)
+
+    // Use TS compiler API directly (faster than spawning tsc subprocess)
+    const program = ts.createProgram([checkFile], {
+        noEmit: true,
+        strict: true,
+    })
+    const diagnostics = ts.getPreEmitDiagnostics(program)
+
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+
+    if (diagnostics.length === 0) {
+        // All checks passed!
+        return new Set(candidates.map((c) => c.typeName))
+    }
+
+    // Parse which types failed from diagnostics
+    const failedTypes = new Set()
+    for (const diagnostic of diagnostics) {
+        const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
+        for (const c of candidates) {
+            if (message.includes(`_Check_${c.typeName}_`) || message.includes(`_verify_${c.typeName}`)) {
+                failedTypes.add(c.typeName)
+            }
+        }
+    }
+
+    // Return types that didn't fail
+    return new Set(candidates.filter((c) => !failedTypes.has(c.typeName)).map((c) => c.typeName))
+}
+
+/**
+ * Get exported type declarations from a file using TS AST.
+ * Returns array of { typeName, node, start, end } for type aliases and interfaces.
+ */
+function getExportedTypeDeclarations(filePath) {
+    if (!fs.existsSync(filePath)) {
+        return []
+    }
+
+    const content = fs.readFileSync(filePath, 'utf8')
+    const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true)
+    const types = []
+
+    ts.forEachChild(sourceFile, (node) => {
+        const isExported = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+        if (!isExported) {
+            return
+        }
+
+        if (ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) {
+            // Get the full range including leading trivia (comments, whitespace)
+            const fullStart = node.getFullStart()
+            const end = node.getEnd()
+
+            types.push({
+                typeName: node.name.text,
+                kind: ts.isTypeAliasDeclaration(node) ? 'type' : 'interface',
+                fullStart,
+                start: node.getStart(),
+                end,
+            })
+        }
+    })
+
+    return types
+}
+
+/**
+ * Deduplicate types in a generated schema file using TS AST.
+ * For each type that matches a canonical source (same name, equivalent shape, not deprecated),
+ * replace the definition with a re-export from the canonical source.
+ */
+function deduplicateTypes(schemaFile, canonicalTypes) {
+    if (!fs.existsSync(schemaFile)) {
+        return { deduplicated: 0, skippedDeprecated: [] }
+    }
+
+    const content = fs.readFileSync(schemaFile, 'utf8')
+    const generatedTypes = getExportedTypeDeclarations(schemaFile)
+
+    // Build list of candidates (types that exist in both generated and canonical, not deprecated)
+    const candidates = []
+    const skippedDeprecated = []
+    const generatedByName = new Map() // typeName → generated type info
+
+    for (const gen of generatedTypes) {
+        const canonical = canonicalTypes.get(gen.typeName)
+        if (!canonical) {
+            continue
+        }
+
+        // Skip deprecated types - these should use the generated version
+        if (canonical.isDeprecated) {
+            skippedDeprecated.push(gen.typeName)
+            continue
+        }
+
+        const canonicalFullPath = path.resolve(repoRoot, canonical.sourcePath)
+        candidates.push({
+            typeName: gen.typeName,
+            canonicalFile: canonicalFullPath,
+        })
+        generatedByName.set(gen.typeName, { ...gen, importPath: canonical.importPath })
+    }
+
+    // Batch check all candidates at once (single tsc invocation)
+    const equivalentTypes = batchCheckTypeEquivalence(schemaFile, candidates)
+
+    // Build replacements from equivalent types
+    const replacements = []
+    const reExportsByImportPath = new Map()
+
+    for (const typeName of equivalentTypes) {
+        const gen = generatedByName.get(typeName)
+        replacements.push({
+            typeName,
+            fullStart: gen.fullStart,
+            end: gen.end,
+            importPath: gen.importPath,
+        })
+
+        if (!reExportsByImportPath.has(gen.importPath)) {
+            reExportsByImportPath.set(gen.importPath, new Set())
+        }
+        reExportsByImportPath.get(gen.importPath).add(typeName)
+    }
+
+    if (replacements.length === 0) {
+        return { deduplicated: 0, skippedDeprecated }
+    }
+
+    // Sort replacements by position (descending) so we can splice from end to start
+    replacements.sort((a, b) => b.fullStart - a.fullStart)
+
+    // Remove the type definitions from the content
+    let newContent = content
+    for (const r of replacements) {
+        newContent = newContent.slice(0, r.fullStart) + newContent.slice(r.end)
+    }
+
+    // Build re-export statements
+    const reExportStatements = []
+    for (const [importPath, typeNames] of reExportsByImportPath) {
+        const sortedNames = [...typeNames].sort()
+        reExportStatements.push(`export type { ${sortedNames.join(', ')} } from '${importPath}'`)
+    }
+
+    // Find insertion point using AST - after last import, or after header comments if no imports
+    const sourceFile = ts.createSourceFile(schemaFile, newContent, ts.ScriptTarget.Latest, true)
+    let lastImportEnd = 0
+    let firstNodeStart = newContent.length
+
+    ts.forEachChild(sourceFile, (node) => {
+        // Track first non-import node position (getStart() skips leading trivia like comments)
+        if (!ts.isImportDeclaration(node) && node.getStart() < firstNodeStart) {
+            firstNodeStart = node.getStart()
+        }
+
+        // Track last import position
+        if (ts.isImportDeclaration(node)) {
+            const end = node.getEnd()
+            // Include trailing newline if present
+            const afterNode = newContent.slice(end, end + 1)
+            lastImportEnd = afterNode === '\n' ? end + 1 : end
+        }
+    })
+
+    // Insert after last import, or after header comments if no imports
+    const insertPosition = lastImportEnd > 0 ? lastImportEnd : firstNodeStart
+
+    // Insert re-export block
+    const reExportBlock =
+        '\n// Re-exported from canonical sources (TS-owned types)\n' + reExportStatements.join('\n') + '\n'
+
+    newContent = newContent.slice(0, insertPosition) + reExportBlock + newContent.slice(insertPosition)
+
+    // Clean up multiple consecutive blank lines
+    newContent = newContent.replace(/\n{3,}/g, '\n\n')
+
+    fs.writeFileSync(schemaFile, newContent)
+
+    return { deduplicated: replacements.length, skippedDeprecated }
+}
+
+// Default to temp location (gitignored ephemeral artifact)
+const defaultSchemaPath = path.resolve(frontendRoot, 'tmp', 'openapi.json')
 
 const schemaPath = process.env.OPENAPI_SCHEMA_PATH
     ? path.resolve(frontendRoot, process.env.OPENAPI_SCHEMA_PATH)
@@ -394,7 +709,7 @@ function reorderEnumsInSchemaFile(schemaFile) {
     fs.writeFileSync(schemaFile, cleanedLines.join('\n'))
 }
 
-function generateTypesForSchema(schemaFile, outputDir, tag, tmpDir) {
+function generateTypesForSchema(schemaFile, outputDir, tag, tmpDir, canonicalTypes) {
     fs.mkdirSync(outputDir, { recursive: true })
 
     const outputFile = path.join(outputDir, 'index.ts')
@@ -432,6 +747,10 @@ export default defineConfig({
     // Post-process: reorder enums to fix declaration order issues
     const schemaOutputFile = path.join(outputDir, 'index.schemas.ts')
     reorderEnumsInSchemaFile(schemaOutputFile)
+
+    // Post-process: deduplicate types that exist in canonical sources
+    const dedupeResult = deduplicateTypes(schemaOutputFile, canonicalTypes)
+    return dedupeResult
 }
 
 function mergeSchemas(schemas) {
@@ -454,6 +773,9 @@ function mergeSchemas(schemas) {
 const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
 const mappings = loadProductMappings()
 const tmpDir = createTempDir()
+const canonicalTypes = buildCanonicalTypesMap()
+
+console.log(`Loaded ${canonicalTypes.size} canonical types from ${CANONICAL_TYPE_SOURCES.length} source files`)
 
 console.log('')
 console.log('┌─────────────────────────────────────────────────────────────────────┐')
@@ -529,6 +851,8 @@ if (generateAll) {
 
 let generated = 0
 let failed = 0
+let totalDeduplicated = 0
+const allSkippedDeprecated = []
 const entries = [...schemasByOutput.entries()]
 for (let i = 0; i < entries.length; i++) {
     const [outputDir, { tags, schemas }] = entries[i]
@@ -547,8 +871,15 @@ for (let i = 0; i < entries.length; i++) {
     }
 
     try {
-        generateTypesForSchema(tempFile, outputDir, tags[0], tmpDir)
+        const dedupeResult = generateTypesForSchema(tempFile, outputDir, tags[0], tmpDir, canonicalTypes)
         console.log(`   → ${path.relative(repoRoot, outputDir)}/index.ts ✓`)
+        if (dedupeResult.deduplicated > 0) {
+            console.log(`   🔗 Deduplicated ${dedupeResult.deduplicated} types (re-exported from canonical sources)`)
+            totalDeduplicated += dedupeResult.deduplicated
+        }
+        if (dedupeResult.skippedDeprecated.length > 0) {
+            allSkippedDeprecated.push(...dedupeResult.skippedDeprecated)
+        }
         generated++
     } catch (err) {
         console.error(`   ⚠️  Failed: ${err.message}`)
@@ -633,6 +964,18 @@ console.log('')
 console.log('─'.repeat(72))
 console.log('')
 console.log(`✅ Generated ${generated} API client(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+
+if (totalDeduplicated > 0) {
+    console.log(`🔗 Deduplicated ${totalDeduplicated} types total (replaced with re-exports from canonical sources)`)
+}
+
+if (allSkippedDeprecated.length > 0) {
+    console.log('')
+    console.log(`⏭️  Skipped ${allSkippedDeprecated.length} @deprecated types (kept generated versions):`)
+    console.log(
+        `   ${allSkippedDeprecated.slice(0, 10).join(', ')}${allSkippedDeprecated.length > 10 ? ` and ${allSkippedDeprecated.length - 10} more...` : ''}`
+    )
+}
 
 // Check for duplicates - use unique output dirs
 const generatedFiles = [...schemasByOutput.keys()]

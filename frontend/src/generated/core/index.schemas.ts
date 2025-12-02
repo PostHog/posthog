@@ -4,6 +4,1657 @@
  * PostHog API
  * OpenAPI spec version: 1.0.0
  */
+
+// Re-exported from canonical sources (TS-owned types)
+export type {
+    AIEventType,
+    ActionConversionGoal,
+    ActionsNode,
+    ActorsPropertyTaxonomyQuery,
+    ActorsPropertyTaxonomyQueryResponse,
+    ActorsPropertyTaxonomyResponse,
+    ActorsQuery,
+    ActorsQueryResponse,
+    AlertCalculationInterval,
+    AutocompleteCompletionItem,
+    AutocompleteCompletionItemKind,
+    BreakdownFilter,
+    BreakdownItem,
+    BreakdownValue,
+    CalendarHeatmapFilter,
+    CalendarHeatmapQuery,
+    CalendarHeatmapResponse,
+    ChartAxis,
+    ChartSettings,
+    ChartSettingsDisplay,
+    ChartSettingsFormatting,
+    ClickhouseQueryProgress,
+    CompareFilter,
+    ConditionalFormattingRule,
+    CurrencyCode,
+    CustomChannelCondition,
+    CustomChannelField,
+    CustomChannelOperator,
+    CustomChannelRule,
+    CustomEventConversionGoal,
+    DashboardFilter,
+    DataTableNode,
+    DataTableNodeViewPropsContext,
+    DataTableNodeViewPropsContextType,
+    DataVisualizationNode,
+    DataWarehouseEventsModifier,
+    DataWarehouseNode,
+    DatabaseSchemaBatchExportTable,
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaEndpointTable,
+    DatabaseSchemaField,
+    DatabaseSchemaManagedViewTable,
+    DatabaseSchemaManagedViewTableKind,
+    DatabaseSchemaMaterializedViewTable,
+    DatabaseSchemaPostHogTable,
+    DatabaseSchemaQuery,
+    DatabaseSchemaQueryResponse,
+    DatabaseSchemaSchema,
+    DatabaseSchemaSource,
+    DatabaseSchemaSystemTable,
+    DatabaseSchemaViewTable,
+    DatabaseSerializedFieldType,
+    DateRange,
+    DocumentSimilarityQuery,
+    DocumentSimilarityQueryResponse,
+    EmbeddedDocument,
+    EmbeddingDistance,
+    EmbeddingModelName,
+    EmbeddingRecord,
+    ErrorTrackingBreakdownsQuery,
+    ErrorTrackingBreakdownsQueryResponse,
+    ErrorTrackingCorrelatedIssue,
+    ErrorTrackingExternalReference,
+    ErrorTrackingExternalReferenceIntegration,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAggregations,
+    ErrorTrackingIssueAssignee,
+    ErrorTrackingIssueAssigneeType,
+    ErrorTrackingIssueCohort,
+    ErrorTrackingIssueCorrelationQuery,
+    ErrorTrackingIssueCorrelationQueryResponse,
+    ErrorTrackingQuery,
+    ErrorTrackingQueryResponse,
+    ErrorTrackingSimilarIssuesQuery,
+    ErrorTrackingSimilarIssuesQueryResponse,
+    EventOddsRatioSerialized,
+    EventTaxonomyItem,
+    EventTaxonomyQuery,
+    EventTaxonomyQueryResponse,
+    EventsHeatMapColumnAggregationResult,
+    EventsHeatMapDataResult,
+    EventsHeatMapRowAggregationResult,
+    EventsHeatMapStructuredResult,
+    EventsNode,
+    EventsQuery,
+    EventsQueryResponse,
+    ExperimentBreakdownResult,
+    ExperimentDataWarehouseNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
+    ExperimentExposureQuery,
+    ExperimentExposureQueryResponse,
+    ExperimentExposureTimeSeries,
+    ExperimentFunnelMetric,
+    ExperimentFunnelsQuery,
+    ExperimentFunnelsQueryResponse,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentQueryResponse,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+    ExperimentSignificanceCode,
+    ExperimentStatsBaseValidated,
+    ExperimentStatsValidationFailure,
+    ExperimentTrendsQuery,
+    ExperimentTrendsQueryResponse,
+    ExperimentVariantFunnelsBaseStats,
+    ExperimentVariantResultBayesian,
+    ExperimentVariantResultFrequentist,
+    ExperimentVariantTrendsBaseStats,
+    ExternalQueryError,
+    ExternalQueryErrorCode,
+    ExternalQueryStatus,
+    FunnelCorrelationActorsQuery,
+    FunnelCorrelationQuery,
+    FunnelCorrelationResponse,
+    FunnelCorrelationResult,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
+    FunnelPathsFilter,
+    FunnelsActorsQuery,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelsQueryResponse,
+    GoalLine,
+    GroupsQuery,
+    GroupsQueryResponse,
+    HogLanguage,
+    HogQLASTQuery,
+    HogQLAutocomplete,
+    HogQLAutocompleteResponse,
+    HogQLFilters,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLNotice,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    HogQLQueryResponse,
+    HogQLVariable,
+    HogQuery,
+    HogQueryResponse,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    InsightActorsQueryOptionsResponse,
+    InsightVizNode,
+    IntegrationFilter,
+    LLMTrace,
+    LLMTraceEvent,
+    LLMTracePerson,
+    LifecycleFilter,
+    LifecycleQuery,
+    LifecycleQueryResponse,
+    LogSeverityLevel,
+    LogsQuery,
+    LogsQueryResponse,
+    MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsAggregatedQueryResponse,
+    MarketingAnalyticsItem,
+    MarketingAnalyticsTableQuery,
+    MarketingAnalyticsTableQueryResponse,
+    MultipleBreakdownOptions,
+    MultipleBreakdownType,
+    PageURL,
+    PathsFilter,
+    PathsLink,
+    PathsQuery,
+    PathsQueryResponse,
+    PersistedFolder,
+    QueryIndexUsage,
+    QueryLogTags,
+    QueryRequest,
+    QueryResponseAlternative,
+    QueryStatus,
+    QueryStatusResponse,
+    QueryTiming,
+    QueryUpgradeRequest,
+    QueryUpgradeResponse,
+    RecordingOrder,
+    RecordingOrderDirection,
+    RecordingsQuery,
+    RecordingsQueryResponse,
+    RefreshType,
+    ResolvedDateRangeResponse,
+    ResultCustomizationBy,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
+    RetentionFilter,
+    RetentionQuery,
+    RetentionQueryResponse,
+    RetentionResult,
+    RetentionValue,
+    RevenueAnalyticsBreakdown,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsGrossRevenueQueryResponse,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsMRRQueryResponse,
+    RevenueAnalyticsMRRQueryResultItem,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMetricsQueryResponse,
+    RevenueAnalyticsOverviewItem,
+    RevenueAnalyticsOverviewItemKey,
+    RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsOverviewQueryResponse,
+    RevenueAnalyticsTopCustomersGroupBy,
+    RevenueAnalyticsTopCustomersQuery,
+    RevenueAnalyticsTopCustomersQueryResponse,
+    RevenueCurrencyPropertyConfig,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleDataWarehouseTablesQueryResponse,
+    RevenueExampleEventsQuery,
+    RevenueExampleEventsQueryResponse,
+    SamplingRate,
+    SavedInsightNode,
+    SessionAttributionExplorerQuery,
+    SessionAttributionExplorerQueryResponse,
+    SessionAttributionGroupBy,
+    SessionData,
+    SessionsQuery,
+    SessionsQueryResponse,
+    SessionsTimelineQuery,
+    SessionsTimelineQueryResponse,
+    SharingConfigurationSettings,
+    SimilarIssue,
+    StickinessActorsQuery,
+    StickinessComputationMode,
+    StickinessFilter,
+    StickinessOperator,
+    StickinessQuery,
+    StickinessQueryResponse,
+    SuggestedQuestionsQuery,
+    SuggestedQuestionsQueryResponse,
+    TableSettings,
+    TeamTaxonomyItem,
+    TeamTaxonomyQuery,
+    TeamTaxonomyQueryResponse,
+    TimelineEntry,
+    TraceQuery,
+    TraceQueryResponse,
+    TracesQuery,
+    TracesQueryResponse,
+    TrendsFilter,
+    TrendsFormulaNode,
+    TrendsQuery,
+    TrendsQueryResponse,
+    UsageMetric,
+    UsageMetricDisplay,
+    UsageMetricFormat,
+    UsageMetricsQuery,
+    UsageMetricsQueryResponse,
+    UserProductListReason,
+    VectorSearchQuery,
+    VectorSearchQueryResponse,
+    VectorSearchResponseItem,
+    VizSpecificOptions,
+    WebAnalyticsExternalSummaryQuery,
+    WebAnalyticsExternalSummaryQueryResponse,
+    WebAnalyticsItemKind,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
+    WebAnalyticsSampling,
+    WebExternalClicksTableQuery,
+    WebExternalClicksTableQueryResponse,
+    WebGoalsQuery,
+    WebGoalsQueryResponse,
+    WebOverviewItem,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+    WebPageURLSearchQuery,
+    WebPageURLSearchQueryResponse,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+    WebStatsTableQueryResponse,
+    WebTrendsItem,
+    WebTrendsMetric,
+    WebTrendsQuery,
+    WebTrendsQueryResponse,
+    WebVitalsMetric,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsPathBreakdownQueryResponse,
+    WebVitalsPathBreakdownResult,
+    WebVitalsPathBreakdownResultItem,
+    WebVitalsPercentile,
+    WebVitalsQuery,
+    YAxisSettings,
+} from '~/queries/schema'
+export type {
+    BaseMathType,
+    BatchExportBackfill,
+    Breakdown,
+    BreakdownAttributionType,
+    BreakdownType,
+    CalendarHeatmapMathType,
+    ChartDisplayType,
+    CohortPropertyFilter,
+    Conversation,
+    CountPerActorMathType,
+    DashboardTemplateScope,
+    DataWarehousePersonPropertyFilter,
+    DataWarehousePropertyFilter,
+    DataWarehouseViewLink,
+    DataWarehouseViewLinkConfiguration,
+    DurationType,
+    ElementPropertyFilter,
+    ElementType,
+    EmptyPropertyFilter,
+    EntityType,
+    ErrorTrackingIssueFilter,
+    EventDefinition,
+    EventMetadataPropertyFilter,
+    EventPropertyFilter,
+    EventType,
+    ExperimentHoldoutType,
+    ExperimentMetricGoal,
+    ExperimentMetricMathType,
+    FeatureFlagGroupType,
+    FeaturePropertyFilter,
+    FilterLogicalOperator,
+    FlagPropertyFilter,
+    FunnelConversionWindowTimeUnit,
+    FunnelCorrelationResultsType,
+    FunnelMathType,
+    FunnelPathType,
+    FunnelStepReference,
+    FunnelVizType,
+    Group,
+    GroupPropertyFilter,
+    HedgehogColorOptions,
+    HogFunctionStatus,
+    HogFunctionType,
+    HogQLPropertyFilter,
+    IntervalType,
+    LifecycleToggle,
+    LogEntryPropertyFilter,
+    LogPropertyFilter,
+    MatchedRecording,
+    MatchedRecordingEvent,
+    MinimalHedgehogConfig,
+    PathCleaningFilter,
+    PathType,
+    PersonPropertyFilter,
+    PersonType,
+    PluginLogEntry,
+    PropertyDefinition,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyMathType,
+    PropertyOperator,
+    QuickFilter,
+    RecordingPropertyFilter,
+    RetentionDashboardDisplayType,
+    RetentionEntity,
+    RetentionEntityKind,
+    RetentionPeriod,
+    RetentionType,
+    RevenueAnalyticsPropertyFilter,
+    SessionPropertyFilter,
+    SessionRecordingPlaylistType,
+    SessionRecordingType,
+    SimpleIntervalType,
+    StepOrderValue,
+    UserBasicType,
+} from '~/types'
+export type State66aEnum = (typeof State66aEnum)[keyof typeof State66aEnum]
+export const State66aEnum = {
+    Firing: 'Firing',
+    Not_firing: 'Not firing',
+    Errored: 'Errored',
+    Snoozed: 'Snoozed',
+} as const
+
+export type CalculationIntervalEnum = (typeof CalculationIntervalEnum)[keyof typeof CalculationIntervalEnum]
+export const CalculationIntervalEnum = {
+    hourly: 'hourly',
+    daily: 'daily',
+    weekly: 'weekly',
+    monthly: 'monthly',
+} as const
+
+export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
+export const BlankEnum = {
+    '': '',
+} as const
+
+export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
+export const NullEnum = {} as const
+
+export const BatchExportBackfillStatusEnum = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
+
+export type ScrapingStatusEnum = (typeof ScrapingStatusEnum)[keyof typeof ScrapingStatusEnum]
+export const ScrapingStatusEnum = {
+    pending: 'pending',
+    completed: 'completed',
+    skipped: 'skipped',
+} as const
+
+export type EvaluationTypeEnum = (typeof EvaluationTypeEnum)[keyof typeof EvaluationTypeEnum]
+export const EvaluationTypeEnum = {
+    llm_judge: 'llm_judge',
+} as const
+
+export type OutputTypeEnum = (typeof OutputTypeEnum)[keyof typeof OutputTypeEnum]
+export const OutputTypeEnum = {
+    boolean: 'boolean',
+} as const
+
+export type PropertyTypeEnum = (typeof PropertyTypeEnum)[keyof typeof PropertyTypeEnum]
+export const PropertyTypeEnum = {
+    AND: 'AND',
+    OR: 'OR',
+} as const
+
+export type SyncTypeEnum = (typeof SyncTypeEnum)[keyof typeof SyncTypeEnum]
+export const SyncTypeEnum = {
+    full_refresh: 'full_refresh',
+    incremental: 'incremental',
+    append: 'append',
+} as const
+
+export type StatusA5eEnum = (typeof StatusA5eEnum)[keyof typeof StatusA5eEnum]
+export const StatusA5eEnum = {
+    draft: 'draft',
+    active: 'active',
+    archived: 'archived',
+} as const
+
+export type ExitConditionEnum = (typeof ExitConditionEnum)[keyof typeof ExitConditionEnum]
+export const ExitConditionEnum = {
+    exit_on_conversion: 'exit_on_conversion',
+    exit_on_trigger_not_matched: 'exit_on_trigger_not_matched',
+    exit_on_trigger_not_matched_or_conversion: 'exit_on_trigger_not_matched_or_conversion',
+    exit_only_at_end: 'exit_only_at_end',
+} as const
+
+export type InsightVariableTypeEnum = (typeof InsightVariableTypeEnum)[keyof typeof InsightVariableTypeEnum]
+export const InsightVariableTypeEnum = {
+    String: 'String',
+    Number: 'Number',
+    Boolean: 'Boolean',
+    List: 'List',
+    Date: 'Date',
+} as const
+
+export const EffectiveRestrictionLevelEnum = {
+    NUMBER_21: 21,
+    NUMBER_37: 37,
+} as const
+
+export type EffectivePrivilegeLevelEnum = (typeof EffectivePrivilegeLevelEnum)[keyof typeof EffectivePrivilegeLevelEnum]
+export const EffectivePrivilegeLevelEnum = {
+    NUMBER_21: 21,
+    NUMBER_37: 37,
+} as const
+
+export type CategoryTypeEnum = (typeof CategoryTypeEnum)[keyof typeof CategoryTypeEnum]
+export const CategoryTypeEnum = {
+    marketing: 'marketing',
+    transactional: 'transactional',
+} as const
+
+export type MetricNameEnum = (typeof MetricNameEnum)[keyof typeof MetricNameEnum]
+export const MetricNameEnum = {
+    viewed: 'viewed',
+} as const
+
+export type PersistedFolderTypeEnum = (typeof PersistedFolderTypeEnum)[keyof typeof PersistedFolderTypeEnum]
+export const PersistedFolderTypeEnum = {
+    home: 'home',
+    pinned: 'pinned',
+    custom_products: 'custom_products',
+} as const
+
+export type QuickFilterTypeEnum = (typeof QuickFilterTypeEnum)[keyof typeof QuickFilterTypeEnum]
+export const QuickFilterTypeEnum = {
+    'manual-options': 'manual-options',
+    'auto-discovery': 'auto-discovery',
+} as const
+
+export const HeatmapScreenshotResponseTypeEnum = {
+    screenshot: 'screenshot',
+    iframe: 'iframe',
+    recording: 'recording',
+} as const
+
+export const HeatmapScreenshotResponseStatusEnum = {
+    processing: 'processing',
+    completed: 'completed',
+    failed: 'failed',
+} as const
+
+export type ReasonEnum = (typeof ReasonEnum)[keyof typeof ReasonEnum]
+export const ReasonEnum = {
+    onboarding: 'onboarding',
+    product_intent: 'product_intent',
+    used_by_colleagues: 'used_by_colleagues',
+    used_similar_products: 'used_similar_products',
+    used_on_separate_team: 'used_on_separate_team',
+    new_product: 'new_product',
+    sales_led: 'sales_led',
+} as const
+
+export type TableFormatEnum = (typeof TableFormatEnum)[keyof typeof TableFormatEnum]
+export const TableFormatEnum = {
+    CSV: 'CSV',
+    CSVWithNames: 'CSVWithNames',
+    Parquet: 'Parquet',
+    JSONEachRow: 'JSONEachRow',
+    Delta: 'Delta',
+    DeltaS3Wrapper: 'DeltaS3Wrapper',
+} as const
+
+export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
+export const RoleAtOrganizationEnum = {
+    engineering: 'engineering',
+    data: 'data',
+    product: 'product',
+    founder: 'founder',
+    leadership: 'leadership',
+    marketing: 'marketing',
+    sales: 'sales',
+    other: 'other',
+} as const
+
+export type KindEnum = (typeof KindEnum)[keyof typeof KindEnum]
+export const KindEnum = {
+    slack: 'slack',
+    salesforce: 'salesforce',
+    hubspot: 'hubspot',
+    'google-pubsub': 'google-pubsub',
+    'google-cloud-storage': 'google-cloud-storage',
+    'google-ads': 'google-ads',
+    'google-sheets': 'google-sheets',
+    snapchat: 'snapchat',
+    'linkedin-ads': 'linkedin-ads',
+    'reddit-ads': 'reddit-ads',
+    'tiktok-ads': 'tiktok-ads',
+    'bing-ads': 'bing-ads',
+    intercom: 'intercom',
+    email: 'email',
+    linear: 'linear',
+    github: 'github',
+    gitlab: 'gitlab',
+    'meta-ads': 'meta-ads',
+    twilio: 'twilio',
+    clickup: 'clickup',
+    vercel: 'vercel',
+    databricks: 'databricks',
+} as const
+
+export type OperatorEnum = (typeof OperatorEnum)[keyof typeof OperatorEnum]
+export const OperatorEnum = {
+    exact: 'exact',
+    is_not: 'is_not',
+    icontains: 'icontains',
+    not_icontains: 'not_icontains',
+    regex: 'regex',
+    not_regex: 'not_regex',
+    gt: 'gt',
+    lt: 'lt',
+    gte: 'gte',
+    lte: 'lte',
+    is_set: 'is_set',
+    is_not_set: 'is_not_set',
+    is_date_exact: 'is_date_exact',
+    is_date_after: 'is_date_after',
+    is_date_before: 'is_date_before',
+    in: 'in',
+    not_in: 'not_in',
+} as const
+
+export type PropertyItemTypeEnum = (typeof PropertyItemTypeEnum)[keyof typeof PropertyItemTypeEnum]
+export const PropertyItemTypeEnum = {
+    event: 'event',
+    event_metadata: 'event_metadata',
+    feature: 'feature',
+    person: 'person',
+    cohort: 'cohort',
+    element: 'element',
+    'static-cohort': 'static-cohort',
+    'dynamic-cohort': 'dynamic-cohort',
+    'precalculated-cohort': 'precalculated-cohort',
+    group: 'group',
+    recording: 'recording',
+    log_entry: 'log_entry',
+    behavioral: 'behavioral',
+    session: 'session',
+    hogql: 'hogql',
+    data_warehouse: 'data_warehouse',
+    data_warehouse_person_property: 'data_warehouse_person_property',
+    error_tracking_issue: 'error_tracking_issue',
+    log: 'log',
+    revenue_analytics: 'revenue_analytics',
+    flag: 'flag',
+} as const
+
+export type OnErrorEnum = (typeof OnErrorEnum)[keyof typeof OnErrorEnum]
+export const OnErrorEnum = {
+    continue: 'continue',
+    abort: 'abort',
+    complete: 'complete',
+    branch: 'branch',
+} as const
+
+export type Templating186Enum = (typeof Templating186Enum)[keyof typeof Templating186Enum]
+export const Templating186Enum = {
+    hog: 'hog',
+    liquid: 'liquid',
+} as const
+
+export type PluginLogEntrySourceEnum = (typeof PluginLogEntrySourceEnum)[keyof typeof PluginLogEntrySourceEnum]
+export const PluginLogEntrySourceEnum = {
+    SYSTEM: 'SYSTEM',
+    PLUGIN: 'PLUGIN',
+    CONSOLE: 'CONSOLE',
+} as const
+
+export type PluginLogEntryTypeEnum = (typeof PluginLogEntryTypeEnum)[keyof typeof PluginLogEntryTypeEnum]
+export const PluginLogEntryTypeEnum = {
+    DEBUG: 'DEBUG',
+    LOG: 'LOG',
+    INFO: 'INFO',
+    WARN: 'WARN',
+    ERROR: 'ERROR',
+} as const
+
+export const MarketingAnalyticsOrderByEnum = {
+    ASC: 'ASC',
+    DESC: 'DESC',
+} as const
+
+export type SourceTypeEnum = (typeof SourceTypeEnum)[keyof typeof SourceTypeEnum]
+export const SourceTypeEnum = {
+    Supabase: 'Supabase',
+    CustomerIO: 'CustomerIO',
+    Github: 'Github',
+    Stripe: 'Stripe',
+    Hubspot: 'Hubspot',
+    Postgres: 'Postgres',
+    Zendesk: 'Zendesk',
+    Snowflake: 'Snowflake',
+    Salesforce: 'Salesforce',
+    MySQL: 'MySQL',
+    MongoDB: 'MongoDB',
+    MSSQL: 'MSSQL',
+    Vitally: 'Vitally',
+    BigQuery: 'BigQuery',
+    Chargebee: 'Chargebee',
+    GoogleAds: 'GoogleAds',
+    TemporalIO: 'TemporalIO',
+    DoIt: 'DoIt',
+    GoogleSheets: 'GoogleSheets',
+    MetaAds: 'MetaAds',
+    Klaviyo: 'Klaviyo',
+    Mailchimp: 'Mailchimp',
+    Braze: 'Braze',
+    Mailjet: 'Mailjet',
+    Redshift: 'Redshift',
+    Polar: 'Polar',
+    RevenueCat: 'RevenueCat',
+    LinkedinAds: 'LinkedinAds',
+    RedditAds: 'RedditAds',
+    TikTokAds: 'TikTokAds',
+    BingAds: 'BingAds',
+    Shopify: 'Shopify',
+} as const
+
+export const HogFunctionFiltersSourceEnum = {
+    events: 'events',
+    'person-updates': 'person-updates',
+} as const
+
+export type ConversationStatusEnum = (typeof ConversationStatusEnum)[keyof typeof ConversationStatusEnum]
+export const ConversationStatusEnum = {
+    idle: 'idle',
+    in_progress: 'in_progress',
+    canceling: 'canceling',
+} as const
+
+export type ConversationTypeEnum = (typeof ConversationTypeEnum)[keyof typeof ConversationTypeEnum]
+export const ConversationTypeEnum = {
+    assistant: 'assistant',
+    tool_call: 'tool_call',
+    deep_research: 'deep_research',
+} as const
+
+export type CreationModeEnum = (typeof CreationModeEnum)[keyof typeof CreationModeEnum]
+export const CreationModeEnum = {
+    default: 'default',
+    template: 'template',
+    duplicate: 'duplicate',
+    unlisted: 'unlisted',
+} as const
+
+export type ExportFormatEnum = (typeof ExportFormatEnum)[keyof typeof ExportFormatEnum]
+export const ExportFormatEnum = {
+    'image/png': 'image/png',
+    'application/pdf': 'application/pdf',
+    'text/csv': 'text/csv',
+    'application/vndopenxmlformats-officedocumentspreadsheetmlsheet':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'video/webm': 'video/webm',
+    'video/mp4': 'video/mp4',
+    'image/gif': 'image/gif',
+    'application/json': 'application/json',
+} as const
+
+export type TargetTypeEnum = (typeof TargetTypeEnum)[keyof typeof TargetTypeEnum]
+export const TargetTypeEnum = {
+    email: 'email',
+    slack: 'slack',
+    webhook: 'webhook',
+} as const
+
+export type FrequencyEnum = (typeof FrequencyEnum)[keyof typeof FrequencyEnum]
+export const FrequencyEnum = {
+    daily: 'daily',
+    weekly: 'weekly',
+    monthly: 'monthly',
+    yearly: 'yearly',
+} as const
+
+export type ByweekdayEnum = (typeof ByweekdayEnum)[keyof typeof ByweekdayEnum]
+export const ByweekdayEnum = {
+    monday: 'monday',
+    tuesday: 'tuesday',
+    wednesday: 'wednesday',
+    thursday: 'thursday',
+    friday: 'friday',
+    saturday: 'saturday',
+    sunday: 'sunday',
+} as const
+
+export const EffectiveMembershipLevelEnum = {
+    NUMBER_1: 1,
+    NUMBER_8: 8,
+    NUMBER_15: 15,
+} as const
+
+export type TimezoneEnum = (typeof TimezoneEnum)[keyof typeof TimezoneEnum]
+export const TimezoneEnum = {
+    'Africa/Abidjan': 'Africa/Abidjan',
+    'Africa/Accra': 'Africa/Accra',
+    'Africa/Addis_Ababa': 'Africa/Addis_Ababa',
+    'Africa/Algiers': 'Africa/Algiers',
+    'Africa/Asmara': 'Africa/Asmara',
+    'Africa/Asmera': 'Africa/Asmera',
+    'Africa/Bamako': 'Africa/Bamako',
+    'Africa/Bangui': 'Africa/Bangui',
+    'Africa/Banjul': 'Africa/Banjul',
+    'Africa/Bissau': 'Africa/Bissau',
+    'Africa/Blantyre': 'Africa/Blantyre',
+    'Africa/Brazzaville': 'Africa/Brazzaville',
+    'Africa/Bujumbura': 'Africa/Bujumbura',
+    'Africa/Cairo': 'Africa/Cairo',
+    'Africa/Casablanca': 'Africa/Casablanca',
+    'Africa/Ceuta': 'Africa/Ceuta',
+    'Africa/Conakry': 'Africa/Conakry',
+    'Africa/Dakar': 'Africa/Dakar',
+    'Africa/Dar_es_Salaam': 'Africa/Dar_es_Salaam',
+    'Africa/Djibouti': 'Africa/Djibouti',
+    'Africa/Douala': 'Africa/Douala',
+    'Africa/El_Aaiun': 'Africa/El_Aaiun',
+    'Africa/Freetown': 'Africa/Freetown',
+    'Africa/Gaborone': 'Africa/Gaborone',
+    'Africa/Harare': 'Africa/Harare',
+    'Africa/Johannesburg': 'Africa/Johannesburg',
+    'Africa/Juba': 'Africa/Juba',
+    'Africa/Kampala': 'Africa/Kampala',
+    'Africa/Khartoum': 'Africa/Khartoum',
+    'Africa/Kigali': 'Africa/Kigali',
+    'Africa/Kinshasa': 'Africa/Kinshasa',
+    'Africa/Lagos': 'Africa/Lagos',
+    'Africa/Libreville': 'Africa/Libreville',
+    'Africa/Lome': 'Africa/Lome',
+    'Africa/Luanda': 'Africa/Luanda',
+    'Africa/Lubumbashi': 'Africa/Lubumbashi',
+    'Africa/Lusaka': 'Africa/Lusaka',
+    'Africa/Malabo': 'Africa/Malabo',
+    'Africa/Maputo': 'Africa/Maputo',
+    'Africa/Maseru': 'Africa/Maseru',
+    'Africa/Mbabane': 'Africa/Mbabane',
+    'Africa/Mogadishu': 'Africa/Mogadishu',
+    'Africa/Monrovia': 'Africa/Monrovia',
+    'Africa/Nairobi': 'Africa/Nairobi',
+    'Africa/Ndjamena': 'Africa/Ndjamena',
+    'Africa/Niamey': 'Africa/Niamey',
+    'Africa/Nouakchott': 'Africa/Nouakchott',
+    'Africa/Ouagadougou': 'Africa/Ouagadougou',
+    'Africa/Porto-Novo': 'Africa/Porto-Novo',
+    'Africa/Sao_Tome': 'Africa/Sao_Tome',
+    'Africa/Timbuktu': 'Africa/Timbuktu',
+    'Africa/Tripoli': 'Africa/Tripoli',
+    'Africa/Tunis': 'Africa/Tunis',
+    'Africa/Windhoek': 'Africa/Windhoek',
+    'America/Adak': 'America/Adak',
+    'America/Anchorage': 'America/Anchorage',
+    'America/Anguilla': 'America/Anguilla',
+    'America/Antigua': 'America/Antigua',
+    'America/Araguaina': 'America/Araguaina',
+    'America/Argentina/Buenos_Aires': 'America/Argentina/Buenos_Aires',
+    'America/Argentina/Catamarca': 'America/Argentina/Catamarca',
+    'America/Argentina/ComodRivadavia': 'America/Argentina/ComodRivadavia',
+    'America/Argentina/Cordoba': 'America/Argentina/Cordoba',
+    'America/Argentina/Jujuy': 'America/Argentina/Jujuy',
+    'America/Argentina/La_Rioja': 'America/Argentina/La_Rioja',
+    'America/Argentina/Mendoza': 'America/Argentina/Mendoza',
+    'America/Argentina/Rio_Gallegos': 'America/Argentina/Rio_Gallegos',
+    'America/Argentina/Salta': 'America/Argentina/Salta',
+    'America/Argentina/San_Juan': 'America/Argentina/San_Juan',
+    'America/Argentina/San_Luis': 'America/Argentina/San_Luis',
+    'America/Argentina/Tucuman': 'America/Argentina/Tucuman',
+    'America/Argentina/Ushuaia': 'America/Argentina/Ushuaia',
+    'America/Aruba': 'America/Aruba',
+    'America/Asuncion': 'America/Asuncion',
+    'America/Atikokan': 'America/Atikokan',
+    'America/Atka': 'America/Atka',
+    'America/Bahia': 'America/Bahia',
+    'America/Bahia_Banderas': 'America/Bahia_Banderas',
+    'America/Barbados': 'America/Barbados',
+    'America/Belem': 'America/Belem',
+    'America/Belize': 'America/Belize',
+    'America/Blanc-Sablon': 'America/Blanc-Sablon',
+    'America/Boa_Vista': 'America/Boa_Vista',
+    'America/Bogota': 'America/Bogota',
+    'America/Boise': 'America/Boise',
+    'America/Buenos_Aires': 'America/Buenos_Aires',
+    'America/Cambridge_Bay': 'America/Cambridge_Bay',
+    'America/Campo_Grande': 'America/Campo_Grande',
+    'America/Cancun': 'America/Cancun',
+    'America/Caracas': 'America/Caracas',
+    'America/Catamarca': 'America/Catamarca',
+    'America/Cayenne': 'America/Cayenne',
+    'America/Cayman': 'America/Cayman',
+    'America/Chicago': 'America/Chicago',
+    'America/Chihuahua': 'America/Chihuahua',
+    'America/Ciudad_Juarez': 'America/Ciudad_Juarez',
+    'America/Coral_Harbour': 'America/Coral_Harbour',
+    'America/Cordoba': 'America/Cordoba',
+    'America/Costa_Rica': 'America/Costa_Rica',
+    'America/Creston': 'America/Creston',
+    'America/Cuiaba': 'America/Cuiaba',
+    'America/Curacao': 'America/Curacao',
+    'America/Danmarkshavn': 'America/Danmarkshavn',
+    'America/Dawson': 'America/Dawson',
+    'America/Dawson_Creek': 'America/Dawson_Creek',
+    'America/Denver': 'America/Denver',
+    'America/Detroit': 'America/Detroit',
+    'America/Dominica': 'America/Dominica',
+    'America/Edmonton': 'America/Edmonton',
+    'America/Eirunepe': 'America/Eirunepe',
+    'America/El_Salvador': 'America/El_Salvador',
+    'America/Ensenada': 'America/Ensenada',
+    'America/Fort_Nelson': 'America/Fort_Nelson',
+    'America/Fort_Wayne': 'America/Fort_Wayne',
+    'America/Fortaleza': 'America/Fortaleza',
+    'America/Glace_Bay': 'America/Glace_Bay',
+    'America/Godthab': 'America/Godthab',
+    'America/Goose_Bay': 'America/Goose_Bay',
+    'America/Grand_Turk': 'America/Grand_Turk',
+    'America/Grenada': 'America/Grenada',
+    'America/Guadeloupe': 'America/Guadeloupe',
+    'America/Guatemala': 'America/Guatemala',
+    'America/Guayaquil': 'America/Guayaquil',
+    'America/Guyana': 'America/Guyana',
+    'America/Halifax': 'America/Halifax',
+    'America/Havana': 'America/Havana',
+    'America/Hermosillo': 'America/Hermosillo',
+    'America/Indiana/Indianapolis': 'America/Indiana/Indianapolis',
+    'America/Indiana/Knox': 'America/Indiana/Knox',
+    'America/Indiana/Marengo': 'America/Indiana/Marengo',
+    'America/Indiana/Petersburg': 'America/Indiana/Petersburg',
+    'America/Indiana/Tell_City': 'America/Indiana/Tell_City',
+    'America/Indiana/Vevay': 'America/Indiana/Vevay',
+    'America/Indiana/Vincennes': 'America/Indiana/Vincennes',
+    'America/Indiana/Winamac': 'America/Indiana/Winamac',
+    'America/Indianapolis': 'America/Indianapolis',
+    'America/Inuvik': 'America/Inuvik',
+    'America/Iqaluit': 'America/Iqaluit',
+    'America/Jamaica': 'America/Jamaica',
+    'America/Jujuy': 'America/Jujuy',
+    'America/Juneau': 'America/Juneau',
+    'America/Kentucky/Louisville': 'America/Kentucky/Louisville',
+    'America/Kentucky/Monticello': 'America/Kentucky/Monticello',
+    'America/Knox_IN': 'America/Knox_IN',
+    'America/Kralendijk': 'America/Kralendijk',
+    'America/La_Paz': 'America/La_Paz',
+    'America/Lima': 'America/Lima',
+    'America/Los_Angeles': 'America/Los_Angeles',
+    'America/Louisville': 'America/Louisville',
+    'America/Lower_Princes': 'America/Lower_Princes',
+    'America/Maceio': 'America/Maceio',
+    'America/Managua': 'America/Managua',
+    'America/Manaus': 'America/Manaus',
+    'America/Marigot': 'America/Marigot',
+    'America/Martinique': 'America/Martinique',
+    'America/Matamoros': 'America/Matamoros',
+    'America/Mazatlan': 'America/Mazatlan',
+    'America/Mendoza': 'America/Mendoza',
+    'America/Menominee': 'America/Menominee',
+    'America/Merida': 'America/Merida',
+    'America/Metlakatla': 'America/Metlakatla',
+    'America/Mexico_City': 'America/Mexico_City',
+    'America/Miquelon': 'America/Miquelon',
+    'America/Moncton': 'America/Moncton',
+    'America/Monterrey': 'America/Monterrey',
+    'America/Montevideo': 'America/Montevideo',
+    'America/Montreal': 'America/Montreal',
+    'America/Montserrat': 'America/Montserrat',
+    'America/Nassau': 'America/Nassau',
+    'America/New_York': 'America/New_York',
+    'America/Nipigon': 'America/Nipigon',
+    'America/Nome': 'America/Nome',
+    'America/Noronha': 'America/Noronha',
+    'America/North_Dakota/Beulah': 'America/North_Dakota/Beulah',
+    'America/North_Dakota/Center': 'America/North_Dakota/Center',
+    'America/North_Dakota/New_Salem': 'America/North_Dakota/New_Salem',
+    'America/Nuuk': 'America/Nuuk',
+    'America/Ojinaga': 'America/Ojinaga',
+    'America/Panama': 'America/Panama',
+    'America/Pangnirtung': 'America/Pangnirtung',
+    'America/Paramaribo': 'America/Paramaribo',
+    'America/Phoenix': 'America/Phoenix',
+    'America/Port-au-Prince': 'America/Port-au-Prince',
+    'America/Port_of_Spain': 'America/Port_of_Spain',
+    'America/Porto_Acre': 'America/Porto_Acre',
+    'America/Porto_Velho': 'America/Porto_Velho',
+    'America/Puerto_Rico': 'America/Puerto_Rico',
+    'America/Punta_Arenas': 'America/Punta_Arenas',
+    'America/Rainy_River': 'America/Rainy_River',
+    'America/Rankin_Inlet': 'America/Rankin_Inlet',
+    'America/Recife': 'America/Recife',
+    'America/Regina': 'America/Regina',
+    'America/Resolute': 'America/Resolute',
+    'America/Rio_Branco': 'America/Rio_Branco',
+    'America/Rosario': 'America/Rosario',
+    'America/Santa_Isabel': 'America/Santa_Isabel',
+    'America/Santarem': 'America/Santarem',
+    'America/Santiago': 'America/Santiago',
+    'America/Santo_Domingo': 'America/Santo_Domingo',
+    'America/Sao_Paulo': 'America/Sao_Paulo',
+    'America/Scoresbysund': 'America/Scoresbysund',
+    'America/Shiprock': 'America/Shiprock',
+    'America/Sitka': 'America/Sitka',
+    'America/St_Barthelemy': 'America/St_Barthelemy',
+    'America/St_Johns': 'America/St_Johns',
+    'America/St_Kitts': 'America/St_Kitts',
+    'America/St_Lucia': 'America/St_Lucia',
+    'America/St_Thomas': 'America/St_Thomas',
+    'America/St_Vincent': 'America/St_Vincent',
+    'America/Swift_Current': 'America/Swift_Current',
+    'America/Tegucigalpa': 'America/Tegucigalpa',
+    'America/Thule': 'America/Thule',
+    'America/Thunder_Bay': 'America/Thunder_Bay',
+    'America/Tijuana': 'America/Tijuana',
+    'America/Toronto': 'America/Toronto',
+    'America/Tortola': 'America/Tortola',
+    'America/Vancouver': 'America/Vancouver',
+    'America/Virgin': 'America/Virgin',
+    'America/Whitehorse': 'America/Whitehorse',
+    'America/Winnipeg': 'America/Winnipeg',
+    'America/Yakutat': 'America/Yakutat',
+    'America/Yellowknife': 'America/Yellowknife',
+    'Antarctica/Casey': 'Antarctica/Casey',
+    'Antarctica/Davis': 'Antarctica/Davis',
+    'Antarctica/DumontDUrville': 'Antarctica/DumontDUrville',
+    'Antarctica/Macquarie': 'Antarctica/Macquarie',
+    'Antarctica/Mawson': 'Antarctica/Mawson',
+    'Antarctica/McMurdo': 'Antarctica/McMurdo',
+    'Antarctica/Palmer': 'Antarctica/Palmer',
+    'Antarctica/Rothera': 'Antarctica/Rothera',
+    'Antarctica/South_Pole': 'Antarctica/South_Pole',
+    'Antarctica/Syowa': 'Antarctica/Syowa',
+    'Antarctica/Troll': 'Antarctica/Troll',
+    'Antarctica/Vostok': 'Antarctica/Vostok',
+    'Arctic/Longyearbyen': 'Arctic/Longyearbyen',
+    'Asia/Aden': 'Asia/Aden',
+    'Asia/Almaty': 'Asia/Almaty',
+    'Asia/Amman': 'Asia/Amman',
+    'Asia/Anadyr': 'Asia/Anadyr',
+    'Asia/Aqtau': 'Asia/Aqtau',
+    'Asia/Aqtobe': 'Asia/Aqtobe',
+    'Asia/Ashgabat': 'Asia/Ashgabat',
+    'Asia/Ashkhabad': 'Asia/Ashkhabad',
+    'Asia/Atyrau': 'Asia/Atyrau',
+    'Asia/Baghdad': 'Asia/Baghdad',
+    'Asia/Bahrain': 'Asia/Bahrain',
+    'Asia/Baku': 'Asia/Baku',
+    'Asia/Bangkok': 'Asia/Bangkok',
+    'Asia/Barnaul': 'Asia/Barnaul',
+    'Asia/Beirut': 'Asia/Beirut',
+    'Asia/Bishkek': 'Asia/Bishkek',
+    'Asia/Brunei': 'Asia/Brunei',
+    'Asia/Calcutta': 'Asia/Calcutta',
+    'Asia/Chita': 'Asia/Chita',
+    'Asia/Choibalsan': 'Asia/Choibalsan',
+    'Asia/Chongqing': 'Asia/Chongqing',
+    'Asia/Chungking': 'Asia/Chungking',
+    'Asia/Colombo': 'Asia/Colombo',
+    'Asia/Dacca': 'Asia/Dacca',
+    'Asia/Damascus': 'Asia/Damascus',
+    'Asia/Dhaka': 'Asia/Dhaka',
+    'Asia/Dili': 'Asia/Dili',
+    'Asia/Dubai': 'Asia/Dubai',
+    'Asia/Dushanbe': 'Asia/Dushanbe',
+    'Asia/Famagusta': 'Asia/Famagusta',
+    'Asia/Gaza': 'Asia/Gaza',
+    'Asia/Harbin': 'Asia/Harbin',
+    'Asia/Hebron': 'Asia/Hebron',
+    'Asia/Ho_Chi_Minh': 'Asia/Ho_Chi_Minh',
+    'Asia/Hong_Kong': 'Asia/Hong_Kong',
+    'Asia/Hovd': 'Asia/Hovd',
+    'Asia/Irkutsk': 'Asia/Irkutsk',
+    'Asia/Istanbul': 'Asia/Istanbul',
+    'Asia/Jakarta': 'Asia/Jakarta',
+    'Asia/Jayapura': 'Asia/Jayapura',
+    'Asia/Jerusalem': 'Asia/Jerusalem',
+    'Asia/Kabul': 'Asia/Kabul',
+    'Asia/Kamchatka': 'Asia/Kamchatka',
+    'Asia/Karachi': 'Asia/Karachi',
+    'Asia/Kashgar': 'Asia/Kashgar',
+    'Asia/Kathmandu': 'Asia/Kathmandu',
+    'Asia/Katmandu': 'Asia/Katmandu',
+    'Asia/Khandyga': 'Asia/Khandyga',
+    'Asia/Kolkata': 'Asia/Kolkata',
+    'Asia/Krasnoyarsk': 'Asia/Krasnoyarsk',
+    'Asia/Kuala_Lumpur': 'Asia/Kuala_Lumpur',
+    'Asia/Kuching': 'Asia/Kuching',
+    'Asia/Kuwait': 'Asia/Kuwait',
+    'Asia/Macao': 'Asia/Macao',
+    'Asia/Macau': 'Asia/Macau',
+    'Asia/Magadan': 'Asia/Magadan',
+    'Asia/Makassar': 'Asia/Makassar',
+    'Asia/Manila': 'Asia/Manila',
+    'Asia/Muscat': 'Asia/Muscat',
+    'Asia/Nicosia': 'Asia/Nicosia',
+    'Asia/Novokuznetsk': 'Asia/Novokuznetsk',
+    'Asia/Novosibirsk': 'Asia/Novosibirsk',
+    'Asia/Omsk': 'Asia/Omsk',
+    'Asia/Oral': 'Asia/Oral',
+    'Asia/Phnom_Penh': 'Asia/Phnom_Penh',
+    'Asia/Pontianak': 'Asia/Pontianak',
+    'Asia/Pyongyang': 'Asia/Pyongyang',
+    'Asia/Qatar': 'Asia/Qatar',
+    'Asia/Qostanay': 'Asia/Qostanay',
+    'Asia/Qyzylorda': 'Asia/Qyzylorda',
+    'Asia/Rangoon': 'Asia/Rangoon',
+    'Asia/Riyadh': 'Asia/Riyadh',
+    'Asia/Saigon': 'Asia/Saigon',
+    'Asia/Sakhalin': 'Asia/Sakhalin',
+    'Asia/Samarkand': 'Asia/Samarkand',
+    'Asia/Seoul': 'Asia/Seoul',
+    'Asia/Shanghai': 'Asia/Shanghai',
+    'Asia/Singapore': 'Asia/Singapore',
+    'Asia/Srednekolymsk': 'Asia/Srednekolymsk',
+    'Asia/Taipei': 'Asia/Taipei',
+    'Asia/Tashkent': 'Asia/Tashkent',
+    'Asia/Tbilisi': 'Asia/Tbilisi',
+    'Asia/Tehran': 'Asia/Tehran',
+    'Asia/Tel_Aviv': 'Asia/Tel_Aviv',
+    'Asia/Thimbu': 'Asia/Thimbu',
+    'Asia/Thimphu': 'Asia/Thimphu',
+    'Asia/Tokyo': 'Asia/Tokyo',
+    'Asia/Tomsk': 'Asia/Tomsk',
+    'Asia/Ujung_Pandang': 'Asia/Ujung_Pandang',
+    'Asia/Ulaanbaatar': 'Asia/Ulaanbaatar',
+    'Asia/Ulan_Bator': 'Asia/Ulan_Bator',
+    'Asia/Urumqi': 'Asia/Urumqi',
+    'Asia/Ust-Nera': 'Asia/Ust-Nera',
+    'Asia/Vientiane': 'Asia/Vientiane',
+    'Asia/Vladivostok': 'Asia/Vladivostok',
+    'Asia/Yakutsk': 'Asia/Yakutsk',
+    'Asia/Yangon': 'Asia/Yangon',
+    'Asia/Yekaterinburg': 'Asia/Yekaterinburg',
+    'Asia/Yerevan': 'Asia/Yerevan',
+    'Atlantic/Azores': 'Atlantic/Azores',
+    'Atlantic/Bermuda': 'Atlantic/Bermuda',
+    'Atlantic/Canary': 'Atlantic/Canary',
+    'Atlantic/Cape_Verde': 'Atlantic/Cape_Verde',
+    'Atlantic/Faeroe': 'Atlantic/Faeroe',
+    'Atlantic/Faroe': 'Atlantic/Faroe',
+    'Atlantic/Jan_Mayen': 'Atlantic/Jan_Mayen',
+    'Atlantic/Madeira': 'Atlantic/Madeira',
+    'Atlantic/Reykjavik': 'Atlantic/Reykjavik',
+    'Atlantic/South_Georgia': 'Atlantic/South_Georgia',
+    'Atlantic/St_Helena': 'Atlantic/St_Helena',
+    'Atlantic/Stanley': 'Atlantic/Stanley',
+    'Australia/ACT': 'Australia/ACT',
+    'Australia/Adelaide': 'Australia/Adelaide',
+    'Australia/Brisbane': 'Australia/Brisbane',
+    'Australia/Broken_Hill': 'Australia/Broken_Hill',
+    'Australia/Canberra': 'Australia/Canberra',
+    'Australia/Currie': 'Australia/Currie',
+    'Australia/Darwin': 'Australia/Darwin',
+    'Australia/Eucla': 'Australia/Eucla',
+    'Australia/Hobart': 'Australia/Hobart',
+    'Australia/LHI': 'Australia/LHI',
+    'Australia/Lindeman': 'Australia/Lindeman',
+    'Australia/Lord_Howe': 'Australia/Lord_Howe',
+    'Australia/Melbourne': 'Australia/Melbourne',
+    'Australia/NSW': 'Australia/NSW',
+    'Australia/North': 'Australia/North',
+    'Australia/Perth': 'Australia/Perth',
+    'Australia/Queensland': 'Australia/Queensland',
+    'Australia/South': 'Australia/South',
+    'Australia/Sydney': 'Australia/Sydney',
+    'Australia/Tasmania': 'Australia/Tasmania',
+    'Australia/Victoria': 'Australia/Victoria',
+    'Australia/West': 'Australia/West',
+    'Australia/Yancowinna': 'Australia/Yancowinna',
+    'Brazil/Acre': 'Brazil/Acre',
+    'Brazil/DeNoronha': 'Brazil/DeNoronha',
+    'Brazil/East': 'Brazil/East',
+    'Brazil/West': 'Brazil/West',
+    CET: 'CET',
+    CST6CDT: 'CST6CDT',
+    'Canada/Atlantic': 'Canada/Atlantic',
+    'Canada/Central': 'Canada/Central',
+    'Canada/Eastern': 'Canada/Eastern',
+    'Canada/Mountain': 'Canada/Mountain',
+    'Canada/Newfoundland': 'Canada/Newfoundland',
+    'Canada/Pacific': 'Canada/Pacific',
+    'Canada/Saskatchewan': 'Canada/Saskatchewan',
+    'Canada/Yukon': 'Canada/Yukon',
+    'Chile/Continental': 'Chile/Continental',
+    'Chile/EasterIsland': 'Chile/EasterIsland',
+    Cuba: 'Cuba',
+    EET: 'EET',
+    EST: 'EST',
+    EST5EDT: 'EST5EDT',
+    Egypt: 'Egypt',
+    Eire: 'Eire',
+    'Etc/GMT': 'Etc/GMT',
+    'Etc/GMT+0': 'Etc/GMT+0',
+    'Etc/GMT+1': 'Etc/GMT+1',
+    'Etc/GMT+10': 'Etc/GMT+10',
+    'Etc/GMT+11': 'Etc/GMT+11',
+    'Etc/GMT+12': 'Etc/GMT+12',
+    'Etc/GMT+2': 'Etc/GMT+2',
+    'Etc/GMT+3': 'Etc/GMT+3',
+    'Etc/GMT+4': 'Etc/GMT+4',
+    'Etc/GMT+5': 'Etc/GMT+5',
+    'Etc/GMT+6': 'Etc/GMT+6',
+    'Etc/GMT+7': 'Etc/GMT+7',
+    'Etc/GMT+8': 'Etc/GMT+8',
+    'Etc/GMT+9': 'Etc/GMT+9',
+    'Etc/GMT-0': 'Etc/GMT-0',
+    'Etc/GMT-1': 'Etc/GMT-1',
+    'Etc/GMT-10': 'Etc/GMT-10',
+    'Etc/GMT-11': 'Etc/GMT-11',
+    'Etc/GMT-12': 'Etc/GMT-12',
+    'Etc/GMT-13': 'Etc/GMT-13',
+    'Etc/GMT-14': 'Etc/GMT-14',
+    'Etc/GMT-2': 'Etc/GMT-2',
+    'Etc/GMT-3': 'Etc/GMT-3',
+    'Etc/GMT-4': 'Etc/GMT-4',
+    'Etc/GMT-5': 'Etc/GMT-5',
+    'Etc/GMT-6': 'Etc/GMT-6',
+    'Etc/GMT-7': 'Etc/GMT-7',
+    'Etc/GMT-8': 'Etc/GMT-8',
+    'Etc/GMT-9': 'Etc/GMT-9',
+    'Etc/GMT0': 'Etc/GMT0',
+    'Etc/Greenwich': 'Etc/Greenwich',
+    'Etc/UCT': 'Etc/UCT',
+    'Etc/UTC': 'Etc/UTC',
+    'Etc/Universal': 'Etc/Universal',
+    'Etc/Zulu': 'Etc/Zulu',
+    'Europe/Amsterdam': 'Europe/Amsterdam',
+    'Europe/Andorra': 'Europe/Andorra',
+    'Europe/Astrakhan': 'Europe/Astrakhan',
+    'Europe/Athens': 'Europe/Athens',
+    'Europe/Belfast': 'Europe/Belfast',
+    'Europe/Belgrade': 'Europe/Belgrade',
+    'Europe/Berlin': 'Europe/Berlin',
+    'Europe/Bratislava': 'Europe/Bratislava',
+    'Europe/Brussels': 'Europe/Brussels',
+    'Europe/Bucharest': 'Europe/Bucharest',
+    'Europe/Budapest': 'Europe/Budapest',
+    'Europe/Busingen': 'Europe/Busingen',
+    'Europe/Chisinau': 'Europe/Chisinau',
+    'Europe/Copenhagen': 'Europe/Copenhagen',
+    'Europe/Dublin': 'Europe/Dublin',
+    'Europe/Gibraltar': 'Europe/Gibraltar',
+    'Europe/Guernsey': 'Europe/Guernsey',
+    'Europe/Helsinki': 'Europe/Helsinki',
+    'Europe/Isle_of_Man': 'Europe/Isle_of_Man',
+    'Europe/Istanbul': 'Europe/Istanbul',
+    'Europe/Jersey': 'Europe/Jersey',
+    'Europe/Kaliningrad': 'Europe/Kaliningrad',
+    'Europe/Kiev': 'Europe/Kiev',
+    'Europe/Kirov': 'Europe/Kirov',
+    'Europe/Kyiv': 'Europe/Kyiv',
+    'Europe/Lisbon': 'Europe/Lisbon',
+    'Europe/Ljubljana': 'Europe/Ljubljana',
+    'Europe/London': 'Europe/London',
+    'Europe/Luxembourg': 'Europe/Luxembourg',
+    'Europe/Madrid': 'Europe/Madrid',
+    'Europe/Malta': 'Europe/Malta',
+    'Europe/Mariehamn': 'Europe/Mariehamn',
+    'Europe/Minsk': 'Europe/Minsk',
+    'Europe/Monaco': 'Europe/Monaco',
+    'Europe/Moscow': 'Europe/Moscow',
+    'Europe/Nicosia': 'Europe/Nicosia',
+    'Europe/Oslo': 'Europe/Oslo',
+    'Europe/Paris': 'Europe/Paris',
+    'Europe/Podgorica': 'Europe/Podgorica',
+    'Europe/Prague': 'Europe/Prague',
+    'Europe/Riga': 'Europe/Riga',
+    'Europe/Rome': 'Europe/Rome',
+    'Europe/Samara': 'Europe/Samara',
+    'Europe/San_Marino': 'Europe/San_Marino',
+    'Europe/Sarajevo': 'Europe/Sarajevo',
+    'Europe/Saratov': 'Europe/Saratov',
+    'Europe/Simferopol': 'Europe/Simferopol',
+    'Europe/Skopje': 'Europe/Skopje',
+    'Europe/Sofia': 'Europe/Sofia',
+    'Europe/Stockholm': 'Europe/Stockholm',
+    'Europe/Tallinn': 'Europe/Tallinn',
+    'Europe/Tirane': 'Europe/Tirane',
+    'Europe/Tiraspol': 'Europe/Tiraspol',
+    'Europe/Ulyanovsk': 'Europe/Ulyanovsk',
+    'Europe/Uzhgorod': 'Europe/Uzhgorod',
+    'Europe/Vaduz': 'Europe/Vaduz',
+    'Europe/Vatican': 'Europe/Vatican',
+    'Europe/Vienna': 'Europe/Vienna',
+    'Europe/Vilnius': 'Europe/Vilnius',
+    'Europe/Volgograd': 'Europe/Volgograd',
+    'Europe/Warsaw': 'Europe/Warsaw',
+    'Europe/Zagreb': 'Europe/Zagreb',
+    'Europe/Zaporozhye': 'Europe/Zaporozhye',
+    'Europe/Zurich': 'Europe/Zurich',
+    GB: 'GB',
+    'GB-Eire': 'GB-Eire',
+    GMT: 'GMT',
+    'GMT+0': 'GMT+0',
+    'GMT-0': 'GMT-0',
+    GMT0: 'GMT0',
+    Greenwich: 'Greenwich',
+    HST: 'HST',
+    Hongkong: 'Hongkong',
+    Iceland: 'Iceland',
+    'Indian/Antananarivo': 'Indian/Antananarivo',
+    'Indian/Chagos': 'Indian/Chagos',
+    'Indian/Christmas': 'Indian/Christmas',
+    'Indian/Cocos': 'Indian/Cocos',
+    'Indian/Comoro': 'Indian/Comoro',
+    'Indian/Kerguelen': 'Indian/Kerguelen',
+    'Indian/Mahe': 'Indian/Mahe',
+    'Indian/Maldives': 'Indian/Maldives',
+    'Indian/Mauritius': 'Indian/Mauritius',
+    'Indian/Mayotte': 'Indian/Mayotte',
+    'Indian/Reunion': 'Indian/Reunion',
+    Iran: 'Iran',
+    Israel: 'Israel',
+    Jamaica: 'Jamaica',
+    Japan: 'Japan',
+    Kwajalein: 'Kwajalein',
+    Libya: 'Libya',
+    MET: 'MET',
+    MST: 'MST',
+    MST7MDT: 'MST7MDT',
+    'Mexico/BajaNorte': 'Mexico/BajaNorte',
+    'Mexico/BajaSur': 'Mexico/BajaSur',
+    'Mexico/General': 'Mexico/General',
+    NZ: 'NZ',
+    'NZ-CHAT': 'NZ-CHAT',
+    Navajo: 'Navajo',
+    PRC: 'PRC',
+    PST8PDT: 'PST8PDT',
+    'Pacific/Apia': 'Pacific/Apia',
+    'Pacific/Auckland': 'Pacific/Auckland',
+    'Pacific/Bougainville': 'Pacific/Bougainville',
+    'Pacific/Chatham': 'Pacific/Chatham',
+    'Pacific/Chuuk': 'Pacific/Chuuk',
+    'Pacific/Easter': 'Pacific/Easter',
+    'Pacific/Efate': 'Pacific/Efate',
+    'Pacific/Enderbury': 'Pacific/Enderbury',
+    'Pacific/Fakaofo': 'Pacific/Fakaofo',
+    'Pacific/Fiji': 'Pacific/Fiji',
+    'Pacific/Funafuti': 'Pacific/Funafuti',
+    'Pacific/Galapagos': 'Pacific/Galapagos',
+    'Pacific/Gambier': 'Pacific/Gambier',
+    'Pacific/Guadalcanal': 'Pacific/Guadalcanal',
+    'Pacific/Guam': 'Pacific/Guam',
+    'Pacific/Honolulu': 'Pacific/Honolulu',
+    'Pacific/Johnston': 'Pacific/Johnston',
+    'Pacific/Kanton': 'Pacific/Kanton',
+    'Pacific/Kiritimati': 'Pacific/Kiritimati',
+    'Pacific/Kosrae': 'Pacific/Kosrae',
+    'Pacific/Kwajalein': 'Pacific/Kwajalein',
+    'Pacific/Majuro': 'Pacific/Majuro',
+    'Pacific/Marquesas': 'Pacific/Marquesas',
+    'Pacific/Midway': 'Pacific/Midway',
+    'Pacific/Nauru': 'Pacific/Nauru',
+    'Pacific/Niue': 'Pacific/Niue',
+    'Pacific/Norfolk': 'Pacific/Norfolk',
+    'Pacific/Noumea': 'Pacific/Noumea',
+    'Pacific/Pago_Pago': 'Pacific/Pago_Pago',
+    'Pacific/Palau': 'Pacific/Palau',
+    'Pacific/Pitcairn': 'Pacific/Pitcairn',
+    'Pacific/Pohnpei': 'Pacific/Pohnpei',
+    'Pacific/Ponape': 'Pacific/Ponape',
+    'Pacific/Port_Moresby': 'Pacific/Port_Moresby',
+    'Pacific/Rarotonga': 'Pacific/Rarotonga',
+    'Pacific/Saipan': 'Pacific/Saipan',
+    'Pacific/Samoa': 'Pacific/Samoa',
+    'Pacific/Tahiti': 'Pacific/Tahiti',
+    'Pacific/Tarawa': 'Pacific/Tarawa',
+    'Pacific/Tongatapu': 'Pacific/Tongatapu',
+    'Pacific/Truk': 'Pacific/Truk',
+    'Pacific/Wake': 'Pacific/Wake',
+    'Pacific/Wallis': 'Pacific/Wallis',
+    'Pacific/Yap': 'Pacific/Yap',
+    Poland: 'Poland',
+    Portugal: 'Portugal',
+    ROC: 'ROC',
+    ROK: 'ROK',
+    Singapore: 'Singapore',
+    Turkey: 'Turkey',
+    UCT: 'UCT',
+    'US/Alaska': 'US/Alaska',
+    'US/Aleutian': 'US/Aleutian',
+    'US/Arizona': 'US/Arizona',
+    'US/Central': 'US/Central',
+    'US/East-Indiana': 'US/East-Indiana',
+    'US/Eastern': 'US/Eastern',
+    'US/Hawaii': 'US/Hawaii',
+    'US/Indiana-Starke': 'US/Indiana-Starke',
+    'US/Michigan': 'US/Michigan',
+    'US/Mountain': 'US/Mountain',
+    'US/Pacific': 'US/Pacific',
+    'US/Samoa': 'US/Samoa',
+    UTC: 'UTC',
+    Universal: 'Universal',
+    'W-SU': 'W-SU',
+    WET: 'WET',
+    Zulu: 'Zulu',
+} as const
+
+export type WeekStartDayEnum = (typeof WeekStartDayEnum)[keyof typeof WeekStartDayEnum]
+export const WeekStartDayEnum = {
+    NUMBER_0: 0,
+    NUMBER_1: 1,
+} as const
+
+export type BusinessModelEnum = (typeof BusinessModelEnum)[keyof typeof BusinessModelEnum]
+export const BusinessModelEnum = {
+    b2b: 'b2b',
+    b2c: 'b2c',
+    other: 'other',
+} as const
+
+export type CreationTypeEnum = (typeof CreationTypeEnum)[keyof typeof CreationTypeEnum]
+export const CreationTypeEnum = {
+    USR: 'USR',
+    GIT: 'GIT',
+} as const
+
+export type AnnotationScopeEnum = (typeof AnnotationScopeEnum)[keyof typeof AnnotationScopeEnum]
+export const AnnotationScopeEnum = {
+    dashboard_item: 'dashboard_item',
+    dashboard: 'dashboard',
+    project: 'project',
+    organization: 'organization',
+    recording: 'recording',
+} as const
+
+export type CohortTypeEnum = (typeof CohortTypeEnum)[keyof typeof CohortTypeEnum]
+export const CohortTypeEnum = {
+    static: 'static',
+    person_property: 'person_property',
+    behavioral: 'behavioral',
+    realtime: 'realtime',
+    analytical: 'analytical',
+} as const
+
+export type DashboardTemplateScopeEnum = (typeof DashboardTemplateScopeEnum)[keyof typeof DashboardTemplateScopeEnum]
+export const DashboardTemplateScopeEnum = {
+    team: 'team',
+    global: 'global',
+    feature_flag: 'feature_flag',
+} as const
+
+export const PropertyDefinitionPropertyTypeEnum = {
+    DateTime: 'DateTime',
+    String: 'String',
+    Numeric: 'Numeric',
+    Boolean: 'Boolean',
+    Duration: 'Duration',
+} as const
+
+export type ModelNameEnum = (typeof ModelNameEnum)[keyof typeof ModelNameEnum]
+export const ModelNameEnum = {
+    FeatureFlag: 'FeatureFlag',
+} as const
+
+export type ToolbarModeEnum = (typeof ToolbarModeEnum)[keyof typeof ToolbarModeEnum]
+export const ToolbarModeEnum = {
+    disabled: 'disabled',
+    toolbar: 'toolbar',
+} as const
+
+export type ThemeModeEnum = (typeof ThemeModeEnum)[keyof typeof ThemeModeEnum]
+export const ThemeModeEnum = {
+    light: 'light',
+    dark: 'dark',
+    system: 'system',
+} as const
+
+export type MembershipLevelEnum = (typeof MembershipLevelEnum)[keyof typeof MembershipLevelEnum]
+export const MembershipLevelEnum = {
+    NUMBER_1: 1,
+    NUMBER_8: 8,
+    NUMBER_15: 15,
+} as const
+
+export type PluginsAccessLevelEnum = (typeof PluginsAccessLevelEnum)[keyof typeof PluginsAccessLevelEnum]
+export const PluginsAccessLevelEnum = {
+    NUMBER_0: 0,
+    NUMBER_3: 3,
+    NUMBER_6: 6,
+    NUMBER_9: 9,
+} as const
+
+export const DefaultExperimentStatsMethodEnum = {
+    bayesian: 'bayesian',
+    frequentist: 'frequentist',
+} as const
+
+export const CreateRecordingRequestPlatformEnum = {
+    zoom: 'zoom',
+    teams: 'teams',
+    meet: 'meet',
+    desktop_audio: 'desktop_audio',
+    slack: 'slack',
+} as const
+
+export type Platform9aaEnum = (typeof Platform9aaEnum)[keyof typeof Platform9aaEnum]
+export const Platform9aaEnum = {
+    zoom: 'zoom',
+    teams: 'teams',
+    meet: 'meet',
+    desktop_audio: 'desktop_audio',
+    slack: 'slack',
+} as const
+
+export type Status292Enum = (typeof Status292Enum)[keyof typeof Status292Enum]
+export const Status292Enum = {
+    recording: 'recording',
+    uploading: 'uploading',
+    processing: 'processing',
+    ready: 'ready',
+    error: 'error',
+} as const
+
+export type HogFunctionTypeEnum = (typeof HogFunctionTypeEnum)[keyof typeof HogFunctionTypeEnum]
+export const HogFunctionTypeEnum = {
+    destination: 'destination',
+    site_destination: 'site_destination',
+    internal_destination: 'internal_destination',
+    source_webhook: 'source_webhook',
+    site_app: 'site_app',
+    transformation: 'transformation',
+} as const
+
+export type InputsSchemaItemTypeEnum = (typeof InputsSchemaItemTypeEnum)[keyof typeof InputsSchemaItemTypeEnum]
+export const InputsSchemaItemTypeEnum = {
+    string: 'string',
+    number: 'number',
+    boolean: 'boolean',
+    dictionary: 'dictionary',
+    choice: 'choice',
+    json: 'json',
+    integration: 'integration',
+    integration_field: 'integration_field',
+    email: 'email',
+    native_email: 'native_email',
+} as const
+
+export const InputsSchemaItemTemplatingEnum = {
+    true: true,
+    false: false,
+    hog: 'hog',
+    liquid: 'liquid',
+} as const
+
+export type HogFunctionStatusStateEnum = (typeof HogFunctionStatusStateEnum)[keyof typeof HogFunctionStatusStateEnum]
+export const HogFunctionStatusStateEnum = {
+    NUMBER_0: 0,
+    NUMBER_1: 1,
+    NUMBER_2: 2,
+    NUMBER_3: 3,
+    NUMBER_11: 11,
+    NUMBER_12: 12,
+} as const
+
+export type SummarizeTypeEnum = (typeof SummarizeTypeEnum)[keyof typeof SummarizeTypeEnum]
+export const SummarizeTypeEnum = {
+    trace: 'trace',
+    event: 'event',
+} as const
+
+export type ModeEnum = (typeof ModeEnum)[keyof typeof ModeEnum]
+export const ModeEnum = {
+    minimal: 'minimal',
+    detailed: 'detailed',
+} as const
+
+export type EventTypeEnum = (typeof EventTypeEnum)[keyof typeof EventTypeEnum]
+export const EventTypeEnum = {
+    $ai_generation: '$ai_generation',
+    $ai_span: '$ai_span',
+    $ai_embedding: '$ai_embedding',
+    $ai_trace: '$ai_trace',
+} as const
+
+export const SessionRecordingPlaylistTypeEnum = {
+    collection: 'collection',
+    filters: 'filters',
+} as const
+
+export type ProxyRecordStatusEnum = (typeof ProxyRecordStatusEnum)[keyof typeof ProxyRecordStatusEnum]
+export const ProxyRecordStatusEnum = {
+    waiting: 'waiting',
+    issuing: 'issuing',
+    valid: 'valid',
+    warning: 'warning',
+    erroring: 'erroring',
+    deleting: 'deleting',
+    timed_out: 'timed_out',
+} as const
+
+export type ModalitiesEnum = (typeof ModalitiesEnum)[keyof typeof ModalitiesEnum]
+export const ModalitiesEnum = {
+    text: 'text',
+    audio: 'audio',
+} as const
+
+export type ReasoningEffortEnum = (typeof ReasoningEffortEnum)[keyof typeof ReasoningEffortEnum]
+export const ReasoningEffortEnum = {
+    none: 'none',
+    minimal: 'minimal',
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    default: 'default',
+} as const
+
+export type VerbosityEnum = (typeof VerbosityEnum)[keyof typeof VerbosityEnum]
+export const VerbosityEnum = {
+    concise: 'concise',
+    standard: 'standard',
+    verbose: 'verbose',
+} as const
+
+export type ObjectEnum = (typeof ObjectEnum)[keyof typeof ObjectEnum]
+export const ObjectEnum = {
+    chatcompletion: 'chat.completion',
+} as const
+
+export const ChatCompletionResponseServiceTierEnum = {
+    auto: 'auto',
+    default: 'default',
+    flex: 'flex',
+    scale: 'scale',
+    priority: 'priority',
+} as const
+
+export const AnthropicMessagesRequestServiceTierEnum = {
+    auto: 'auto',
+    standard_only: 'standard_only',
+} as const
+
+export const AnthropicMessagesResponseTypeEnum = {
+    message: 'message',
+} as const
+
+export const AnthropicMessagesResponseRoleEnum = {
+    assistant: 'assistant',
+} as const
+
+export type StopReasonEnum = (typeof StopReasonEnum)[keyof typeof StopReasonEnum]
+export const StopReasonEnum = {
+    end_turn: 'end_turn',
+    max_tokens: 'max_tokens',
+    stop_sequence: 'stop_sequence',
+    tool_use: 'tool_use',
+    pause_turn: 'pause_turn',
+    refusal: 'refusal',
+} as const
+
+export const AnthropicUsageServiceTierEnum = {
+    standard: 'standard',
+    priority: 'priority',
+    batch: 'batch',
+} as const
+
+export const ChatCompletionMessageRoleEnum = {
+    system: 'system',
+    user: 'user',
+    assistant: 'assistant',
+    function: 'function',
+    tool: 'tool',
+    developer: 'developer',
+} as const
+
+export type TaskRunDetailStatusEnum = (typeof TaskRunDetailStatusEnum)[keyof typeof TaskRunDetailStatusEnum]
+export const TaskRunDetailStatusEnum = {
+    not_started: 'not_started',
+    queued: 'queued',
+    in_progress: 'in_progress',
+    completed: 'completed',
+    failed: 'failed',
+    cancelled: 'cancelled',
+} as const
+
+export type EnvironmentEnum = (typeof EnvironmentEnum)[keyof typeof EnvironmentEnum]
+export const EnvironmentEnum = {
+    local: 'local',
+    cloud: 'cloud',
+} as const
+
+export type TaskRunUpdateStatusEnum = (typeof TaskRunUpdateStatusEnum)[keyof typeof TaskRunUpdateStatusEnum]
+export const TaskRunUpdateStatusEnum = {
+    not_started: 'not_started',
+    queued: 'queued',
+    in_progress: 'in_progress',
+    completed: 'completed',
+    failed: 'failed',
+    cancelled: 'cancelled',
+} as const
+
+export const TaskRunArtifactUploadTypeEnum = {
+    plan: 'plan',
+    context: 'context',
+    reference: 'reference',
+    output: 'output',
+    artifact: 'artifact',
+} as const
+
 export interface PaginatedAlertList {
     count: number
     /** @nullable */
@@ -20,10 +1671,6 @@ export type AlertConfig = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AlertCalculationInterval = { ...CalculationIntervalEnum, ...BlankEnum, ...NullEnum } as const
-/**
- * @nullable
- */
-export type AlertCalculationInterval = (typeof AlertCalculationInterval)[keyof typeof AlertCalculationInterval] | null
 
 export interface Alert {
     readonly id: string
@@ -103,46 +1750,6 @@ export interface PaginatedBatchExportBackfillList {
     /** @nullable */
     previous?: string | null
     results: BatchExportBackfill[]
-}
-
-export interface BatchExportBackfill {
-    readonly id: string
-    readonly progress: string
-    /**
-     * The start of the data interval.
-     * @nullable
-     */
-    start_at?: string | null
-    /**
-     * The end of the data interval.
-     * @nullable
-     */
-    end_at?: string | null
-    /** The status of this backfill.
-
-* `Cancelled` - Cancelled
-* `Completed` - Completed
-* `ContinuedAsNew` - Continued As New
-* `Failed` - Failed
-* `FailedRetryable` - Failed Retryable
-* `Terminated` - Terminated
-* `TimedOut` - Timedout
-* `Running` - Running
-* `Starting` - Starting */
-    status: BatchExportBackfillStatusEnum
-    /** The timestamp at which this BatchExportBackfill was created. */
-    readonly created_at: string
-    /**
-     * The timestamp at which this BatchExportBackfill finished, successfully or not.
-     * @nullable
-     */
-    finished_at?: string | null
-    /** The timestamp at which this BatchExportBackfill was last updated. */
-    readonly last_updated_at: string
-    /** The team this belongs to. */
-    team: number
-    /** The BatchExport this backfill belongs to. */
-    batch_export: string
 }
 
 export interface PaginatedMaxCoreMemoryList {
@@ -252,15 +1859,6 @@ export interface PaginatedErrorTrackingExternalReferenceList {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingExternalReference[]
-}
-
-export interface ErrorTrackingExternalReference {
-    readonly id: string
-    readonly integration: ErrorTrackingExternalReferenceIntegration
-    integration_id: number
-    config: unknown
-    issue: string
-    readonly external_url: string
 }
 
 export interface PatchedErrorTrackingExternalReference {
@@ -429,7 +2027,6 @@ Or you can create more complicated queries with AND and OR:
     ]
 }
 ```
-
 
 * `AND` - AND
 * `OR` - OR */
@@ -1030,16 +2627,6 @@ export interface PaginatedPersistedFolderList {
     results: PersistedFolder[]
 }
 
-export interface PersistedFolder {
-    readonly id: string
-    type: PersistedFolderTypeEnum
-    /** @maxLength 64 */
-    protocol?: string
-    path?: string
-    readonly created_at: string
-    readonly updated_at: string
-}
-
 export interface PatchedPersistedFolder {
     readonly id?: string
     type?: PersistedFolderTypeEnum
@@ -1143,126 +2730,7 @@ export type QueryRequestQuery =
  */
 export type QueryRequestVariablesOverride = { [key: string]: { [key: string]: unknown } } | null
 
-export interface QueryRequest {
-    /** @nullable */
-    async?: boolean | null
-    /**
-     * Client provided query ID. Can be used to retrieve the status or cancel the query.
-     * @nullable
-     */
-    client_query_id?: string | null
-    /** @nullable */
-    filters_override?: DashboardFilter
-    /**
-     * Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.
-     * @nullable
-     */
-    name?: string | null
-    /** Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.
-
-Example payload:
-
-```
-
-{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}
-
-```
-
-For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-    query: QueryRequestQuery
-    /**
-   * Whether results should be calculated sync or async, and how much to rely on the cache:
-- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
-- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
-- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-- `'force_async'` - kick off background calculation, even if fresh results are already cached
-- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field.
-   * @nullable
-   */
-    refresh?: RefreshType
-    /** @nullable */
-    variables_override?: QueryRequestVariablesOverride
-}
-
 export type QueryResponseAlternativeAnyOf = { [key: string]: unknown }
-
-export type QueryResponseAlternative =
-    | QueryResponseAlternativeAnyOf
-    | QueryResponseAlternative1
-    | QueryResponseAlternative3
-    | QueryResponseAlternative4
-    | QueryResponseAlternative5
-    | QueryResponseAlternative6
-    | QueryResponseAlternative7
-    | QueryResponseAlternative8
-    | QueryResponseAlternative9
-    | QueryResponseAlternative10
-    | QueryResponseAlternative11
-    | QueryResponseAlternative14
-    | QueryResponseAlternative15
-    | QueryResponseAlternative16
-    | QueryResponseAlternative17
-    | QueryResponseAlternative18
-    | QueryResponseAlternative19
-    | QueryResponseAlternative20
-    | QueryResponseAlternative21
-    | QueryResponseAlternative22
-    | QueryResponseAlternative23
-    | QueryResponseAlternative24
-    | QueryResponseAlternative25
-    | QueryResponseAlternative27
-    | QueryResponseAlternative28
-    | QueryResponseAlternative29
-    | QueryResponseAlternative30
-    | QueryResponseAlternative31
-    | QueryResponseAlternative32
-    | QueryResponseAlternative33
-    | QueryResponseAlternative34
-    | QueryResponseAlternative35
-    | QueryResponseAlternative36
-    | unknown
-    | QueryResponseAlternative37
-    | QueryResponseAlternative38
-    | QueryResponseAlternative39
-    | QueryResponseAlternative40
-    | QueryResponseAlternative41
-    | QueryResponseAlternative42
-    | QueryResponseAlternative43
-    | QueryResponseAlternative45
-    | QueryResponseAlternative46
-    | QueryResponseAlternative47
-    | QueryResponseAlternative48
-    | QueryResponseAlternative49
-    | QueryResponseAlternative50
-    | QueryResponseAlternative51
-    | QueryResponseAlternative52
-    | QueryResponseAlternative53
-    | QueryResponseAlternative55
-    | QueryResponseAlternative56
-    | QueryResponseAlternative57
-    | QueryResponseAlternative59
-    | QueryResponseAlternative60
-    | QueryResponseAlternative61
-    | QueryResponseAlternative62
-    | QueryResponseAlternative63
-    | QueryResponseAlternative64
-    | QueryResponseAlternative65
-    | QueryResponseAlternative66
-    | QueryResponseAlternative68
-    | QueryResponseAlternative69
-    | QueryResponseAlternative70
-    | QueryResponseAlternative71
-    | QueryResponseAlternative72
-    | QueryResponseAlternative73
-    | QueryResponseAlternative74
-    | QueryResponseAlternative75
-    | QueryResponseAlternative77
-    | QueryResponseAlternative78
-
-export interface QueryStatusResponse {
-    query_status: QueryStatus
-}
 
 export type QueryUpgradeRequestQuery =
     | EventsNode
@@ -1330,10 +2798,6 @@ export type QueryUpgradeRequestQuery =
     | VectorSearchQuery
     | UsageMetricsQuery
 
-export interface QueryUpgradeRequest {
-    query: QueryUpgradeRequestQuery
-}
-
 export type QueryUpgradeResponseQuery =
     | EventsNode
     | ActionsNode
@@ -1400,10 +2864,6 @@ export type QueryUpgradeResponseQuery =
     | VectorSearchQuery
     | UsageMetricsQuery
 
-export interface QueryUpgradeResponse {
-    query: QueryUpgradeResponseQuery
-}
-
 export interface PaginatedQuickFilterList {
     count: number
     /** @nullable */
@@ -1417,20 +2877,6 @@ export interface PaginatedQuickFilterList {
  * @nullable
  */
 export type QuickFilterOptions = unknown | null
-
-export interface QuickFilter {
-    readonly id: string
-    /** @maxLength 200 */
-    name: string
-    /** @maxLength 500 */
-    property_name: string
-    type?: QuickFilterTypeEnum
-    /** @nullable */
-    options?: QuickFilterOptions
-    readonly contexts: string
-    readonly created_at: string
-    readonly updated_at: string
-}
 
 /**
  * @nullable
@@ -1547,10 +2993,6 @@ export interface PaginatedUserProductListList {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UserProductListReason = { ...ReasonEnum, ...NullEnum } as const
-/**
- * @nullable
- */
-export type UserProductListReason = (typeof UserProductListReason)[keyof typeof UserProductListReason] | null
 
 export interface UserProductList {
     readonly id: string
@@ -1750,15 +3192,8 @@ export interface Threshold {
  * `Errored` - Errored
  * `Snoozed` - Snoozed
  */
-export type State66aEnum = (typeof State66aEnum)[keyof typeof State66aEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const State66aEnum = {
-    Firing: 'Firing',
-    Not_firing: 'Not firing',
-    Errored: 'Errored',
-    Snoozed: 'Snoozed',
-} as const
 
 export interface AlertCheck {
     readonly id: string
@@ -1775,27 +3210,12 @@ export interface AlertCheck {
  * `weekly` - weekly
  * `monthly` - monthly
  */
-export type CalculationIntervalEnum = (typeof CalculationIntervalEnum)[keyof typeof CalculationIntervalEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CalculationIntervalEnum = {
-    hourly: 'hourly',
-    daily: 'daily',
-    weekly: 'weekly',
-    monthly: 'monthly',
-} as const
-
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BlankEnum = {
-    '': '',
-} as const
-
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const NullEnum = {} as const
 
 /**
  * * `Cancelled` - Cancelled
@@ -1812,31 +3232,14 @@ export type BatchExportBackfillStatusEnum =
     (typeof BatchExportBackfillStatusEnum)[keyof typeof BatchExportBackfillStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportBackfillStatusEnum = {
-    Cancelled: 'Cancelled',
-    Completed: 'Completed',
-    ContinuedAsNew: 'ContinuedAsNew',
-    Failed: 'Failed',
-    FailedRetryable: 'FailedRetryable',
-    Terminated: 'Terminated',
-    TimedOut: 'TimedOut',
-    Running: 'Running',
-    Starting: 'Starting',
-} as const
 
 /**
  * * `pending` - Pending
  * `completed` - Completed
  * `skipped` - Skipped
  */
-export type ScrapingStatusEnum = (typeof ScrapingStatusEnum)[keyof typeof ScrapingStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ScrapingStatusEnum = {
-    pending: 'pending',
-    completed: 'completed',
-    skipped: 'skipped',
-} as const
 
 /**
  * * `21` - Everyone in the project can edit
@@ -1850,43 +3253,24 @@ export const DashboardRestrictionLevel = {
     NUMBER_37: 37,
 } as const
 
-export interface ErrorTrackingExternalReferenceIntegration {
-    readonly id: number
-    readonly kind: KindEnum
-    readonly display_name: string
-}
-
 /**
  * * `llm_judge` - LLM as a judge
  */
-export type EvaluationTypeEnum = (typeof EvaluationTypeEnum)[keyof typeof EvaluationTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EvaluationTypeEnum = {
-    llm_judge: 'llm_judge',
-} as const
 
 /**
  * * `boolean` - Boolean (Pass/Fail)
  */
-export type OutputTypeEnum = (typeof OutputTypeEnum)[keyof typeof OutputTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OutputTypeEnum = {
-    boolean: 'boolean',
-} as const
 
 /**
  * * `AND` - AND
  * `OR` - OR
  */
-export type PropertyTypeEnum = (typeof PropertyTypeEnum)[keyof typeof PropertyTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyTypeEnum = {
-    AND: 'AND',
-    OR: 'OR',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyItemOperator = { ...OperatorEnum, ...BlankEnum, ...NullEnum } as const
@@ -1907,14 +3291,7 @@ export interface PropertyItem {
     type?: (typeof PropertyItemType)[keyof typeof PropertyItemType]
 }
 
-export type SyncTypeEnum = (typeof SyncTypeEnum)[keyof typeof SyncTypeEnum]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SyncTypeEnum = {
-    full_refresh: 'full_refresh',
-    incremental: 'incremental',
-    append: 'append',
-} as const
 
 export interface HeatmapsResponse {
     results: HeatmapResponseItem[]
@@ -1964,14 +3341,8 @@ export interface HogFlowMinimal {
  * `active` - Active
  * `archived` - Archived
  */
-export type StatusA5eEnum = (typeof StatusA5eEnum)[keyof typeof StatusA5eEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StatusA5eEnum = {
-    draft: 'draft',
-    active: 'active',
-    archived: 'archived',
-} as const
 
 /**
  * @nullable
@@ -1998,15 +3369,8 @@ export interface HogFlowMasking {
  * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
  * `exit_only_at_end` - Only At End
  */
-export type ExitConditionEnum = (typeof ExitConditionEnum)[keyof typeof ExitConditionEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExitConditionEnum = {
-    exit_on_conversion: 'exit_on_conversion',
-    exit_on_trigger_not_matched: 'exit_on_trigger_not_matched',
-    exit_on_trigger_not_matched_or_conversion: 'exit_on_trigger_not_matched_or_conversion',
-    exit_only_at_end: 'exit_only_at_end',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const HogFlowActionOnError = { ...OnErrorEnum, ...NullEnum } as const
@@ -2050,16 +3414,8 @@ export interface HogFlowAction {
  * `List` - List
  * `Date` - Date
  */
-export type InsightVariableTypeEnum = (typeof InsightVariableTypeEnum)[keyof typeof InsightVariableTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const InsightVariableTypeEnum = {
-    String: 'String',
-    Number: 'Number',
-    Boolean: 'Boolean',
-    List: 'List',
-    Date: 'Date',
-} as const
 
 export interface DashboardTileBasic {
     readonly id: number
@@ -2072,30 +3428,15 @@ export type EffectiveRestrictionLevelEnum =
     (typeof EffectiveRestrictionLevelEnum)[keyof typeof EffectiveRestrictionLevelEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EffectiveRestrictionLevelEnum = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
-} as const
-
-export type EffectivePrivilegeLevelEnum = (typeof EffectivePrivilegeLevelEnum)[keyof typeof EffectivePrivilegeLevelEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EffectivePrivilegeLevelEnum = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
-} as const
 
 /**
  * * `marketing` - Marketing
  * `transactional` - Transactional
  */
-export type CategoryTypeEnum = (typeof CategoryTypeEnum)[keyof typeof CategoryTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CategoryTypeEnum = {
-    marketing: 'marketing',
-    transactional: 'transactional',
-} as const
 
 /**
  * @nullable
@@ -2106,42 +3447,6 @@ export interface MessageTemplateContent {
     templating?: Templating186Enum
     /** @nullable */
     email?: MessageTemplateContentEmail
-}
-
-/**
- * * `viewed` - viewed
- */
-export type MetricNameEnum = (typeof MetricNameEnum)[keyof typeof MetricNameEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MetricNameEnum = {
-    viewed: 'viewed',
-} as const
-
-/**
- * * `home` - Home
- * `pinned` - Pinned
- * `custom_products` - Custom Products
- */
-export type PersistedFolderTypeEnum = (typeof PersistedFolderTypeEnum)[keyof typeof PersistedFolderTypeEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersistedFolderTypeEnum = {
-    home: 'home',
-    pinned: 'pinned',
-    custom_products: 'custom_products',
-} as const
-
-export interface PluginLogEntry {
-    id: string
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
-    timestamp: string
-    source: PluginLogEntrySourceEnum
-    type: PluginLogEntryTypeEnum
-    message: string
-    instance_id: string
 }
 
 export type DashboardFilterPropertiesItem =
@@ -2163,19 +3468,6 @@ export type DashboardFilterPropertiesItem =
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
-
-export interface DashboardFilter {
-    /** @nullable */
-    breakdown_filter?: BreakdownFilter
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
-    /** @nullable */
-    explicitDate?: boolean | null
-    /** @nullable */
-    properties?: DashboardFilterPropertiesItem[] | null
-}
 
 export type EventsNodeFixedPropertiesItem =
     | EventPropertyFilter
@@ -2245,59 +3537,6 @@ export type EventsNodePropertiesItem =
  */
 export type EventsNodeResponse = { [key: string]: unknown } | null
 
-export interface EventsNode {
-    /** @nullable */
-    custom_name?: string | null
-    /**
-     * The event or `null` for all events.
-     * @nullable
-     */
-    event?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: EventsNodeFixedPropertiesItem[] | null
-    kind?: EventsNodeKind
-    /** @nullable */
-    limit?: number | null
-    /** @nullable */
-    math?: EventsNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Columns to order by
-     * @nullable
-     */
-    orderBy?: string[] | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: EventsNodePropertiesItem[] | null
-    /** @nullable */
-    response?: EventsNodeResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ActionsNodeFixedPropertiesItem =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -2365,48 +3604,6 @@ export type ActionsNodePropertiesItem =
  * @nullable
  */
 export type ActionsNodeResponse = { [key: string]: unknown } | null
-
-export interface ActionsNode {
-    /** @nullable */
-    custom_name?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: ActionsNodeFixedPropertiesItem[] | null
-    id: number
-    kind?: ActionsNodeKind
-    /** @nullable */
-    math?: ActionsNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: ActionsNodePropertiesItem[] | null
-    /** @nullable */
-    response?: ActionsNodeResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type PersonsNodeFixedPropertiesItem =
     | EventPropertyFilter
@@ -2566,54 +3763,6 @@ export type DataWarehouseNodePropertiesItem =
  */
 export type DataWarehouseNodeResponse = { [key: string]: unknown } | null
 
-export interface DataWarehouseNode {
-    /** @nullable */
-    custom_name?: string | null
-    distinct_id_field: string
-    /** @nullable */
-    dw_source_type?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: DataWarehouseNodeFixedPropertiesItem[] | null
-    id: string
-    id_field: string
-    kind?: DataWarehouseNodeKind
-    /** @nullable */
-    math?: DataWarehouseNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: DataWarehouseNodePropertiesItem[] | null
-    /** @nullable */
-    response?: DataWarehouseNodeResponse
-    table_name: string
-    timestamp_field: string
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type EventsQueryFixedPropertiesItem =
     | PropertyGroupFilter
     | PropertyGroupFilterValue
@@ -2662,91 +3811,6 @@ export type EventsQueryPropertiesItem =
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
-
-export interface EventsQuery {
-    /**
-     * Show events matching a given action
-     * @nullable
-     */
-    actionId?: number | null
-    /**
-     * Only fetch events that happened after this timestamp
-     * @nullable
-     */
-    after?: string | null
-    /**
-     * Only fetch events that happened before this timestamp
-     * @nullable
-     */
-    before?: string | null
-    /**
-     * Limit to events matching this string
-     * @nullable
-     */
-    event?: string | null
-    /**
-     * Filter test accounts
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: EventsQueryFixedPropertiesItem[] | null
-    kind?: EventsQueryKind
-    /**
-     * Number of rows to return
-     * @nullable
-     */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Number of rows to skip before returning rows
-     * @nullable
-     */
-    offset?: number | null
-    /**
-     * Columns to order by
-     * @nullable
-     */
-    orderBy?: string[] | null
-    /**
-     * Show events for a given person
-     * @nullable
-     */
-    personId?: string | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: EventsQueryPropertiesItem[] | null
-    /** @nullable */
-    response?: EventsQueryResponse
-    /** Return a limited set of data. Required. */
-    select: string[]
-    /**
-     * source for querying events for insights
-     * @nullable
-     */
-    source?: InsightActorsQuery
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-    /**
-     * HogQL filters to apply on returned data
-     * @nullable
-     */
-    where?: string[] | null
-}
 
 export type SessionsQueryEventPropertiesItem =
     | EventPropertyFilter
@@ -2817,91 +3881,6 @@ export type SessionsQueryPropertiesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface SessionsQuery {
-    /**
-     * Filter sessions by action - sessions that contain events matching this action
-     * @nullable
-     */
-    actionId?: number | null
-    /**
-     * Only fetch sessions that started after this timestamp
-     * @nullable
-     */
-    after?: string | null
-    /**
-     * Only fetch sessions that started before this timestamp
-     * @nullable
-     */
-    before?: string | null
-    /**
-     * Filter sessions by event name - sessions that contain this event
-     * @nullable
-     */
-    event?: string | null
-    /**
-     * Event property filters - only applies when event or actionId is set
-     * @nullable
-     */
-    eventProperties?: SessionsQueryEventPropertiesItem[] | null
-    /**
-     * Filter test accounts
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: SessionsQueryFixedPropertiesItem[] | null
-    kind?: SessionsQueryKind
-    /**
-     * Number of rows to return
-     * @nullable
-     */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Number of rows to skip before returning rows
-     * @nullable
-     */
-    offset?: number | null
-    /**
-     * Columns to order by
-     * @nullable
-     */
-    orderBy?: string[] | null
-    /**
-     * Show sessions for a given person
-     * @nullable
-     */
-    personId?: string | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: SessionsQueryPropertiesItem[] | null
-    /** @nullable */
-    response?: SessionsQueryResponse
-    /** Return a limited set of data. Required. */
-    select: string[]
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-    /**
-     * HogQL filters to apply on returned data
-     * @nullable
-     */
-    where?: string[] | null
-}
-
 export type ActorsQueryFixedPropertiesItem =
     | PersonPropertyFilter
     | CohortPropertyFilter
@@ -2938,46 +3917,6 @@ export type ActorsQuerySource =
     | HogQLQuery
     | null
 
-export interface ActorsQuery {
-    /**
-     * Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.
-     * @nullable
-     */
-    fixedProperties?: ActorsQueryFixedPropertiesItem[] | null
-    kind?: ActorsQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    orderBy?: string[] | null
-    /**
-     * Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.
-     * @nullable
-     */
-    properties?: ActorsQueryProperties
-    /** @nullable */
-    response?: ActorsQueryResponse
-    /** @nullable */
-    search?: string | null
-    /** @nullable */
-    select?: string[] | null
-    /** @nullable */
-    source?: ActorsQuerySource
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type GroupsQueryKind = (typeof GroupsQueryKind)[keyof typeof GroupsQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -2986,37 +3925,6 @@ export const GroupsQueryKind = {
 } as const
 
 export type GroupsQueryPropertiesItem = GroupPropertyFilter | HogQLPropertyFilter
-
-export interface GroupsQuery {
-    group_type_index: number
-    kind?: GroupsQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    orderBy?: string[] | null
-    /** @nullable */
-    properties?: GroupsQueryPropertiesItem[] | null
-    /** @nullable */
-    response?: GroupsQueryResponse
-    /** @nullable */
-    search?: string | null
-    /** @nullable */
-    select?: string[] | null
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * @nullable
@@ -3042,42 +3950,8 @@ export type InsightActorsQuerySource =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-
-export interface InsightActorsQuery {
-    /** @nullable */
-    breakdown?: InsightActorsQueryBreakdown
-    /** @nullable */
-    compare?: Compare
-    /** @nullable */
-    day?: InsightActorsQueryDay
-    /** @nullable */
-    includeRecordings?: boolean | null
-    /**
-     * An interval selected out of available intervals in source query.
-     * @nullable
-     */
-    interval?: number | null
-    kind?: InsightActorsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: ActorsQueryResponse
-    /** @nullable */
-    series?: number | null
-    source: InsightActorsQuerySource
-    /** @nullable */
-    status?: string | null
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
+    | WebStatsTableQuery
+    | WebOverviewQuery
 
 export type InsightActorsQueryOptionsKind =
     (typeof InsightActorsQueryOptionsKind)[keyof typeof InsightActorsQueryOptionsKind]
@@ -3093,18 +3967,6 @@ export type InsightActorsQueryOptionsSource =
     | FunnelCorrelationActorsQuery
     | StickinessActorsQuery
 
-export interface InsightActorsQueryOptions {
-    kind?: InsightActorsQueryOptionsKind
-    /** @nullable */
-    response?: InsightActorsQueryOptionsResponse
-    source: InsightActorsQueryOptionsSource
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type SessionsTimelineQueryKind = (typeof SessionsTimelineQueryKind)[keyof typeof SessionsTimelineQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -3112,65 +3974,12 @@ export const SessionsTimelineQueryKind = {
     SessionsTimelineQuery: 'SessionsTimelineQuery',
 } as const
 
-export interface SessionsTimelineQuery {
-    /**
-     * Only fetch sessions that started after this timestamp (default: '-24h')
-     * @nullable
-     */
-    after?: string | null
-    /**
-     * Only fetch sessions that started before this timestamp (default: '+5s')
-     * @nullable
-     */
-    before?: string | null
-    kind?: SessionsTimelineQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Fetch sessions only for a given person
-     * @nullable
-     */
-    personId?: string | null
-    /** @nullable */
-    response?: SessionsTimelineQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type HogQueryKind = (typeof HogQueryKind)[keyof typeof HogQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const HogQueryKind = {
     HogQuery: 'HogQuery',
 } as const
-
-export interface HogQuery {
-    /** @nullable */
-    code?: string | null
-    kind?: HogQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: HogQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type HogQLQueryKind = (typeof HogQLQueryKind)[keyof typeof HogQLQueryKind]
 
@@ -3190,44 +3999,6 @@ export type HogQLQueryValues = { [key: string]: unknown } | null
  * @nullable
  */
 export type HogQLQueryVariables = { [key: string]: HogQLVariable } | null
-
-export interface HogQLQuery {
-    /** @nullable */
-    explain?: boolean | null
-    /** @nullable */
-    filters?: HogQLFilters
-    kind?: HogQLQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Client provided name of the query
-     * @nullable
-     */
-    name?: string | null
-    query: string
-    /** @nullable */
-    response?: HogQLQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * Constant values that can be referenced with the {placeholder} syntax in the query
-     * @nullable
-     */
-    values?: HogQLQueryValues
-    /**
-     * Variables to be substituted into the query
-     * @nullable
-     */
-    variables?: HogQLQueryVariables
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * Extra globals for the query
@@ -3301,53 +4072,6 @@ export type HogQLMetadataSourceQuery =
  */
 export type HogQLMetadataVariables = { [key: string]: HogQLVariable } | null
 
-export interface HogQLMetadata {
-    /**
-     * Enable more verbose output, usually run from the /debug page
-     * @nullable
-     */
-    debug?: boolean | null
-    /**
-     * Extra filters applied to query via {filters}
-     * @nullable
-     */
-    filters?: HogQLFilters
-    /**
-     * Extra globals for the query
-     * @nullable
-     */
-    globals?: HogQLMetadataGlobals
-    kind?: HogQLMetadataKind
-    /** Language to validate */
-    language: HogLanguage
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** Query to validate */
-    query: string
-    /** @nullable */
-    response?: HogQLMetadataResponse
-    /**
-     * Query within which "expr" and "template" are validated. Defaults to "select * from events"
-     * @nullable
-     */
-    sourceQuery?: HogQLMetadataSourceQuery
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * Variables to be subsituted into the query
-     * @nullable
-     */
-    variables?: HogQLMetadataVariables
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 /**
  * Global values in scope
  * @nullable
@@ -3414,47 +4138,6 @@ export type HogQLAutocompleteSourceQuery =
     | UsageMetricsQuery
     | null
 
-export interface HogQLAutocomplete {
-    /** End position of the editor word */
-    endPosition: number
-    /**
-     * Table to validate the expression against
-     * @nullable
-     */
-    filters?: HogQLFilters
-    /**
-     * Global values in scope
-     * @nullable
-     */
-    globals?: HogQLAutocompleteGlobals
-    kind?: HogQLAutocompleteKind
-    /** Language to validate */
-    language: HogLanguage
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** Query to validate */
-    query: string
-    /** @nullable */
-    response?: HogQLAutocompleteResponse
-    /**
-     * Query in whose context to validate.
-     * @nullable
-     */
-    sourceQuery?: HogQLAutocompleteSourceQuery
-    /** Start position of the editor word */
-    startPosition: number
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type HogQLASTQueryKind = (typeof HogQLASTQueryKind)[keyof typeof HogQLASTQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -3476,44 +4159,6 @@ export type HogQLASTQueryValues = { [key: string]: unknown } | null
  */
 export type HogQLASTQueryVariables = { [key: string]: HogQLVariable } | null
 
-export interface HogQLASTQuery {
-    /** @nullable */
-    explain?: boolean | null
-    /** @nullable */
-    filters?: HogQLFilters
-    kind?: HogQLASTQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Client provided name of the query
-     * @nullable
-     */
-    name?: string | null
-    query: HogQLASTQueryQuery
-    /** @nullable */
-    response?: HogQLQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * Constant values that can be referenced with the {placeholder} syntax in the query
-     * @nullable
-     */
-    values?: HogQLASTQueryValues
-    /**
-     * Variables to be substituted into the query
-     * @nullable
-     */
-    variables?: HogQLASTQueryVariables
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type SessionAttributionExplorerQueryKind =
     (typeof SessionAttributionExplorerQueryKind)[keyof typeof SessionAttributionExplorerQueryKind]
 
@@ -3521,31 +4166,6 @@ export type SessionAttributionExplorerQueryKind =
 export const SessionAttributionExplorerQueryKind = {
     SessionAttributionExplorerQuery: 'SessionAttributionExplorerQuery',
 } as const
-
-export interface SessionAttributionExplorerQuery {
-    /** @nullable */
-    filters?: Filters
-    groupBy: SessionAttributionGroupBy[]
-    kind?: SessionAttributionExplorerQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    response?: SessionAttributionExplorerQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type RevenueExampleEventsQueryKind =
     (typeof RevenueExampleEventsQueryKind)[keyof typeof RevenueExampleEventsQueryKind]
@@ -3555,28 +4175,6 @@ export const RevenueExampleEventsQueryKind = {
     RevenueExampleEventsQuery: 'RevenueExampleEventsQuery',
 } as const
 
-export interface RevenueExampleEventsQuery {
-    kind?: RevenueExampleEventsQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    response?: RevenueExampleEventsQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type RevenueExampleDataWarehouseTablesQueryKind =
     (typeof RevenueExampleDataWarehouseTablesQueryKind)[keyof typeof RevenueExampleDataWarehouseTablesQueryKind]
 
@@ -3585,89 +4183,12 @@ export const RevenueExampleDataWarehouseTablesQueryKind = {
     RevenueExampleDataWarehouseTablesQuery: 'RevenueExampleDataWarehouseTablesQuery',
 } as const
 
-export interface RevenueExampleDataWarehouseTablesQuery {
-    kind?: RevenueExampleDataWarehouseTablesQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    response?: RevenueExampleDataWarehouseTablesQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ErrorTrackingQueryKind = (typeof ErrorTrackingQueryKind)[keyof typeof ErrorTrackingQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ErrorTrackingQueryKind = {
     ErrorTrackingQuery: 'ErrorTrackingQuery',
 } as const
-
-export interface ErrorTrackingQuery {
-    /** @nullable */
-    assignee?: ErrorTrackingIssueAssignee
-    dateRange: DateRange
-    /** @nullable */
-    filterGroup?: PropertyGroupFilter
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    groupKey?: string | null
-    /** @nullable */
-    groupTypeIndex?: number | null
-    /** @nullable */
-    issueId?: string | null
-    kind?: ErrorTrackingQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    orderBy: OrderBy1
-    /** @nullable */
-    orderDirection?: OrderDirection1
-    /** @nullable */
-    personId?: string | null
-    /** @nullable */
-    response?: ErrorTrackingQueryResponse
-    /** @nullable */
-    revenueEntity?: RevenueEntity
-    /** @nullable */
-    revenuePeriod?: RevenuePeriod
-    /** @nullable */
-    searchQuery?: string | null
-    /** @nullable */
-    status?: Status2
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-    volumeResolution: number
-    /** @nullable */
-    withAggregations?: boolean | null
-    /** @nullable */
-    withFirstEvent?: boolean | null
-    /** @nullable */
-    withLastEvent?: boolean | null
-}
 
 export type ErrorTrackingSimilarIssuesQueryKind =
     (typeof ErrorTrackingSimilarIssuesQueryKind)[keyof typeof ErrorTrackingSimilarIssuesQueryKind]
@@ -3677,37 +4198,6 @@ export const ErrorTrackingSimilarIssuesQueryKind = {
     ErrorTrackingSimilarIssuesQuery: 'ErrorTrackingSimilarIssuesQuery',
 } as const
 
-export interface ErrorTrackingSimilarIssuesQuery {
-    /** @nullable */
-    dateRange?: DateRange
-    issueId: string
-    kind?: ErrorTrackingSimilarIssuesQueryKind
-    /** @nullable */
-    limit?: number | null
-    /** @nullable */
-    maxDistance?: number | null
-    /** @nullable */
-    modelName?: EmbeddingModelName
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    rendering?: string | null
-    /** @nullable */
-    response?: ErrorTrackingSimilarIssuesQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ErrorTrackingBreakdownsQueryKind =
     (typeof ErrorTrackingBreakdownsQueryKind)[keyof typeof ErrorTrackingBreakdownsQueryKind]
 
@@ -3715,32 +4205,6 @@ export type ErrorTrackingBreakdownsQueryKind =
 export const ErrorTrackingBreakdownsQueryKind = {
     ErrorTrackingBreakdownsQuery: 'ErrorTrackingBreakdownsQuery',
 } as const
-
-export interface ErrorTrackingBreakdownsQuery {
-    breakdownProperties: string[]
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    issueId: string
-    kind?: ErrorTrackingBreakdownsQueryKind
-    /** @nullable */
-    maxValuesPerProperty?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: ErrorTrackingBreakdownsQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type ErrorTrackingIssueCorrelationQueryKind =
     (typeof ErrorTrackingIssueCorrelationQueryKind)[keyof typeof ErrorTrackingIssueCorrelationQueryKind]
@@ -3750,25 +4214,6 @@ export const ErrorTrackingIssueCorrelationQueryKind = {
     ErrorTrackingIssueCorrelationQuery: 'ErrorTrackingIssueCorrelationQuery',
 } as const
 
-export interface ErrorTrackingIssueCorrelationQuery {
-    events: string[]
-    kind?: ErrorTrackingIssueCorrelationQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: ErrorTrackingIssueCorrelationQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ExperimentFunnelsQueryKind = (typeof ExperimentFunnelsQueryKind)[keyof typeof ExperimentFunnelsQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -3776,68 +4221,12 @@ export const ExperimentFunnelsQueryKind = {
     ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
 } as const
 
-export interface ExperimentFunnelsQuery {
-    /** @nullable */
-    experiment_id?: number | null
-    /** @nullable */
-    fingerprint?: string | null
-    funnels_query: FunnelsQuery
-    kind?: ExperimentFunnelsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    response?: ExperimentFunnelsQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    uuid?: string | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ExperimentTrendsQueryKind = (typeof ExperimentTrendsQueryKind)[keyof typeof ExperimentTrendsQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExperimentTrendsQueryKind = {
     ExperimentTrendsQuery: 'ExperimentTrendsQuery',
 } as const
-
-export interface ExperimentTrendsQuery {
-    count_query: TrendsQuery
-    /** @nullable */
-    experiment_id?: number | null
-    /** @nullable */
-    exposure_query?: TrendsQuery
-    /** @nullable */
-    fingerprint?: string | null
-    kind?: ExperimentTrendsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    response?: ExperimentTrendsQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    uuid?: string | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type ExperimentQueryKind = (typeof ExperimentQueryKind)[keyof typeof ExperimentQueryKind]
 
@@ -3852,29 +4241,6 @@ export type ExperimentQueryMetric =
     | ExperimentRatioMetric
     | ExperimentRetentionMetric
 
-export interface ExperimentQuery {
-    /** @nullable */
-    experiment_id?: number | null
-    kind?: ExperimentQueryKind
-    metric: ExperimentQueryMetric
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    response?: ExperimentQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ExperimentExposureQueryFeatureFlag = { [key: string]: unknown }
 
 export type ExperimentExposureQueryKind = (typeof ExperimentExposureQueryKind)[keyof typeof ExperimentExposureQueryKind]
@@ -3884,75 +4250,12 @@ export const ExperimentExposureQueryKind = {
     ExperimentExposureQuery: 'ExperimentExposureQuery',
 } as const
 
-export interface ExperimentExposureQuery {
-    /** @nullable */
-    end_date?: string | null
-    /** @nullable */
-    experiment_id?: number | null
-    experiment_name: string
-    /** @nullable */
-    exposure_criteria?: ExperimentExposureCriteria
-    feature_flag: ExperimentExposureQueryFeatureFlag
-    /** @nullable */
-    holdout?: ExperimentHoldoutType
-    kind?: ExperimentExposureQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: ExperimentExposureQueryResponse
-    /** @nullable */
-    start_date?: string | null
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type DocumentSimilarityQueryKind = (typeof DocumentSimilarityQueryKind)[keyof typeof DocumentSimilarityQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DocumentSimilarityQueryKind = {
     DocumentSimilarityQuery: 'DocumentSimilarityQuery',
 } as const
-
-export interface DocumentSimilarityQuery {
-    dateRange: DateRange
-    distance_func: DistanceFunc
-    document_types: string[]
-    kind?: DocumentSimilarityQueryKind
-    /** @nullable */
-    limit?: number | null
-    model: string
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    order_by: OrderBy
-    order_direction: OrderDirection
-    origin: EmbeddedDocument
-    products: string[]
-    renderings: string[]
-    /** @nullable */
-    response?: DocumentSimilarityQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    threshold?: number | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * @nullable
@@ -3970,43 +4273,6 @@ export const WebOverviewQueryKind = {
 export const WebOverviewQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
 export type WebOverviewQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 
-export interface WebOverviewQuery {
-    /** @nullable */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: WebOverviewQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    kind?: WebOverviewQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    orderBy?: (typeof WebOverviewQueryOrderByItem)[keyof typeof WebOverviewQueryOrderByItem][] | null
-    properties: WebOverviewQueryPropertiesItem[]
-    /** @nullable */
-    response?: WebOverviewQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 /**
  * @nullable
  */
@@ -4022,52 +4288,6 @@ export const WebStatsTableQueryKind = {
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebStatsTableQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
 export type WebStatsTableQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
-
-export interface WebStatsTableQuery {
-    breakdownBy: WebStatsBreakdown
-    /** @nullable */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: WebStatsTableQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    includeBounceRate?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    /** @nullable */
-    includeScrollDepth?: boolean | null
-    kind?: WebStatsTableQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    orderBy?: (typeof WebStatsTableQueryOrderByItem)[keyof typeof WebStatsTableQueryOrderByItem][] | null
-    properties: WebStatsTableQueryPropertiesItem[]
-    /** @nullable */
-    response?: WebStatsTableQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * @nullable
@@ -4092,49 +4312,6 @@ export type WebExternalClicksTableQueryPropertiesItem =
     | PersonPropertyFilter
     | SessionPropertyFilter
 
-export interface WebExternalClicksTableQuery {
-    /** @nullable */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: WebExternalClicksTableQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    kind?: WebExternalClicksTableQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    orderBy?:
-        | (typeof WebExternalClicksTableQueryOrderByItem)[keyof typeof WebExternalClicksTableQueryOrderByItem][]
-        | null
-    properties: WebExternalClicksTableQueryPropertiesItem[]
-    /** @nullable */
-    response?: WebExternalClicksTableQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    /** @nullable */
-    stripQueryParams?: boolean | null
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 /**
  * @nullable
  */
@@ -4150,45 +4327,6 @@ export const WebGoalsQueryKind = {
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebGoalsQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
 export type WebGoalsQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
-
-export interface WebGoalsQuery {
-    /** @nullable */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: WebGoalsQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    kind?: WebGoalsQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    orderBy?: (typeof WebGoalsQueryOrderByItem)[keyof typeof WebGoalsQueryOrderByItem][] | null
-    properties: WebGoalsQueryPropertiesItem[]
-    /** @nullable */
-    response?: WebGoalsQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * @nullable
@@ -4213,44 +4351,8 @@ export type WebVitalsQuerySource =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-
-export interface WebVitalsQuery {
-    /** @nullable */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: WebVitalsQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    kind?: WebVitalsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    orderBy?: (typeof WebVitalsQueryOrderByItem)[keyof typeof WebVitalsQueryOrderByItem][] | null
-    properties: WebVitalsQueryPropertiesItem[]
-    /** @nullable */
-    response?: WebGoalsQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    source: WebVitalsQuerySource
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
+    | WebStatsTableQuery
+    | WebOverviewQuery
 
 /**
  * @nullable
@@ -4275,52 +4377,6 @@ export type WebVitalsPathBreakdownQueryPropertiesItem =
     | PersonPropertyFilter
     | SessionPropertyFilter
 
-export interface WebVitalsPathBreakdownQuery {
-    /** @nullable */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: WebVitalsPathBreakdownQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    kind?: WebVitalsPathBreakdownQueryKind
-    metric: WebVitalsMetric
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    orderBy?:
-        | (typeof WebVitalsPathBreakdownQueryOrderByItem)[keyof typeof WebVitalsPathBreakdownQueryOrderByItem][]
-        | null
-    percentile: WebVitalsPercentile
-    properties: WebVitalsPathBreakdownQueryPropertiesItem[]
-    /** @nullable */
-    response?: WebVitalsPathBreakdownQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * @minItems 2
-     * @maxItems 2
-     */
-    thresholds: number[]
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 /**
  * @nullable
  */
@@ -4340,49 +4396,6 @@ export const WebPageURLSearchQueryOrderByItem = {
 } as const
 export type WebPageURLSearchQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 
-export interface WebPageURLSearchQuery {
-    /** @nullable */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: WebPageURLSearchQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    kind?: WebPageURLSearchQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    orderBy?: (typeof WebPageURLSearchQueryOrderByItem)[keyof typeof WebPageURLSearchQueryOrderByItem][] | null
-    properties: WebPageURLSearchQueryPropertiesItem[]
-    /** @nullable */
-    response?: WebPageURLSearchQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    /** @nullable */
-    searchTerm?: string | null
-    /** @nullable */
-    stripQueryParams?: boolean | null
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type WebAnalyticsExternalSummaryQueryKind =
     (typeof WebAnalyticsExternalSummaryQueryKind)[keyof typeof WebAnalyticsExternalSummaryQueryKind]
 
@@ -4396,19 +4409,6 @@ export type WebAnalyticsExternalSummaryQueryPropertiesItem =
     | PersonPropertyFilter
     | SessionPropertyFilter
 
-export interface WebAnalyticsExternalSummaryQuery {
-    dateRange: DateRange
-    kind?: WebAnalyticsExternalSummaryQueryKind
-    properties: WebAnalyticsExternalSummaryQueryPropertiesItem[]
-    /** @nullable */
-    response?: WebAnalyticsExternalSummaryQueryResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type RevenueAnalyticsGrossRevenueQueryKind =
     (typeof RevenueAnalyticsGrossRevenueQueryKind)[keyof typeof RevenueAnalyticsGrossRevenueQueryKind]
 
@@ -4416,29 +4416,6 @@ export type RevenueAnalyticsGrossRevenueQueryKind =
 export const RevenueAnalyticsGrossRevenueQueryKind = {
     RevenueAnalyticsGrossRevenueQuery: 'RevenueAnalyticsGrossRevenueQuery',
 } as const
-
-export interface RevenueAnalyticsGrossRevenueQuery {
-    breakdown: RevenueAnalyticsBreakdown[]
-    /** @nullable */
-    dateRange?: DateRange
-    interval: SimpleIntervalType
-    kind?: RevenueAnalyticsGrossRevenueQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    properties: RevenueAnalyticsPropertyFilter[]
-    /** @nullable */
-    response?: RevenueAnalyticsGrossRevenueQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type RevenueAnalyticsMetricsQueryKind =
     (typeof RevenueAnalyticsMetricsQueryKind)[keyof typeof RevenueAnalyticsMetricsQueryKind]
@@ -4448,29 +4425,6 @@ export const RevenueAnalyticsMetricsQueryKind = {
     RevenueAnalyticsMetricsQuery: 'RevenueAnalyticsMetricsQuery',
 } as const
 
-export interface RevenueAnalyticsMetricsQuery {
-    breakdown: RevenueAnalyticsBreakdown[]
-    /** @nullable */
-    dateRange?: DateRange
-    interval: SimpleIntervalType
-    kind?: RevenueAnalyticsMetricsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    properties: RevenueAnalyticsPropertyFilter[]
-    /** @nullable */
-    response?: RevenueAnalyticsMetricsQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type RevenueAnalyticsMRRQueryKind =
     (typeof RevenueAnalyticsMRRQueryKind)[keyof typeof RevenueAnalyticsMRRQueryKind]
 
@@ -4478,29 +4432,6 @@ export type RevenueAnalyticsMRRQueryKind =
 export const RevenueAnalyticsMRRQueryKind = {
     RevenueAnalyticsMRRQuery: 'RevenueAnalyticsMRRQuery',
 } as const
-
-export interface RevenueAnalyticsMRRQuery {
-    breakdown: RevenueAnalyticsBreakdown[]
-    /** @nullable */
-    dateRange?: DateRange
-    interval: SimpleIntervalType
-    kind?: RevenueAnalyticsMRRQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    properties: RevenueAnalyticsPropertyFilter[]
-    /** @nullable */
-    response?: RevenueAnalyticsMRRQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type RevenueAnalyticsOverviewQueryKind =
     (typeof RevenueAnalyticsOverviewQueryKind)[keyof typeof RevenueAnalyticsOverviewQueryKind]
@@ -4510,27 +4441,6 @@ export const RevenueAnalyticsOverviewQueryKind = {
     RevenueAnalyticsOverviewQuery: 'RevenueAnalyticsOverviewQuery',
 } as const
 
-export interface RevenueAnalyticsOverviewQuery {
-    /** @nullable */
-    dateRange?: DateRange
-    kind?: RevenueAnalyticsOverviewQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    properties: RevenueAnalyticsPropertyFilter[]
-    /** @nullable */
-    response?: RevenueAnalyticsOverviewQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type RevenueAnalyticsTopCustomersQueryKind =
     (typeof RevenueAnalyticsTopCustomersQueryKind)[keyof typeof RevenueAnalyticsTopCustomersQueryKind]
 
@@ -4538,28 +4448,6 @@ export type RevenueAnalyticsTopCustomersQueryKind =
 export const RevenueAnalyticsTopCustomersQueryKind = {
     RevenueAnalyticsTopCustomersQuery: 'RevenueAnalyticsTopCustomersQuery',
 } as const
-
-export interface RevenueAnalyticsTopCustomersQuery {
-    /** @nullable */
-    dateRange?: DateRange
-    groupBy: RevenueAnalyticsTopCustomersGroupBy
-    kind?: RevenueAnalyticsTopCustomersQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    properties: RevenueAnalyticsPropertyFilter[]
-    /** @nullable */
-    response?: RevenueAnalyticsTopCustomersQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * @nullable
@@ -4591,82 +4479,6 @@ export type MarketingAnalyticsTableQueryPropertiesItem =
     | PersonPropertyFilter
     | SessionPropertyFilter
 
-export interface MarketingAnalyticsTableQuery {
-    /**
-     * Compare to date range
-     * @nullable
-     */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: MarketingAnalyticsTableQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /**
-     * Draft conversion goal that can be set in the UI without saving
-     * @nullable
-     */
-    draftConversionGoal?: MarketingAnalyticsTableQueryDraftConversionGoal
-    /**
-     * Filter test accounts
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Include conversion goal rows even when they don't match campaign costs table
-     * @nullable
-     */
-    includeAllConversions?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    /**
-     * Filter by integration type
-     * @nullable
-     */
-    integrationFilter?: IntegrationFilter
-    kind?: MarketingAnalyticsTableQueryKind
-    /**
-     * Number of rows to return
-     * @nullable
-     */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Number of rows to skip before returning rows
-     * @nullable
-     */
-    offset?: number | null
-    /**
-     * Columns to order by - similar to EventsQuery format
-     * @nullable
-     */
-    orderBy?: MarketingAnalyticsTableQueryOrderByItemItem[][] | null
-    properties: MarketingAnalyticsTableQueryPropertiesItem[]
-    /** @nullable */
-    response?: MarketingAnalyticsTableQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    /**
-     * Return a limited set of data. Will use default columns if empty.
-     * @nullable
-     */
-    select?: string[] | null
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 /**
  * @nullable
  */
@@ -4695,78 +4507,12 @@ export type MarketingAnalyticsAggregatedQueryPropertiesItem =
     | PersonPropertyFilter
     | SessionPropertyFilter
 
-export interface MarketingAnalyticsAggregatedQuery {
-    /** @nullable */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: MarketingAnalyticsAggregatedQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /**
-     * Draft conversion goal that can be set in the UI without saving
-     * @nullable
-     */
-    draftConversionGoal?: MarketingAnalyticsAggregatedQueryDraftConversionGoal
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    /**
-     * Filter by integration IDs
-     * @nullable
-     */
-    integrationFilter?: IntegrationFilter
-    kind?: MarketingAnalyticsAggregatedQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    properties: MarketingAnalyticsAggregatedQueryPropertiesItem[]
-    /** @nullable */
-    response?: MarketingAnalyticsAggregatedQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    /**
-     * Return a limited set of data. Will use default columns if empty.
-     * @nullable
-     */
-    select?: string[] | null
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type DataVisualizationNodeKind = (typeof DataVisualizationNodeKind)[keyof typeof DataVisualizationNodeKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DataVisualizationNodeKind = {
     DataVisualizationNode: 'DataVisualizationNode',
 } as const
-
-export interface DataVisualizationNode {
-    /** @nullable */
-    chartSettings?: ChartSettings
-    /** @nullable */
-    display?: ChartDisplayType
-    kind?: DataVisualizationNodeKind
-    source: HogQLQuery
-    /** @nullable */
-    tableSettings?: TableSettings
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type DataTableNodeKind = (typeof DataTableNodeKind)[keyof typeof DataTableNodeKind]
 
@@ -4847,171 +4593,6 @@ export type DataTableNodeSource =
     | TracesQuery
     | TraceQuery
 
-export interface DataTableNode {
-    /**
-     * Can the user click on column headers to sort the table? (default: true)
-     * @nullable
-     */
-    allowSorting?: boolean | null
-    /**
-     * Columns shown in the table, unless the `source` provides them.
-     * @nullable
-     */
-    columns?: string[] | null
-    /**
-     * Context for the table, used by components like ColumnConfigurator
-     * @nullable
-     */
-    context?: DataTableNodeViewPropsContext
-    /**
-     * Context key for universal column configuration (e.g., "survey:123")
-     * @nullable
-     */
-    contextKey?: string | null
-    /**
-     * Default columns to use when resetting column configuration
-     * @nullable
-     */
-    defaultColumns?: string[] | null
-    /**
-     * Uses the embedded version of LemonTable
-     * @nullable
-     */
-    embedded?: boolean | null
-    /**
-     * Can expand row to show raw event data (default: true)
-     * @nullable
-     */
-    expandable?: boolean | null
-    /**
-     * Show with most visual options enabled. Used in scenes.
-     * @nullable
-     */
-    full?: boolean | null
-    /**
-     * Columns that aren't shown in the table, even if in columns or returned data
-     * @nullable
-     */
-    hiddenColumns?: string[] | null
-    kind?: DataTableNodeKind
-    /**
-     * Columns that are sticky when scrolling horizontally
-     * @nullable
-     */
-    pinnedColumns?: string[] | null
-    /**
-     * Link properties via the URL (default: false)
-     * @nullable
-     */
-    propertiesViaUrl?: boolean | null
-    /** @nullable */
-    response?: DataTableNodeResponse
-    /**
-     * Show the kebab menu at the end of the row
-     * @nullable
-     */
-    showActions?: boolean | null
-    /**
-     * Show a button to configure the table's columns if possible
-     * @nullable
-     */
-    showColumnConfigurator?: boolean | null
-    /**
-     * Show date range selector
-     * @nullable
-     */
-    showDateRange?: boolean | null
-    /**
-     * Show the time it takes to run a query
-     * @nullable
-     */
-    showElapsedTime?: boolean | null
-    /**
-     * Include an event filter above the table (EventsNode only)
-     * @nullable
-     */
-    showEventFilter?: boolean | null
-    /**
-     * Show the export button
-     * @nullable
-     */
-    showExport?: boolean | null
-    /**
-     * Include a HogQL query editor above HogQL tables
-     * @nullable
-     */
-    showHogQLEditor?: boolean | null
-    /**
-     * Show a button to open the current query as a new insight. (default: true)
-     * @nullable
-     */
-    showOpenEditorButton?: boolean | null
-    /**
-     * Show a button to configure and persist the table's default columns if possible
-     * @nullable
-     */
-    showPersistentColumnConfigurator?: boolean | null
-    /**
-     * Include a property filter above the table
-     * @nullable
-     */
-    showPropertyFilter?: DataTableNodeShowPropertyFilter
-    /**
-     * Show a recording column for events with session recordings
-     * @nullable
-     */
-    showRecordingColumn?: boolean | null
-    /**
-     * Show a reload button
-     * @nullable
-     */
-    showReload?: boolean | null
-    /**
-     * Show a results table
-     * @nullable
-     */
-    showResultsTable?: boolean | null
-    /**
-     * Show saved filters feature for this table (requires uniqueKey)
-     * @nullable
-     */
-    showSavedFilters?: boolean | null
-    /**
-     * Shows a list of saved queries
-     * @nullable
-     */
-    showSavedQueries?: boolean | null
-    /**
-     * Include a free text search field (PersonsNode only)
-     * @nullable
-     */
-    showSearch?: boolean | null
-    /**
-     * Show actors query options and back to source
-     * @nullable
-     */
-    showSourceQueryOptions?: boolean | null
-    /**
-     * Show filter to exclude test accounts
-     * @nullable
-     */
-    showTestAccountFilters?: boolean | null
-    /**
-     * Show a detailed query timing breakdown
-     * @nullable
-     */
-    showTimings?: boolean | null
-    /** Source of the events */
-    source: DataTableNodeSource
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type SavedInsightNodeKind = (typeof SavedInsightNodeKind)[keyof typeof SavedInsightNodeKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -5024,173 +4605,6 @@ export const SavedInsightNodeKind = {
  * @nullable
  */
 export type SavedInsightNodeShowPropertyFilter = boolean | TaxonomicFilterGroupType[] | null
-
-export interface SavedInsightNode {
-    /**
-     * Can the user click on column headers to sort the table? (default: true)
-     * @nullable
-     */
-    allowSorting?: boolean | null
-    /**
-     * Context for the table, used by components like ColumnConfigurator
-     * @nullable
-     */
-    context?: DataTableNodeViewPropsContext
-    /**
-     * Context key for universal column configuration (e.g., "survey:123")
-     * @nullable
-     */
-    contextKey?: string | null
-    /**
-     * Default columns to use when resetting column configuration
-     * @nullable
-     */
-    defaultColumns?: string[] | null
-    /**
-     * Query is embedded inside another bordered component
-     * @nullable
-     */
-    embedded?: boolean | null
-    /**
-     * Can expand row to show raw event data (default: true)
-     * @nullable
-     */
-    expandable?: boolean | null
-    /**
-     * Show with most visual options enabled. Used in insight scene.
-     * @nullable
-     */
-    full?: boolean | null
-    /** @nullable */
-    hidePersonsModal?: boolean | null
-    /** @nullable */
-    hideTooltipOnScroll?: boolean | null
-    kind?: SavedInsightNodeKind
-    /**
-     * Link properties via the URL (default: false)
-     * @nullable
-     */
-    propertiesViaUrl?: boolean | null
-    shortId: string
-    /**
-     * Show the kebab menu at the end of the row
-     * @nullable
-     */
-    showActions?: boolean | null
-    /**
-     * Show a button to configure the table's columns if possible
-     * @nullable
-     */
-    showColumnConfigurator?: boolean | null
-    /** @nullable */
-    showCorrelationTable?: boolean | null
-    /**
-     * Show date range selector
-     * @nullable
-     */
-    showDateRange?: boolean | null
-    /**
-     * Show the time it takes to run a query
-     * @nullable
-     */
-    showElapsedTime?: boolean | null
-    /**
-     * Include an event filter above the table (EventsNode only)
-     * @nullable
-     */
-    showEventFilter?: boolean | null
-    /**
-     * Show the export button
-     * @nullable
-     */
-    showExport?: boolean | null
-    /** @nullable */
-    showFilters?: boolean | null
-    /** @nullable */
-    showHeader?: boolean | null
-    /**
-     * Include a HogQL query editor above HogQL tables
-     * @nullable
-     */
-    showHogQLEditor?: boolean | null
-    /** @nullable */
-    showLastComputation?: boolean | null
-    /** @nullable */
-    showLastComputationRefresh?: boolean | null
-    /**
-     * Show a button to open the current query as a new insight. (default: true)
-     * @nullable
-     */
-    showOpenEditorButton?: boolean | null
-    /**
-     * Show a button to configure and persist the table's default columns if possible
-     * @nullable
-     */
-    showPersistentColumnConfigurator?: boolean | null
-    /**
-     * Include a property filter above the table
-     * @nullable
-     */
-    showPropertyFilter?: SavedInsightNodeShowPropertyFilter
-    /**
-     * Show a recording column for events with session recordings
-     * @nullable
-     */
-    showRecordingColumn?: boolean | null
-    /**
-     * Show a reload button
-     * @nullable
-     */
-    showReload?: boolean | null
-    /** @nullable */
-    showResults?: boolean | null
-    /**
-     * Show a results table
-     * @nullable
-     */
-    showResultsTable?: boolean | null
-    /**
-     * Show saved filters feature for this table (requires uniqueKey)
-     * @nullable
-     */
-    showSavedFilters?: boolean | null
-    /**
-     * Shows a list of saved queries
-     * @nullable
-     */
-    showSavedQueries?: boolean | null
-    /**
-     * Include a free text search field (PersonsNode only)
-     * @nullable
-     */
-    showSearch?: boolean | null
-    /**
-     * Show actors query options and back to source
-     * @nullable
-     */
-    showSourceQueryOptions?: boolean | null
-    /** @nullable */
-    showTable?: boolean | null
-    /**
-     * Show filter to exclude test accounts
-     * @nullable
-     */
-    showTestAccountFilters?: boolean | null
-    /**
-     * Show a detailed query timing breakdown
-     * @nullable
-     */
-    showTimings?: boolean | null
-    /** @nullable */
-    suppressSessionAnalysisWarning?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-    /** @nullable */
-    vizSpecificOptions?: VizSpecificOptions
-}
 
 export type InsightVizNodeKind = (typeof InsightVizNodeKind)[keyof typeof InsightVizNodeKind]
 
@@ -5206,48 +4620,8 @@ export type InsightVizNodeSource =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-
-export interface InsightVizNode {
-    /**
-     * Query is embedded inside another bordered component
-     * @nullable
-     */
-    embedded?: boolean | null
-    /**
-     * Show with most visual options enabled. Used in insight scene.
-     * @nullable
-     */
-    full?: boolean | null
-    /** @nullable */
-    hidePersonsModal?: boolean | null
-    /** @nullable */
-    hideTooltipOnScroll?: boolean | null
-    kind?: InsightVizNodeKind
-    /** @nullable */
-    showCorrelationTable?: boolean | null
-    /** @nullable */
-    showFilters?: boolean | null
-    /** @nullable */
-    showHeader?: boolean | null
-    /** @nullable */
-    showLastComputation?: boolean | null
-    /** @nullable */
-    showLastComputationRefresh?: boolean | null
-    /** @nullable */
-    showResults?: boolean | null
-    /** @nullable */
-    showTable?: boolean | null
-    source: InsightVizNodeSource
-    /** @nullable */
-    suppressSessionAnalysisWarning?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-    /** @nullable */
-    vizSpecificOptions?: VizSpecificOptions
-}
+    | WebStatsTableQuery
+    | WebOverviewQuery
 
 /**
  * Whether we should be comparing against a specific conversion goal
@@ -5290,84 +4664,6 @@ export type TrendsQueryProperties = TrendsQueryPropertiesAnyOfItem[] | PropertyG
 
 export type TrendsQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
 
-export interface TrendsQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Breakdown of the events and actions
-     * @nullable
-     */
-    breakdownFilter?: BreakdownFilter
-    /**
-     * Compare to date range
-     * @nullable
-     */
-    compareFilter?: CompareFilter
-    /**
-     * Whether we should be comparing against a specific conversion goal
-     * @nullable
-     */
-    conversionGoal?: TrendsQueryConversionGoal
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     * @nullable
-     */
-    interval?: IntervalType
-    kind?: TrendsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: TrendsQueryProperties
-    /** @nullable */
-    response?: TrendsQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /** Events and actions to include */
-    series: TrendsQuerySeriesItem[]
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * Properties specific to the trends insight
-     * @nullable
-     */
-    trendsFilter?: TrendsFilter
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type FunnelsQueryKind = (typeof FunnelsQueryKind)[keyof typeof FunnelsQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -5403,74 +4699,6 @@ export type FunnelsQueryProperties = FunnelsQueryPropertiesAnyOfItem[] | Propert
 
 export type FunnelsQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
 
-export interface FunnelsQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Breakdown of the events and actions
-     * @nullable
-     */
-    breakdownFilter?: BreakdownFilter
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Properties specific to the funnels insight
-     * @nullable
-     */
-    funnelsFilter?: FunnelsFilter
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     * @nullable
-     */
-    interval?: IntervalType
-    kind?: FunnelsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: FunnelsQueryProperties
-    /** @nullable */
-    response?: FunnelsQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /** Events and actions to include */
-    series: FunnelsQuerySeriesItem[]
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type RetentionQueryKind = (typeof RetentionQueryKind)[keyof typeof RetentionQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -5504,64 +4732,6 @@ export type RetentionQueryPropertiesAnyOfItem =
  */
 export type RetentionQueryProperties = RetentionQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
 
-export interface RetentionQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Breakdown of the events and actions
-     * @nullable
-     */
-    breakdownFilter?: BreakdownFilter
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    kind?: RetentionQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: RetentionQueryProperties
-    /** @nullable */
-    response?: RetentionQueryResponse
-    /** Properties specific to the retention insight */
-    retentionFilter: RetentionFilter
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type PathsQueryKind = (typeof PathsQueryKind)[keyof typeof PathsQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -5594,64 +4764,6 @@ export type PathsQueryPropertiesAnyOfItem =
  * @nullable
  */
 export type PathsQueryProperties = PathsQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
-
-export interface PathsQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Used for displaying paths in relation to funnel steps.
-     * @nullable
-     */
-    funnelPathsFilter?: FunnelPathsFilter
-    kind?: PathsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** Properties specific to the paths insight */
-    pathsFilter: PathsFilter
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: PathsQueryProperties
-    /** @nullable */
-    response?: PathsQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type StickinessQueryKind = (typeof StickinessQueryKind)[keyof typeof StickinessQueryKind]
 
@@ -5688,74 +4800,6 @@ export type StickinessQueryProperties = StickinessQueryPropertiesAnyOfItem[] | P
 
 export type StickinessQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
 
-export interface StickinessQuery {
-    /**
-     * Compare to date range
-     * @nullable
-     */
-    compareFilter?: CompareFilter
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     * @nullable
-     */
-    interval?: IntervalType
-    /**
-     * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
-     * @nullable
-     */
-    intervalCount?: number | null
-    kind?: StickinessQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: StickinessQueryProperties
-    /** @nullable */
-    response?: StickinessQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /** Events and actions to include */
-    series: StickinessQuerySeriesItem[]
-    /**
-     * Properties specific to the stickiness insight
-     * @nullable
-     */
-    stickinessFilter?: StickinessFilter
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type LifecycleQueryKind = (typeof LifecycleQueryKind)[keyof typeof LifecycleQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -5791,98 +4835,12 @@ export type LifecycleQueryProperties = LifecycleQueryPropertiesAnyOfItem[] | Pro
 
 export type LifecycleQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
 
-export interface LifecycleQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     * @nullable
-     */
-    interval?: IntervalType
-    kind?: LifecycleQueryKind
-    /**
-     * Properties specific to the lifecycle insight
-     * @nullable
-     */
-    lifecycleFilter?: LifecycleFilter
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: LifecycleQueryProperties
-    /** @nullable */
-    response?: LifecycleQueryResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /** Events and actions to include */
-    series: LifecycleQuerySeriesItem[]
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type FunnelCorrelationQueryKind = (typeof FunnelCorrelationQueryKind)[keyof typeof FunnelCorrelationQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelCorrelationQueryKind = {
     FunnelCorrelationQuery: 'FunnelCorrelationQuery',
 } as const
-
-export interface FunnelCorrelationQuery {
-    /** @nullable */
-    funnelCorrelationEventExcludePropertyNames?: string[] | null
-    /** @nullable */
-    funnelCorrelationEventNames?: string[] | null
-    /** @nullable */
-    funnelCorrelationExcludeEventNames?: string[] | null
-    /** @nullable */
-    funnelCorrelationExcludeNames?: string[] | null
-    /** @nullable */
-    funnelCorrelationNames?: string[] | null
-    funnelCorrelationType: FunnelCorrelationResultsType
-    kind?: FunnelCorrelationQueryKind
-    /** @nullable */
-    response?: FunnelCorrelationResponse
-    source: FunnelsActorsQuery
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type DatabaseSchemaQueryKind = (typeof DatabaseSchemaQueryKind)[keyof typeof DatabaseSchemaQueryKind]
 
@@ -5891,60 +4849,12 @@ export const DatabaseSchemaQueryKind = {
     DatabaseSchemaQuery: 'DatabaseSchemaQuery',
 } as const
 
-export interface DatabaseSchemaQuery {
-    kind?: DatabaseSchemaQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: DatabaseSchemaQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type LogsQueryKind = (typeof LogsQueryKind)[keyof typeof LogsQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const LogsQueryKind = {
     LogsQuery: 'LogsQuery',
 } as const
-
-export interface LogsQuery {
-    dateRange: DateRange
-    filterGroup: PropertyGroupFilter
-    kind?: LogsQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    orderBy?: OrderBy3
-    /** @nullable */
-    response?: LogsQueryResponse
-    /** @nullable */
-    searchTerm?: string | null
-    serviceNames: string[]
-    severityLevels: LogSeverityLevel[]
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type SuggestedQuestionsQueryKind = (typeof SuggestedQuestionsQueryKind)[keyof typeof SuggestedQuestionsQueryKind]
 
@@ -5953,48 +4863,12 @@ export const SuggestedQuestionsQueryKind = {
     SuggestedQuestionsQuery: 'SuggestedQuestionsQuery',
 } as const
 
-export interface SuggestedQuestionsQuery {
-    kind?: SuggestedQuestionsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: SuggestedQuestionsQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type TeamTaxonomyQueryKind = (typeof TeamTaxonomyQueryKind)[keyof typeof TeamTaxonomyQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const TeamTaxonomyQueryKind = {
     TeamTaxonomyQuery: 'TeamTaxonomyQuery',
 } as const
-
-export interface TeamTaxonomyQuery {
-    kind?: TeamTaxonomyQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: TeamTaxonomyQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type EventTaxonomyQueryKind = (typeof EventTaxonomyQueryKind)[keyof typeof EventTaxonomyQueryKind]
 
@@ -6003,32 +4877,6 @@ export const EventTaxonomyQueryKind = {
     EventTaxonomyQuery: 'EventTaxonomyQuery',
 } as const
 
-export interface EventTaxonomyQuery {
-    /** @nullable */
-    actionId?: number | null
-    /** @nullable */
-    event?: string | null
-    kind?: EventTaxonomyQueryKind
-    /** @nullable */
-    maxPropertyValues?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    properties?: string[] | null
-    /** @nullable */
-    response?: EventTaxonomyQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ActorsPropertyTaxonomyQueryKind =
     (typeof ActorsPropertyTaxonomyQueryKind)[keyof typeof ActorsPropertyTaxonomyQueryKind]
 
@@ -6036,29 +4884,6 @@ export type ActorsPropertyTaxonomyQueryKind =
 export const ActorsPropertyTaxonomyQueryKind = {
     ActorsPropertyTaxonomyQuery: 'ActorsPropertyTaxonomyQuery',
 } as const
-
-export interface ActorsPropertyTaxonomyQuery {
-    /** @nullable */
-    groupTypeIndex?: number | null
-    kind?: ActorsPropertyTaxonomyQueryKind
-    /** @nullable */
-    maxPropertyValues?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    properties: string[]
-    /** @nullable */
-    response?: ActorsPropertyTaxonomyQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type TracesQueryKind = (typeof TracesQueryKind)[keyof typeof TracesQueryKind]
 
@@ -6087,48 +4912,6 @@ export type TracesQueryPropertiesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface TracesQuery {
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    groupKey?: string | null
-    /** @nullable */
-    groupTypeIndex?: number | null
-    kind?: TracesQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Person who performed the event
-     * @nullable
-     */
-    personId?: string | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: TracesQueryPropertiesItem[] | null
-    /** @nullable */
-    response?: TracesQueryResponse
-    /** @nullable */
-    showColumnConfigurator?: boolean | null
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type TraceQueryKind = (typeof TraceQueryKind)[keyof typeof TraceQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -6156,32 +4939,6 @@ export type TraceQueryPropertiesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface TraceQuery {
-    /** @nullable */
-    dateRange?: DateRange
-    kind?: TraceQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: TraceQueryPropertiesItem[] | null
-    /** @nullable */
-    response?: TraceQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    traceId: string
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type VectorSearchQueryKind = (typeof VectorSearchQueryKind)[keyof typeof VectorSearchQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -6189,68 +4946,12 @@ export const VectorSearchQueryKind = {
     VectorSearchQuery: 'VectorSearchQuery',
 } as const
 
-export interface VectorSearchQuery {
-    embedding: number[]
-    /** @nullable */
-    embeddingVersion?: number | null
-    kind?: VectorSearchQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: VectorSearchQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type UsageMetricsQueryKind = (typeof UsageMetricsQueryKind)[keyof typeof UsageMetricsQueryKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UsageMetricsQueryKind = {
     UsageMetricsQuery: 'UsageMetricsQuery',
 } as const
-
-export interface UsageMetricsQuery {
-    /**
-     * Group key. Required with group_type_index for group queries.
-     * @nullable
-     */
-    group_key?: string | null
-    /**
-     * Group type index. Required with group_key for group queries.
-     * @nullable
-     */
-    group_type_index?: number | null
-    kind?: UsageMetricsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Person ID to fetch metrics for. Mutually exclusive with group parameters.
-     * @nullable
-     */
-    person_id?: string | null
-    /** @nullable */
-    response?: UsageMetricsQueryResponse
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
-export type RefreshType = (typeof RefreshType)[keyof typeof RefreshType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RefreshType = {
@@ -8842,65 +7543,12 @@ export interface QueryResponseAlternative78 {
  */
 export type QueryStatusResults = unknown | null
 
-export interface QueryStatus {
-    /**
-     * Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.
-     * @nullable
-     */
-    complete?: boolean | null
-    /** @nullable */
-    dashboard_id?: number | null
-    /**
-     * When did the query execution task finish (whether successfully or not).
-     * @nullable
-     */
-    end_time?: string | null
-    /**
-     * If the query failed, this will be set to true. More information can be found in the error_message field.
-     * @nullable
-     */
-    error?: boolean | null
-    /** @nullable */
-    error_message?: string | null
-    /** @nullable */
-    expiration_time?: string | null
-    id: string
-    /** @nullable */
-    insight_id?: number | null
-    /** @nullable */
-    labels?: string[] | null
-    /**
-     * When was the query execution task picked up by a worker.
-     * @nullable
-     */
-    pickup_time?: string | null
-    /** ONLY async queries use QueryStatus. */
-    query_async?: boolean
-    /** @nullable */
-    query_progress?: ClickhouseQueryProgress
-    /** @nullable */
-    results?: QueryStatusResults
-    /**
-     * When was query execution task enqueued.
-     * @nullable
-     */
-    start_time?: string | null
-    /** @nullable */
-    task_id?: string | null
-    team_id: number
-}
-
 /**
  * * `manual-options` - manual-options
  * `auto-discovery` - auto-discovery
  */
-export type QuickFilterTypeEnum = (typeof QuickFilterTypeEnum)[keyof typeof QuickFilterTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QuickFilterTypeEnum = {
-    'manual-options': 'manual-options',
-    'auto-discovery': 'auto-discovery',
-} as const
 
 /**
  * * `screenshot` - Screenshot
@@ -8911,11 +7559,6 @@ export type HeatmapScreenshotResponseTypeEnum =
     (typeof HeatmapScreenshotResponseTypeEnum)[keyof typeof HeatmapScreenshotResponseTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HeatmapScreenshotResponseTypeEnum = {
-    screenshot: 'screenshot',
-    iframe: 'iframe',
-    recording: 'recording',
-} as const
 
 /**
  * * `processing` - Processing
@@ -8926,11 +7569,6 @@ export type HeatmapScreenshotResponseStatusEnum =
     (typeof HeatmapScreenshotResponseStatusEnum)[keyof typeof HeatmapScreenshotResponseStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HeatmapScreenshotResponseStatusEnum = {
-    processing: 'processing',
-    completed: 'completed',
-    failed: 'failed',
-} as const
 
 /**
  * * `onboarding` - Onboarding
@@ -8941,18 +7579,8 @@ export const HeatmapScreenshotResponseStatusEnum = {
  * `new_product` - New Product
  * `sales_led` - Sales Led
  */
-export type ReasonEnum = (typeof ReasonEnum)[keyof typeof ReasonEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ReasonEnum = {
-    onboarding: 'onboarding',
-    product_intent: 'product_intent',
-    used_by_colleagues: 'used_by_colleagues',
-    used_similar_products: 'used_similar_products',
-    used_on_separate_team: 'used_on_separate_team',
-    new_product: 'new_product',
-    sales_led: 'sales_led',
-} as const
 
 /**
  * * `CSV` - CSV
@@ -8962,17 +7590,8 @@ export const ReasonEnum = {
  * `Delta` - Delta
  * `DeltaS3Wrapper` - DeltaS3Wrapper
  */
-export type TableFormatEnum = (typeof TableFormatEnum)[keyof typeof TableFormatEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TableFormatEnum = {
-    CSV: 'CSV',
-    CSVWithNames: 'CSVWithNames',
-    Parquet: 'Parquet',
-    JSONEachRow: 'JSONEachRow',
-    Delta: 'Delta',
-    DeltaS3Wrapper: 'DeltaS3Wrapper',
-} as const
 
 export interface Credential {
     readonly id: string
@@ -9003,19 +7622,8 @@ export interface SimpleExternalDataSourceSerializers {
  * `sales` - Sales / Success
  * `other` - Other
  */
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RoleAtOrganizationEnum = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
 
 /**
  * * `slack` - Slack
@@ -9041,33 +7649,8 @@ export const RoleAtOrganizationEnum = {
  * `vercel` - Vercel
  * `databricks` - Databricks
  */
-export type KindEnum = (typeof KindEnum)[keyof typeof KindEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const KindEnum = {
-    slack: 'slack',
-    salesforce: 'salesforce',
-    hubspot: 'hubspot',
-    'google-pubsub': 'google-pubsub',
-    'google-cloud-storage': 'google-cloud-storage',
-    'google-ads': 'google-ads',
-    'google-sheets': 'google-sheets',
-    snapchat: 'snapchat',
-    'linkedin-ads': 'linkedin-ads',
-    'reddit-ads': 'reddit-ads',
-    'tiktok-ads': 'tiktok-ads',
-    'bing-ads': 'bing-ads',
-    intercom: 'intercom',
-    email: 'email',
-    linear: 'linear',
-    github: 'github',
-    gitlab: 'gitlab',
-    'meta-ads': 'meta-ads',
-    twilio: 'twilio',
-    clickup: 'clickup',
-    vercel: 'vercel',
-    databricks: 'databricks',
-} as const
 
 /**
  * * `exact` - exact
@@ -9088,28 +7671,8 @@ export const KindEnum = {
  * `in` - in
  * `not_in` - not_in
  */
-export type OperatorEnum = (typeof OperatorEnum)[keyof typeof OperatorEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OperatorEnum = {
-    exact: 'exact',
-    is_not: 'is_not',
-    icontains: 'icontains',
-    not_icontains: 'not_icontains',
-    regex: 'regex',
-    not_regex: 'not_regex',
-    gt: 'gt',
-    lt: 'lt',
-    gte: 'gte',
-    lte: 'lte',
-    is_set: 'is_set',
-    is_not_set: 'is_not_set',
-    is_date_exact: 'is_date_exact',
-    is_date_after: 'is_date_after',
-    is_date_before: 'is_date_before',
-    in: 'in',
-    not_in: 'not_in',
-} as const
 
 /**
  * * `event` - event
@@ -9134,32 +7697,8 @@ export const OperatorEnum = {
  * `revenue_analytics` - revenue_analytics
  * `flag` - flag
  */
-export type PropertyItemTypeEnum = (typeof PropertyItemTypeEnum)[keyof typeof PropertyItemTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyItemTypeEnum = {
-    event: 'event',
-    event_metadata: 'event_metadata',
-    feature: 'feature',
-    person: 'person',
-    cohort: 'cohort',
-    element: 'element',
-    'static-cohort': 'static-cohort',
-    'dynamic-cohort': 'dynamic-cohort',
-    'precalculated-cohort': 'precalculated-cohort',
-    group: 'group',
-    recording: 'recording',
-    log_entry: 'log_entry',
-    behavioral: 'behavioral',
-    session: 'session',
-    hogql: 'hogql',
-    data_warehouse: 'data_warehouse',
-    data_warehouse_person_property: 'data_warehouse_person_property',
-    error_tracking_issue: 'error_tracking_issue',
-    log: 'log',
-    revenue_analytics: 'revenue_analytics',
-    flag: 'flag',
-} as const
 
 export interface HeatmapResponseItem {
     count: number
@@ -9174,15 +7713,8 @@ export interface HeatmapResponseItem {
  * `complete` - complete
  * `branch` - branch
  */
-export type OnErrorEnum = (typeof OnErrorEnum)[keyof typeof OnErrorEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OnErrorEnum = {
-    continue: 'continue',
-    abort: 'abort',
-    complete: 'complete',
-    branch: 'branch',
-} as const
 
 export type HogFunctionFiltersActionsItem = { [key: string]: unknown }
 
@@ -9211,13 +7743,8 @@ export interface HogFunctionFilters {
  * * `hog` - hog
  * `liquid` - liquid
  */
-export type Templating186Enum = (typeof Templating186Enum)[keyof typeof Templating186Enum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Templating186Enum = {
-    hog: 'hog',
-    liquid: 'liquid',
-} as const
 
 export interface EmailTemplate {
     subject?: string
@@ -9231,14 +7758,8 @@ export interface EmailTemplate {
  * `PLUGIN` - PLUGIN
  * `CONSOLE` - CONSOLE
  */
-export type PluginLogEntrySourceEnum = (typeof PluginLogEntrySourceEnum)[keyof typeof PluginLogEntrySourceEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PluginLogEntrySourceEnum = {
-    SYSTEM: 'SYSTEM',
-    PLUGIN: 'PLUGIN',
-    CONSOLE: 'CONSOLE',
-} as const
 
 /**
  * * `DEBUG` - DEBUG
@@ -9247,16 +7768,8 @@ export const PluginLogEntrySourceEnum = {
  * `WARN` - WARN
  * `ERROR` - ERROR
  */
-export type PluginLogEntryTypeEnum = (typeof PluginLogEntryTypeEnum)[keyof typeof PluginLogEntryTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PluginLogEntryTypeEnum = {
-    DEBUG: 'DEBUG',
-    LOG: 'LOG',
-    INFO: 'INFO',
-    WARN: 'WARN',
-    ERROR: 'ERROR',
-} as const
 
 export type BreakdownFilterBreakdownAnyOfItem = string | number
 
@@ -9264,28 +7777,6 @@ export type BreakdownFilterBreakdownAnyOfItem = string | number
  * @nullable
  */
 export type BreakdownFilterBreakdown = string | BreakdownFilterBreakdownAnyOfItem[] | number | null
-
-export interface BreakdownFilter {
-    /** @nullable */
-    breakdown?: BreakdownFilterBreakdown
-    /** @nullable */
-    breakdown_group_type_index?: number | null
-    /** @nullable */
-    breakdown_hide_other_aggregation?: boolean | null
-    /** @nullable */
-    breakdown_histogram_bin_count?: number | null
-    /** @nullable */
-    breakdown_limit?: number | null
-    /** @nullable */
-    breakdown_normalize_url?: boolean | null
-    /** @nullable */
-    breakdown_type?: BreakdownType
-    /**
-     * @maxItems 3
-     * @nullable
-     */
-    breakdowns?: Breakdown[] | null
-}
 
 /**
  * Event properties
@@ -9304,18 +7795,6 @@ export type EventPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type EventPropertyFilterValue = EventPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface EventPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    /** @nullable */
-    operator?: PropertyOperator
-    /** Event properties */
-    type?: EventPropertyFilterType
-    /** @nullable */
-    value?: EventPropertyFilterValue
-}
-
 /**
  * Person properties
  */
@@ -9333,17 +7812,6 @@ export type PersonPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type PersonPropertyFilterValue = PersonPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface PersonPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    /** Person properties */
-    type?: PersonPropertyFilterType
-    /** @nullable */
-    value?: PersonPropertyFilterValue
-}
-
 export type ElementPropertyFilterType = (typeof ElementPropertyFilterType)[keyof typeof ElementPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -9357,16 +7825,6 @@ export type ElementPropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type ElementPropertyFilterValue = ElementPropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface ElementPropertyFilter {
-    key: Key
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: ElementPropertyFilterType
-    /** @nullable */
-    value?: ElementPropertyFilterValue
-}
 
 export type EventMetadataPropertyFilterType =
     (typeof EventMetadataPropertyFilterType)[keyof typeof EventMetadataPropertyFilterType]
@@ -9388,16 +7846,6 @@ export type EventMetadataPropertyFilterValue =
     | boolean
     | null
 
-export interface EventMetadataPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: EventMetadataPropertyFilterType
-    /** @nullable */
-    value?: EventMetadataPropertyFilterValue
-}
-
 export type SessionPropertyFilterType = (typeof SessionPropertyFilterType)[keyof typeof SessionPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -9412,16 +7860,6 @@ export type SessionPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type SessionPropertyFilterValue = SessionPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface SessionPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: SessionPropertyFilterType
-    /** @nullable */
-    value?: SessionPropertyFilterValue
-}
-
 export type CohortPropertyFilterKey = (typeof CohortPropertyFilterKey)[keyof typeof CohortPropertyFilterKey]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -9435,18 +7873,6 @@ export type CohortPropertyFilterType = (typeof CohortPropertyFilterType)[keyof t
 export const CohortPropertyFilterType = {
     cohort: 'cohort',
 } as const
-
-export interface CohortPropertyFilter {
-    /** @nullable */
-    cohort_name?: string | null
-    key?: CohortPropertyFilterKey
-    /** @nullable */
-    label?: string | null
-    /** @nullable */
-    operator?: PropertyOperator
-    type?: CohortPropertyFilterType
-    value: number
-}
 
 export type RecordingPropertyFilterKey = DurationType | string
 
@@ -9464,16 +7890,6 @@ export type RecordingPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type RecordingPropertyFilterValue = RecordingPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface RecordingPropertyFilter {
-    key: RecordingPropertyFilterKey
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: RecordingPropertyFilterType
-    /** @nullable */
-    value?: RecordingPropertyFilterValue
-}
-
 export type LogEntryPropertyFilterType = (typeof LogEntryPropertyFilterType)[keyof typeof LogEntryPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -9488,16 +7904,6 @@ export type LogEntryPropertyFilterValueAnyOfItem = string | number | boolean
  */
 export type LogEntryPropertyFilterValue = LogEntryPropertyFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface LogEntryPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: LogEntryPropertyFilterType
-    /** @nullable */
-    value?: LogEntryPropertyFilterValue
-}
-
 export type GroupPropertyFilterType = (typeof GroupPropertyFilterType)[keyof typeof GroupPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -9511,18 +7917,6 @@ export type GroupPropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type GroupPropertyFilterValue = GroupPropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface GroupPropertyFilter {
-    /** @nullable */
-    group_type_index?: number | null
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: GroupPropertyFilterType
-    /** @nullable */
-    value?: GroupPropertyFilterValue
-}
 
 /**
  * Event property with "$feature/" prepended
@@ -9540,17 +7934,6 @@ export type FeaturePropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type FeaturePropertyFilterValue = FeaturePropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface FeaturePropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    /** Event property with "$feature/" prepended */
-    type?: FeaturePropertyFilterType
-    /** @nullable */
-    value?: FeaturePropertyFilterValue
-}
 
 /**
  * Only flag_evaluates_to operator is allowed for flag dependencies
@@ -9577,19 +7960,6 @@ export const FlagPropertyFilterType = {
  */
 export type FlagPropertyFilterValue = boolean | string
 
-export interface FlagPropertyFilter {
-    /** The key should be the flag ID */
-    key: string
-    /** @nullable */
-    label?: string | null
-    /** Only flag_evaluates_to operator is allowed for flag dependencies */
-    operator?: FlagPropertyFilterOperator
-    /** Feature flag dependency */
-    type?: FlagPropertyFilterType
-    /** The value can be true, false, or a variant name */
-    value: FlagPropertyFilterValue
-}
-
 export type HogQLPropertyFilterType = (typeof HogQLPropertyFilterType)[keyof typeof HogQLPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -9603,19 +7973,6 @@ export type HogQLPropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type HogQLPropertyFilterValue = HogQLPropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface HogQLPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    type?: HogQLPropertyFilterType
-    /** @nullable */
-    value?: HogQLPropertyFilterValue
-}
-
-export interface EmptyPropertyFilter {
-    [key: string]: unknown
-}
 
 export type DataWarehousePropertyFilterType =
     (typeof DataWarehousePropertyFilterType)[keyof typeof DataWarehousePropertyFilterType]
@@ -9637,16 +7994,6 @@ export type DataWarehousePropertyFilterValue =
     | boolean
     | null
 
-export interface DataWarehousePropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: DataWarehousePropertyFilterType
-    /** @nullable */
-    value?: DataWarehousePropertyFilterValue
-}
-
 export type DataWarehousePersonPropertyFilterType =
     (typeof DataWarehousePersonPropertyFilterType)[keyof typeof DataWarehousePersonPropertyFilterType]
 
@@ -9667,16 +8014,6 @@ export type DataWarehousePersonPropertyFilterValue =
     | boolean
     | null
 
-export interface DataWarehousePersonPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: DataWarehousePersonPropertyFilterType
-    /** @nullable */
-    value?: DataWarehousePersonPropertyFilterValue
-}
-
 export type ErrorTrackingIssueFilterType =
     (typeof ErrorTrackingIssueFilterType)[keyof typeof ErrorTrackingIssueFilterType]
 
@@ -9692,16 +8029,6 @@ export type ErrorTrackingIssueFilterValueAnyOfItem = string | number | boolean
  */
 export type ErrorTrackingIssueFilterValue = ErrorTrackingIssueFilterValueAnyOfItem[] | string | number | boolean | null
 
-export interface ErrorTrackingIssueFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: ErrorTrackingIssueFilterType
-    /** @nullable */
-    value?: ErrorTrackingIssueFilterValue
-}
-
 export type LogPropertyFilterType = (typeof LogPropertyFilterType)[keyof typeof LogPropertyFilterType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -9715,16 +8042,6 @@ export type LogPropertyFilterValueAnyOfItem = string | number | boolean
  * @nullable
  */
 export type LogPropertyFilterValue = LogPropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export interface LogPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: LogPropertyFilterType
-    /** @nullable */
-    value?: LogPropertyFilterValue
-}
 
 export type RevenueAnalyticsPropertyFilterType =
     (typeof RevenueAnalyticsPropertyFilterType)[keyof typeof RevenueAnalyticsPropertyFilterType]
@@ -9746,18 +8063,6 @@ export type RevenueAnalyticsPropertyFilterValue =
     | boolean
     | null
 
-export interface RevenueAnalyticsPropertyFilter {
-    key: string
-    /** @nullable */
-    label?: string | null
-    operator: PropertyOperator
-    type?: RevenueAnalyticsPropertyFilterType
-    /** @nullable */
-    value?: RevenueAnalyticsPropertyFilterValue
-}
-
-export type BaseMathType = (typeof BaseMathType)[keyof typeof BaseMathType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BaseMathType = {
     total: 'total',
@@ -9769,16 +8074,12 @@ export const BaseMathType = {
     first_matching_event_for_user: 'first_matching_event_for_user',
 } as const
 
-export type FunnelMathType = (typeof FunnelMathType)[keyof typeof FunnelMathType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelMathType = {
     total: 'total',
     first_time_for_user: 'first_time_for_user',
     first_time_for_user_with_filters: 'first_time_for_user_with_filters',
 } as const
-
-export type PropertyMathType = (typeof PropertyMathType)[keyof typeof PropertyMathType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyMathType = {
@@ -9793,8 +8094,6 @@ export const PropertyMathType = {
     p99: 'p99',
 } as const
 
-export type CountPerActorMathType = (typeof CountPerActorMathType)[keyof typeof CountPerActorMathType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CountPerActorMathType = {
     avg_count_per_actor: 'avg_count_per_actor',
@@ -9806,8 +8105,6 @@ export const CountPerActorMathType = {
     p95_count_per_actor: 'p95_count_per_actor',
     p99_count_per_actor: 'p99_count_per_actor',
 } as const
-
-export type ExperimentMetricMathType = (typeof ExperimentMetricMathType)[keyof typeof ExperimentMetricMathType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExperimentMetricMathType = {
@@ -9821,8 +8118,6 @@ export const ExperimentMetricMathType = {
     unique_group: 'unique_group',
     hogql: 'hogql',
 } as const
-
-export type CalendarHeatmapMathType = (typeof CalendarHeatmapMathType)[keyof typeof CalendarHeatmapMathType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CalendarHeatmapMathType = {
@@ -9840,83 +8135,6 @@ export const MathGroupTypeIndex = {
     NUMBER_3: 3,
     NUMBER_4: 4,
 } as const
-
-export interface RevenueCurrencyPropertyConfig {
-    /** @nullable */
-    property?: string | null
-    /** @nullable */
-    static?: CurrencyCode
-}
-
-export interface HogQLQueryModifiers {
-    /** @nullable */
-    bounceRateDurationSeconds?: number | null
-    /** @nullable */
-    bounceRatePageViewMode?: BounceRatePageViewMode
-    /** @nullable */
-    convertToProjectTimezone?: boolean | null
-    /** @nullable */
-    customChannelTypeRules?: CustomChannelRule[] | null
-    /** @nullable */
-    dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null
-    /** @nullable */
-    debug?: boolean | null
-    /** @nullable */
-    formatCsvAllowDoubleQuotes?: boolean | null
-    /** @nullable */
-    inCohortVia?: InCohortVia
-    /** @nullable */
-    materializationMode?: MaterializationMode
-    /** @nullable */
-    optimizeJoinedFilters?: boolean | null
-    /** @nullable */
-    optimizeProjections?: boolean | null
-    /** @nullable */
-    personsArgMaxVersion?: PersonsArgMaxVersion
-    /** @nullable */
-    personsJoinMode?: PersonsJoinMode
-    /** @nullable */
-    personsOnEventsMode?: PersonsOnEventsMode
-    /** @nullable */
-    propertyGroupsMode?: PropertyGroupsMode
-    /** @nullable */
-    s3TableUseInvalidColumns?: boolean | null
-    /** @nullable */
-    sessionTableVersion?: SessionTableVersion
-    /** @nullable */
-    sessionsV2JoinMode?: SessionsV2JoinMode
-    /** @nullable */
-    timings?: boolean | null
-    /** @nullable */
-    useMaterializedViews?: boolean | null
-    /**
-     * Try to automatically convert HogQL queries to use preaggregated tables at the AST level *
-     * @nullable
-     */
-    usePreaggregatedTableTransforms?: boolean | null
-    /** @nullable */
-    usePresortedEventsTable?: boolean | null
-    /** @nullable */
-    useWebAnalyticsPreAggregatedTables?: boolean | null
-}
-
-export interface QueryLogTags {
-    /**
-     * Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *
-     * @nullable
-     */
-    productKey?: string | null
-    /**
-     * Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *
-     * @nullable
-     */
-    scene?: string | null
-}
-
-export interface PropertyGroupFilter {
-    type: FilterLogicalOperator
-    values: PropertyGroupFilterValue[]
-}
 
 export type PropertyGroupFilterValueValuesItem =
     | PropertyGroupFilterValue
@@ -9939,129 +8157,6 @@ export type PropertyGroupFilterValueValuesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface PropertyGroupFilterValue {
-    type: FilterLogicalOperator
-    values: PropertyGroupFilterValueValuesItem[]
-}
-
-export interface EventsQueryResponse {
-    columns: unknown[]
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /** Generated HogQL query. */
-    hogql: string
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[][]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    types: string[]
-}
-
-export interface SessionsQueryResponse {
-    columns: unknown[]
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /** Generated HogQL query. */
-    hogql: string
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[][]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    types: string[]
-}
-
-export interface ActorsQueryResponse {
-    columns: unknown[]
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /** Generated HogQL query. */
-    hogql: string
-    limit: number
-    /** @nullable */
-    missing_actors_count?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    offset: number
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[][]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    types?: string[] | null
-}
-
 export type FunnelsActorsQueryFunnelStepBreakdownAnyOfItem = number | string | number
 
 /**
@@ -10081,44 +8176,6 @@ export type FunnelsActorsQueryKind = (typeof FunnelsActorsQueryKind)[keyof typeo
 export const FunnelsActorsQueryKind = {
     FunnelsActorsQuery: 'FunnelsActorsQuery',
 } as const
-
-export interface FunnelsActorsQuery {
-    /**
-     * Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.
-     * @nullable
-     */
-    funnelStep?: number | null
-    /**
-     * The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.
-     * @nullable
-     */
-    funnelStepBreakdown?: FunnelsActorsQueryFunnelStepBreakdown
-    /** @nullable */
-    funnelTrendsDropOff?: boolean | null
-    /**
-     * Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.
-     * @nullable
-     */
-    funnelTrendsEntrancePeriodStart?: string | null
-    /** @nullable */
-    includeRecordings?: boolean | null
-    kind?: FunnelsActorsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: ActorsQueryResponse
-    source: FunnelsQuery
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * @nullable
@@ -10157,33 +8214,6 @@ export const FunnelCorrelationActorsQueryKind = {
     FunnelCorrelationActorsQuery: 'FunnelCorrelationActorsQuery',
 } as const
 
-export interface FunnelCorrelationActorsQuery {
-    /** @nullable */
-    funnelCorrelationPersonConverted?: boolean | null
-    /** @nullable */
-    funnelCorrelationPersonEntity?: FunnelCorrelationActorsQueryFunnelCorrelationPersonEntity
-    /** @nullable */
-    funnelCorrelationPropertyValues?: FunnelCorrelationActorsQueryFunnelCorrelationPropertyValuesItem[] | null
-    /** @nullable */
-    includeRecordings?: boolean | null
-    kind?: FunnelCorrelationActorsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    response?: ActorsQueryResponse
-    source: FunnelCorrelationQuery
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 /**
  * @nullable
  */
@@ -10196,79 +8226,12 @@ export const StickinessActorsQueryKind = {
     StickinessActorsQuery: 'StickinessActorsQuery',
 } as const
 
-export interface StickinessActorsQuery {
-    /** @nullable */
-    compare?: Compare
-    /** @nullable */
-    day?: StickinessActorsQueryDay
-    /** @nullable */
-    includeRecordings?: boolean | null
-    kind?: StickinessActorsQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    operator?: StickinessOperator
-    /** @nullable */
-    response?: ActorsQueryResponse
-    /** @nullable */
-    series?: number | null
-    source: StickinessQuery
-    /** @nullable */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type GroupsQueryResponseKind = (typeof GroupsQueryResponseKind)[keyof typeof GroupsQueryResponseKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const GroupsQueryResponseKind = {
     GroupsQuery: 'GroupsQuery',
 } as const
-
-export interface GroupsQueryResponse {
-    columns: unknown[]
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /** Generated HogQL query. */
-    hogql: string
-    kind?: GroupsQueryResponseKind
-    limit: number
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    offset: number
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[][]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    types: string[]
-}
 
 export type Compare = (typeof Compare)[keyof typeof Compare]
 
@@ -10277,69 +8240,6 @@ export const Compare = {
     current: 'current',
     previous: 'previous',
 } as const
-
-export interface InsightActorsQueryOptionsResponse {
-    /** @nullable */
-    breakdown?: BreakdownItem[] | null
-    /** @nullable */
-    breakdowns?: MultipleBreakdownOptions[] | null
-    /** @nullable */
-    compare?: CompareItem[] | null
-    /** @nullable */
-    day?: DayItem[] | null
-    /** @nullable */
-    interval?: IntervalItem[] | null
-    /** @nullable */
-    series?: Series[] | null
-    /** @nullable */
-    status?: StatusItem[] | null
-}
-
-export interface SessionsTimelineQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: TimelineEntry[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface HogQueryResponse {
-    /** @nullable */
-    bytecode?: unknown[] | null
-    /** @nullable */
-    coloredBytecode?: unknown[] | null
-    results: unknown
-    /** @nullable */
-    stdout?: string | null
-}
 
 export type HogQLFiltersPropertiesItem =
     | EventPropertyFilter
@@ -10361,100 +8261,10 @@ export type HogQLFiltersPropertiesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface HogQLFilters {
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    properties?: HogQLFiltersPropertiesItem[] | null
-}
-
-export interface HogQLQueryResponse {
-    /**
-     * Executed ClickHouse query
-     * @nullable
-     */
-    clickhouse?: string | null
-    /**
-     * Returned columns
-     * @nullable
-     */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Query explanation output
-     * @nullable
-     */
-    explain?: string[] | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Query metadata output
-     * @nullable
-     */
-    metadata?: HogQLMetadataResponse
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Input query string
-     * @nullable
-     */
-    query?: string | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /**
-     * Types of returned columns
-     * @nullable
-     */
-    types?: unknown[] | null
-}
-
 /**
  * @nullable
  */
 export type HogQLVariableValue = unknown | null
-
-export interface HogQLVariable {
-    code_name: string
-    /** @nullable */
-    isNull?: boolean | null
-    /** @nullable */
-    value?: HogQLVariableValue
-    variableId: string
-}
-
-export type HogLanguage = (typeof HogLanguage)[keyof typeof HogLanguage]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const HogLanguage = {
@@ -10465,22 +8275,6 @@ export const HogLanguage = {
     hogTemplate: 'hogTemplate',
     liquid: 'liquid',
 } as const
-
-export interface HogQLMetadataResponse {
-    /** @nullable */
-    ch_table_names?: string[] | null
-    errors: HogQLNotice[]
-    /** @nullable */
-    isUsingIndices?: QueryIndexUsage
-    /** @nullable */
-    isValid?: boolean | null
-    notices: HogQLNotice[]
-    /** @nullable */
-    query?: string | null
-    /** @nullable */
-    table_names?: string[] | null
-    warnings: HogQLNotice[]
-}
 
 /**
  * @nullable
@@ -10497,49 +8291,6 @@ export const WebTrendsQueryKind = {
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebTrendsQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
 export type WebTrendsQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
-
-export interface WebTrendsQuery {
-    /** @nullable */
-    compareFilter?: CompareFilter
-    /** @nullable */
-    conversionGoal?: WebTrendsQueryConversionGoal
-    /** @nullable */
-    dateRange?: DateRange
-    /** @nullable */
-    doPathCleaning?: boolean | null
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    includeRevenue?: boolean | null
-    interval: IntervalType
-    kind?: WebTrendsQueryKind
-    /** @nullable */
-    limit?: number | null
-    metrics: WebTrendsMetric[]
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    orderBy?: (typeof WebTrendsQueryOrderByItem)[keyof typeof WebTrendsQueryOrderByItem][] | null
-    properties: WebTrendsQueryPropertiesItem[]
-    /** @nullable */
-    response?: WebTrendsQueryResponse
-    /** @nullable */
-    sampling?: WebAnalyticsSampling
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    useSessionsTable?: boolean | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * Whether we should be comparing against a specific conversion goal
@@ -10581,74 +8332,6 @@ export type CalendarHeatmapQueryPropertiesAnyOfItem =
 export type CalendarHeatmapQueryProperties = CalendarHeatmapQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
 
 export type CalendarHeatmapQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
-
-export interface CalendarHeatmapQuery {
-    /**
-     * Groups aggregation
-     * @nullable
-     */
-    aggregation_group_type_index?: number | null
-    /**
-     * Properties specific to the trends insight
-     * @nullable
-     */
-    calendarHeatmapFilter?: CalendarHeatmapFilter
-    /**
-     * Whether we should be comparing against a specific conversion goal
-     * @nullable
-     */
-    conversionGoal?: CalendarHeatmapQueryConversionGoal
-    /**
-     * Colors used in the insight's visualization
-     * @nullable
-     */
-    dataColorTheme?: number | null
-    /**
-     * Date range for the query
-     * @nullable
-     */
-    dateRange?: DateRange
-    /**
-     * Exclude internal and test users by applying the respective filters
-     * @nullable
-     */
-    filterTestAccounts?: boolean | null
-    /**
-     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
-     * @nullable
-     */
-    interval?: IntervalType
-    kind?: CalendarHeatmapQueryKind
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Property filters for all series
-     * @nullable
-     */
-    properties?: CalendarHeatmapQueryProperties
-    /** @nullable */
-    response?: CalendarHeatmapResponse
-    /**
-     * Sampling rate
-     * @nullable
-     */
-    samplingFactor?: number | null
-    /** Events and actions to include */
-    series: CalendarHeatmapQuerySeriesItem[]
-    /**
-     * Tags that will be added to the Query log comment
-     * @nullable
-     */
-    tags?: QueryLogTags
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type RecordingsQueryActionsItem = { [key: string]: unknown }
 
@@ -10706,92 +8389,12 @@ export type RecordingsQueryPropertiesItem =
  */
 export type RecordingsQueryUserModifiedFilters = { [key: string]: unknown } | null
 
-export interface RecordingsQuery {
-    /** @nullable */
-    actions?: RecordingsQueryActionsItem[] | null
-    /**
-     * Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page.
-     * @nullable
-     */
-    after?: string | null
-    /** @nullable */
-    comment_text?: RecordingPropertyFilter
-    /** @nullable */
-    console_log_filters?: LogEntryPropertyFilter[] | null
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
-    /** @nullable */
-    distinct_ids?: string[] | null
-    /** @nullable */
-    events?: RecordingsQueryEventsItem[] | null
-    /** @nullable */
-    filter_test_accounts?: boolean | null
-    /** @nullable */
-    having_predicates?: RecordingsQueryHavingPredicatesItem[] | null
-    kind?: RecordingsQueryKind
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /** @nullable */
-    operand?: FilterLogicalOperator
-    /** @nullable */
-    order?: RecordingOrder
-    /**
-     * Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here
-     * @nullable
-     */
-    order_direction?: RecordingOrderDirection
-    /** @nullable */
-    person_uuid?: string | null
-    /** @nullable */
-    properties?: RecordingsQueryPropertiesItem[] | null
-    /** @nullable */
-    response?: RecordingsQueryResponse
-    /** @nullable */
-    session_ids?: string[] | null
-    /**
-     * If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters
-     * @nullable
-     */
-    session_recording_id?: string | null
-    /** @nullable */
-    tags?: QueryLogTags
-    /** @nullable */
-    user_modified_filters?: RecordingsQueryUserModifiedFilters
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
-export interface HogQLAutocompleteResponse {
-    /** Whether or not the suggestions returned are complete */
-    incomplete_list: boolean
-    suggestions: AutocompleteCompletionItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
 export interface Filters {
     /** @nullable */
     dateRange?: DateRange
     /** @nullable */
     properties?: SessionPropertyFilter[] | null
 }
-
-export type SessionAttributionGroupBy = (typeof SessionAttributionGroupBy)[keyof typeof SessionAttributionGroupBy]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SessionAttributionGroupBy = {
@@ -10804,156 +8407,7 @@ export const SessionAttributionGroupBy = {
     InitialURL: 'InitialURL',
 } as const
 
-export interface SessionAttributionExplorerQueryResponse {
-    /** @nullable */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    types?: unknown[] | null
-}
-
-export interface RevenueExampleEventsQueryResponse {
-    /** @nullable */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    types?: unknown[] | null
-}
-
-export interface RevenueExampleDataWarehouseTablesQueryResponse {
-    /** @nullable */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    types?: unknown[] | null
-}
-
 export type ErrorTrackingIssueAssigneeId = string | number
-
-export interface ErrorTrackingIssueAssignee {
-    id: ErrorTrackingIssueAssigneeId
-    type: ErrorTrackingIssueAssigneeType
-}
-
-export interface DateRange {
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
-    /**
-     * Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.
-     * @nullable
-     */
-    explicitDate?: boolean | null
-}
 
 export type OrderBy1 = (typeof OrderBy1)[keyof typeof OrderBy1]
 
@@ -10974,48 +8428,6 @@ export const OrderDirection1 = {
     ASC: 'ASC',
     DESC: 'DESC',
 } as const
-
-export interface ErrorTrackingQueryResponse {
-    /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: ErrorTrackingIssue[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
 
 export type RevenueEntity = (typeof RevenueEntity)[keyof typeof RevenueEntity]
 
@@ -11049,131 +8461,13 @@ export const Status2 = {
     all: 'all',
 } as const
 
-export type EmbeddingModelName = (typeof EmbeddingModelName)[keyof typeof EmbeddingModelName]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EmbeddingModelName = {
     'text-embedding-3-small-1536': 'text-embedding-3-small-1536',
     'text-embedding-3-large-3072': 'text-embedding-3-large-3072',
 } as const
 
-export interface ErrorTrackingSimilarIssuesQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: SimilarIssue[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
 export type ErrorTrackingBreakdownsQueryResponseResults = { [key: string]: Results }
-
-export interface ErrorTrackingBreakdownsQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: ErrorTrackingBreakdownsQueryResponseResults
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface ErrorTrackingIssueCorrelationQueryResponse {
-    /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: ErrorTrackingCorrelatedIssue[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
 
 export type ExperimentFunnelsQueryResponseCredibleIntervals = { [key: string]: number[] }
 
@@ -11189,21 +8483,6 @@ export const ExperimentFunnelsQueryResponseKind = {
 
 export type ExperimentFunnelsQueryResponseProbability = { [key: string]: number }
 
-export interface ExperimentFunnelsQueryResponse {
-    credible_intervals: ExperimentFunnelsQueryResponseCredibleIntervals
-    expected_loss: number
-    /** @nullable */
-    funnels_query?: FunnelsQuery
-    insight: ExperimentFunnelsQueryResponseInsightItemItem[][]
-    kind?: ExperimentFunnelsQueryResponseKind
-    probability: ExperimentFunnelsQueryResponseProbability
-    significance_code: ExperimentSignificanceCode
-    significant: boolean
-    /** @nullable */
-    stats_version?: number | null
-    variants: ExperimentVariantFunnelsBaseStats[]
-}
-
 export type ExperimentTrendsQueryResponseCredibleIntervals = { [key: string]: number[] }
 
 export type ExperimentTrendsQueryResponseInsightItem = { [key: string]: unknown }
@@ -11217,23 +8496,6 @@ export const ExperimentTrendsQueryResponseKind = {
 } as const
 
 export type ExperimentTrendsQueryResponseProbability = { [key: string]: number }
-
-export interface ExperimentTrendsQueryResponse {
-    /** @nullable */
-    count_query?: TrendsQuery
-    credible_intervals: ExperimentTrendsQueryResponseCredibleIntervals
-    /** @nullable */
-    exposure_query?: TrendsQuery
-    insight: ExperimentTrendsQueryResponseInsightItem[]
-    kind?: ExperimentTrendsQueryResponseKind
-    p_value: number
-    probability: ExperimentTrendsQueryResponseProbability
-    significance_code: ExperimentSignificanceCode
-    significant: boolean
-    /** @nullable */
-    stats_version?: number | null
-    variants: ExperimentVariantTrendsBaseStats[]
-}
 
 export type ExperimentMeanMetricKind = (typeof ExperimentMeanMetricKind)[keyof typeof ExperimentMeanMetricKind]
 
@@ -11257,43 +8519,6 @@ export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null
 
 export type ExperimentMeanMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export interface ExperimentMeanMetric {
-    /** @nullable */
-    breakdownFilter?: BreakdownFilter
-    /** @nullable */
-    conversion_window?: number | null
-    /** @nullable */
-    conversion_window_unit?: FunnelConversionWindowTimeUnit
-    /** @nullable */
-    fingerprint?: string | null
-    /** @nullable */
-    goal?: ExperimentMetricGoal
-    /** @nullable */
-    ignore_zeros?: boolean | null
-    /** @nullable */
-    isSharedMetric?: boolean | null
-    kind?: ExperimentMeanMetricKind
-    /** @nullable */
-    lower_bound_percentile?: number | null
-    metric_type?: ExperimentMeanMetricMetricType
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    response?: ExperimentMeanMetricResponse
-    /** @nullable */
-    sharedMetricId?: number | null
-    source: ExperimentMeanMetricSource
-    /** @nullable */
-    upper_bound_percentile?: number | null
-    /** @nullable */
-    uuid?: string | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ExperimentFunnelMetricKind = (typeof ExperimentFunnelMetricKind)[keyof typeof ExperimentFunnelMetricKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -11315,39 +8540,6 @@ export const ExperimentFunnelMetricMetricType = {
 export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null
 
 export type ExperimentFunnelMetricSeriesItem = EventsNode | ActionsNode
-
-export interface ExperimentFunnelMetric {
-    /** @nullable */
-    breakdownFilter?: BreakdownFilter
-    /** @nullable */
-    conversion_window?: number | null
-    /** @nullable */
-    conversion_window_unit?: FunnelConversionWindowTimeUnit
-    /** @nullable */
-    fingerprint?: string | null
-    /** @nullable */
-    funnel_order_type?: StepOrderValue
-    /** @nullable */
-    goal?: ExperimentMetricGoal
-    /** @nullable */
-    isSharedMetric?: boolean | null
-    kind?: ExperimentFunnelMetricKind
-    metric_type?: ExperimentFunnelMetricMetricType
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    response?: ExperimentFunnelMetricResponse
-    series: ExperimentFunnelMetricSeriesItem[]
-    /** @nullable */
-    sharedMetricId?: number | null
-    /** @nullable */
-    uuid?: string | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 export type ExperimentRatioMetricDenominator = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
@@ -11373,38 +8565,6 @@ export type ExperimentRatioMetricNumerator = EventsNode | ActionsNode | Experime
  */
 export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null
 
-export interface ExperimentRatioMetric {
-    /** @nullable */
-    breakdownFilter?: BreakdownFilter
-    /** @nullable */
-    conversion_window?: number | null
-    /** @nullable */
-    conversion_window_unit?: FunnelConversionWindowTimeUnit
-    denominator: ExperimentRatioMetricDenominator
-    /** @nullable */
-    fingerprint?: string | null
-    /** @nullable */
-    goal?: ExperimentMetricGoal
-    /** @nullable */
-    isSharedMetric?: boolean | null
-    kind?: ExperimentRatioMetricKind
-    metric_type?: ExperimentRatioMetricMetricType
-    /** @nullable */
-    name?: string | null
-    numerator: ExperimentRatioMetricNumerator
-    /** @nullable */
-    response?: ExperimentRatioMetricResponse
-    /** @nullable */
-    sharedMetricId?: number | null
-    /** @nullable */
-    uuid?: string | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type ExperimentRetentionMetricCompletionEvent = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
 export type ExperimentRetentionMetricKind =
@@ -11429,42 +8589,6 @@ export const ExperimentRetentionMetricMetricType = {
 export type ExperimentRetentionMetricResponse = { [key: string]: unknown } | null
 
 export type ExperimentRetentionMetricStartEvent = EventsNode | ActionsNode | ExperimentDataWarehouseNode
-
-export interface ExperimentRetentionMetric {
-    /** @nullable */
-    breakdownFilter?: BreakdownFilter
-    completion_event: ExperimentRetentionMetricCompletionEvent
-    /** @nullable */
-    conversion_window?: number | null
-    /** @nullable */
-    conversion_window_unit?: FunnelConversionWindowTimeUnit
-    /** @nullable */
-    fingerprint?: string | null
-    /** @nullable */
-    goal?: ExperimentMetricGoal
-    /** @nullable */
-    isSharedMetric?: boolean | null
-    kind?: ExperimentRetentionMetricKind
-    metric_type?: ExperimentRetentionMetricMetricType
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    response?: ExperimentRetentionMetricResponse
-    retention_window_end: number
-    retention_window_start: number
-    retention_window_unit: FunnelConversionWindowTimeUnit
-    /** @nullable */
-    sharedMetricId?: number | null
-    start_event: ExperimentRetentionMetricStartEvent
-    start_handling: StartHandling
-    /** @nullable */
-    uuid?: string | null
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
 
 /**
  * @nullable
@@ -11511,69 +8635,10 @@ export type ExperimentQueryResponseVariants =
     | ExperimentVariantFunnelsBaseStats[]
     | null
 
-export interface ExperimentQueryResponse {
-    /** @nullable */
-    baseline?: ExperimentStatsBaseValidated
-    /**
-     * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
-     * @nullable
-     */
-    breakdown_results?: ExperimentBreakdownResult[] | null
-    /** @nullable */
-    clickhouse_sql?: string | null
-    /** @nullable */
-    credible_intervals?: ExperimentQueryResponseCredibleIntervals
-    /** @nullable */
-    hogql?: string | null
-    /** @nullable */
-    insight?: ExperimentQueryResponseInsightItem[] | null
-    kind?: ExperimentQueryResponseKind
-    /** @nullable */
-    metric?: ExperimentQueryResponseMetric
-    /** @nullable */
-    p_value?: number | null
-    /** @nullable */
-    probability?: ExperimentQueryResponseProbability
-    /** @nullable */
-    significance_code?: ExperimentSignificanceCode
-    /** @nullable */
-    significant?: boolean | null
-    /** @nullable */
-    stats_version?: number | null
-    /** @nullable */
-    variant_results?: ExperimentQueryResponseVariantResults
-    /** @nullable */
-    variants?: ExperimentQueryResponseVariants
-}
-
 /**
  * @nullable
  */
 export type ExperimentExposureCriteriaExposureConfig = ExperimentEventExposureConfig | ActionsNode | null
-
-export interface ExperimentExposureCriteria {
-    /** @nullable */
-    exposure_config?: ExperimentExposureCriteriaExposureConfig
-    /** @nullable */
-    filterTestAccounts?: boolean | null
-    /** @nullable */
-    multiple_variant_handling?: MultipleVariantHandling
-}
-
-export interface ExperimentHoldoutType {
-    /** @nullable */
-    created_at?: string | null
-    /** @nullable */
-    created_by?: UserBasicType
-    /** @nullable */
-    description?: string | null
-    filters: FeatureFlagGroupType[]
-    /** @nullable */
-    id?: number | null
-    name: string
-    /** @nullable */
-    updated_at?: string | null
-}
 
 export type ExperimentExposureQueryResponseKind =
     (typeof ExperimentExposureQueryResponseKind)[keyof typeof ExperimentExposureQueryResponseKind]
@@ -11584,13 +8649,6 @@ export const ExperimentExposureQueryResponseKind = {
 } as const
 
 export type ExperimentExposureQueryResponseTotalExposures = { [key: string]: number }
-
-export interface ExperimentExposureQueryResponse {
-    date_range: DateRange
-    kind?: ExperimentExposureQueryResponseKind
-    timeseries: ExperimentExposureTimeSeries[]
-    total_exposures: ExperimentExposureQueryResponseTotalExposures
-}
 
 export type DistanceFunc = (typeof DistanceFunc)[keyof typeof DistanceFunc]
 
@@ -11617,75 +8675,15 @@ export const OrderDirection = {
     desc: 'desc',
 } as const
 
-export interface EmbeddedDocument {
-    document_id: string
-    document_type: string
-    product: string
-    timestamp: string
-}
-
-export interface DocumentSimilarityQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: EmbeddingDistance[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface CompareFilter {
-    /**
-     * Whether to compare the current date range to a previous date range.
-     * @nullable
-     */
-    compare?: boolean | null
-    /**
-     * The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
-     * @nullable
-     */
-    compare_to?: string | null
-}
-
-export interface ActionConversionGoal {
-    actionId: number
-}
-
-export interface CustomEventConversionGoal {
-    customEventName: string
-}
-
-export type WebAnalyticsOrderByFields = (typeof WebAnalyticsOrderByFields)[keyof typeof WebAnalyticsOrderByFields]
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const IntervalType = {
+    second: 'second',
+    minute: 'minute',
+    hour: 'hour',
+    day: 'day',
+    week: 'week',
+    month: 'month',
+} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebAnalyticsOrderByFields = {
@@ -11704,65 +8702,11 @@ export const WebAnalyticsOrderByFields = {
     Errors: 'Errors',
 } as const
 
-export type WebAnalyticsOrderByDirection =
-    (typeof WebAnalyticsOrderByDirection)[keyof typeof WebAnalyticsOrderByDirection]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebAnalyticsOrderByDirection = {
     ASC: 'ASC',
     DESC: 'DESC',
 } as const
-
-export interface WebOverviewQueryResponse {
-    /** @nullable */
-    dateFrom?: string | null
-    /** @nullable */
-    dateTo?: string | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: WebOverviewItem[]
-    /** @nullable */
-    samplingRate?: SamplingRate
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    usedPreAggregatedTables?: boolean | null
-}
-
-export interface WebAnalyticsSampling {
-    /** @nullable */
-    enabled?: boolean | null
-    /** @nullable */
-    forceSamplingRate?: SamplingRate
-}
-
-export type WebStatsBreakdown = (typeof WebStatsBreakdown)[keyof typeof WebStatsBreakdown]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebStatsBreakdown = {
@@ -11792,148 +8736,6 @@ export const WebStatsBreakdown = {
     FrustrationMetrics: 'FrustrationMetrics',
 } as const
 
-export interface WebStatsTableQueryResponse {
-    /** @nullable */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[]
-    /** @nullable */
-    samplingRate?: SamplingRate
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    types?: unknown[] | null
-    /** @nullable */
-    usedPreAggregatedTables?: boolean | null
-}
-
-export interface WebExternalClicksTableQueryResponse {
-    /** @nullable */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[]
-    /** @nullable */
-    samplingRate?: SamplingRate
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    types?: unknown[] | null
-}
-
-export interface WebGoalsQueryResponse {
-    /** @nullable */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[]
-    /** @nullable */
-    samplingRate?: SamplingRate
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    types?: unknown[] | null
-}
-
-export type WebVitalsMetric = (typeof WebVitalsMetric)[keyof typeof WebVitalsMetric]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebVitalsMetric = {
     INP: 'INP',
@@ -11942,8 +8744,6 @@ export const WebVitalsMetric = {
     FCP: 'FCP',
 } as const
 
-export type WebVitalsPercentile = (typeof WebVitalsPercentile)[keyof typeof WebVitalsPercentile]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebVitalsPercentile = {
     p75: 'p75',
@@ -11951,90 +8751,7 @@ export const WebVitalsPercentile = {
     p99: 'p99',
 } as const
 
-export interface WebVitalsPathBreakdownQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    /**
-     * @minItems 1
-     * @maxItems 1
-     */
-    results: WebVitalsPathBreakdownResult[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface WebPageURLSearchQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: PageURL[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
 export type WebAnalyticsExternalSummaryQueryResponseData = { [key: string]: unknown }
-
-export interface WebAnalyticsExternalSummaryQueryResponse {
-    data: WebAnalyticsExternalSummaryQueryResponseData
-    /** @nullable */
-    error?: ExternalQueryError
-    status: ExternalQueryStatus
-}
 
 export type RevenueAnalyticsBreakdownType =
     (typeof RevenueAnalyticsBreakdownType)[keyof typeof RevenueAnalyticsBreakdownType]
@@ -12044,205 +8761,17 @@ export const RevenueAnalyticsBreakdownType = {
     revenue_analytics: 'revenue_analytics',
 } as const
 
-export interface RevenueAnalyticsBreakdown {
-    property: string
-    type?: RevenueAnalyticsBreakdownType
-}
-
-export type SimpleIntervalType = (typeof SimpleIntervalType)[keyof typeof SimpleIntervalType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SimpleIntervalType = {
     day: 'day',
     month: 'month',
 } as const
 
-export interface RevenueAnalyticsGrossRevenueQueryResponse {
-    /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface RevenueAnalyticsMetricsQueryResponse {
-    /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface RevenueAnalyticsMRRQueryResponse {
-    /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RevenueAnalyticsMRRQueryResultItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface RevenueAnalyticsOverviewQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RevenueAnalyticsOverviewItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export type RevenueAnalyticsTopCustomersGroupBy =
-    (typeof RevenueAnalyticsTopCustomersGroupBy)[keyof typeof RevenueAnalyticsTopCustomersGroupBy]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RevenueAnalyticsTopCustomersGroupBy = {
     month: 'month',
     all: 'all',
 } as const
-
-export interface RevenueAnalyticsTopCustomersQueryResponse {
-    /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
 
 export type ConversionGoalFilter1FixedPropertiesItem =
     | EventPropertyFilter
@@ -12612,143 +9141,10 @@ export interface ConversionGoalFilter3 {
     version?: number | null
 }
 
-export interface IntegrationFilter {
-    /**
-     * Selected integration source IDs to filter by (e.g., table IDs or source map IDs)
-     * @nullable
-     */
-    integrationSourceIds?: string[] | null
-}
-
 export type MarketingAnalyticsOrderByEnum =
     (typeof MarketingAnalyticsOrderByEnum)[keyof typeof MarketingAnalyticsOrderByEnum]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MarketingAnalyticsOrderByEnum = {
-    ASC: 'ASC',
-    DESC: 'DESC',
-} as const
-
-export interface MarketingAnalyticsTableQueryResponse {
-    /** @nullable */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: MarketingAnalyticsItem[][]
-    /** @nullable */
-    samplingRate?: SamplingRate
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    types?: unknown[] | null
-}
-
 export type MarketingAnalyticsAggregatedQueryResponseResults = { [key: string]: MarketingAnalyticsItem }
-
-export interface MarketingAnalyticsAggregatedQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: MarketingAnalyticsAggregatedQueryResponseResults
-    /** @nullable */
-    samplingRate?: SamplingRate
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface ChartSettings {
-    /** @nullable */
-    goalLines?: GoalLine[] | null
-    /** @nullable */
-    leftYAxisSettings?: YAxisSettings
-    /** @nullable */
-    rightYAxisSettings?: YAxisSettings
-    /** @nullable */
-    seriesBreakdownColumn?: string | null
-    /** @nullable */
-    showLegend?: boolean | null
-    /** @nullable */
-    showTotalRow?: boolean | null
-    /** @nullable */
-    showXAxisBorder?: boolean | null
-    /** @nullable */
-    showXAxisTicks?: boolean | null
-    /** @nullable */
-    showYAxisBorder?: boolean | null
-    /**
-     * Whether we fill the bars to 100% in stacked mode
-     * @nullable
-     */
-    stackBars100?: boolean | null
-    /** @nullable */
-    xAxis?: ChartAxis
-    /** @nullable */
-    yAxis?: ChartAxis[] | null
-    /**
-     * Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero
-     * @nullable
-     */
-    yAxisAtZero?: boolean | null
-}
-
-export type ChartDisplayType = (typeof ChartDisplayType)[keyof typeof ChartDisplayType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ChartDisplayType = {
@@ -12765,19 +9161,6 @@ export const ChartDisplayType = {
     WorldMap: 'WorldMap',
     CalendarHeatmap: 'CalendarHeatmap',
 } as const
-
-export interface TableSettings {
-    /** @nullable */
-    columns?: ChartAxis[] | null
-    /** @nullable */
-    conditionalFormatting?: ConditionalFormattingRule[] | null
-}
-
-export interface DataTableNodeViewPropsContext {
-    /** @nullable */
-    eventDefinitionId?: string | null
-    type: DataTableNodeViewPropsContextType
-}
 
 export interface Response {
     columns: unknown[]
@@ -13766,65 +10149,7 @@ export const TaxonomicFilterGroupType = {
     max_ai_context: 'max_ai_context',
 } as const
 
-export interface VizSpecificOptions {
-    /** @nullable */
-    ActionsPie?: ActionsPie
-    /** @nullable */
-    RETENTION?: Retention
-}
-
-export type IntervalType = (typeof IntervalType)[keyof typeof IntervalType]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const IntervalType = {
-    second: 'second',
-    minute: 'minute',
-    hour: 'hour',
-    day: 'day',
-    week: 'week',
-    month: 'month',
-} as const
-
 export type TrendsQueryResponseResultsItem = { [key: string]: unknown }
-
-export interface TrendsQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Wether more breakdown values are available.
-     * @nullable
-     */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: TrendsQueryResponseResultsItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
 
 export type TrendsFilterResultCustomizationsAnyOf = { [key: string]: ResultCustomizationByValue }
 
@@ -13839,80 +10164,6 @@ export type TrendsFilterResultCustomizations =
     | TrendsFilterResultCustomizationsAnyOfTwo
     | null
 
-export interface TrendsFilter {
-    /** @nullable */
-    aggregationAxisFormat?: AggregationAxisFormat
-    /** @nullable */
-    aggregationAxisPostfix?: string | null
-    /** @nullable */
-    aggregationAxisPrefix?: string | null
-    /** @nullable */
-    breakdown_histogram_bin_count?: number | null
-    /** @nullable */
-    confidenceLevel?: number | null
-    /** @nullable */
-    decimalPlaces?: number | null
-    /**
-     * detailed results table
-     * @nullable
-     */
-    detailedResultsAggregationType?: DetailedResultsAggregationType
-    /** @nullable */
-    display?: ChartDisplayType
-    /** @nullable */
-    formula?: string | null
-    /**
-     * List of formulas with optional custom names. Takes precedence over formula/formulas if set.
-     * @nullable
-     */
-    formulaNodes?: TrendsFormulaNode[] | null
-    /** @nullable */
-    formulas?: string[] | null
-    /**
-     * Goal Lines
-     * @nullable
-     */
-    goalLines?: GoalLine[] | null
-    /** @nullable */
-    hiddenLegendIndexes?: number[] | null
-    /** @nullable */
-    minDecimalPlaces?: number | null
-    /** @nullable */
-    movingAverageIntervals?: number | null
-    /**
-     * Wether result datasets are associated by their values or by their order.
-     * @nullable
-     */
-    resultCustomizationBy?: ResultCustomizationBy
-    /**
-     * Customizations for the appearance of result datasets.
-     * @nullable
-     */
-    resultCustomizations?: TrendsFilterResultCustomizations
-    /** @nullable */
-    showAlertThresholdLines?: boolean | null
-    /** @nullable */
-    showConfidenceIntervals?: boolean | null
-    /** @nullable */
-    showLabelsOnSeries?: boolean | null
-    /** @nullable */
-    showLegend?: boolean | null
-    /** @nullable */
-    showMovingAverage?: boolean | null
-    /** @nullable */
-    showMultipleYAxes?: boolean | null
-    /** @nullable */
-    showPercentStackView?: boolean | null
-    /** @nullable */
-    showTrendLines?: boolean | null
-    /** @nullable */
-    showValuesOnSeries?: boolean | null
-    /** @nullable */
-    smoothingIntervals?: number | null
-    /** @nullable */
-    yAxisScaleType?: YAxisScaleType
-}
-
 export type FunnelsFilterExclusionsItem = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 /**
@@ -13921,293 +10172,7 @@ export type FunnelsFilterExclusionsItem = FunnelExclusionEventsNode | FunnelExcl
  */
 export type FunnelsFilterResultCustomizations = { [key: string]: ResultCustomizationByValue } | null
 
-export interface FunnelsFilter {
-    /** @nullable */
-    binCount?: number | null
-    /** @nullable */
-    breakdownAttributionType?: BreakdownAttributionType
-    /** @nullable */
-    breakdownAttributionValue?: number | null
-    /** @nullable */
-    exclusions?: FunnelsFilterExclusionsItem[] | null
-    /** @nullable */
-    funnelAggregateByHogQL?: string | null
-    /** @nullable */
-    funnelFromStep?: number | null
-    /** @nullable */
-    funnelOrderType?: StepOrderValue
-    /** @nullable */
-    funnelStepReference?: FunnelStepReference
-    /**
-     * To select the range of steps for trends & time to convert funnels, 0-indexed
-     * @nullable
-     */
-    funnelToStep?: number | null
-    /** @nullable */
-    funnelVizType?: FunnelVizType
-    /** @nullable */
-    funnelWindowInterval?: number | null
-    /** @nullable */
-    funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnit
-    /**
-     * Goal Lines
-     * @nullable
-     */
-    goalLines?: GoalLine[] | null
-    /** @nullable */
-    hiddenLegendBreakdowns?: string[] | null
-    /** @nullable */
-    layout?: FunnelLayout
-    /**
-     * Customizations for the appearance of result datasets.
-     * @nullable
-     */
-    resultCustomizations?: FunnelsFilterResultCustomizations
-    /** @nullable */
-    showValuesOnSeries?: boolean | null
-    /** @nullable */
-    useUdf?: boolean | null
-}
-
-export interface FunnelsQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    isUdf?: boolean | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface RetentionQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RetentionResult[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface RetentionFilter {
-    /** @nullable */
-    cumulative?: boolean | null
-    /** @nullable */
-    dashboardDisplay?: RetentionDashboardDisplayType
-    /**
-     * controls the display of the retention graph
-     * @nullable
-     */
-    display?: ChartDisplayType
-    /** @nullable */
-    meanRetentionCalculation?: MeanRetentionCalculation
-    /** @nullable */
-    minimumOccurrences?: number | null
-    /** @nullable */
-    period?: RetentionPeriod
-    /**
-     * Custom brackets for retention calculations
-     * @nullable
-     */
-    retentionCustomBrackets?: number[] | null
-    /**
-     * Whether retention is with regard to initial cohort size, or that of the previous period.
-     * @nullable
-     */
-    retentionReference?: RetentionReference
-    /** @nullable */
-    retentionType?: RetentionType
-    /** @nullable */
-    returningEntity?: RetentionEntity
-    /**
-     * The selected interval to display across all cohorts (null = show all intervals for each cohort)
-     * @nullable
-     */
-    selectedInterval?: number | null
-    /** @nullable */
-    showTrendLines?: boolean | null
-    /** @nullable */
-    targetEntity?: RetentionEntity
-    /**
-     * The time window mode to use for retention calculations
-     * @nullable
-     */
-    timeWindowMode?: TimeWindowMode
-    /** @nullable */
-    totalIntervals?: number | null
-}
-
-export interface FunnelPathsFilter {
-    /** @nullable */
-    funnelPathType?: FunnelPathType
-    funnelSource: FunnelsQuery
-    /** @nullable */
-    funnelStep?: number | null
-}
-
-export interface PathsFilter {
-    /** @nullable */
-    edgeLimit?: number | null
-    /** @nullable */
-    endPoint?: string | null
-    /** @nullable */
-    excludeEvents?: string[] | null
-    /** @nullable */
-    includeEventTypes?: PathType[] | null
-    /** @nullable */
-    localPathCleaningFilters?: PathCleaningFilter[] | null
-    /** @nullable */
-    maxEdgeWeight?: number | null
-    /** @nullable */
-    minEdgeWeight?: number | null
-    /**
-     * Relevant only within actors query
-     * @nullable
-     */
-    pathDropoffKey?: string | null
-    /**
-     * Relevant only within actors query
-     * @nullable
-     */
-    pathEndKey?: string | null
-    /** @nullable */
-    pathGroupings?: string[] | null
-    /** @nullable */
-    pathReplacements?: boolean | null
-    /**
-     * Relevant only within actors query
-     * @nullable
-     */
-    pathStartKey?: string | null
-    /** @nullable */
-    pathsHogQLExpression?: string | null
-    /** @nullable */
-    showFullUrls?: boolean | null
-    /** @nullable */
-    startPoint?: string | null
-    /** @nullable */
-    stepLimit?: number | null
-}
-
-export interface PathsQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: PathsLink[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
 export type StickinessQueryResponseResultsItem = { [key: string]: unknown }
-
-export interface StickinessQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: StickinessQueryResponseResultsItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
 
 export type StickinessFilterResultCustomizationsAnyOf = { [key: string]: ResultCustomizationByValue }
 
@@ -14222,82 +10187,7 @@ export type StickinessFilterResultCustomizations =
     | StickinessFilterResultCustomizationsAnyOfTwo
     | null
 
-export interface StickinessFilter {
-    /** @nullable */
-    computedAs?: StickinessComputationMode
-    /** @nullable */
-    display?: ChartDisplayType
-    /** @nullable */
-    hiddenLegendIndexes?: number[] | null
-    /**
-     * Whether result datasets are associated by their values or by their order.
-     * @nullable
-     */
-    resultCustomizationBy?: ResultCustomizationBy
-    /**
-     * Customizations for the appearance of result datasets.
-     * @nullable
-     */
-    resultCustomizations?: StickinessFilterResultCustomizations
-    /** @nullable */
-    showLegend?: boolean | null
-    /** @nullable */
-    showMultipleYAxes?: boolean | null
-    /** @nullable */
-    showValuesOnSeries?: boolean | null
-    /** @nullable */
-    stickinessCriteria?: StickinessCriteria
-}
-
-export interface LifecycleFilter {
-    /** @nullable */
-    showLegend?: boolean | null
-    /** @nullable */
-    showValuesOnSeries?: boolean | null
-    /** @nullable */
-    stacked?: boolean | null
-    /** @nullable */
-    toggledLifecycles?: LifecycleToggle[] | null
-}
-
 export type LifecycleQueryResponseResultsItem = { [key: string]: unknown }
-
-export interface LifecycleQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: LifecycleQueryResponseResultsItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export type FunnelCorrelationResultsType =
-    (typeof FunnelCorrelationResultsType)[keyof typeof FunnelCorrelationResultsType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelCorrelationResultsType = {
@@ -14305,50 +10195,6 @@ export const FunnelCorrelationResultsType = {
     properties: 'properties',
     event_with_properties: 'event_with_properties',
 } as const
-
-export interface FunnelCorrelationResponse {
-    /** @nullable */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: FunnelCorrelationResult
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /** @nullable */
-    types?: unknown[] | null
-}
 
 export type DatabaseSchemaQueryResponseTables = {
     [key: string]:
@@ -14362,11 +10208,6 @@ export type DatabaseSchemaQueryResponseTables = {
         | DatabaseSchemaEndpointTable
 }
 
-export interface DatabaseSchemaQueryResponse {
-    joins: DataWarehouseViewLink[]
-    tables: DatabaseSchemaQueryResponseTables
-}
-
 export type OrderBy3 = (typeof OrderBy3)[keyof typeof OrderBy3]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -14374,50 +10215,6 @@ export const OrderBy3 = {
     latest: 'latest',
     earliest: 'earliest',
 } as const
-
-export interface LogsQueryResponse {
-    /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export type LogSeverityLevel = (typeof LogSeverityLevel)[keyof typeof LogSeverityLevel]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const LogSeverityLevel = {
@@ -14429,290 +10226,11 @@ export const LogSeverityLevel = {
     fatal: 'fatal',
 } as const
 
-export interface SuggestedQuestionsQueryResponse {
-    questions: string[]
-}
-
-export interface TeamTaxonomyQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: TeamTaxonomyItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface EventTaxonomyQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: EventTaxonomyItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
 export type ActorsPropertyTaxonomyQueryResponseResults =
     | ActorsPropertyTaxonomyResponse
     | ActorsPropertyTaxonomyResponse[]
 
-export interface ActorsPropertyTaxonomyQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: ActorsPropertyTaxonomyQueryResponseResults
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface TracesQueryResponse {
-    /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: LLMTrace[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface TraceQueryResponse {
-    /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: LLMTrace[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface VectorSearchQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: VectorSearchResponseItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface UsageMetricsQueryResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: UsageMetric[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface ResolvedDateRangeResponse {
-    date_from: string
-    date_to: string
-}
-
-export interface QueryTiming {
-    /** Key. Shortened to 'k' to save on data. */
-    k: string
-    /** Time in seconds. Shortened to 't' to save on data. */
-    t: number
-}
-
 export type BreakdownItemValue = string | number
-
-export interface BreakdownItem {
-    label: string
-    value: BreakdownItemValue
-}
-
-export interface MultipleBreakdownOptions {
-    values: BreakdownItem[]
-}
 
 export interface CompareItem {
     label: string
@@ -14742,32 +10260,6 @@ export interface StatusItem {
     value: string
 }
 
-export interface TimelineEntry {
-    events: EventType[]
-    /**
-     * Duration of the recording in seconds.
-     * @nullable
-     */
-    recording_duration_s?: number | null
-    /**
-     * Session ID. None means out-of-session events
-     * @nullable
-     */
-    sessionId?: string | null
-}
-
-export interface HogQLNotice {
-    /** @nullable */
-    end?: number | null
-    /** @nullable */
-    fix?: string | null
-    message: string
-    /** @nullable */
-    start?: number | null
-}
-
-export type QueryIndexUsage = (typeof QueryIndexUsage)[keyof typeof QueryIndexUsage]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const QueryIndexUsage = {
     undecisive: 'undecisive',
@@ -14776,95 +10268,10 @@ export const QueryIndexUsage = {
     yes: 'yes',
 } as const
 
-export interface AutocompleteCompletionItem {
-    /**
-     * A human-readable string with additional information about this item, like type or symbol information.
-     * @nullable
-     */
-    detail?: string | null
-    /**
-     * A human-readable string that represents a doc-comment.
-     * @nullable
-     */
-    documentation?: string | null
-    /** A string or snippet that should be inserted in a document when selecting this completion. */
-    insertText: string
-    /** The kind of this completion item. Based on the kind an icon is chosen by the editor. */
-    kind: AutocompleteCompletionItemKind
-    /** The label of this completion item. By default this is also the text that is inserted when selecting this completion. */
-    label: string
-}
-
-export interface ErrorTrackingIssue {
-    /** @nullable */
-    aggregations?: ErrorTrackingIssueAggregations
-    /** @nullable */
-    assignee?: ErrorTrackingIssueAssignee
-    /** @nullable */
-    cohort?: ErrorTrackingIssueCohort
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    external_issues?: ErrorTrackingExternalReference[] | null
-    /** @nullable */
-    first_event?: FirstEvent
-    first_seen: string
-    /** @nullable */
-    function?: string | null
-    id: string
-    /** @nullable */
-    last_event?: LastEvent
-    last_seen: string
-    /** @nullable */
-    library?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    revenue?: number | null
-    /** @nullable */
-    source?: string | null
-    status: Status
-}
-
-export interface SimilarIssue {
-    description: string
-    distance: number
-    first_seen: string
-    id: string
-    /** @nullable */
-    library?: string | null
-    name: string
-    status: string
-}
-
 export interface Results {
     total_count: number
     values: BreakdownValue[]
 }
-
-export interface ErrorTrackingCorrelatedIssue {
-    /** @nullable */
-    assignee?: ErrorTrackingIssueAssignee
-    /** @nullable */
-    cohort?: ErrorTrackingIssueCohort
-    /** @nullable */
-    description?: string | null
-    event: string
-    /** @nullable */
-    external_issues?: ErrorTrackingExternalReference[] | null
-    first_seen: string
-    id: string
-    last_seen: string
-    /** @nullable */
-    library?: string | null
-    /** @nullable */
-    name?: string | null
-    odds_ratio: number
-    population: Population
-    status: Status
-}
-
-export type ExperimentSignificanceCode = (typeof ExperimentSignificanceCode)[keyof typeof ExperimentSignificanceCode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExperimentSignificanceCode = {
@@ -14875,53 +10282,12 @@ export const ExperimentSignificanceCode = {
     high_p_value: 'high_p_value',
 } as const
 
-export interface ExperimentVariantFunnelsBaseStats {
-    failure_count: number
-    key: string
-    success_count: number
-}
-
-export interface ExperimentVariantTrendsBaseStats {
-    absolute_exposure: number
-    count: number
-    exposure: number
-    key: string
-}
-
-export interface ExperimentStatsBaseValidated {
-    /** @nullable */
-    denominator_sum?: number | null
-    /** @nullable */
-    denominator_sum_squares?: number | null
-    key: string
-    number_of_samples: number
-    /** @nullable */
-    numerator_denominator_sum_product?: number | null
-    /** @nullable */
-    step_counts?: number[] | null
-    /** @nullable */
-    step_sessions?: SessionData[][] | null
-    sum: number
-    sum_squares: number
-    /** @nullable */
-    validation_failures?: ExperimentStatsValidationFailure[] | null
-}
-
 export type ExperimentBreakdownResultBreakdownValueItem = string | number | number
 
 /**
  * Test variant results with statistical comparisons for this breakdown
  */
 export type ExperimentBreakdownResultVariants = ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
-
-export interface ExperimentBreakdownResult {
-    /** Control variant stats for this breakdown */
-    baseline: ExperimentStatsBaseValidated
-    /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
-    breakdown_value: ExperimentBreakdownResultBreakdownValueItem[]
-    /** Test variant results with statistical comparisons for this breakdown */
-    variants: ExperimentBreakdownResultVariants
-}
 
 export type ExperimentVariantResultFrequentistMethod =
     (typeof ExperimentVariantResultFrequentistMethod)[keyof typeof ExperimentVariantResultFrequentistMethod]
@@ -14931,36 +10297,6 @@ export const ExperimentVariantResultFrequentistMethod = {
     frequentist: 'frequentist',
 } as const
 
-export interface ExperimentVariantResultFrequentist {
-    /**
-     * @minItems 2
-     * @maxItems 2
-     * @nullable
-     */
-    confidence_interval?: number[] | null
-    /** @nullable */
-    denominator_sum?: number | null
-    /** @nullable */
-    denominator_sum_squares?: number | null
-    key: string
-    method?: ExperimentVariantResultFrequentistMethod
-    number_of_samples: number
-    /** @nullable */
-    numerator_denominator_sum_product?: number | null
-    /** @nullable */
-    p_value?: number | null
-    /** @nullable */
-    significant?: boolean | null
-    /** @nullable */
-    step_counts?: number[] | null
-    /** @nullable */
-    step_sessions?: SessionData[][] | null
-    sum: number
-    sum_squares: number
-    /** @nullable */
-    validation_failures?: ExperimentStatsValidationFailure[] | null
-}
-
 export type ExperimentVariantResultBayesianMethod =
     (typeof ExperimentVariantResultBayesianMethod)[keyof typeof ExperimentVariantResultBayesianMethod]
 
@@ -14969,106 +10305,11 @@ export const ExperimentVariantResultBayesianMethod = {
     bayesian: 'bayesian',
 } as const
 
-export interface ExperimentVariantResultBayesian {
-    /** @nullable */
-    chance_to_win?: number | null
-    /**
-     * @minItems 2
-     * @maxItems 2
-     * @nullable
-     */
-    credible_interval?: number[] | null
-    /** @nullable */
-    denominator_sum?: number | null
-    /** @nullable */
-    denominator_sum_squares?: number | null
-    key: string
-    method?: ExperimentVariantResultBayesianMethod
-    number_of_samples: number
-    /** @nullable */
-    numerator_denominator_sum_product?: number | null
-    /** @nullable */
-    significant?: boolean | null
-    /** @nullable */
-    step_counts?: number[] | null
-    /** @nullable */
-    step_sessions?: SessionData[][] | null
-    sum: number
-    sum_squares: number
-    /** @nullable */
-    validation_failures?: ExperimentStatsValidationFailure[] | null
-}
-
-export interface ExperimentExposureTimeSeries {
-    days: string[]
-    exposure_counts: number[]
-    variant: string
-}
-
-export interface EmbeddingDistance {
-    distance: number
-    /** @nullable */
-    origin?: EmbeddingRecord
-    result: EmbeddingRecord
-}
-
-export interface WebOverviewItem {
-    /** @nullable */
-    changeFromPreviousPct?: number | null
-    /** @nullable */
-    isIncreaseBad?: boolean | null
-    key: string
-    kind: WebAnalyticsItemKind
-    /** @nullable */
-    previous?: number | null
-    /** @nullable */
-    usedPreAggregatedTables?: boolean | null
-    /** @nullable */
-    value?: number | null
-}
-
-export interface SamplingRate {
-    /** @nullable */
-    denominator?: number | null
-    numerator: number
-}
-
-export interface WebVitalsPathBreakdownResult {
-    good: WebVitalsPathBreakdownResultItem[]
-    needs_improvements: WebVitalsPathBreakdownResultItem[]
-    poor: WebVitalsPathBreakdownResultItem[]
-}
-
-export interface PageURL {
-    count: number
-    url: string
-}
-
-export interface ExternalQueryError {
-    code: ExternalQueryErrorCode
-    detail: string
-}
-
-export type ExternalQueryStatus = (typeof ExternalQueryStatus)[keyof typeof ExternalQueryStatus]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExternalQueryStatus = {
     success: 'success',
     error: 'error',
 } as const
-
-export interface RevenueAnalyticsMRRQueryResultItem {
-    churn: unknown
-    contraction: unknown
-    expansion: unknown
-    new: unknown
-    total: unknown
-}
-
-export interface RevenueAnalyticsOverviewItem {
-    key: RevenueAnalyticsOverviewItemKey
-    value: number
-}
 
 /**
  * @nullable
@@ -15080,21 +10321,6 @@ export type MarketingAnalyticsItemPrevious = number | string | null
  */
 export type MarketingAnalyticsItemValue = number | string | null
 
-export interface MarketingAnalyticsItem {
-    /** @nullable */
-    changeFromPreviousPct?: number | null
-    /** @nullable */
-    hasComparison?: boolean | null
-    /** @nullable */
-    isIncreaseBad?: boolean | null
-    key: string
-    kind: WebAnalyticsItemKind
-    /** @nullable */
-    previous?: MarketingAnalyticsItemPrevious
-    /** @nullable */
-    value?: MarketingAnalyticsItemValue
-}
-
 /**
  * @nullable
  */
@@ -15105,83 +10331,11 @@ export type LLMTraceInputState = unknown | null
  */
 export type LLMTraceOutputState = unknown | null
 
-export interface LLMTrace {
-    /** @nullable */
-    aiSessionId?: string | null
-    createdAt: string
-    /** @nullable */
-    errorCount?: number | null
-    events: LLMTraceEvent[]
-    id: string
-    /** @nullable */
-    inputCost?: number | null
-    /** @nullable */
-    inputState?: LLMTraceInputState
-    /** @nullable */
-    inputTokens?: number | null
-    /** @nullable */
-    outputCost?: number | null
-    /** @nullable */
-    outputState?: LLMTraceOutputState
-    /** @nullable */
-    outputTokens?: number | null
-    person: LLMTracePerson
-    /** @nullable */
-    totalCost?: number | null
-    /** @nullable */
-    totalLatency?: number | null
-    /** @nullable */
-    traceName?: string | null
-}
-
 /**
  * Optional breakdown value for retention cohorts
  * @nullable
  */
 export type RetentionResultBreakdownValue = string | number | null
-
-export interface RetentionResult {
-    /**
-     * Optional breakdown value for retention cohorts
-     * @nullable
-     */
-    breakdown_value?: RetentionResultBreakdownValue
-    date: string
-    label: string
-    values: RetentionValue[]
-}
-
-export interface PathsLink {
-    average_conversion_time: number
-    source: string
-    target: string
-    value: number
-}
-
-export interface FunnelCorrelationResult {
-    events: EventOddsRatioSerialized[]
-    skewed: boolean
-}
-
-export interface DataWarehouseViewLink {
-    /** @nullable */
-    configuration?: DataWarehouseViewLinkConfiguration
-    /** @nullable */
-    created_at?: string | null
-    /** @nullable */
-    created_by?: UserBasicType
-    /** @nullable */
-    field_name?: string | null
-    id: string
-    /** @nullable */
-    joining_table_key?: string | null
-    /** @nullable */
-    joining_table_name?: string | null
-    /** @nullable */
-    source_table_key?: string | null
-    /** @nullable */
-    source_table_name?: string | null
-}
 
 export type DatabaseSchemaPostHogTableFields = { [key: string]: DatabaseSchemaField }
 
@@ -15193,15 +10347,6 @@ export const DatabaseSchemaPostHogTableType = {
     posthog: 'posthog',
 } as const
 
-export interface DatabaseSchemaPostHogTable {
-    fields: DatabaseSchemaPostHogTableFields
-    id: string
-    name: string
-    /** @nullable */
-    row_count?: number | null
-    type?: DatabaseSchemaPostHogTableType
-}
-
 export type DatabaseSchemaSystemTableFields = { [key: string]: DatabaseSchemaField }
 
 export type DatabaseSchemaSystemTableType =
@@ -15211,15 +10356,6 @@ export type DatabaseSchemaSystemTableType =
 export const DatabaseSchemaSystemTableType = {
     system: 'system',
 } as const
-
-export interface DatabaseSchemaSystemTable {
-    fields: DatabaseSchemaSystemTableFields
-    id: string
-    name: string
-    /** @nullable */
-    row_count?: number | null
-    type?: DatabaseSchemaSystemTableType
-}
 
 export type DatabaseSchemaDataWarehouseTableFields = { [key: string]: DatabaseSchemaField }
 
@@ -15231,21 +10367,6 @@ export const DatabaseSchemaDataWarehouseTableType = {
     data_warehouse: 'data_warehouse',
 } as const
 
-export interface DatabaseSchemaDataWarehouseTable {
-    fields: DatabaseSchemaDataWarehouseTableFields
-    format: string
-    id: string
-    name: string
-    /** @nullable */
-    row_count?: number | null
-    /** @nullable */
-    schema?: DatabaseSchemaSchema
-    /** @nullable */
-    source?: DatabaseSchemaSource
-    type?: DatabaseSchemaDataWarehouseTableType
-    url_pattern: string
-}
-
 export type DatabaseSchemaViewTableFields = { [key: string]: DatabaseSchemaField }
 
 export type DatabaseSchemaViewTableType = (typeof DatabaseSchemaViewTableType)[keyof typeof DatabaseSchemaViewTableType]
@@ -15254,16 +10375,6 @@ export type DatabaseSchemaViewTableType = (typeof DatabaseSchemaViewTableType)[k
 export const DatabaseSchemaViewTableType = {
     view: 'view',
 } as const
-
-export interface DatabaseSchemaViewTable {
-    fields: DatabaseSchemaViewTableFields
-    id: string
-    name: string
-    query: HogQLQuery
-    /** @nullable */
-    row_count?: number | null
-    type?: DatabaseSchemaViewTableType
-}
 
 export type DatabaseSchemaManagedViewTableFields = { [key: string]: DatabaseSchemaField }
 
@@ -15275,19 +10386,6 @@ export const DatabaseSchemaManagedViewTableType = {
     managed_view: 'managed_view',
 } as const
 
-export interface DatabaseSchemaManagedViewTable {
-    fields: DatabaseSchemaManagedViewTableFields
-    id: string
-    kind: DatabaseSchemaManagedViewTableKind
-    name: string
-    query: HogQLQuery
-    /** @nullable */
-    row_count?: number | null
-    /** @nullable */
-    source_id?: string | null
-    type?: DatabaseSchemaManagedViewTableType
-}
-
 export type DatabaseSchemaBatchExportTableFields = { [key: string]: DatabaseSchemaField }
 
 export type DatabaseSchemaBatchExportTableType =
@@ -15297,15 +10395,6 @@ export type DatabaseSchemaBatchExportTableType =
 export const DatabaseSchemaBatchExportTableType = {
     batch_export: 'batch_export',
 } as const
-
-export interface DatabaseSchemaBatchExportTable {
-    fields: DatabaseSchemaBatchExportTableFields
-    id: string
-    name: string
-    /** @nullable */
-    row_count?: number | null
-    type?: DatabaseSchemaBatchExportTableType
-}
 
 export type DatabaseSchemaMaterializedViewTableFields = { [key: string]: DatabaseSchemaField }
 
@@ -15317,20 +10406,6 @@ export const DatabaseSchemaMaterializedViewTableType = {
     materialized_view: 'materialized_view',
 } as const
 
-export interface DatabaseSchemaMaterializedViewTable {
-    fields: DatabaseSchemaMaterializedViewTableFields
-    id: string
-    /** @nullable */
-    last_run_at?: string | null
-    name: string
-    query: HogQLQuery
-    /** @nullable */
-    row_count?: number | null
-    /** @nullable */
-    status?: string | null
-    type?: DatabaseSchemaMaterializedViewTableType
-}
-
 export type DatabaseSchemaEndpointTableFields = { [key: string]: DatabaseSchemaField }
 
 export type DatabaseSchemaEndpointTableType =
@@ -15341,63 +10416,11 @@ export const DatabaseSchemaEndpointTableType = {
     endpoint: 'endpoint',
 } as const
 
-export interface DatabaseSchemaEndpointTable {
-    fields: DatabaseSchemaEndpointTableFields
-    id: string
-    name: string
-    query: HogQLQuery
-    /** @nullable */
-    row_count?: number | null
-    /** @nullable */
-    status?: string | null
-    type?: DatabaseSchemaEndpointTableType
-}
-
-export interface TeamTaxonomyItem {
-    count: number
-    event: string
-}
-
-export interface EventTaxonomyItem {
-    property: string
-    sample_count: number
-    sample_values: string[]
-}
-
 export type ActorsPropertyTaxonomyResponseSampleValuesItem = string | number | boolean | number
 
-export interface ActorsPropertyTaxonomyResponse {
-    sample_count: number
-    sample_values: ActorsPropertyTaxonomyResponseSampleValuesItem[]
-}
-
-export interface VectorSearchResponseItem {
-    distance: number
-    id: string
-}
-
-export interface UsageMetric {
-    /** @nullable */
-    change_from_previous_pct?: number | null
-    display: UsageMetricDisplay
-    format: UsageMetricFormat
-    id: string
-    interval: number
-    name: string
-    previous: number
-    value: number
-}
-
-export interface ClickhouseQueryProgress {
-    active_cpu_time: number
-    bytes_read: number
-    estimated_rows_total: number
-    rows_read: number
-    time_elapsed: number
-}
-
 /**
- * * `CustomerIO` - CustomerIO
+ * * `Supabase` - Supabase
+ * `CustomerIO` - CustomerIO
  * `Github` - Github
  * `Stripe` - Stripe
  * `Hubspot` - Hubspot
@@ -15429,42 +10452,8 @@ export interface ClickhouseQueryProgress {
  * `BingAds` - BingAds
  * `Shopify` - Shopify
  */
-export type SourceTypeEnum = (typeof SourceTypeEnum)[keyof typeof SourceTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SourceTypeEnum = {
-    CustomerIO: 'CustomerIO',
-    Github: 'Github',
-    Stripe: 'Stripe',
-    Hubspot: 'Hubspot',
-    Postgres: 'Postgres',
-    Zendesk: 'Zendesk',
-    Snowflake: 'Snowflake',
-    Salesforce: 'Salesforce',
-    MySQL: 'MySQL',
-    MongoDB: 'MongoDB',
-    MSSQL: 'MSSQL',
-    Vitally: 'Vitally',
-    BigQuery: 'BigQuery',
-    Chargebee: 'Chargebee',
-    GoogleAds: 'GoogleAds',
-    TemporalIO: 'TemporalIO',
-    DoIt: 'DoIt',
-    GoogleSheets: 'GoogleSheets',
-    MetaAds: 'MetaAds',
-    Klaviyo: 'Klaviyo',
-    Mailchimp: 'Mailchimp',
-    Braze: 'Braze',
-    Mailjet: 'Mailjet',
-    Redshift: 'Redshift',
-    Polar: 'Polar',
-    RevenueCat: 'RevenueCat',
-    LinkedinAds: 'LinkedinAds',
-    RedditAds: 'RedditAds',
-    TikTokAds: 'TikTokAds',
-    BingAds: 'BingAds',
-    Shopify: 'Shopify',
-} as const
 
 /**
  * * `events` - events
@@ -15472,14 +10461,6 @@ export const SourceTypeEnum = {
  */
 export type HogFunctionFiltersSourceEnum =
     (typeof HogFunctionFiltersSourceEnum)[keyof typeof HogFunctionFiltersSourceEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogFunctionFiltersSourceEnum = {
-    events: 'events',
-    'person-updates': 'person-updates',
-} as const
-
-export type BreakdownType = (typeof BreakdownType)[keyof typeof BreakdownType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BreakdownType = {
@@ -15496,20 +10477,6 @@ export const BreakdownType = {
 } as const
 
 export type BreakdownProperty = string | number
-
-export interface Breakdown {
-    /** @nullable */
-    group_type_index?: number | null
-    /** @nullable */
-    histogram_bin_count?: number | null
-    /** @nullable */
-    normalize_url?: boolean | null
-    property: BreakdownProperty
-    /** @nullable */
-    type?: MultipleBreakdownType
-}
-
-export type PropertyOperator = (typeof PropertyOperator)[keyof typeof PropertyOperator]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PropertyOperator = {
@@ -15548,16 +10515,12 @@ export const Key = {
     selector: 'selector',
 } as const
 
-export type DurationType = (typeof DurationType)[keyof typeof DurationType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DurationType = {
     duration: 'duration',
     active_seconds: 'active_seconds',
     inactive_seconds: 'inactive_seconds',
 } as const
-
-export type CurrencyCode = (typeof CurrencyCode)[keyof typeof CurrencyCode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CurrencyCode = {
@@ -15724,20 +10687,6 @@ export const BounceRatePageViewMode = {
     uniq_page_screen_autocaptures: 'uniq_page_screen_autocaptures',
 } as const
 
-export interface CustomChannelRule {
-    channel_type: string
-    combiner: FilterLogicalOperator
-    id: string
-    items: CustomChannelCondition[]
-}
-
-export interface DataWarehouseEventsModifier {
-    distinct_id_field: string
-    id_field: string
-    table_name: string
-    timestamp_field: string
-}
-
 export type InCohortVia = (typeof InCohortVia)[keyof typeof InCohortVia]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -15812,15 +10761,11 @@ export const SessionsV2JoinMode = {
     uuid: 'uuid',
 } as const
 
-export type FilterLogicalOperator = (typeof FilterLogicalOperator)[keyof typeof FilterLogicalOperator]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FilterLogicalOperator = {
     AND: 'AND',
     OR: 'OR',
 } as const
-
-export type StickinessOperator = (typeof StickinessOperator)[keyof typeof StickinessOperator]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StickinessOperator = {
@@ -15828,8 +10773,6 @@ export const StickinessOperator = {
     lte: 'lte',
     exact: 'exact',
 } as const
-
-export type WebTrendsMetric = (typeof WebTrendsMetric)[keyof typeof WebTrendsMetric]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebTrendsMetric = {
@@ -15840,126 +10783,6 @@ export const WebTrendsMetric = {
     SessionDuration: 'SessionDuration',
     TotalSessions: 'TotalSessions',
 } as const
-
-export interface WebTrendsQueryResponse {
-    /**
-     * Executed ClickHouse query
-     * @nullable
-     */
-    clickhouse?: string | null
-    /**
-     * Returned columns
-     * @nullable
-     */
-    columns?: unknown[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Query explanation output
-     * @nullable
-     */
-    explain?: string[] | null
-    /** @nullable */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /** @nullable */
-    limit?: number | null
-    /**
-     * Query metadata output
-     * @nullable
-     */
-    metadata?: HogQLMetadataResponse
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
-    /**
-     * Input query string
-     * @nullable
-     */
-    query?: string | null
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: WebTrendsItem[]
-    /** @nullable */
-    samplingRate?: SamplingRate
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-    /**
-     * Types of returned columns
-     * @nullable
-     */
-    types?: unknown[] | null
-    /** @nullable */
-    usedPreAggregatedTables?: boolean | null
-}
-
-export interface CalendarHeatmapFilter {
-    /** @nullable */
-    dummy?: string | null
-}
-
-export interface CalendarHeatmapResponse {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Wether more breakdown values are available.
-     * @nullable
-     */
-    hasMore?: boolean | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: EventsHeatMapStructuredResult
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export type RecordingOrder = (typeof RecordingOrder)[keyof typeof RecordingOrder]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RecordingOrder = {
@@ -15976,35 +10799,17 @@ export const RecordingOrder = {
     recording_ttl: 'recording_ttl',
 } as const
 
-export type RecordingOrderDirection = (typeof RecordingOrderDirection)[keyof typeof RecordingOrderDirection]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RecordingOrderDirection = {
     ASC: 'ASC',
     DESC: 'DESC',
 } as const
 
-export interface RecordingsQueryResponse {
-    has_next: boolean
-    /**
-     * Cursor for the next page. Contains the ordering value and session_id from the last record.
-     * @nullable
-     */
-    next_cursor?: string | null
-    results: SessionRecordingType[]
-}
-
-export type ErrorTrackingIssueAssigneeType =
-    (typeof ErrorTrackingIssueAssigneeType)[keyof typeof ErrorTrackingIssueAssigneeType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ErrorTrackingIssueAssigneeType = {
     user: 'user',
     role: 'role',
 } as const
-
-export type FunnelConversionWindowTimeUnit =
-    (typeof FunnelConversionWindowTimeUnit)[keyof typeof FunnelConversionWindowTimeUnit]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelConversionWindowTimeUnit = {
@@ -16015,8 +10820,6 @@ export const FunnelConversionWindowTimeUnit = {
     week: 'week',
     month: 'month',
 } as const
-
-export type ExperimentMetricGoal = (typeof ExperimentMetricGoal)[keyof typeof ExperimentMetricGoal]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExperimentMetricGoal = {
@@ -16095,53 +10898,6 @@ export type ExperimentDataWarehouseNodePropertiesItem =
  */
 export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null
 
-export interface ExperimentDataWarehouseNode {
-    /** @nullable */
-    custom_name?: string | null
-    data_warehouse_join_key: string
-    events_join_key: string
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: ExperimentDataWarehouseNodeFixedPropertiesItem[] | null
-    kind?: ExperimentDataWarehouseNodeKind
-    /** @nullable */
-    math?: ExperimentDataWarehouseNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: ExperimentDataWarehouseNodePropertiesItem[] | null
-    /** @nullable */
-    response?: ExperimentDataWarehouseNodeResponse
-    table_name: string
-    timestamp_field: string
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
-export type StepOrderValue = (typeof StepOrderValue)[keyof typeof StepOrderValue]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StepOrderValue = {
     strict: 'strict',
@@ -16190,19 +10946,6 @@ export type ExperimentEventExposureConfigPropertiesItem =
  */
 export type ExperimentEventExposureConfigResponse = { [key: string]: unknown } | null
 
-export interface ExperimentEventExposureConfig {
-    event: string
-    kind?: ExperimentEventExposureConfigKind
-    properties: ExperimentEventExposureConfigPropertiesItem[]
-    /** @nullable */
-    response?: ExperimentEventExposureConfigResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type MultipleVariantHandling = (typeof MultipleVariantHandling)[keyof typeof MultipleVariantHandling]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -16215,22 +10958,6 @@ export const MultipleVariantHandling = {
  * @nullable
  */
 export type UserBasicTypeIsEmailVerified = unknown | null
-
-export interface UserBasicType {
-    distinct_id: string
-    email: string
-    first_name: string
-    /** @nullable */
-    hedgehog_config?: MinimalHedgehogConfig
-    id: number
-    /** @nullable */
-    is_email_verified?: UserBasicTypeIsEmailVerified
-    /** @nullable */
-    last_name?: string | null
-    /** @nullable */
-    role_at_organization?: string | null
-    uuid: string
-}
 
 export type FeatureFlagGroupTypePropertiesItem =
     | EventPropertyFilter
@@ -16251,68 +10978,6 @@ export type FeatureFlagGroupTypePropertiesItem =
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
-
-export interface FeatureFlagGroupType {
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    properties?: FeatureFlagGroupTypePropertiesItem[] | null
-    /** @nullable */
-    rollout_percentage?: number | null
-    /** @nullable */
-    sort_key?: string | null
-    /** @nullable */
-    users_affected?: number | null
-    /** @nullable */
-    variant?: string | null
-}
-
-export interface GoalLine {
-    /** @nullable */
-    borderColor?: string | null
-    /** @nullable */
-    displayIfCrossed?: boolean | null
-    /** @nullable */
-    displayLabel?: boolean | null
-    label: string
-    /** @nullable */
-    position?: Position
-    value: number
-}
-
-export interface YAxisSettings {
-    /** @nullable */
-    scale?: Scale
-    /** @nullable */
-    showGridLines?: boolean | null
-    /** @nullable */
-    showTicks?: boolean | null
-    /**
-     * Whether the Y axis should start at zero
-     * @nullable
-     */
-    startAtZero?: boolean | null
-}
-
-export interface ChartAxis {
-    column: string
-    /** @nullable */
-    settings?: Settings
-}
-
-export interface ConditionalFormattingRule {
-    bytecode: unknown[]
-    color: string
-    /** @nullable */
-    colorMode?: ColorMode
-    columnName: string
-    id: string
-    input: string
-    templateId: string
-}
-
-export type DataTableNodeViewPropsContextType =
-    (typeof DataTableNodeViewPropsContextType)[keyof typeof DataTableNodeViewPropsContextType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DataTableNodeViewPropsContextType = {
@@ -16358,17 +11023,6 @@ export const DetailedResultsAggregationType = {
     median: 'median',
 } as const
 
-export interface TrendsFormulaNode {
-    /**
-     * Optional user-defined name for the formula
-     * @nullable
-     */
-    custom_name?: string | null
-    formula: string
-}
-
-export type ResultCustomizationBy = (typeof ResultCustomizationBy)[keyof typeof ResultCustomizationBy]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ResultCustomizationBy = {
     value: 'value',
@@ -16383,14 +11037,6 @@ export const ResultCustomizationByValueAssignmentBy = {
     value: 'value',
 } as const
 
-export interface ResultCustomizationByValue {
-    assignmentBy?: ResultCustomizationByValueAssignmentBy
-    /** @nullable */
-    color?: DataColorToken
-    /** @nullable */
-    hidden?: boolean | null
-}
-
 export type ResultCustomizationByPositionAssignmentBy =
     (typeof ResultCustomizationByPositionAssignmentBy)[keyof typeof ResultCustomizationByPositionAssignmentBy]
 
@@ -16399,14 +11045,6 @@ export const ResultCustomizationByPositionAssignmentBy = {
     position: 'position',
 } as const
 
-export interface ResultCustomizationByPosition {
-    assignmentBy?: ResultCustomizationByPositionAssignmentBy
-    /** @nullable */
-    color?: DataColorToken
-    /** @nullable */
-    hidden?: boolean | null
-}
-
 export type YAxisScaleType = (typeof YAxisScaleType)[keyof typeof YAxisScaleType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -16414,8 +11052,6 @@ export const YAxisScaleType = {
     log10: 'log10',
     linear: 'linear',
 } as const
-
-export type BreakdownAttributionType = (typeof BreakdownAttributionType)[keyof typeof BreakdownAttributionType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BreakdownAttributionType = {
@@ -16496,61 +11132,6 @@ export type FunnelExclusionEventsNodePropertiesItem =
  */
 export type FunnelExclusionEventsNodeResponse = { [key: string]: unknown } | null
 
-export interface FunnelExclusionEventsNode {
-    /** @nullable */
-    custom_name?: string | null
-    /**
-     * The event or `null` for all events.
-     * @nullable
-     */
-    event?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: FunnelExclusionEventsNodeFixedPropertiesItem[] | null
-    funnelFromStep: number
-    funnelToStep: number
-    kind?: FunnelExclusionEventsNodeKind
-    /** @nullable */
-    limit?: number | null
-    /** @nullable */
-    math?: FunnelExclusionEventsNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Columns to order by
-     * @nullable
-     */
-    orderBy?: string[] | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: FunnelExclusionEventsNodePropertiesItem[] | null
-    /** @nullable */
-    response?: FunnelExclusionEventsNodeResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
 export type FunnelExclusionActionsNodeFixedPropertiesItem =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -16622,59 +11203,11 @@ export type FunnelExclusionActionsNodePropertiesItem =
  */
 export type FunnelExclusionActionsNodeResponse = { [key: string]: unknown } | null
 
-export interface FunnelExclusionActionsNode {
-    /** @nullable */
-    custom_name?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: FunnelExclusionActionsNodeFixedPropertiesItem[] | null
-    funnelFromStep: number
-    funnelToStep: number
-    id: number
-    kind?: FunnelExclusionActionsNodeKind
-    /** @nullable */
-    math?: FunnelExclusionActionsNodeMath
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: FunnelExclusionActionsNodePropertiesItem[] | null
-    /** @nullable */
-    response?: FunnelExclusionActionsNodeResponse
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
-}
-
-export type FunnelStepReference = (typeof FunnelStepReference)[keyof typeof FunnelStepReference]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelStepReference = {
     total: 'total',
     previous: 'previous',
 } as const
-
-export type FunnelVizType = (typeof FunnelVizType)[keyof typeof FunnelVizType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelVizType = {
@@ -16690,9 +11223,6 @@ export const FunnelLayout = {
     horizontal: 'horizontal',
     vertical: 'vertical',
 } as const
-
-export type RetentionDashboardDisplayType =
-    (typeof RetentionDashboardDisplayType)[keyof typeof RetentionDashboardDisplayType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RetentionDashboardDisplayType = {
@@ -16710,8 +11240,6 @@ export const MeanRetentionCalculation = {
     none: 'none',
 } as const
 
-export type RetentionPeriod = (typeof RetentionPeriod)[keyof typeof RetentionPeriod]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RetentionPeriod = {
     Hour: 'Hour',
@@ -16727,8 +11255,6 @@ export const RetentionReference = {
     total: 'total',
     previous: 'previous',
 } as const
-
-export type RetentionType = (typeof RetentionType)[keyof typeof RetentionType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RetentionType = {
@@ -16762,28 +11288,6 @@ export type RetentionEntityPropertiesItem =
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
 
-export interface RetentionEntity {
-    /** @nullable */
-    custom_name?: string | null
-    /** @nullable */
-    id?: RetentionEntityId
-    /** @nullable */
-    kind?: RetentionEntityKind
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    order?: number | null
-    /**
-     * filters on the event
-     * @nullable
-     */
-    properties?: RetentionEntityPropertiesItem[] | null
-    /** @nullable */
-    type?: EntityType
-    /** @nullable */
-    uuid?: string | null
-}
-
 export type TimeWindowMode = (typeof TimeWindowMode)[keyof typeof TimeWindowMode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -16792,16 +11296,12 @@ export const TimeWindowMode = {
     '24_hour_windows': '24_hour_windows',
 } as const
 
-export type FunnelPathType = (typeof FunnelPathType)[keyof typeof FunnelPathType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const FunnelPathType = {
     funnel_path_before_step: 'funnel_path_before_step',
     funnel_path_between_steps: 'funnel_path_between_steps',
     funnel_path_after_step: 'funnel_path_after_step',
 } as const
-
-export type PathType = (typeof PathType)[keyof typeof PathType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PathType = {
@@ -16810,17 +11310,6 @@ export const PathType = {
     custom_event: 'custom_event',
     hogql: 'hogql',
 } as const
-
-export interface PathCleaningFilter {
-    /** @nullable */
-    alias?: string | null
-    /** @nullable */
-    order?: number | null
-    /** @nullable */
-    regex?: string | null
-}
-
-export type StickinessComputationMode = (typeof StickinessComputationMode)[keyof typeof StickinessComputationMode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StickinessComputationMode = {
@@ -16833,8 +11322,6 @@ export interface StickinessCriteria {
     value: number
 }
 
-export type LifecycleToggle = (typeof LifecycleToggle)[keyof typeof LifecycleToggle]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const LifecycleToggle = {
     new: 'new',
@@ -16844,28 +11331,6 @@ export const LifecycleToggle = {
 } as const
 
 export type EventTypeProperties = { [key: string]: unknown }
-
-export interface EventType {
-    distinct_id: string
-    elements: ElementType[]
-    /** @nullable */
-    elements_chain?: string | null
-    event: string
-    id: string
-    /** @nullable */
-    person?: Person
-    /** @nullable */
-    person_id?: string | null
-    /** @nullable */
-    person_mode?: string | null
-    properties: EventTypeProperties
-    timestamp: string
-    /** @nullable */
-    uuid?: string | null
-}
-
-export type AutocompleteCompletionItemKind =
-    (typeof AutocompleteCompletionItemKind)[keyof typeof AutocompleteCompletionItemKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AutocompleteCompletionItemKind = {
@@ -16899,20 +11364,6 @@ export const AutocompleteCompletionItemKind = {
     Snippet: 'Snippet',
 } as const
 
-export interface ErrorTrackingIssueAggregations {
-    occurrences: number
-    sessions: number
-    users: number
-    /** @nullable */
-    volumeRange?: number[] | null
-    volume_buckets: VolumeBucket[]
-}
-
-export interface ErrorTrackingIssueCohort {
-    id: number
-    name: string
-}
-
 export interface FirstEvent {
     distinct_id: string
     properties: string
@@ -16938,11 +11389,6 @@ export const Status = {
     suppressed: 'suppressed',
 } as const
 
-export interface BreakdownValue {
-    count: number
-    value: string
-}
-
 export interface Population {
     both: number
     exception_only: number
@@ -16950,33 +11396,12 @@ export interface Population {
     success_only: number
 }
 
-export interface SessionData {
-    event_uuid: string
-    person_id: string
-    session_id: string
-    timestamp: string
-}
-
-export type ExperimentStatsValidationFailure =
-    (typeof ExperimentStatsValidationFailure)[keyof typeof ExperimentStatsValidationFailure]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExperimentStatsValidationFailure = {
     'not-enough-exposures': 'not-enough-exposures',
     'baseline-mean-is-zero': 'baseline-mean-is-zero',
     'not-enough-metric-data': 'not-enough-metric-data',
 } as const
-
-export interface EmbeddingRecord {
-    document_id: string
-    document_type: string
-    model_name: EmbeddingModelName
-    product: string
-    rendering: string
-    timestamp: string
-}
-
-export type WebAnalyticsItemKind = (typeof WebAnalyticsItemKind)[keyof typeof WebAnalyticsItemKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const WebAnalyticsItemKind = {
@@ -16986,21 +11411,11 @@ export const WebAnalyticsItemKind = {
     currency: 'currency',
 } as const
 
-export interface WebVitalsPathBreakdownResultItem {
-    path: string
-    value: number
-}
-
-export type ExternalQueryErrorCode = (typeof ExternalQueryErrorCode)[keyof typeof ExternalQueryErrorCode]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ExternalQueryErrorCode = {
     platform_access_required: 'platform_access_required',
     query_execution_failed: 'query_execution_failed',
 } as const
-
-export type RevenueAnalyticsOverviewItemKey =
-    (typeof RevenueAnalyticsOverviewItemKey)[keyof typeof RevenueAnalyticsOverviewItemKey]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RevenueAnalyticsOverviewItemKey = {
@@ -17013,82 +11428,9 @@ export type LLMTraceEventEvent = AIEventType | string
 
 export type LLMTraceEventProperties = { [key: string]: unknown }
 
-export interface LLMTraceEvent {
-    createdAt: string
-    event: LLMTraceEventEvent
-    id: string
-    properties: LLMTraceEventProperties
-}
-
 export type LLMTracePersonProperties = { [key: string]: unknown }
 
-export interface LLMTracePerson {
-    created_at: string
-    distinct_id: string
-    properties: LLMTracePersonProperties
-    uuid: string
-}
-
-export interface RetentionValue {
-    count: number
-    /** @nullable */
-    label?: string | null
-}
-
-export interface EventOddsRatioSerialized {
-    correlation_type: CorrelationType
-    event: EventDefinition
-    failure_count: number
-    odds_ratio: number
-    success_count: number
-}
-
-export interface DataWarehouseViewLinkConfiguration {
-    /** @nullable */
-    experiments_optimized?: boolean | null
-    /** @nullable */
-    experiments_timestamp_key?: string | null
-}
-
 export type DatabaseSchemaFieldChainItem = string | number
-
-export interface DatabaseSchemaField {
-    /** @nullable */
-    chain?: DatabaseSchemaFieldChainItem[] | null
-    /** @nullable */
-    fields?: string[] | null
-    hogql_value: string
-    /** @nullable */
-    id?: string | null
-    name: string
-    schema_valid: boolean
-    /** @nullable */
-    table?: string | null
-    type: DatabaseSerializedFieldType
-}
-
-export interface DatabaseSchemaSchema {
-    id: string
-    incremental: boolean
-    /** @nullable */
-    last_synced_at?: string | null
-    name: string
-    should_sync: boolean
-    /** @nullable */
-    status?: string | null
-}
-
-export interface DatabaseSchemaSource {
-    id: string
-    /** @nullable */
-    last_synced_at?: string | null
-    prefix: string
-    source_type: string
-    status: string
-}
-
-export type DatabaseSchemaManagedViewTableKind =
-    (typeof DatabaseSchemaManagedViewTableKind)[keyof typeof DatabaseSchemaManagedViewTableKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DatabaseSchemaManagedViewTableKind = {
@@ -17099,23 +11441,17 @@ export const DatabaseSchemaManagedViewTableKind = {
     revenue_analytics_subscription: 'revenue_analytics_subscription',
 } as const
 
-export type UsageMetricDisplay = (typeof UsageMetricDisplay)[keyof typeof UsageMetricDisplay]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UsageMetricDisplay = {
     number: 'number',
     sparkline: 'sparkline',
 } as const
 
-export type UsageMetricFormat = (typeof UsageMetricFormat)[keyof typeof UsageMetricFormat]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const UsageMetricFormat = {
     numeric: 'numeric',
     currency: 'currency',
 } as const
-
-export type MultipleBreakdownType = (typeof MultipleBreakdownType)[keyof typeof MultipleBreakdownType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const MultipleBreakdownType = {
@@ -17133,113 +11469,6 @@ export const MultipleBreakdownType = {
  * @nullable
  */
 export type CustomChannelConditionValue = string | string[] | null
-
-export interface CustomChannelCondition {
-    id: string
-    key: CustomChannelField
-    op: CustomChannelOperator
-    /** @nullable */
-    value?: CustomChannelConditionValue
-}
-
-export interface WebTrendsItem {
-    bucket: string
-    metrics: Metrics
-}
-
-export interface EventsHeatMapStructuredResult {
-    allAggregations: number
-    columnAggregations: EventsHeatMapColumnAggregationResult[]
-    data: EventsHeatMapDataResult[]
-    rowAggregations: EventsHeatMapRowAggregationResult[]
-}
-
-export interface SessionRecordingType {
-    /** @nullable */
-    active_seconds?: number | null
-    /**
-     * calculated on the backend so that we can sort by it, definition may change over time
-     * @nullable
-     */
-    activity_score?: number | null
-    /** @nullable */
-    click_count?: number | null
-    /** @nullable */
-    console_error_count?: number | null
-    /** @nullable */
-    console_log_count?: number | null
-    /** @nullable */
-    console_warn_count?: number | null
-    /** @nullable */
-    distinct_id?: string | null
-    /** @nullable */
-    email?: string | null
-    /** When the recording ends in ISO format. */
-    end_time: string
-    /**
-     * When the recording expires, in ISO format.
-     * @nullable
-     */
-    expiry_time?: string | null
-    id: string
-    /** @nullable */
-    inactive_seconds?: number | null
-    /** @nullable */
-    keypress_count?: number | null
-    /**
-     * List of matching events. *
-     * @nullable
-     */
-    matching_events?: MatchedRecording[] | null
-    /**
-     * count of all mouse activity in the recording, not just clicks
-     * @nullable
-     */
-    mouse_activity_count?: number | null
-    /**
-     * whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded from ClickHouse)
-     *
-     * @nullable
-     */
-    ongoing?: boolean | null
-    /** @nullable */
-    person?: PersonType
-    /** Length of recording in seconds. */
-    recording_duration: number
-    /**
-     * Number of whole days left until the recording expires.
-     * @nullable
-     */
-    recording_ttl?: number | null
-    /**
-     * retention period for this recording
-     * @nullable
-     */
-    retention_period_days?: number | null
-    snapshot_source: SnapshotSource
-    /** When the recording starts in ISO format. */
-    start_time: string
-    /** @nullable */
-    start_url?: string | null
-    /**
-     * Where this recording information was loaded from
-     * @nullable
-     */
-    storage?: Storage
-    /** @nullable */
-    summary?: string | null
-    /** Whether this recording has been viewed by you already. */
-    viewed: boolean
-    /** user ids of other users who have viewed this recording */
-    viewers: string[]
-}
-
-export interface MinimalHedgehogConfig {
-    accessories: string[]
-    /** @nullable */
-    color?: HedgehogColorOptions
-    use_as_profile: boolean
-}
 
 export type Position = (typeof Position)[keyof typeof Position]
 
@@ -17293,15 +11522,11 @@ export const DataColorToken = {
     'preset-15': 'preset-15',
 } as const
 
-export type RetentionEntityKind = (typeof RetentionEntityKind)[keyof typeof RetentionEntityKind]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RetentionEntityKind = {
     ActionsNode: 'ActionsNode',
     EventsNode: 'EventsNode',
 } as const
-
-export type EntityType = (typeof EntityType)[keyof typeof EntityType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EntityType = {
@@ -17312,25 +11537,6 @@ export const EntityType = {
 } as const
 
 export type ElementTypeAttributes = { [key: string]: string }
-
-export interface ElementType {
-    /** @nullable */
-    attr_class?: string[] | null
-    /** @nullable */
-    attr_id?: string | null
-    attributes: ElementTypeAttributes
-    /** @nullable */
-    href?: string | null
-    /** @nullable */
-    nth_child?: number | null
-    /** @nullable */
-    nth_of_type?: number | null
-    /** @nullable */
-    order?: number | null
-    tag_name: string
-    /** @nullable */
-    text?: string | null
-}
 
 export interface Person {
     readonly id: number
@@ -17345,8 +11551,6 @@ export interface VolumeBucket {
     label: string
     value: number
 }
-
-export type AIEventType = (typeof AIEventType)[keyof typeof AIEventType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AIEventType = {
@@ -17369,14 +11573,6 @@ export const CorrelationType = {
 
 export type EventDefinitionProperties = { [key: string]: unknown }
 
-export interface EventDefinition {
-    elements: unknown[]
-    event: string
-    properties: EventDefinitionProperties
-}
-
-export type DatabaseSerializedFieldType = (typeof DatabaseSerializedFieldType)[keyof typeof DatabaseSerializedFieldType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DatabaseSerializedFieldType = {
     integer: 'integer',
@@ -17397,8 +11593,6 @@ export const DatabaseSerializedFieldType = {
     unknown: 'unknown',
 } as const
 
-export type CustomChannelField = (typeof CustomChannelField)[keyof typeof CustomChannelField]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CustomChannelField = {
     utm_source: 'utm_source',
@@ -17409,8 +11603,6 @@ export const CustomChannelField = {
     pathname: 'pathname',
     hostname: 'hostname',
 } as const
-
-export type CustomChannelOperator = (typeof CustomChannelOperator)[keyof typeof CustomChannelOperator]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const CustomChannelOperator = {
@@ -17439,44 +11631,7 @@ export interface Metrics {
     UniqueUsers?: number | null
 }
 
-export interface EventsHeatMapColumnAggregationResult {
-    column: number
-    value: number
-}
-
-export interface EventsHeatMapDataResult {
-    column: number
-    row: number
-    value: number
-}
-
-export interface EventsHeatMapRowAggregationResult {
-    row: number
-    value: number
-}
-
-export interface MatchedRecording {
-    events: MatchedRecordingEvent[]
-    /** @nullable */
-    session_id?: string | null
-}
-
 export type PersonTypeProperties = { [key: string]: unknown }
-
-export interface PersonType {
-    /** @nullable */
-    created_at?: string | null
-    distinct_ids: string[]
-    /** @nullable */
-    id?: string | null
-    /** @nullable */
-    is_identified?: boolean | null
-    /** @nullable */
-    name?: string | null
-    properties: PersonTypeProperties
-    /** @nullable */
-    uuid?: string | null
-}
 
 export type SnapshotSource = (typeof SnapshotSource)[keyof typeof SnapshotSource]
 
@@ -17486,16 +11641,6 @@ export const SnapshotSource = {
     mobile: 'mobile',
     unknown: 'unknown',
 } as const
-
-export type Storage = (typeof Storage)[keyof typeof Storage]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Storage = {
-    object_storage_lts: 'object_storage_lts',
-    object_storage: 'object_storage',
-} as const
-
-export type HedgehogColorOptions = (typeof HedgehogColorOptions)[keyof typeof HedgehogColorOptions]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const HedgehogColorOptions = {
@@ -17510,35 +11655,6 @@ export const HedgehogColorOptions = {
     'invert-hue': 'invert-hue',
     greyscale: 'greyscale',
 } as const
-
-export interface ChartSettingsDisplay {
-    /** @nullable */
-    color?: string | null
-    /** @nullable */
-    displayType?: DisplayType
-    /** @nullable */
-    label?: string | null
-    /** @nullable */
-    trendLine?: boolean | null
-    /** @nullable */
-    yAxisPosition?: YAxisPosition
-}
-
-export interface ChartSettingsFormatting {
-    /** @nullable */
-    decimalPlaces?: number | null
-    /** @nullable */
-    prefix?: string | null
-    /** @nullable */
-    style?: Style
-    /** @nullable */
-    suffix?: string | null
-}
-
-export interface MatchedRecordingEvent {
-    timestamp: string
-    uuid: string
-}
 
 export type DisplayType = (typeof DisplayType)[keyof typeof DisplayType]
 
@@ -17564,356 +11680,6 @@ export const Style = {
     none: 'none',
     number: 'number',
     percent: 'percent',
-} as const
-
-export interface PaginatedBatchExportList {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: BatchExport[]
-}
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportModel = { ...ModelEnum, ...BlankEnum, ...NullEnum } as const
-/**
- * Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions
- * @nullable
- */
-export type BatchExportModel = (typeof BatchExportModel)[keyof typeof BatchExportModel] | null
-
-/**
- * A schema of custom fields to select when exporting data.
- * @nullable
- */
-export type BatchExportSchema = unknown | null
-
-/**
- * @nullable
- */
-export type BatchExportFilters = unknown | null
-
-/**
- * Serializer for a BatchExport model.
- */
-export interface BatchExport {
-    readonly id: string
-    /** The team this belongs to. */
-    readonly team_id: number
-    /** A human-readable name for this BatchExport. */
-    name: string
-    /**
-   * Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions
-   * @nullable
-   */
-    model?: BatchExportModel
-    destination: BatchExportDestination
-    interval: IntervalEnum
-    /** Whether this BatchExport is paused or not. */
-    paused?: boolean
-    /** The timestamp at which this BatchExport was created. */
-    readonly created_at: string
-    /** The timestamp at which this BatchExport was last updated. */
-    readonly last_updated_at: string
-    /**
-     * The timestamp at which this BatchExport was last paused.
-     * @nullable
-     */
-    last_paused_at?: string | null
-    /**
-     * Time before which any Batch Export runs won't be triggered.
-     * @nullable
-     */
-    start_at?: string | null
-    /**
-     * Time after which any Batch Export runs won't be triggered.
-     * @nullable
-     */
-    end_at?: string | null
-    readonly latest_runs: readonly BatchExportRun[]
-    hogql_query?: string
-    /**
-     * A schema of custom fields to select when exporting data.
-     * @nullable
-     */
-    readonly schema: BatchExportSchema
-    /** @nullable */
-    filters?: BatchExportFilters
-}
-
-export interface PaginatedBatchExportRunList {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: BatchExportRun[]
-}
-
-/**
- * Serializer for a BatchExportRun model.
- */
-export interface BatchExportRun {
-    readonly id: string
-    /** The status of this run.
-
-* `Cancelled` - Cancelled
-* `Completed` - Completed
-* `ContinuedAsNew` - Continued As New
-* `Failed` - Failed
-* `FailedRetryable` - Failed Retryable
-* `FailedBilling` - Failed Billing
-* `Terminated` - Terminated
-* `TimedOut` - Timedout
-* `Running` - Running
-* `Starting` - Starting */
-    status: BatchExportRunStatusEnum
-    /**
-     * The number of records that have been exported.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    records_completed?: number | null
-    /**
-     * The latest error that occurred during this run.
-     * @nullable
-     */
-    latest_error?: string | null
-    /**
-     * The start of the data interval.
-     * @nullable
-     */
-    data_interval_start?: string | null
-    /** The end of the data interval. */
-    data_interval_end: string
-    /**
-     * An opaque cursor that may be used to resume.
-     * @nullable
-     */
-    cursor?: string | null
-    /** The timestamp at which this BatchExportRun was created. */
-    readonly created_at: string
-    /**
-     * The timestamp at which this BatchExportRun finished, successfully or not.
-     * @nullable
-     */
-    finished_at?: string | null
-    /** The timestamp at which this BatchExportRun was last updated. */
-    readonly last_updated_at: string
-    /**
-     * The total count of records that should be exported in this BatchExportRun.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    records_total_count?: number | null
-    /**
-     * The number of bytes that have been exported in this BatchExportRun.
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
-     * @nullable
-     */
-    bytes_exported?: number | null
-    /** The BatchExport this run belongs to. */
-    readonly batch_export: string
-    /**
-     * The backfill this run belongs to.
-     * @nullable
-     */
-    backfill?: string | null
-}
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedBatchExportModel = { ...ModelEnum, ...BlankEnum, ...NullEnum } as const
-/**
- * Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions
- * @nullable
- */
-export type PatchedBatchExportModel = (typeof PatchedBatchExportModel)[keyof typeof PatchedBatchExportModel] | null
-
-/**
- * A schema of custom fields to select when exporting data.
- * @nullable
- */
-export type PatchedBatchExportSchema = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedBatchExportFilters = unknown | null
-
-/**
- * Serializer for a BatchExport model.
- */
-export interface PatchedBatchExport {
-    readonly id?: string
-    /** The team this belongs to. */
-    readonly team_id?: number
-    /** A human-readable name for this BatchExport. */
-    name?: string
-    /**
-   * Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions
-   * @nullable
-   */
-    model?: PatchedBatchExportModel
-    destination?: BatchExportDestination
-    interval?: IntervalEnum
-    /** Whether this BatchExport is paused or not. */
-    paused?: boolean
-    /** The timestamp at which this BatchExport was created. */
-    readonly created_at?: string
-    /** The timestamp at which this BatchExport was last updated. */
-    readonly last_updated_at?: string
-    /**
-     * The timestamp at which this BatchExport was last paused.
-     * @nullable
-     */
-    last_paused_at?: string | null
-    /**
-     * Time before which any Batch Export runs won't be triggered.
-     * @nullable
-     */
-    start_at?: string | null
-    /**
-     * Time after which any Batch Export runs won't be triggered.
-     * @nullable
-     */
-    end_at?: string | null
-    readonly latest_runs?: readonly BatchExportRun[]
-    hogql_query?: string
-    /**
-     * A schema of custom fields to select when exporting data.
-     * @nullable
-     */
-    readonly schema?: PatchedBatchExportSchema
-    /** @nullable */
-    filters?: PatchedBatchExportFilters
-}
-
-/**
- * * `events` - Events
- * `persons` - Persons
- * `sessions` - Sessions
- */
-export type ModelEnum = (typeof ModelEnum)[keyof typeof ModelEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ModelEnum = {
-    events: 'events',
-    persons: 'persons',
-    sessions: 'sessions',
-} as const
-
-/**
- * Serializer for an BatchExportDestination model.
- */
-export interface BatchExportDestination {
-    /** A choice of supported BatchExportDestination types.
-
-* `S3` - S3
-* `Snowflake` - Snowflake
-* `Postgres` - Postgres
-* `Redshift` - Redshift
-* `BigQuery` - Bigquery
-* `Databricks` - Databricks
-* `HTTP` - Http
-* `NoOp` - Noop */
-    type: BatchExportDestinationTypeEnum
-    /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
-    config?: unknown
-    /**
-     * The integration for this destination.
-     * @nullable
-     */
-    integration?: number | null
-    /** @nullable */
-    integration_id?: number | null
-}
-
-/**
- * * `hour` - hour
- * `day` - day
- * `week` - week
- * `every 5 minutes` - every 5 minutes
- */
-export type IntervalEnum = (typeof IntervalEnum)[keyof typeof IntervalEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const IntervalEnum = {
-    hour: 'hour',
-    day: 'day',
-    week: 'week',
-    every_5_minutes: 'every 5 minutes',
-} as const
-
-/**
- * * `Cancelled` - Cancelled
- * `Completed` - Completed
- * `ContinuedAsNew` - Continued As New
- * `Failed` - Failed
- * `FailedRetryable` - Failed Retryable
- * `FailedBilling` - Failed Billing
- * `Terminated` - Terminated
- * `TimedOut` - Timedout
- * `Running` - Running
- * `Starting` - Starting
- */
-export type BatchExportRunStatusEnum = (typeof BatchExportRunStatusEnum)[keyof typeof BatchExportRunStatusEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportRunStatusEnum = {
-    Cancelled: 'Cancelled',
-    Completed: 'Completed',
-    ContinuedAsNew: 'ContinuedAsNew',
-    Failed: 'Failed',
-    FailedRetryable: 'FailedRetryable',
-    FailedBilling: 'FailedBilling',
-    Terminated: 'Terminated',
-    TimedOut: 'TimedOut',
-    Running: 'Running',
-    Starting: 'Starting',
-} as const
-
-/**
- * * `S3` - S3
- * `Snowflake` - Snowflake
- * `Postgres` - Postgres
- * `Redshift` - Redshift
- * `BigQuery` - Bigquery
- * `Databricks` - Databricks
- * `HTTP` - Http
- * `NoOp` - Noop
- */
-export type BatchExportDestinationTypeEnum =
-    (typeof BatchExportDestinationTypeEnum)[keyof typeof BatchExportDestinationTypeEnum]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportDestinationTypeEnum = {
-    S3: 'S3',
-    Snowflake: 'Snowflake',
-    Postgres: 'Postgres',
-    Redshift: 'Redshift',
-    BigQuery: 'BigQuery',
-    Databricks: 'Databricks',
-    HTTP: 'HTTP',
-    NoOp: 'NoOp',
 } as const
 
 export interface PaginatedConversationList {
@@ -17944,24 +11710,6 @@ export interface Message {
 
 export type ConversationMessagesItem = { [key: string]: unknown }
 
-export interface Conversation {
-    readonly id: string
-    readonly status: ConversationStatusEnum
-    /**
-     * Title of the conversation.
-     * @nullable
-     */
-    readonly title: string | null
-    readonly user: UserBasic
-    /** @nullable */
-    readonly created_at: string | null
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly type: ConversationTypeEnum
-    readonly messages: readonly ConversationMessagesItem[]
-    readonly has_unsupported_content: boolean
-}
-
 export type PatchedConversationMessagesItem = { [key: string]: unknown }
 
 export interface PatchedConversation {
@@ -17987,28 +11735,16 @@ export interface PatchedConversation {
  * `in_progress` - In progress
  * `canceling` - Canceling
  */
-export type ConversationStatusEnum = (typeof ConversationStatusEnum)[keyof typeof ConversationStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ConversationStatusEnum = {
-    idle: 'idle',
-    in_progress: 'in_progress',
-    canceling: 'canceling',
-} as const
 
 /**
  * * `assistant` - Assistant
  * `tool_call` - Tool call
  * `deep_research` - Deep research
  */
-export type ConversationTypeEnum = (typeof ConversationTypeEnum)[keyof typeof ConversationTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ConversationTypeEnum = {
-    assistant: 'assistant',
-    tool_call: 'tool_call',
-    deep_research: 'deep_research',
-} as const
 
 export interface PaginatedDashboardBasicList {
     count: number
@@ -18094,11 +11830,6 @@ export interface Dashboard {
     delete_insights?: boolean
     _create_in_folder?: string
 }
-
-/**
- * @nullable
- */
-export type SharingConfigurationSettings = unknown | null
 
 export interface SharingConfiguration {
     readonly created_at: string
@@ -18310,18 +12041,6 @@ export interface CreateGroup {
     group_key: string
     /** @nullable */
     group_properties?: CreateGroupGroupProperties
-}
-
-export interface Group {
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    group_type_index: number
-    /** @maxLength 400 */
-    group_key: string
-    group_properties?: unknown
-    readonly created_at: string
 }
 
 export interface PaginatedIntegrationList {
@@ -18701,6 +12420,20 @@ export type ProjectBackwardCompatModifiers = unknown | null
  */
 export type ProjectBackwardCompatHasCompletedOnboardingFor = unknown | null
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ProjectBackwardCompatBusinessModel = { ...BusinessModelEnum, ...BlankEnum, ...NullEnum } as const
+/**
+ * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other
+ * @nullable
+ */
+export type ProjectBackwardCompatBusinessModel =
+    | (typeof ProjectBackwardCompatBusinessModel)[keyof typeof ProjectBackwardCompatBusinessModel]
+    | null
+
 /**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
 passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
@@ -18823,6 +12556,15 @@ export interface ProjectBackwardCompat {
     readonly secret_api_token_backup: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
+    /**
+   * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other
+   * @nullable
+   */
+    business_model?: ProjectBackwardCompatBusinessModel
 }
 
 /**
@@ -18902,6 +12644,20 @@ export type PatchedProjectBackwardCompatModifiers = unknown | null
  * @nullable
  */
 export type PatchedProjectBackwardCompatHasCompletedOnboardingFor = unknown | null
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PatchedProjectBackwardCompatBusinessModel = { ...BusinessModelEnum, ...BlankEnum, ...NullEnum } as const
+/**
+ * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other
+ * @nullable
+ */
+export type PatchedProjectBackwardCompatBusinessModel =
+    | (typeof PatchedProjectBackwardCompatBusinessModel)[keyof typeof PatchedProjectBackwardCompatBusinessModel]
+    | null
 
 /**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
@@ -19025,6 +12781,15 @@ export interface PatchedProjectBackwardCompat {
     readonly secret_api_token_backup?: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
+    /**
+   * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other
+   * @nullable
+   */
+    business_model?: PatchedProjectBackwardCompatBusinessModel
 }
 
 export interface PaginatedRoleList {
@@ -19596,10 +13361,6 @@ export type DashboardTemplateVariables = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const DashboardTemplateScope = { ...DashboardTemplateScopeEnum, ...BlankEnum, ...NullEnum } as const
-/**
- * @nullable
- */
-export type DashboardTemplateScope = (typeof DashboardTemplateScope)[keyof typeof DashboardTemplateScope] | null
 
 export interface DashboardTemplate {
     readonly id: string
@@ -19724,20 +13485,6 @@ export const PropertyDefinitionPropertyType = {
 export type PropertyDefinitionPropertyType =
     | (typeof PropertyDefinitionPropertyType)[keyof typeof PropertyDefinitionPropertyType]
     | null
-
-/**
- * Serializer mixin that resolves appropriate response for tags depending on license.
- */
-export interface PropertyDefinition {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    is_numerical?: boolean
-    /** @nullable */
-    property_type?: PropertyDefinitionPropertyType
-    tags?: unknown[]
-    readonly is_seen_on_filtered_events: string
-}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PatchedPropertyDefinitionPropertyType = {
@@ -20023,15 +13770,8 @@ export interface DashboardBasic {
  * `duplicate` - Duplicate
  * `unlisted` - Unlisted (product-embedded)
  */
-export type CreationModeEnum = (typeof CreationModeEnum)[keyof typeof CreationModeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CreationModeEnum = {
-    default: 'default',
-    template: 'template',
-    duplicate: 'duplicate',
-    unlisted: 'unlisted',
-} as const
 
 /**
  * * `image/png` - image/png
@@ -20043,34 +13783,16 @@ export const CreationModeEnum = {
  * `image/gif` - image/gif
  * `application/json` - application/json
  */
-export type ExportFormatEnum = (typeof ExportFormatEnum)[keyof typeof ExportFormatEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExportFormatEnum = {
-    'image/png': 'image/png',
-    'application/pdf': 'application/pdf',
-    'text/csv': 'text/csv',
-    'application/vndopenxmlformats-officedocumentspreadsheetmlsheet':
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'video/webm': 'video/webm',
-    'video/mp4': 'video/mp4',
-    'image/gif': 'image/gif',
-    'application/json': 'application/json',
-} as const
 
 /**
  * * `email` - Email
  * `slack` - Slack
  * `webhook` - Webhook
  */
-export type TargetTypeEnum = (typeof TargetTypeEnum)[keyof typeof TargetTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TargetTypeEnum = {
-    email: 'email',
-    slack: 'slack',
-    webhook: 'webhook',
-} as const
 
 /**
  * * `daily` - Daily
@@ -20078,15 +13800,8 @@ export const TargetTypeEnum = {
  * `monthly` - Monthly
  * `yearly` - Yearly
  */
-export type FrequencyEnum = (typeof FrequencyEnum)[keyof typeof FrequencyEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FrequencyEnum = {
-    daily: 'daily',
-    weekly: 'weekly',
-    monthly: 'monthly',
-    yearly: 'yearly',
-} as const
 
 /**
  * * `monday` - Monday
@@ -20097,18 +13812,8 @@ export const FrequencyEnum = {
  * `saturday` - Saturday
  * `sunday` - Sunday
  */
-export type ByweekdayEnum = (typeof ByweekdayEnum)[keyof typeof ByweekdayEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ByweekdayEnum = {
-    monday: 'monday',
-    tuesday: 'tuesday',
-    wednesday: 'wednesday',
-    thursday: 'thursday',
-    friday: 'friday',
-    saturday: 'saturday',
-    sunday: 'sunday',
-} as const
 
 /**
  * * `1` - member
@@ -20154,11 +13859,6 @@ export type EffectiveMembershipLevelEnum =
     (typeof EffectiveMembershipLevelEnum)[keyof typeof EffectiveMembershipLevelEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EffectiveMembershipLevelEnum = {
-    NUMBER_1: 1,
-    NUMBER_8: 8,
-    NUMBER_15: 15,
-} as const
 
 /**
  * * `Africa/Abidjan` - Africa/Abidjan
@@ -20758,631 +14458,30 @@ export const EffectiveMembershipLevelEnum = {
  * `WET` - WET
  * `Zulu` - Zulu
  */
-export type TimezoneEnum = (typeof TimezoneEnum)[keyof typeof TimezoneEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TimezoneEnum = {
-    'Africa/Abidjan': 'Africa/Abidjan',
-    'Africa/Accra': 'Africa/Accra',
-    'Africa/Addis_Ababa': 'Africa/Addis_Ababa',
-    'Africa/Algiers': 'Africa/Algiers',
-    'Africa/Asmara': 'Africa/Asmara',
-    'Africa/Asmera': 'Africa/Asmera',
-    'Africa/Bamako': 'Africa/Bamako',
-    'Africa/Bangui': 'Africa/Bangui',
-    'Africa/Banjul': 'Africa/Banjul',
-    'Africa/Bissau': 'Africa/Bissau',
-    'Africa/Blantyre': 'Africa/Blantyre',
-    'Africa/Brazzaville': 'Africa/Brazzaville',
-    'Africa/Bujumbura': 'Africa/Bujumbura',
-    'Africa/Cairo': 'Africa/Cairo',
-    'Africa/Casablanca': 'Africa/Casablanca',
-    'Africa/Ceuta': 'Africa/Ceuta',
-    'Africa/Conakry': 'Africa/Conakry',
-    'Africa/Dakar': 'Africa/Dakar',
-    'Africa/Dar_es_Salaam': 'Africa/Dar_es_Salaam',
-    'Africa/Djibouti': 'Africa/Djibouti',
-    'Africa/Douala': 'Africa/Douala',
-    'Africa/El_Aaiun': 'Africa/El_Aaiun',
-    'Africa/Freetown': 'Africa/Freetown',
-    'Africa/Gaborone': 'Africa/Gaborone',
-    'Africa/Harare': 'Africa/Harare',
-    'Africa/Johannesburg': 'Africa/Johannesburg',
-    'Africa/Juba': 'Africa/Juba',
-    'Africa/Kampala': 'Africa/Kampala',
-    'Africa/Khartoum': 'Africa/Khartoum',
-    'Africa/Kigali': 'Africa/Kigali',
-    'Africa/Kinshasa': 'Africa/Kinshasa',
-    'Africa/Lagos': 'Africa/Lagos',
-    'Africa/Libreville': 'Africa/Libreville',
-    'Africa/Lome': 'Africa/Lome',
-    'Africa/Luanda': 'Africa/Luanda',
-    'Africa/Lubumbashi': 'Africa/Lubumbashi',
-    'Africa/Lusaka': 'Africa/Lusaka',
-    'Africa/Malabo': 'Africa/Malabo',
-    'Africa/Maputo': 'Africa/Maputo',
-    'Africa/Maseru': 'Africa/Maseru',
-    'Africa/Mbabane': 'Africa/Mbabane',
-    'Africa/Mogadishu': 'Africa/Mogadishu',
-    'Africa/Monrovia': 'Africa/Monrovia',
-    'Africa/Nairobi': 'Africa/Nairobi',
-    'Africa/Ndjamena': 'Africa/Ndjamena',
-    'Africa/Niamey': 'Africa/Niamey',
-    'Africa/Nouakchott': 'Africa/Nouakchott',
-    'Africa/Ouagadougou': 'Africa/Ouagadougou',
-    'Africa/Porto-Novo': 'Africa/Porto-Novo',
-    'Africa/Sao_Tome': 'Africa/Sao_Tome',
-    'Africa/Timbuktu': 'Africa/Timbuktu',
-    'Africa/Tripoli': 'Africa/Tripoli',
-    'Africa/Tunis': 'Africa/Tunis',
-    'Africa/Windhoek': 'Africa/Windhoek',
-    'America/Adak': 'America/Adak',
-    'America/Anchorage': 'America/Anchorage',
-    'America/Anguilla': 'America/Anguilla',
-    'America/Antigua': 'America/Antigua',
-    'America/Araguaina': 'America/Araguaina',
-    'America/Argentina/Buenos_Aires': 'America/Argentina/Buenos_Aires',
-    'America/Argentina/Catamarca': 'America/Argentina/Catamarca',
-    'America/Argentina/ComodRivadavia': 'America/Argentina/ComodRivadavia',
-    'America/Argentina/Cordoba': 'America/Argentina/Cordoba',
-    'America/Argentina/Jujuy': 'America/Argentina/Jujuy',
-    'America/Argentina/La_Rioja': 'America/Argentina/La_Rioja',
-    'America/Argentina/Mendoza': 'America/Argentina/Mendoza',
-    'America/Argentina/Rio_Gallegos': 'America/Argentina/Rio_Gallegos',
-    'America/Argentina/Salta': 'America/Argentina/Salta',
-    'America/Argentina/San_Juan': 'America/Argentina/San_Juan',
-    'America/Argentina/San_Luis': 'America/Argentina/San_Luis',
-    'America/Argentina/Tucuman': 'America/Argentina/Tucuman',
-    'America/Argentina/Ushuaia': 'America/Argentina/Ushuaia',
-    'America/Aruba': 'America/Aruba',
-    'America/Asuncion': 'America/Asuncion',
-    'America/Atikokan': 'America/Atikokan',
-    'America/Atka': 'America/Atka',
-    'America/Bahia': 'America/Bahia',
-    'America/Bahia_Banderas': 'America/Bahia_Banderas',
-    'America/Barbados': 'America/Barbados',
-    'America/Belem': 'America/Belem',
-    'America/Belize': 'America/Belize',
-    'America/Blanc-Sablon': 'America/Blanc-Sablon',
-    'America/Boa_Vista': 'America/Boa_Vista',
-    'America/Bogota': 'America/Bogota',
-    'America/Boise': 'America/Boise',
-    'America/Buenos_Aires': 'America/Buenos_Aires',
-    'America/Cambridge_Bay': 'America/Cambridge_Bay',
-    'America/Campo_Grande': 'America/Campo_Grande',
-    'America/Cancun': 'America/Cancun',
-    'America/Caracas': 'America/Caracas',
-    'America/Catamarca': 'America/Catamarca',
-    'America/Cayenne': 'America/Cayenne',
-    'America/Cayman': 'America/Cayman',
-    'America/Chicago': 'America/Chicago',
-    'America/Chihuahua': 'America/Chihuahua',
-    'America/Ciudad_Juarez': 'America/Ciudad_Juarez',
-    'America/Coral_Harbour': 'America/Coral_Harbour',
-    'America/Cordoba': 'America/Cordoba',
-    'America/Costa_Rica': 'America/Costa_Rica',
-    'America/Creston': 'America/Creston',
-    'America/Cuiaba': 'America/Cuiaba',
-    'America/Curacao': 'America/Curacao',
-    'America/Danmarkshavn': 'America/Danmarkshavn',
-    'America/Dawson': 'America/Dawson',
-    'America/Dawson_Creek': 'America/Dawson_Creek',
-    'America/Denver': 'America/Denver',
-    'America/Detroit': 'America/Detroit',
-    'America/Dominica': 'America/Dominica',
-    'America/Edmonton': 'America/Edmonton',
-    'America/Eirunepe': 'America/Eirunepe',
-    'America/El_Salvador': 'America/El_Salvador',
-    'America/Ensenada': 'America/Ensenada',
-    'America/Fort_Nelson': 'America/Fort_Nelson',
-    'America/Fort_Wayne': 'America/Fort_Wayne',
-    'America/Fortaleza': 'America/Fortaleza',
-    'America/Glace_Bay': 'America/Glace_Bay',
-    'America/Godthab': 'America/Godthab',
-    'America/Goose_Bay': 'America/Goose_Bay',
-    'America/Grand_Turk': 'America/Grand_Turk',
-    'America/Grenada': 'America/Grenada',
-    'America/Guadeloupe': 'America/Guadeloupe',
-    'America/Guatemala': 'America/Guatemala',
-    'America/Guayaquil': 'America/Guayaquil',
-    'America/Guyana': 'America/Guyana',
-    'America/Halifax': 'America/Halifax',
-    'America/Havana': 'America/Havana',
-    'America/Hermosillo': 'America/Hermosillo',
-    'America/Indiana/Indianapolis': 'America/Indiana/Indianapolis',
-    'America/Indiana/Knox': 'America/Indiana/Knox',
-    'America/Indiana/Marengo': 'America/Indiana/Marengo',
-    'America/Indiana/Petersburg': 'America/Indiana/Petersburg',
-    'America/Indiana/Tell_City': 'America/Indiana/Tell_City',
-    'America/Indiana/Vevay': 'America/Indiana/Vevay',
-    'America/Indiana/Vincennes': 'America/Indiana/Vincennes',
-    'America/Indiana/Winamac': 'America/Indiana/Winamac',
-    'America/Indianapolis': 'America/Indianapolis',
-    'America/Inuvik': 'America/Inuvik',
-    'America/Iqaluit': 'America/Iqaluit',
-    'America/Jamaica': 'America/Jamaica',
-    'America/Jujuy': 'America/Jujuy',
-    'America/Juneau': 'America/Juneau',
-    'America/Kentucky/Louisville': 'America/Kentucky/Louisville',
-    'America/Kentucky/Monticello': 'America/Kentucky/Monticello',
-    'America/Knox_IN': 'America/Knox_IN',
-    'America/Kralendijk': 'America/Kralendijk',
-    'America/La_Paz': 'America/La_Paz',
-    'America/Lima': 'America/Lima',
-    'America/Los_Angeles': 'America/Los_Angeles',
-    'America/Louisville': 'America/Louisville',
-    'America/Lower_Princes': 'America/Lower_Princes',
-    'America/Maceio': 'America/Maceio',
-    'America/Managua': 'America/Managua',
-    'America/Manaus': 'America/Manaus',
-    'America/Marigot': 'America/Marigot',
-    'America/Martinique': 'America/Martinique',
-    'America/Matamoros': 'America/Matamoros',
-    'America/Mazatlan': 'America/Mazatlan',
-    'America/Mendoza': 'America/Mendoza',
-    'America/Menominee': 'America/Menominee',
-    'America/Merida': 'America/Merida',
-    'America/Metlakatla': 'America/Metlakatla',
-    'America/Mexico_City': 'America/Mexico_City',
-    'America/Miquelon': 'America/Miquelon',
-    'America/Moncton': 'America/Moncton',
-    'America/Monterrey': 'America/Monterrey',
-    'America/Montevideo': 'America/Montevideo',
-    'America/Montreal': 'America/Montreal',
-    'America/Montserrat': 'America/Montserrat',
-    'America/Nassau': 'America/Nassau',
-    'America/New_York': 'America/New_York',
-    'America/Nipigon': 'America/Nipigon',
-    'America/Nome': 'America/Nome',
-    'America/Noronha': 'America/Noronha',
-    'America/North_Dakota/Beulah': 'America/North_Dakota/Beulah',
-    'America/North_Dakota/Center': 'America/North_Dakota/Center',
-    'America/North_Dakota/New_Salem': 'America/North_Dakota/New_Salem',
-    'America/Nuuk': 'America/Nuuk',
-    'America/Ojinaga': 'America/Ojinaga',
-    'America/Panama': 'America/Panama',
-    'America/Pangnirtung': 'America/Pangnirtung',
-    'America/Paramaribo': 'America/Paramaribo',
-    'America/Phoenix': 'America/Phoenix',
-    'America/Port-au-Prince': 'America/Port-au-Prince',
-    'America/Port_of_Spain': 'America/Port_of_Spain',
-    'America/Porto_Acre': 'America/Porto_Acre',
-    'America/Porto_Velho': 'America/Porto_Velho',
-    'America/Puerto_Rico': 'America/Puerto_Rico',
-    'America/Punta_Arenas': 'America/Punta_Arenas',
-    'America/Rainy_River': 'America/Rainy_River',
-    'America/Rankin_Inlet': 'America/Rankin_Inlet',
-    'America/Recife': 'America/Recife',
-    'America/Regina': 'America/Regina',
-    'America/Resolute': 'America/Resolute',
-    'America/Rio_Branco': 'America/Rio_Branco',
-    'America/Rosario': 'America/Rosario',
-    'America/Santa_Isabel': 'America/Santa_Isabel',
-    'America/Santarem': 'America/Santarem',
-    'America/Santiago': 'America/Santiago',
-    'America/Santo_Domingo': 'America/Santo_Domingo',
-    'America/Sao_Paulo': 'America/Sao_Paulo',
-    'America/Scoresbysund': 'America/Scoresbysund',
-    'America/Shiprock': 'America/Shiprock',
-    'America/Sitka': 'America/Sitka',
-    'America/St_Barthelemy': 'America/St_Barthelemy',
-    'America/St_Johns': 'America/St_Johns',
-    'America/St_Kitts': 'America/St_Kitts',
-    'America/St_Lucia': 'America/St_Lucia',
-    'America/St_Thomas': 'America/St_Thomas',
-    'America/St_Vincent': 'America/St_Vincent',
-    'America/Swift_Current': 'America/Swift_Current',
-    'America/Tegucigalpa': 'America/Tegucigalpa',
-    'America/Thule': 'America/Thule',
-    'America/Thunder_Bay': 'America/Thunder_Bay',
-    'America/Tijuana': 'America/Tijuana',
-    'America/Toronto': 'America/Toronto',
-    'America/Tortola': 'America/Tortola',
-    'America/Vancouver': 'America/Vancouver',
-    'America/Virgin': 'America/Virgin',
-    'America/Whitehorse': 'America/Whitehorse',
-    'America/Winnipeg': 'America/Winnipeg',
-    'America/Yakutat': 'America/Yakutat',
-    'America/Yellowknife': 'America/Yellowknife',
-    'Antarctica/Casey': 'Antarctica/Casey',
-    'Antarctica/Davis': 'Antarctica/Davis',
-    'Antarctica/DumontDUrville': 'Antarctica/DumontDUrville',
-    'Antarctica/Macquarie': 'Antarctica/Macquarie',
-    'Antarctica/Mawson': 'Antarctica/Mawson',
-    'Antarctica/McMurdo': 'Antarctica/McMurdo',
-    'Antarctica/Palmer': 'Antarctica/Palmer',
-    'Antarctica/Rothera': 'Antarctica/Rothera',
-    'Antarctica/South_Pole': 'Antarctica/South_Pole',
-    'Antarctica/Syowa': 'Antarctica/Syowa',
-    'Antarctica/Troll': 'Antarctica/Troll',
-    'Antarctica/Vostok': 'Antarctica/Vostok',
-    'Arctic/Longyearbyen': 'Arctic/Longyearbyen',
-    'Asia/Aden': 'Asia/Aden',
-    'Asia/Almaty': 'Asia/Almaty',
-    'Asia/Amman': 'Asia/Amman',
-    'Asia/Anadyr': 'Asia/Anadyr',
-    'Asia/Aqtau': 'Asia/Aqtau',
-    'Asia/Aqtobe': 'Asia/Aqtobe',
-    'Asia/Ashgabat': 'Asia/Ashgabat',
-    'Asia/Ashkhabad': 'Asia/Ashkhabad',
-    'Asia/Atyrau': 'Asia/Atyrau',
-    'Asia/Baghdad': 'Asia/Baghdad',
-    'Asia/Bahrain': 'Asia/Bahrain',
-    'Asia/Baku': 'Asia/Baku',
-    'Asia/Bangkok': 'Asia/Bangkok',
-    'Asia/Barnaul': 'Asia/Barnaul',
-    'Asia/Beirut': 'Asia/Beirut',
-    'Asia/Bishkek': 'Asia/Bishkek',
-    'Asia/Brunei': 'Asia/Brunei',
-    'Asia/Calcutta': 'Asia/Calcutta',
-    'Asia/Chita': 'Asia/Chita',
-    'Asia/Choibalsan': 'Asia/Choibalsan',
-    'Asia/Chongqing': 'Asia/Chongqing',
-    'Asia/Chungking': 'Asia/Chungking',
-    'Asia/Colombo': 'Asia/Colombo',
-    'Asia/Dacca': 'Asia/Dacca',
-    'Asia/Damascus': 'Asia/Damascus',
-    'Asia/Dhaka': 'Asia/Dhaka',
-    'Asia/Dili': 'Asia/Dili',
-    'Asia/Dubai': 'Asia/Dubai',
-    'Asia/Dushanbe': 'Asia/Dushanbe',
-    'Asia/Famagusta': 'Asia/Famagusta',
-    'Asia/Gaza': 'Asia/Gaza',
-    'Asia/Harbin': 'Asia/Harbin',
-    'Asia/Hebron': 'Asia/Hebron',
-    'Asia/Ho_Chi_Minh': 'Asia/Ho_Chi_Minh',
-    'Asia/Hong_Kong': 'Asia/Hong_Kong',
-    'Asia/Hovd': 'Asia/Hovd',
-    'Asia/Irkutsk': 'Asia/Irkutsk',
-    'Asia/Istanbul': 'Asia/Istanbul',
-    'Asia/Jakarta': 'Asia/Jakarta',
-    'Asia/Jayapura': 'Asia/Jayapura',
-    'Asia/Jerusalem': 'Asia/Jerusalem',
-    'Asia/Kabul': 'Asia/Kabul',
-    'Asia/Kamchatka': 'Asia/Kamchatka',
-    'Asia/Karachi': 'Asia/Karachi',
-    'Asia/Kashgar': 'Asia/Kashgar',
-    'Asia/Kathmandu': 'Asia/Kathmandu',
-    'Asia/Katmandu': 'Asia/Katmandu',
-    'Asia/Khandyga': 'Asia/Khandyga',
-    'Asia/Kolkata': 'Asia/Kolkata',
-    'Asia/Krasnoyarsk': 'Asia/Krasnoyarsk',
-    'Asia/Kuala_Lumpur': 'Asia/Kuala_Lumpur',
-    'Asia/Kuching': 'Asia/Kuching',
-    'Asia/Kuwait': 'Asia/Kuwait',
-    'Asia/Macao': 'Asia/Macao',
-    'Asia/Macau': 'Asia/Macau',
-    'Asia/Magadan': 'Asia/Magadan',
-    'Asia/Makassar': 'Asia/Makassar',
-    'Asia/Manila': 'Asia/Manila',
-    'Asia/Muscat': 'Asia/Muscat',
-    'Asia/Nicosia': 'Asia/Nicosia',
-    'Asia/Novokuznetsk': 'Asia/Novokuznetsk',
-    'Asia/Novosibirsk': 'Asia/Novosibirsk',
-    'Asia/Omsk': 'Asia/Omsk',
-    'Asia/Oral': 'Asia/Oral',
-    'Asia/Phnom_Penh': 'Asia/Phnom_Penh',
-    'Asia/Pontianak': 'Asia/Pontianak',
-    'Asia/Pyongyang': 'Asia/Pyongyang',
-    'Asia/Qatar': 'Asia/Qatar',
-    'Asia/Qostanay': 'Asia/Qostanay',
-    'Asia/Qyzylorda': 'Asia/Qyzylorda',
-    'Asia/Rangoon': 'Asia/Rangoon',
-    'Asia/Riyadh': 'Asia/Riyadh',
-    'Asia/Saigon': 'Asia/Saigon',
-    'Asia/Sakhalin': 'Asia/Sakhalin',
-    'Asia/Samarkand': 'Asia/Samarkand',
-    'Asia/Seoul': 'Asia/Seoul',
-    'Asia/Shanghai': 'Asia/Shanghai',
-    'Asia/Singapore': 'Asia/Singapore',
-    'Asia/Srednekolymsk': 'Asia/Srednekolymsk',
-    'Asia/Taipei': 'Asia/Taipei',
-    'Asia/Tashkent': 'Asia/Tashkent',
-    'Asia/Tbilisi': 'Asia/Tbilisi',
-    'Asia/Tehran': 'Asia/Tehran',
-    'Asia/Tel_Aviv': 'Asia/Tel_Aviv',
-    'Asia/Thimbu': 'Asia/Thimbu',
-    'Asia/Thimphu': 'Asia/Thimphu',
-    'Asia/Tokyo': 'Asia/Tokyo',
-    'Asia/Tomsk': 'Asia/Tomsk',
-    'Asia/Ujung_Pandang': 'Asia/Ujung_Pandang',
-    'Asia/Ulaanbaatar': 'Asia/Ulaanbaatar',
-    'Asia/Ulan_Bator': 'Asia/Ulan_Bator',
-    'Asia/Urumqi': 'Asia/Urumqi',
-    'Asia/Ust-Nera': 'Asia/Ust-Nera',
-    'Asia/Vientiane': 'Asia/Vientiane',
-    'Asia/Vladivostok': 'Asia/Vladivostok',
-    'Asia/Yakutsk': 'Asia/Yakutsk',
-    'Asia/Yangon': 'Asia/Yangon',
-    'Asia/Yekaterinburg': 'Asia/Yekaterinburg',
-    'Asia/Yerevan': 'Asia/Yerevan',
-    'Atlantic/Azores': 'Atlantic/Azores',
-    'Atlantic/Bermuda': 'Atlantic/Bermuda',
-    'Atlantic/Canary': 'Atlantic/Canary',
-    'Atlantic/Cape_Verde': 'Atlantic/Cape_Verde',
-    'Atlantic/Faeroe': 'Atlantic/Faeroe',
-    'Atlantic/Faroe': 'Atlantic/Faroe',
-    'Atlantic/Jan_Mayen': 'Atlantic/Jan_Mayen',
-    'Atlantic/Madeira': 'Atlantic/Madeira',
-    'Atlantic/Reykjavik': 'Atlantic/Reykjavik',
-    'Atlantic/South_Georgia': 'Atlantic/South_Georgia',
-    'Atlantic/St_Helena': 'Atlantic/St_Helena',
-    'Atlantic/Stanley': 'Atlantic/Stanley',
-    'Australia/ACT': 'Australia/ACT',
-    'Australia/Adelaide': 'Australia/Adelaide',
-    'Australia/Brisbane': 'Australia/Brisbane',
-    'Australia/Broken_Hill': 'Australia/Broken_Hill',
-    'Australia/Canberra': 'Australia/Canberra',
-    'Australia/Currie': 'Australia/Currie',
-    'Australia/Darwin': 'Australia/Darwin',
-    'Australia/Eucla': 'Australia/Eucla',
-    'Australia/Hobart': 'Australia/Hobart',
-    'Australia/LHI': 'Australia/LHI',
-    'Australia/Lindeman': 'Australia/Lindeman',
-    'Australia/Lord_Howe': 'Australia/Lord_Howe',
-    'Australia/Melbourne': 'Australia/Melbourne',
-    'Australia/NSW': 'Australia/NSW',
-    'Australia/North': 'Australia/North',
-    'Australia/Perth': 'Australia/Perth',
-    'Australia/Queensland': 'Australia/Queensland',
-    'Australia/South': 'Australia/South',
-    'Australia/Sydney': 'Australia/Sydney',
-    'Australia/Tasmania': 'Australia/Tasmania',
-    'Australia/Victoria': 'Australia/Victoria',
-    'Australia/West': 'Australia/West',
-    'Australia/Yancowinna': 'Australia/Yancowinna',
-    'Brazil/Acre': 'Brazil/Acre',
-    'Brazil/DeNoronha': 'Brazil/DeNoronha',
-    'Brazil/East': 'Brazil/East',
-    'Brazil/West': 'Brazil/West',
-    CET: 'CET',
-    CST6CDT: 'CST6CDT',
-    'Canada/Atlantic': 'Canada/Atlantic',
-    'Canada/Central': 'Canada/Central',
-    'Canada/Eastern': 'Canada/Eastern',
-    'Canada/Mountain': 'Canada/Mountain',
-    'Canada/Newfoundland': 'Canada/Newfoundland',
-    'Canada/Pacific': 'Canada/Pacific',
-    'Canada/Saskatchewan': 'Canada/Saskatchewan',
-    'Canada/Yukon': 'Canada/Yukon',
-    'Chile/Continental': 'Chile/Continental',
-    'Chile/EasterIsland': 'Chile/EasterIsland',
-    Cuba: 'Cuba',
-    EET: 'EET',
-    EST: 'EST',
-    EST5EDT: 'EST5EDT',
-    Egypt: 'Egypt',
-    Eire: 'Eire',
-    'Etc/GMT': 'Etc/GMT',
-    'Etc/GMT+0': 'Etc/GMT+0',
-    'Etc/GMT+1': 'Etc/GMT+1',
-    'Etc/GMT+10': 'Etc/GMT+10',
-    'Etc/GMT+11': 'Etc/GMT+11',
-    'Etc/GMT+12': 'Etc/GMT+12',
-    'Etc/GMT+2': 'Etc/GMT+2',
-    'Etc/GMT+3': 'Etc/GMT+3',
-    'Etc/GMT+4': 'Etc/GMT+4',
-    'Etc/GMT+5': 'Etc/GMT+5',
-    'Etc/GMT+6': 'Etc/GMT+6',
-    'Etc/GMT+7': 'Etc/GMT+7',
-    'Etc/GMT+8': 'Etc/GMT+8',
-    'Etc/GMT+9': 'Etc/GMT+9',
-    'Etc/GMT-0': 'Etc/GMT-0',
-    'Etc/GMT-1': 'Etc/GMT-1',
-    'Etc/GMT-10': 'Etc/GMT-10',
-    'Etc/GMT-11': 'Etc/GMT-11',
-    'Etc/GMT-12': 'Etc/GMT-12',
-    'Etc/GMT-13': 'Etc/GMT-13',
-    'Etc/GMT-14': 'Etc/GMT-14',
-    'Etc/GMT-2': 'Etc/GMT-2',
-    'Etc/GMT-3': 'Etc/GMT-3',
-    'Etc/GMT-4': 'Etc/GMT-4',
-    'Etc/GMT-5': 'Etc/GMT-5',
-    'Etc/GMT-6': 'Etc/GMT-6',
-    'Etc/GMT-7': 'Etc/GMT-7',
-    'Etc/GMT-8': 'Etc/GMT-8',
-    'Etc/GMT-9': 'Etc/GMT-9',
-    'Etc/GMT0': 'Etc/GMT0',
-    'Etc/Greenwich': 'Etc/Greenwich',
-    'Etc/UCT': 'Etc/UCT',
-    'Etc/UTC': 'Etc/UTC',
-    'Etc/Universal': 'Etc/Universal',
-    'Etc/Zulu': 'Etc/Zulu',
-    'Europe/Amsterdam': 'Europe/Amsterdam',
-    'Europe/Andorra': 'Europe/Andorra',
-    'Europe/Astrakhan': 'Europe/Astrakhan',
-    'Europe/Athens': 'Europe/Athens',
-    'Europe/Belfast': 'Europe/Belfast',
-    'Europe/Belgrade': 'Europe/Belgrade',
-    'Europe/Berlin': 'Europe/Berlin',
-    'Europe/Bratislava': 'Europe/Bratislava',
-    'Europe/Brussels': 'Europe/Brussels',
-    'Europe/Bucharest': 'Europe/Bucharest',
-    'Europe/Budapest': 'Europe/Budapest',
-    'Europe/Busingen': 'Europe/Busingen',
-    'Europe/Chisinau': 'Europe/Chisinau',
-    'Europe/Copenhagen': 'Europe/Copenhagen',
-    'Europe/Dublin': 'Europe/Dublin',
-    'Europe/Gibraltar': 'Europe/Gibraltar',
-    'Europe/Guernsey': 'Europe/Guernsey',
-    'Europe/Helsinki': 'Europe/Helsinki',
-    'Europe/Isle_of_Man': 'Europe/Isle_of_Man',
-    'Europe/Istanbul': 'Europe/Istanbul',
-    'Europe/Jersey': 'Europe/Jersey',
-    'Europe/Kaliningrad': 'Europe/Kaliningrad',
-    'Europe/Kiev': 'Europe/Kiev',
-    'Europe/Kirov': 'Europe/Kirov',
-    'Europe/Kyiv': 'Europe/Kyiv',
-    'Europe/Lisbon': 'Europe/Lisbon',
-    'Europe/Ljubljana': 'Europe/Ljubljana',
-    'Europe/London': 'Europe/London',
-    'Europe/Luxembourg': 'Europe/Luxembourg',
-    'Europe/Madrid': 'Europe/Madrid',
-    'Europe/Malta': 'Europe/Malta',
-    'Europe/Mariehamn': 'Europe/Mariehamn',
-    'Europe/Minsk': 'Europe/Minsk',
-    'Europe/Monaco': 'Europe/Monaco',
-    'Europe/Moscow': 'Europe/Moscow',
-    'Europe/Nicosia': 'Europe/Nicosia',
-    'Europe/Oslo': 'Europe/Oslo',
-    'Europe/Paris': 'Europe/Paris',
-    'Europe/Podgorica': 'Europe/Podgorica',
-    'Europe/Prague': 'Europe/Prague',
-    'Europe/Riga': 'Europe/Riga',
-    'Europe/Rome': 'Europe/Rome',
-    'Europe/Samara': 'Europe/Samara',
-    'Europe/San_Marino': 'Europe/San_Marino',
-    'Europe/Sarajevo': 'Europe/Sarajevo',
-    'Europe/Saratov': 'Europe/Saratov',
-    'Europe/Simferopol': 'Europe/Simferopol',
-    'Europe/Skopje': 'Europe/Skopje',
-    'Europe/Sofia': 'Europe/Sofia',
-    'Europe/Stockholm': 'Europe/Stockholm',
-    'Europe/Tallinn': 'Europe/Tallinn',
-    'Europe/Tirane': 'Europe/Tirane',
-    'Europe/Tiraspol': 'Europe/Tiraspol',
-    'Europe/Ulyanovsk': 'Europe/Ulyanovsk',
-    'Europe/Uzhgorod': 'Europe/Uzhgorod',
-    'Europe/Vaduz': 'Europe/Vaduz',
-    'Europe/Vatican': 'Europe/Vatican',
-    'Europe/Vienna': 'Europe/Vienna',
-    'Europe/Vilnius': 'Europe/Vilnius',
-    'Europe/Volgograd': 'Europe/Volgograd',
-    'Europe/Warsaw': 'Europe/Warsaw',
-    'Europe/Zagreb': 'Europe/Zagreb',
-    'Europe/Zaporozhye': 'Europe/Zaporozhye',
-    'Europe/Zurich': 'Europe/Zurich',
-    GB: 'GB',
-    'GB-Eire': 'GB-Eire',
-    GMT: 'GMT',
-    'GMT+0': 'GMT+0',
-    'GMT-0': 'GMT-0',
-    GMT0: 'GMT0',
-    Greenwich: 'Greenwich',
-    HST: 'HST',
-    Hongkong: 'Hongkong',
-    Iceland: 'Iceland',
-    'Indian/Antananarivo': 'Indian/Antananarivo',
-    'Indian/Chagos': 'Indian/Chagos',
-    'Indian/Christmas': 'Indian/Christmas',
-    'Indian/Cocos': 'Indian/Cocos',
-    'Indian/Comoro': 'Indian/Comoro',
-    'Indian/Kerguelen': 'Indian/Kerguelen',
-    'Indian/Mahe': 'Indian/Mahe',
-    'Indian/Maldives': 'Indian/Maldives',
-    'Indian/Mauritius': 'Indian/Mauritius',
-    'Indian/Mayotte': 'Indian/Mayotte',
-    'Indian/Reunion': 'Indian/Reunion',
-    Iran: 'Iran',
-    Israel: 'Israel',
-    Jamaica: 'Jamaica',
-    Japan: 'Japan',
-    Kwajalein: 'Kwajalein',
-    Libya: 'Libya',
-    MET: 'MET',
-    MST: 'MST',
-    MST7MDT: 'MST7MDT',
-    'Mexico/BajaNorte': 'Mexico/BajaNorte',
-    'Mexico/BajaSur': 'Mexico/BajaSur',
-    'Mexico/General': 'Mexico/General',
-    NZ: 'NZ',
-    'NZ-CHAT': 'NZ-CHAT',
-    Navajo: 'Navajo',
-    PRC: 'PRC',
-    PST8PDT: 'PST8PDT',
-    'Pacific/Apia': 'Pacific/Apia',
-    'Pacific/Auckland': 'Pacific/Auckland',
-    'Pacific/Bougainville': 'Pacific/Bougainville',
-    'Pacific/Chatham': 'Pacific/Chatham',
-    'Pacific/Chuuk': 'Pacific/Chuuk',
-    'Pacific/Easter': 'Pacific/Easter',
-    'Pacific/Efate': 'Pacific/Efate',
-    'Pacific/Enderbury': 'Pacific/Enderbury',
-    'Pacific/Fakaofo': 'Pacific/Fakaofo',
-    'Pacific/Fiji': 'Pacific/Fiji',
-    'Pacific/Funafuti': 'Pacific/Funafuti',
-    'Pacific/Galapagos': 'Pacific/Galapagos',
-    'Pacific/Gambier': 'Pacific/Gambier',
-    'Pacific/Guadalcanal': 'Pacific/Guadalcanal',
-    'Pacific/Guam': 'Pacific/Guam',
-    'Pacific/Honolulu': 'Pacific/Honolulu',
-    'Pacific/Johnston': 'Pacific/Johnston',
-    'Pacific/Kanton': 'Pacific/Kanton',
-    'Pacific/Kiritimati': 'Pacific/Kiritimati',
-    'Pacific/Kosrae': 'Pacific/Kosrae',
-    'Pacific/Kwajalein': 'Pacific/Kwajalein',
-    'Pacific/Majuro': 'Pacific/Majuro',
-    'Pacific/Marquesas': 'Pacific/Marquesas',
-    'Pacific/Midway': 'Pacific/Midway',
-    'Pacific/Nauru': 'Pacific/Nauru',
-    'Pacific/Niue': 'Pacific/Niue',
-    'Pacific/Norfolk': 'Pacific/Norfolk',
-    'Pacific/Noumea': 'Pacific/Noumea',
-    'Pacific/Pago_Pago': 'Pacific/Pago_Pago',
-    'Pacific/Palau': 'Pacific/Palau',
-    'Pacific/Pitcairn': 'Pacific/Pitcairn',
-    'Pacific/Pohnpei': 'Pacific/Pohnpei',
-    'Pacific/Ponape': 'Pacific/Ponape',
-    'Pacific/Port_Moresby': 'Pacific/Port_Moresby',
-    'Pacific/Rarotonga': 'Pacific/Rarotonga',
-    'Pacific/Saipan': 'Pacific/Saipan',
-    'Pacific/Samoa': 'Pacific/Samoa',
-    'Pacific/Tahiti': 'Pacific/Tahiti',
-    'Pacific/Tarawa': 'Pacific/Tarawa',
-    'Pacific/Tongatapu': 'Pacific/Tongatapu',
-    'Pacific/Truk': 'Pacific/Truk',
-    'Pacific/Wake': 'Pacific/Wake',
-    'Pacific/Wallis': 'Pacific/Wallis',
-    'Pacific/Yap': 'Pacific/Yap',
-    Poland: 'Poland',
-    Portugal: 'Portugal',
-    ROC: 'ROC',
-    ROK: 'ROK',
-    Singapore: 'Singapore',
-    Turkey: 'Turkey',
-    UCT: 'UCT',
-    'US/Alaska': 'US/Alaska',
-    'US/Aleutian': 'US/Aleutian',
-    'US/Arizona': 'US/Arizona',
-    'US/Central': 'US/Central',
-    'US/East-Indiana': 'US/East-Indiana',
-    'US/Eastern': 'US/Eastern',
-    'US/Hawaii': 'US/Hawaii',
-    'US/Indiana-Starke': 'US/Indiana-Starke',
-    'US/Michigan': 'US/Michigan',
-    'US/Mountain': 'US/Mountain',
-    'US/Pacific': 'US/Pacific',
-    'US/Samoa': 'US/Samoa',
-    UTC: 'UTC',
-    Universal: 'Universal',
-    'W-SU': 'W-SU',
-    WET: 'WET',
-    Zulu: 'Zulu',
-} as const
 
 /**
  * * `0` - Sunday
  * `1` - Monday
  */
-export type WeekStartDayEnum = (typeof WeekStartDayEnum)[keyof typeof WeekStartDayEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WeekStartDayEnum = {
-    NUMBER_0: 0,
-    NUMBER_1: 1,
-} as const
+
+/**
+ * * `b2b` - B2B
+ * `b2c` - B2C
+ * `other` - Other
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
 /**
  * * `USR` - user
  * `GIT` - GitHub
  */
-export type CreationTypeEnum = (typeof CreationTypeEnum)[keyof typeof CreationTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CreationTypeEnum = {
-    USR: 'USR',
-    GIT: 'GIT',
-} as const
 
 /**
  * * `dashboard_item` - insight
@@ -21391,16 +14490,8 @@ export const CreationTypeEnum = {
  * `organization` - organization
  * `recording` - recording
  */
-export type AnnotationScopeEnum = (typeof AnnotationScopeEnum)[keyof typeof AnnotationScopeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AnnotationScopeEnum = {
-    dashboard_item: 'dashboard_item',
-    dashboard: 'dashboard',
-    project: 'project',
-    organization: 'organization',
-    recording: 'recording',
-} as const
 
 /**
  * * `static` - static
@@ -21409,30 +14500,16 @@ export const AnnotationScopeEnum = {
  * `realtime` - realtime
  * `analytical` - analytical
  */
-export type CohortTypeEnum = (typeof CohortTypeEnum)[keyof typeof CohortTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CohortTypeEnum = {
-    static: 'static',
-    person_property: 'person_property',
-    behavioral: 'behavioral',
-    realtime: 'realtime',
-    analytical: 'analytical',
-} as const
 
 /**
  * * `team` - Only team
  * `global` - Global
  * `feature_flag` - Feature Flag
  */
-export type DashboardTemplateScopeEnum = (typeof DashboardTemplateScopeEnum)[keyof typeof DashboardTemplateScopeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DashboardTemplateScopeEnum = {
-    team: 'team',
-    global: 'global',
-    feature_flag: 'feature_flag',
-} as const
 
 /**
  * * `DateTime` - DateTime
@@ -21445,35 +14522,19 @@ export type PropertyDefinitionPropertyTypeEnum =
     (typeof PropertyDefinitionPropertyTypeEnum)[keyof typeof PropertyDefinitionPropertyTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyDefinitionPropertyTypeEnum = {
-    DateTime: 'DateTime',
-    String: 'String',
-    Numeric: 'Numeric',
-    Boolean: 'Boolean',
-    Duration: 'Duration',
-} as const
 
 /**
  * * `FeatureFlag` - feature flag
  */
-export type ModelNameEnum = (typeof ModelNameEnum)[keyof typeof ModelNameEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ModelNameEnum = {
-    FeatureFlag: 'FeatureFlag',
-} as const
 
 /**
  * * `disabled` - disabled
  * `toolbar` - toolbar
  */
-export type ToolbarModeEnum = (typeof ToolbarModeEnum)[keyof typeof ToolbarModeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ToolbarModeEnum = {
-    disabled: 'disabled',
-    toolbar: 'toolbar',
-} as const
 
 /**
  * @nullable
@@ -21614,23 +14675,10 @@ export interface ScenePersonalisationBasic {
  * `dark` - Dark
  * `system` - System
  */
-export type ThemeModeEnum = (typeof ThemeModeEnum)[keyof typeof ThemeModeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ThemeModeEnum = {
-    light: 'light',
-    dark: 'dark',
-    system: 'system',
-} as const
-
-export type MembershipLevelEnum = (typeof MembershipLevelEnum)[keyof typeof MembershipLevelEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MembershipLevelEnum = {
-    NUMBER_1: 1,
-    NUMBER_8: 8,
-    NUMBER_15: 15,
-} as const
 
 /**
  * * `0` - none
@@ -21638,15 +14686,8 @@ export const MembershipLevelEnum = {
  * `6` - install
  * `9` - root
  */
-export type PluginsAccessLevelEnum = (typeof PluginsAccessLevelEnum)[keyof typeof PluginsAccessLevelEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PluginsAccessLevelEnum = {
-    NUMBER_0: 0,
-    NUMBER_3: 3,
-    NUMBER_6: 6,
-    NUMBER_9: 9,
-} as const
 
 /**
  * * `bayesian` - Bayesian
@@ -21656,10 +14697,6 @@ export type DefaultExperimentStatsMethodEnum =
     (typeof DefaultExperimentStatsMethodEnum)[keyof typeof DefaultExperimentStatsMethodEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DefaultExperimentStatsMethodEnum = {
-    bayesian: 'bayesian',
-    frequentist: 'frequentist',
-} as const
 
 export interface PaginatedDesktopRecordingList {
     count: number
@@ -21891,13 +14928,6 @@ export type CreateRecordingRequestPlatformEnum =
     (typeof CreateRecordingRequestPlatformEnum)[keyof typeof CreateRecordingRequestPlatformEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CreateRecordingRequestPlatformEnum = {
-    zoom: 'zoom',
-    teams: 'teams',
-    meet: 'meet',
-    desktop_audio: 'desktop_audio',
-    slack: 'slack',
-} as const
 
 /**
  * * `zoom` - Zoom
@@ -21906,16 +14936,8 @@ export const CreateRecordingRequestPlatformEnum = {
  * `desktop_audio` - Desktop audio
  * `slack` - Slack huddle
  */
-export type Platform9aaEnum = (typeof Platform9aaEnum)[keyof typeof Platform9aaEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Platform9aaEnum = {
-    zoom: 'zoom',
-    teams: 'teams',
-    meet: 'meet',
-    desktop_audio: 'desktop_audio',
-    slack: 'slack',
-} as const
 
 /**
  * * `recording` - Recording
@@ -21924,16 +14946,8 @@ export const Platform9aaEnum = {
  * `ready` - Ready
  * `error` - Error
  */
-export type Status292Enum = (typeof Status292Enum)[keyof typeof Status292Enum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Status292Enum = {
-    recording: 'recording',
-    uploading: 'uploading',
-    processing: 'processing',
-    ready: 'ready',
-    error: 'error',
-} as const
 
 /**
  * Serializer for individual transcript segments from AssemblyAI
@@ -21980,10 +14994,6 @@ export interface PaginatedHogFunctionMinimalList {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const HogFunctionType = { ...HogFunctionTypeEnum, ...NullEnum } as const
-/**
- * @nullable
- */
-export type HogFunctionType = (typeof HogFunctionType)[keyof typeof HogFunctionType] | null
 
 /**
  * @nullable
@@ -22159,17 +15169,8 @@ export interface HogFunctionMinimal {
  * `site_app` - Site App
  * `transformation` - Transformation
  */
-export type HogFunctionTypeEnum = (typeof HogFunctionTypeEnum)[keyof typeof HogFunctionTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogFunctionTypeEnum = {
-    destination: 'destination',
-    site_destination: 'site_destination',
-    internal_destination: 'internal_destination',
-    source_webhook: 'source_webhook',
-    site_app: 'site_app',
-    transformation: 'transformation',
-} as const
 
 export type InputsSchemaItemChoicesItem = { [key: string]: unknown }
 
@@ -22262,11 +15263,6 @@ export interface HogFunctionTemplate {
     mapping_templates?: HogFunctionMappingTemplate[] | null
 }
 
-export interface HogFunctionStatus {
-    state: HogFunctionStatusStateEnum
-    tokens: number
-}
-
 /**
  * * `string` - string
  * `number` - number
@@ -22279,21 +15275,8 @@ export interface HogFunctionStatus {
  * `email` - email
  * `native_email` - native_email
  */
-export type InputsSchemaItemTypeEnum = (typeof InputsSchemaItemTypeEnum)[keyof typeof InputsSchemaItemTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const InputsSchemaItemTypeEnum = {
-    string: 'string',
-    number: 'number',
-    boolean: 'boolean',
-    dictionary: 'dictionary',
-    choice: 'choice',
-    json: 'json',
-    integration: 'integration',
-    integration_field: 'integration_field',
-    email: 'email',
-    native_email: 'native_email',
-} as const
 
 /**
  * * `True` - True
@@ -22305,12 +15288,6 @@ export type InputsSchemaItemTemplatingEnum =
     (typeof InputsSchemaItemTemplatingEnum)[keyof typeof InputsSchemaItemTemplatingEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const InputsSchemaItemTemplatingEnum = {
-    true: true,
-    false: false,
-    hog: 'hog',
-    liquid: 'liquid',
-} as const
 
 /**
  * @nullable
@@ -22347,17 +15324,8 @@ export interface HogFunctionMappingTemplate {
  * `11` - 11
  * `12` - 12
  */
-export type HogFunctionStatusStateEnum = (typeof HogFunctionStatusStateEnum)[keyof typeof HogFunctionStatusStateEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogFunctionStatusStateEnum = {
-    NUMBER_0: 0,
-    NUMBER_1: 1,
-    NUMBER_2: 2,
-    NUMBER_3: 3,
-    NUMBER_11: 11,
-    NUMBER_12: 12,
-} as const
 
 export interface SummarizeRequest {
     /** Type of entity to summarize
@@ -22410,25 +15378,15 @@ export interface TextReprResponse {
  * * `trace` - trace
  * `event` - event
  */
-export type SummarizeTypeEnum = (typeof SummarizeTypeEnum)[keyof typeof SummarizeTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SummarizeTypeEnum = {
-    trace: 'trace',
-    event: 'event',
-} as const
 
 /**
  * * `minimal` - minimal
  * `detailed` - detailed
  */
-export type ModeEnum = (typeof ModeEnum)[keyof typeof ModeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ModeEnum = {
-    minimal: 'minimal',
-    detailed: 'detailed',
-} as const
 
 export interface StructuredSummary {
     /** Concise title (no longer than 10 words) summarizing the trace/event */
@@ -22447,15 +15405,8 @@ export interface StructuredSummary {
  * `$ai_embedding` - $ai_embedding
  * `$ai_trace` - $ai_trace
  */
-export type EventTypeEnum = (typeof EventTypeEnum)[keyof typeof EventTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EventTypeEnum = {
-    $ai_generation: '$ai_generation',
-    $ai_span: '$ai_span',
-    $ai_embedding: '$ai_embedding',
-    $ai_trace: '$ai_trace',
-} as const
 
 export interface TextReprOptions {
     /** Maximum length of generated text (default: 4000000) */
@@ -22500,24 +15451,6 @@ export interface InterestingNote {
     line_refs: string
 }
 
-export interface PaginatedPersonList {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    count?: number
-    results?: Person[]
-}
-
-export interface PatchedPerson {
-    readonly id?: number
-    readonly name?: string
-    readonly distinct_ids?: readonly string[]
-    properties?: unknown
-    readonly created_at?: string
-    readonly uuid?: string
-}
-
 export interface PaginatedSessionRecordingPlaylistList {
     count: number
     /** @nullable */
@@ -22531,12 +15464,6 @@ export type SessionRecordingPlaylistRecordingsCounts = { [key: string]: { [key: 
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const SessionRecordingPlaylistType = { ...SessionRecordingPlaylistTypeEnum, ...NullEnum } as const
-/**
- * @nullable
- */
-export type SessionRecordingPlaylistType =
-    | (typeof SessionRecordingPlaylistType)[keyof typeof SessionRecordingPlaylistType]
-    | null
 
 export interface SessionRecordingPlaylist {
     readonly id: number
@@ -22648,7 +15575,6 @@ export interface SessionRecording {
     /** @nullable */
     readonly start_url: string | null
     person?: MinimalPerson
-    readonly storage: string
     /** @nullable */
     readonly retention_period_days: number | null
     readonly expiry_time: string
@@ -22690,7 +15616,6 @@ export interface PatchedSessionRecording {
     /** @nullable */
     readonly start_url?: string | null
     person?: MinimalPerson
-    readonly storage?: string
     /** @nullable */
     readonly retention_period_days?: number | null
     readonly expiry_time?: string
@@ -22710,10 +15635,6 @@ export type SessionRecordingPlaylistTypeEnum =
     (typeof SessionRecordingPlaylistTypeEnum)[keyof typeof SessionRecordingPlaylistTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionRecordingPlaylistTypeEnum = {
-    collection: 'collection',
-    filters: 'filters',
-} as const
 
 export interface MinimalPerson {
     readonly id: number
@@ -22871,18 +15792,8 @@ export interface RoleMembership {
  * `deleting` - Deleting
  * `timed_out` - Timed Out
  */
-export type ProxyRecordStatusEnum = (typeof ProxyRecordStatusEnum)[keyof typeof ProxyRecordStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ProxyRecordStatusEnum = {
-    waiting: 'waiting',
-    issuing: 'issuing',
-    valid: 'valid',
-    warning: 'warning',
-    erroring: 'erroring',
-    deleting: 'deleting',
-    timed_out: 'timed_out',
-} as const
 
 export type ChatCompletionRequestMessagesItem = { [key: string]: unknown }
 
@@ -23101,13 +16012,8 @@ export interface AnthropicMessagesResponse {
  * * `text` - text
  * `audio` - audio
  */
-export type ModalitiesEnum = (typeof ModalitiesEnum)[keyof typeof ModalitiesEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ModalitiesEnum = {
-    text: 'text',
-    audio: 'audio',
-} as const
 
 /**
  * * `none` - none
@@ -23117,41 +16023,22 @@ export const ModalitiesEnum = {
  * `high` - high
  * `default` - default
  */
-export type ReasoningEffortEnum = (typeof ReasoningEffortEnum)[keyof typeof ReasoningEffortEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ReasoningEffortEnum = {
-    none: 'none',
-    minimal: 'minimal',
-    low: 'low',
-    medium: 'medium',
-    high: 'high',
-    default: 'default',
-} as const
 
 /**
  * * `concise` - concise
  * `standard` - standard
  * `verbose` - verbose
  */
-export type VerbosityEnum = (typeof VerbosityEnum)[keyof typeof VerbosityEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const VerbosityEnum = {
-    concise: 'concise',
-    standard: 'standard',
-    verbose: 'verbose',
-} as const
 
 /**
  * * `chat.completion` - chat.completion
  */
-export type ObjectEnum = (typeof ObjectEnum)[keyof typeof ObjectEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ObjectEnum = {
-    chatcompletion: 'chat.completion',
-} as const
 
 export interface ChatCompletionChoice {
     index: number
@@ -23191,13 +16078,6 @@ export type ChatCompletionResponseServiceTierEnum =
     (typeof ChatCompletionResponseServiceTierEnum)[keyof typeof ChatCompletionResponseServiceTierEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ChatCompletionResponseServiceTierEnum = {
-    auto: 'auto',
-    default: 'default',
-    flex: 'flex',
-    scale: 'scale',
-    priority: 'priority',
-} as const
 
 /**
  * * `auto` - auto
@@ -23207,10 +16087,6 @@ export type AnthropicMessagesRequestServiceTierEnum =
     (typeof AnthropicMessagesRequestServiceTierEnum)[keyof typeof AnthropicMessagesRequestServiceTierEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AnthropicMessagesRequestServiceTierEnum = {
-    auto: 'auto',
-    standard_only: 'standard_only',
-} as const
 
 /**
  * * `message` - message
@@ -23219,9 +16095,6 @@ export type AnthropicMessagesResponseTypeEnum =
     (typeof AnthropicMessagesResponseTypeEnum)[keyof typeof AnthropicMessagesResponseTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AnthropicMessagesResponseTypeEnum = {
-    message: 'message',
-} as const
 
 /**
  * * `assistant` - assistant
@@ -23230,9 +16103,6 @@ export type AnthropicMessagesResponseRoleEnum =
     (typeof AnthropicMessagesResponseRoleEnum)[keyof typeof AnthropicMessagesResponseRoleEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AnthropicMessagesResponseRoleEnum = {
-    assistant: 'assistant',
-} as const
 
 /**
  * * `end_turn` - end_turn
@@ -23242,17 +16112,8 @@ export const AnthropicMessagesResponseRoleEnum = {
  * `pause_turn` - pause_turn
  * `refusal` - refusal
  */
-export type StopReasonEnum = (typeof StopReasonEnum)[keyof typeof StopReasonEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StopReasonEnum = {
-    end_turn: 'end_turn',
-    max_tokens: 'max_tokens',
-    stop_sequence: 'stop_sequence',
-    tool_use: 'tool_use',
-    pause_turn: 'pause_turn',
-    refusal: 'refusal',
-} as const
 
 /**
  * @nullable
@@ -23299,11 +16160,6 @@ export type AnthropicUsageServiceTierEnum =
     (typeof AnthropicUsageServiceTierEnum)[keyof typeof AnthropicUsageServiceTierEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AnthropicUsageServiceTierEnum = {
-    standard: 'standard',
-    priority: 'priority',
-    batch: 'batch',
-} as const
 
 /**
  * * `system` - system
@@ -23317,14 +16173,6 @@ export type ChatCompletionMessageRoleEnum =
     (typeof ChatCompletionMessageRoleEnum)[keyof typeof ChatCompletionMessageRoleEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ChatCompletionMessageRoleEnum = {
-    system: 'system',
-    user: 'user',
-    assistant: 'assistant',
-    function: 'function',
-    tool: 'tool',
-    developer: 'developer',
-} as const
 
 export interface PaginatedTaskRunDetailList {
     count: number
@@ -23345,7 +16193,7 @@ export interface TaskRunDetail {
     readonly id: string
     readonly task: string
     /**
-     * Current stage for this run (e.g., 'backlog', 'in_progress', 'done')
+     * Current stage for this run (e.g., 'research', 'plan', 'build')
      * @maxLength 100
      * @nullable
      */
@@ -23357,11 +16205,13 @@ export interface TaskRunDetail {
      */
     branch?: string | null
     status?: TaskRunDetailStatusEnum
-    /**
-     * Presigned S3 URL for log access (valid for 1 hour).
-     * @nullable
-     */
-    readonly log_url: string | null
+    /** Execution environment
+
+* `local` - Local
+* `cloud` - Cloud */
+    environment?: EnvironmentEnum
+    /** Presigned S3 URL for log access (valid for 1 hour). */
+    readonly log_url: string
     /**
      * Error message if execution failed
      * @nullable
@@ -23382,49 +16232,43 @@ export interface TaskRunDetail {
 }
 
 /**
- * Run output data (e.g., PR URL, commit SHA, etc.)
+ * Output from the run
  * @nullable
  */
-export type PatchedTaskRunDetailOutput = unknown | null
+export type PatchedTaskRunUpdateOutput = unknown | null
 
-export interface PatchedTaskRunDetail {
-    readonly id?: string
-    readonly task?: string
+export interface PatchedTaskRunUpdate {
+    /** Current execution status
+
+* `not_started` - not_started
+* `queued` - queued
+* `in_progress` - in_progress
+* `completed` - completed
+* `failed` - failed
+* `cancelled` - cancelled */
+    status?: TaskRunUpdateStatusEnum
     /**
-     * Current stage for this run (e.g., 'backlog', 'in_progress', 'done')
-     * @maxLength 100
+     * Git branch name to associate with the task
+     * @nullable
+     */
+    branch?: string | null
+    /**
+     * Current stage of the run (e.g. research, plan, build)
      * @nullable
      */
     stage?: string | null
     /**
-     * Branch name for the run
-     * @maxLength 255
+     * Output from the run
      * @nullable
      */
-    branch?: string | null
-    status?: TaskRunDetailStatusEnum
-    /**
-     * Presigned S3 URL for log access (valid for 1 hour).
-     * @nullable
-     */
-    readonly log_url?: string | null
+    output?: PatchedTaskRunUpdateOutput
+    /** State of the run */
+    state?: unknown
     /**
      * Error message if execution failed
      * @nullable
      */
     error_message?: string | null
-    /**
-     * Run output data (e.g., PR URL, commit SHA, etc.)
-     * @nullable
-     */
-    output?: PatchedTaskRunDetailOutput
-    /** Run state data for resuming or tracking execution state */
-    state?: unknown
-    readonly artifacts?: readonly TaskRunArtifactResponse[]
-    readonly created_at?: string
-    readonly updated_at?: string
-    /** @nullable */
-    readonly completed_at?: string | null
 }
 
 export type TaskRunAppendLogRequestEntriesItem = { [key: string]: unknown }
@@ -23460,20 +16304,22 @@ export interface TaskRunArtifactPresignResponse {
 }
 
 /**
- * * `started` - Started
+ * * `not_started` - Not Started
+ * `queued` - Queued
  * `in_progress` - In Progress
  * `completed` - Completed
  * `failed` - Failed
+ * `cancelled` - Cancelled
  */
-export type TaskRunDetailStatusEnum = (typeof TaskRunDetailStatusEnum)[keyof typeof TaskRunDetailStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TaskRunDetailStatusEnum = {
-    started: 'started',
-    in_progress: 'in_progress',
-    completed: 'completed',
-    failed: 'failed',
-} as const
+
+/**
+ * * `local` - Local
+ * `cloud` - Cloud
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
 export interface TaskRunArtifactResponse {
     /** Artifact file name */
@@ -23489,6 +16335,17 @@ export interface TaskRunArtifactResponse {
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
 }
+
+/**
+ * * `not_started` - not_started
+ * `queued` - queued
+ * `in_progress` - in_progress
+ * `completed` - completed
+ * `failed` - failed
+ * `cancelled` - cancelled
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
 export interface TaskRunArtifactUpload {
     /**
@@ -23524,13 +16381,6 @@ export type TaskRunArtifactUploadTypeEnum =
     (typeof TaskRunArtifactUploadTypeEnum)[keyof typeof TaskRunArtifactUploadTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TaskRunArtifactUploadTypeEnum = {
-    plan: 'plan',
-    context: 'context',
-    reference: 'reference',
-    output: 'output',
-    artifact: 'artifact',
-} as const
 
 /**
  * @nullable
@@ -23697,11 +16547,11 @@ export const EnvironmentsEvaluationsListOrderByItem = {
 
 export type EnvironmentsEventsListParams = {
     /**
-     * Only return events with a timestamp after this time.
+     * Only return events with a timestamp after this time. Default: now() - 24 hours.
      */
     after?: string
     /**
-     * Only return events with a timestamp before this time.
+     * Only return events with a timestamp before this time. Default: now() + 5 seconds.
      */
     before?: string
     /**
@@ -23718,7 +16568,7 @@ export type EnvironmentsEventsListParams = {
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Allows to skip first offset rows. Will fail for value larger than 100000. Read about proper way of paginating: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset
      */
     offset?: number
     /**
@@ -24191,61 +17041,6 @@ export type EnvironmentsWebVitalsRetrieveParams = {
      * Filter web vitals by pathname
      */
     pathname: string
-}
-
-export type EnvironmentsBatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EnvironmentsBatchExportsRunsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
-}
-
-export type BatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type BatchExportsList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type BatchExportsRunsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
 }
 
 export type EnvironmentsConversationsListParams = {
@@ -25049,724 +17844,6 @@ export type EnvironmentsLlmAnalyticsTextReprCreate400 = { [key: string]: unknown
 export type EnvironmentsLlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
 
 export type EnvironmentsLlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
-
-export type EnvironmentsPersonsListParams = {
-    /**
-     * Filter list by distinct id.
-     */
-    distinct_id?: string
-    /**
-     * Filter persons by email (exact match)
-     */
-    email?: string
-    format?: EnvironmentsPersonsListFormat
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Filter Persons by person properties.
-     */
-    properties?: Property[]
-    /**
-     * Search persons, either by email (full text search) or distinct_id (exact match).
-     */
-    search?: string
-}
-
-export type EnvironmentsPersonsListFormat =
-    (typeof EnvironmentsPersonsListFormat)[keyof typeof EnvironmentsPersonsListFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsListFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsRetrieveParams = {
-    format?: EnvironmentsPersonsRetrieveFormat
-}
-
-export type EnvironmentsPersonsRetrieveFormat =
-    (typeof EnvironmentsPersonsRetrieveFormat)[keyof typeof EnvironmentsPersonsRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsUpdateParams = {
-    format?: EnvironmentsPersonsUpdateFormat
-}
-
-export type EnvironmentsPersonsUpdateFormat =
-    (typeof EnvironmentsPersonsUpdateFormat)[keyof typeof EnvironmentsPersonsUpdateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsPartialUpdateParams = {
-    format?: EnvironmentsPersonsPartialUpdateFormat
-}
-
-export type EnvironmentsPersonsPartialUpdateFormat =
-    (typeof EnvironmentsPersonsPartialUpdateFormat)[keyof typeof EnvironmentsPersonsPartialUpdateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsPartialUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsDestroyParams = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean
-    format?: EnvironmentsPersonsDestroyFormat
-}
-
-export type EnvironmentsPersonsDestroyFormat =
-    (typeof EnvironmentsPersonsDestroyFormat)[keyof typeof EnvironmentsPersonsDestroyFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsDestroyFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsActivityRetrieve2Params = {
-    format?: EnvironmentsPersonsActivityRetrieve2Format
-}
-
-export type EnvironmentsPersonsActivityRetrieve2Format =
-    (typeof EnvironmentsPersonsActivityRetrieve2Format)[keyof typeof EnvironmentsPersonsActivityRetrieve2Format]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsActivityRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsDeleteEventsCreateParams = {
-    format?: EnvironmentsPersonsDeleteEventsCreateFormat
-}
-
-export type EnvironmentsPersonsDeleteEventsCreateFormat =
-    (typeof EnvironmentsPersonsDeleteEventsCreateFormat)[keyof typeof EnvironmentsPersonsDeleteEventsCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsDeleteEventsCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsDeletePropertyCreateParams = {
-    /**
-     * Specify the property key to delete
-     */
-    $unset: string
-    format?: EnvironmentsPersonsDeletePropertyCreateFormat
-}
-
-export type EnvironmentsPersonsDeletePropertyCreateFormat =
-    (typeof EnvironmentsPersonsDeletePropertyCreateFormat)[keyof typeof EnvironmentsPersonsDeletePropertyCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsDeletePropertyCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsDeleteRecordingsCreateParams = {
-    format?: EnvironmentsPersonsDeleteRecordingsCreateFormat
-}
-
-export type EnvironmentsPersonsDeleteRecordingsCreateFormat =
-    (typeof EnvironmentsPersonsDeleteRecordingsCreateFormat)[keyof typeof EnvironmentsPersonsDeleteRecordingsCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsDeleteRecordingsCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsPropertiesTimelineRetrieveParams = {
-    format?: EnvironmentsPersonsPropertiesTimelineRetrieveFormat
-}
-
-export type EnvironmentsPersonsPropertiesTimelineRetrieveFormat =
-    (typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat)[keyof typeof EnvironmentsPersonsPropertiesTimelineRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsPropertiesTimelineRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsSplitCreateParams = {
-    format?: EnvironmentsPersonsSplitCreateFormat
-}
-
-export type EnvironmentsPersonsSplitCreateFormat =
-    (typeof EnvironmentsPersonsSplitCreateFormat)[keyof typeof EnvironmentsPersonsSplitCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsSplitCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsUpdatePropertyCreateParams = {
-    format?: EnvironmentsPersonsUpdatePropertyCreateFormat
-    /**
-     * Specify the property key
-     */
-    key: string
-    /**
-     * Specify the property value
-     */
-    value: unknown
-}
-
-export type EnvironmentsPersonsUpdatePropertyCreateFormat =
-    (typeof EnvironmentsPersonsUpdatePropertyCreateFormat)[keyof typeof EnvironmentsPersonsUpdatePropertyCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsUpdatePropertyCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsActivityRetrieveParams = {
-    format?: EnvironmentsPersonsActivityRetrieveFormat
-}
-
-export type EnvironmentsPersonsActivityRetrieveFormat =
-    (typeof EnvironmentsPersonsActivityRetrieveFormat)[keyof typeof EnvironmentsPersonsActivityRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsActivityRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsBulkDeleteCreateParams = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean
-    /**
-     * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
-     */
-    distinct_ids?: { [key: string]: unknown }
-    format?: EnvironmentsPersonsBulkDeleteCreateFormat
-    /**
-     * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
-     */
-    ids?: { [key: string]: unknown }
-}
-
-export type EnvironmentsPersonsBulkDeleteCreateFormat =
-    (typeof EnvironmentsPersonsBulkDeleteCreateFormat)[keyof typeof EnvironmentsPersonsBulkDeleteCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsBulkDeleteCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsCohortsRetrieveParams = {
-    format?: EnvironmentsPersonsCohortsRetrieveFormat
-}
-
-export type EnvironmentsPersonsCohortsRetrieveFormat =
-    (typeof EnvironmentsPersonsCohortsRetrieveFormat)[keyof typeof EnvironmentsPersonsCohortsRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsCohortsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsFunnelRetrieveParams = {
-    format?: EnvironmentsPersonsFunnelRetrieveFormat
-}
-
-export type EnvironmentsPersonsFunnelRetrieveFormat =
-    (typeof EnvironmentsPersonsFunnelRetrieveFormat)[keyof typeof EnvironmentsPersonsFunnelRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsFunnelRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsFunnelCreateParams = {
-    format?: EnvironmentsPersonsFunnelCreateFormat
-}
-
-export type EnvironmentsPersonsFunnelCreateFormat =
-    (typeof EnvironmentsPersonsFunnelCreateFormat)[keyof typeof EnvironmentsPersonsFunnelCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsFunnelCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsFunnelCorrelationRetrieveParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationRetrieveFormat
-}
-
-export type EnvironmentsPersonsFunnelCorrelationRetrieveFormat =
-    (typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat)[keyof typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsFunnelCorrelationRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsFunnelCorrelationCreateParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationCreateFormat
-}
-
-export type EnvironmentsPersonsFunnelCorrelationCreateFormat =
-    (typeof EnvironmentsPersonsFunnelCorrelationCreateFormat)[keyof typeof EnvironmentsPersonsFunnelCorrelationCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsFunnelCorrelationCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsLifecycleRetrieveParams = {
-    format?: EnvironmentsPersonsLifecycleRetrieveFormat
-}
-
-export type EnvironmentsPersonsLifecycleRetrieveFormat =
-    (typeof EnvironmentsPersonsLifecycleRetrieveFormat)[keyof typeof EnvironmentsPersonsLifecycleRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsLifecycleRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsResetPersonDistinctIdCreateParams = {
-    format?: EnvironmentsPersonsResetPersonDistinctIdCreateFormat
-}
-
-export type EnvironmentsPersonsResetPersonDistinctIdCreateFormat =
-    (typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat)[keyof typeof EnvironmentsPersonsResetPersonDistinctIdCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsResetPersonDistinctIdCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsStickinessRetrieveParams = {
-    format?: EnvironmentsPersonsStickinessRetrieveFormat
-}
-
-export type EnvironmentsPersonsStickinessRetrieveFormat =
-    (typeof EnvironmentsPersonsStickinessRetrieveFormat)[keyof typeof EnvironmentsPersonsStickinessRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsStickinessRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsTrendsRetrieveParams = {
-    format?: EnvironmentsPersonsTrendsRetrieveFormat
-}
-
-export type EnvironmentsPersonsTrendsRetrieveFormat =
-    (typeof EnvironmentsPersonsTrendsRetrieveFormat)[keyof typeof EnvironmentsPersonsTrendsRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsTrendsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type EnvironmentsPersonsValuesRetrieveParams = {
-    format?: EnvironmentsPersonsValuesRetrieveFormat
-}
-
-export type EnvironmentsPersonsValuesRetrieveFormat =
-    (typeof EnvironmentsPersonsValuesRetrieveFormat)[keyof typeof EnvironmentsPersonsValuesRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EnvironmentsPersonsValuesRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsListParams = {
-    /**
-     * Filter list by distinct id.
-     */
-    distinct_id?: string
-    /**
-     * Filter persons by email (exact match)
-     */
-    email?: string
-    format?: PersonsListFormat
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Filter Persons by person properties.
-     */
-    properties?: Property[]
-    /**
-     * Search persons, either by email (full text search) or distinct_id (exact match).
-     */
-    search?: string
-}
-
-export type PersonsListFormat = (typeof PersonsListFormat)[keyof typeof PersonsListFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsListFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsRetrieveParams = {
-    format?: PersonsRetrieveFormat
-}
-
-export type PersonsRetrieveFormat = (typeof PersonsRetrieveFormat)[keyof typeof PersonsRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsUpdateParams = {
-    format?: PersonsUpdateFormat
-}
-
-export type PersonsUpdateFormat = (typeof PersonsUpdateFormat)[keyof typeof PersonsUpdateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsPartialUpdateParams = {
-    format?: PersonsPartialUpdateFormat
-}
-
-export type PersonsPartialUpdateFormat = (typeof PersonsPartialUpdateFormat)[keyof typeof PersonsPartialUpdateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsPartialUpdateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsDestroyParams = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean
-    format?: PersonsDestroyFormat
-}
-
-export type PersonsDestroyFormat = (typeof PersonsDestroyFormat)[keyof typeof PersonsDestroyFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsDestroyFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsActivityRetrieve2Params = {
-    format?: PersonsActivityRetrieve2Format
-}
-
-export type PersonsActivityRetrieve2Format =
-    (typeof PersonsActivityRetrieve2Format)[keyof typeof PersonsActivityRetrieve2Format]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsActivityRetrieve2Format = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsDeleteEventsCreateParams = {
-    format?: PersonsDeleteEventsCreateFormat
-}
-
-export type PersonsDeleteEventsCreateFormat =
-    (typeof PersonsDeleteEventsCreateFormat)[keyof typeof PersonsDeleteEventsCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsDeleteEventsCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsDeletePropertyCreateParams = {
-    /**
-     * Specify the property key to delete
-     */
-    $unset: string
-    format?: PersonsDeletePropertyCreateFormat
-}
-
-export type PersonsDeletePropertyCreateFormat =
-    (typeof PersonsDeletePropertyCreateFormat)[keyof typeof PersonsDeletePropertyCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsDeletePropertyCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsDeleteRecordingsCreateParams = {
-    format?: PersonsDeleteRecordingsCreateFormat
-}
-
-export type PersonsDeleteRecordingsCreateFormat =
-    (typeof PersonsDeleteRecordingsCreateFormat)[keyof typeof PersonsDeleteRecordingsCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsDeleteRecordingsCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsPropertiesTimelineRetrieveParams = {
-    format?: PersonsPropertiesTimelineRetrieveFormat
-}
-
-export type PersonsPropertiesTimelineRetrieveFormat =
-    (typeof PersonsPropertiesTimelineRetrieveFormat)[keyof typeof PersonsPropertiesTimelineRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsPropertiesTimelineRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsSplitCreateParams = {
-    format?: PersonsSplitCreateFormat
-}
-
-export type PersonsSplitCreateFormat = (typeof PersonsSplitCreateFormat)[keyof typeof PersonsSplitCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsSplitCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsUpdatePropertyCreateParams = {
-    format?: PersonsUpdatePropertyCreateFormat
-    /**
-     * Specify the property key
-     */
-    key: string
-    /**
-     * Specify the property value
-     */
-    value: unknown
-}
-
-export type PersonsUpdatePropertyCreateFormat =
-    (typeof PersonsUpdatePropertyCreateFormat)[keyof typeof PersonsUpdatePropertyCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsUpdatePropertyCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsActivityRetrieveParams = {
-    format?: PersonsActivityRetrieveFormat
-}
-
-export type PersonsActivityRetrieveFormat =
-    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsActivityRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsBulkDeleteCreateParams = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean
-    /**
-     * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
-     */
-    distinct_ids?: { [key: string]: unknown }
-    format?: PersonsBulkDeleteCreateFormat
-    /**
-     * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
-     */
-    ids?: { [key: string]: unknown }
-}
-
-export type PersonsBulkDeleteCreateFormat =
-    (typeof PersonsBulkDeleteCreateFormat)[keyof typeof PersonsBulkDeleteCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsBulkDeleteCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsCohortsRetrieveParams = {
-    format?: PersonsCohortsRetrieveFormat
-}
-
-export type PersonsCohortsRetrieveFormat =
-    (typeof PersonsCohortsRetrieveFormat)[keyof typeof PersonsCohortsRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsCohortsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsFunnelRetrieveParams = {
-    format?: PersonsFunnelRetrieveFormat
-}
-
-export type PersonsFunnelRetrieveFormat = (typeof PersonsFunnelRetrieveFormat)[keyof typeof PersonsFunnelRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsFunnelRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsFunnelCreateParams = {
-    format?: PersonsFunnelCreateFormat
-}
-
-export type PersonsFunnelCreateFormat = (typeof PersonsFunnelCreateFormat)[keyof typeof PersonsFunnelCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsFunnelCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsFunnelCorrelationRetrieveParams = {
-    format?: PersonsFunnelCorrelationRetrieveFormat
-}
-
-export type PersonsFunnelCorrelationRetrieveFormat =
-    (typeof PersonsFunnelCorrelationRetrieveFormat)[keyof typeof PersonsFunnelCorrelationRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsFunnelCorrelationRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsFunnelCorrelationCreateParams = {
-    format?: PersonsFunnelCorrelationCreateFormat
-}
-
-export type PersonsFunnelCorrelationCreateFormat =
-    (typeof PersonsFunnelCorrelationCreateFormat)[keyof typeof PersonsFunnelCorrelationCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsFunnelCorrelationCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsLifecycleRetrieveParams = {
-    format?: PersonsLifecycleRetrieveFormat
-}
-
-export type PersonsLifecycleRetrieveFormat =
-    (typeof PersonsLifecycleRetrieveFormat)[keyof typeof PersonsLifecycleRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsLifecycleRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsResetPersonDistinctIdCreateParams = {
-    format?: PersonsResetPersonDistinctIdCreateFormat
-}
-
-export type PersonsResetPersonDistinctIdCreateFormat =
-    (typeof PersonsResetPersonDistinctIdCreateFormat)[keyof typeof PersonsResetPersonDistinctIdCreateFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsResetPersonDistinctIdCreateFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsStickinessRetrieveParams = {
-    format?: PersonsStickinessRetrieveFormat
-}
-
-export type PersonsStickinessRetrieveFormat =
-    (typeof PersonsStickinessRetrieveFormat)[keyof typeof PersonsStickinessRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsStickinessRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsTrendsRetrieveParams = {
-    format?: PersonsTrendsRetrieveFormat
-}
-
-export type PersonsTrendsRetrieveFormat = (typeof PersonsTrendsRetrieveFormat)[keyof typeof PersonsTrendsRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsTrendsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
-
-export type PersonsValuesRetrieveParams = {
-    format?: PersonsValuesRetrieveFormat
-}
-
-export type PersonsValuesRetrieveFormat = (typeof PersonsValuesRetrieveFormat)[keyof typeof PersonsValuesRetrieveFormat]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsValuesRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
-} as const
 
 export type EnvironmentsSessionRecordingPlaylistsListParams = {
     created_by?: number
