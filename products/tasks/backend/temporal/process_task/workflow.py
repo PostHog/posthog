@@ -1,4 +1,5 @@
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
@@ -82,6 +83,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 error=None,
                 sandbox_id=sandbox_id,
             )
+
+        except asyncio.CancelledError:
+            if sandbox_id:
+                await self._cleanup_sandbox(sandbox_id)
+                sandbox_id = None
+            raise
 
         except Exception as e:
             if self._context:

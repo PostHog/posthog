@@ -118,7 +118,7 @@ class TestCreateSnapshotForRepositoryWorkflow:
             snapshots_query = SandboxSnapshot.objects.filter(
                 integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
             ).order_by("-created_at")
-            snapshots = cast(list[SandboxSnapshot], await sync_to_async(list)(snapshots_query))
+            snapshots = cast(list[SandboxSnapshot], await sync_to_async(lambda: list(snapshots_query))())
 
             assert len(snapshots) >= 1
             latest_snapshot = snapshots[0]

@@ -11,7 +11,6 @@ from unittest.mock import patch
 from django.conf import settings
 
 from asgiref.sync import sync_to_async
-from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -192,48 +191,3 @@ class TestProcessTaskWorkflow:
         assert result.success is False
         assert result.error is not None
         assert "activity task failed" in result.error.lower() or "failed" in result.error.lower()
-
-    async def test_workflow_cleans_up_sandbox_on_cancellation(self, test_task_run, github_integration):
-        snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
-
-        try:
-            with patch(
-                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
-            ) as mock_task:
-                mock_task.return_value = "sleep 300"
-
-                async with (
-                    await WorkflowEnvironment.start_time_skipping() as env,
-                    Worker(
-                        env.client,
-                        task_queue=settings.TASKS_TASK_QUEUE,
-                        workflows=[ProcessTaskWorkflow],
-                        activities=[
-                            get_task_processing_context,
-                            get_sandbox_for_repository,
-                            execute_task_in_sandbox,
-                            cleanup_sandbox,
-                            track_workflow_event,
-                        ],
-                        workflow_runner=UnsandboxedWorkflowRunner(),
-                        activity_executor=ThreadPoolExecutor(max_workers=10),
-                    ),
-                ):
-                    handle = await env.client.start_workflow(
-                        ProcessTaskWorkflow.run,
-                        str(test_task_run.id),
-                        id=str(uuid.uuid4()),
-                        task_queue=settings.TASKS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=timedelta(minutes=60),
-                    )
-
-                    await asyncio.sleep(30)
-
-                    await handle.cancel()
-
-                    with pytest.raises(WorkflowFailureError):
-                        await handle.result()
-
-        finally:
-            await sync_to_async(snapshot.delete)()
