@@ -1,14 +1,26 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export const VercelAIInstallation = (): JSX.Element => {
-    const { Steps, Step, CodeBlock, CalloutBox, ProductScreenshot, OSButton, Markdown, Blockquote, dedent, snippets } =
-        useMDXComponents()
-
+    const {
+        Steps,
+        Step,
+        CodeBlock,
+        CalloutBox,
+        ProductScreenshot,
+        OSButton,
+        Markdown,
+        Blockquote,
+        dedent,
+        snippets,
+    } = useMDXComponents()
+    
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
     return (
         <Steps>
             <Step title="Install the PostHog SDK" badge="required">
-                <Markdown>Setting up analytics starts with installing the PostHog SDK.</Markdown>
+                <Markdown>
+                    Setting up analytics starts with installing the PostHog SDK.
+                </Markdown>
 
                 <CodeBlock
                     language="bash"
@@ -20,8 +32,8 @@ export const VercelAIInstallation = (): JSX.Element => {
 
             <Step title="Install the Vercel AI SDK" badge="required">
                 <Markdown>
-                    Install the Vercel AI SDK. The PostHog SDK instruments your LLM calls by wrapping the Vercel AI
-                    client. The PostHog SDK **does not** proxy your calls.
+                    Install the Vercel AI SDK. The PostHog SDK instruments your LLM calls by wrapping the Vercel AI client.
+                    The PostHog SDK **does not** proxy your calls.
                 </Markdown>
 
                 <CodeBlock
@@ -33,19 +45,16 @@ export const VercelAIInstallation = (): JSX.Element => {
 
                 <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                     <Markdown>
-                        These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
-                        background to send the data. You can also use LLM analytics with other SDKs or our API, but you
-                        will need to capture the data in the right format. See the schema in the [manual capture
-                        section](/docs/llm-analytics/installation/manual-capture) for more details.
+                        These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the background to send the data.
+
+                        You can also use LLM analytics with other SDKs or our API, but you will need to capture the data in the right format. See the schema in the [manual capture section](/docs/llm-analytics/installation/manual-capture) for more details.
                     </Markdown>
                 </CalloutBox>
             </Step>
 
             <Step title="Initialize PostHog and Vercel AI" badge="required">
                 <Markdown>
-                    Initialize PostHog with your project API key and host from [your project
-                    settings](https://app.posthog.com/settings/project), then pass the Vercel AI OpenAI client and the
-                    PostHog client to the `withTracing` wrapper.
+                    Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass the Vercel AI OpenAI client and the PostHog client to the `withTracing` wrapper.
                 </Markdown>
 
                 <CodeBlock
@@ -79,15 +88,15 @@ export const VercelAIInstallation = (): JSX.Element => {
                 />
 
                 <Markdown>
-                    You can enrich LLM events with additional data by passing parameters such as the trace ID, distinct
-                    ID, custom properties, groups, and privacy mode options.
+                    You can enrich LLM events with additional data by passing parameters such as the trace ID, distinct ID, custom properties, groups, and privacy mode options.
                 </Markdown>
             </Step>
 
             <Step title="Call Vercel AI" badge="required">
                 <Markdown>
-                    Now, when you use the Vercel AI SDK to call LLMs, PostHog automatically captures an `$ai_generation`
-                    event. This works for both `text` and `image` message types.
+                    Now, when you use the Vercel AI SDK to call LLMs, PostHog automatically captures an `$ai_generation` event.
+
+                    This works for both `text` and `image` message types.
                 </Markdown>
 
                 <CodeBlock
@@ -104,9 +113,7 @@ export const VercelAIInstallation = (): JSX.Element => {
 
                 <Blockquote>
                     <Markdown>
-                        **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the
-                        request. See our docs on [anonymous vs identified
-                        events](/docs/data/anonymous-vs-identified-events) to learn more.
+                        **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request. See our docs on [anonymous vs identified events](/docs/data/anonymous-vs-identified-events) to learn more.
                     </Markdown>
                 </Blockquote>
 
@@ -137,15 +144,9 @@ export const VercelAIInstallation = (): JSX.Element => {
                 )}
             </Step>
 
-            <Step
-                checkpoint
-                title="Verify traces and generations"
-                subtitle="Confirm LLM events are being sent to PostHog"
-                docsOnly
-            >
+            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog" docsOnly>
                 <Markdown>
-                    Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you
-                    should see rows of data appear in the **Traces** and **Generations** tabs.
+                    Let's make sure LLM events are being captured and sent to PostHog. Under **LLM analytics**, you should see rows of data appear in the **Traces** and **Generations** tabs.
                 </Markdown>
 
                 <br />
@@ -158,17 +159,11 @@ export const VercelAIInstallation = (): JSX.Element => {
                     padding={false}
                 />
 
-                <OSButton
-                    variant="secondary"
-                    asLink
-                    className="my-2"
-                    size="sm"
-                    to="https://app.posthog.com/llm-analytics/generations"
-                    external
-                >
+                <OSButton variant="secondary" asLink className="my-2" size="sm" to="https://app.posthog.com/llm-analytics/generations" external>
                     Check for LLM events in PostHog
                 </OSButton>
             </Step>
         </Steps>
     )
 }
+

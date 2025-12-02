@@ -1,0 +1,7 @@
+{
+    "name": "@posthog/docs",
+    "peerDependencies": {
+        "@types/react": "*",
+        "react": "*"
+    }
+}

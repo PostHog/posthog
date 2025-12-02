@@ -4,13 +4,13 @@ on:
     pull_request:
         paths:
             - 'docs/published/**'
-            - 'frontend/src/scenes/onboarding/shared-docs/**'
+            - 'docs/onboarding/**'
     push:
         branches:
             - master
         paths:
             - 'docs/published/**'
-            - 'frontend/src/scenes/onboarding/shared-docs/**'
+            - 'docs/onboarding/**'
 
 permissions:
     pull-requests: write

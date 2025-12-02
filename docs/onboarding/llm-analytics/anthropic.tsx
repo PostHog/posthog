@@ -1,6 +1,6 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
-export const LangChainInstallation = (): JSX.Element => {
+export const AnthropicInstallation = (): JSX.Element => {
     const { Steps, Step, CodeBlock, CalloutBox, ProductScreenshot, OSButton, Markdown, Blockquote, dedent, snippets } =
         useMDXComponents()
 
@@ -33,10 +33,10 @@ export const LangChainInstallation = (): JSX.Element => {
                 />
             </Step>
 
-            <Step title="Install LangChain and OpenAI SDKs" badge="required">
+            <Step title="Install the Anthropic SDK" badge="required">
                 <Markdown>
-                    Install LangChain. The PostHog SDK instruments your LLM calls by wrapping LangChain. The PostHog SDK
-                    **does not** proxy your calls.
+                    Install the Anthropic SDK. The PostHog SDK instruments your LLM calls by wrapping the Anthropic client.
+                    The PostHog SDK **does not** proxy your calls.
                 </Markdown>
 
                 <CodeBlock
@@ -45,14 +45,14 @@ export const LangChainInstallation = (): JSX.Element => {
                             language: 'bash',
                             file: 'Python',
                             code: dedent`
-                                pip install langchain openai langchain-openai
+                                pip install anthropic
                             `,
                         },
                         {
                             language: 'bash',
                             file: 'Node',
                             code: dedent`
-                                npm install langchain @langchain/core @posthog/ai
+                                npm install @anthropic-ai/sdk
                             `,
                         },
                     ]}
@@ -68,12 +68,10 @@ export const LangChainInstallation = (): JSX.Element => {
                 </CalloutBox>
             </Step>
 
-            <Step title="Initialize PostHog and LangChain" badge="required">
+            <Step title="Initialize PostHog and the Anthropic wrapper" badge="required">
                 <Markdown>
                     Initialize PostHog with your project API key and host from [your project
-                    settings](https://app.posthog.com/settings/project), then pass it to the LangChain `CallbackHandler`
-                    wrapper. Optionally, you can provide a user distinct ID, trace ID, PostHog properties,
-                    [groups](/docs/product-analytics/group-analytics), and privacy mode.
+                    settings](https://app.posthog.com/settings/project), then pass it to our Anthropic wrapper.
                 </Markdown>
 
                 <CodeBlock
@@ -82,9 +80,7 @@ export const LangChainInstallation = (): JSX.Element => {
                             language: 'python',
                             file: 'Python',
                             code: dedent`
-                                from posthog.ai.langchain import CallbackHandler
-                                from langchain_openai import ChatOpenAI
-                                from langchain_core.prompts import ChatPromptTemplate
+                                from posthog.ai.anthropic import Anthropic
                                 from posthog import Posthog
 
                                 posthog = Posthog(
@@ -92,13 +88,9 @@ export const LangChainInstallation = (): JSX.Element => {
                                     host="<ph_client_api_host>"
                                 )
 
-                                callback_handler = CallbackHandler(
-                                    client=posthog, # This is an optional parameter. If it is not provided, a default client will be used.
-                                    distinct_id="user_123", # optional
-                                    trace_id="trace_456", # optional
-                                    properties={"conversation_id": "abc123"} # optional
-                                    groups={"company": "company_id_in_your_db"} # optional
-                                    privacy_mode=False # optional
+                                client = Anthropic(
+                                    api_key="sk-ant-api...", # Replace with your Anthropic API key
+                                    posthog_client=posthog # This is an optional parameter. If it is not provided, a default client will be used.
                                 )
                             `,
                         },
@@ -106,25 +98,18 @@ export const LangChainInstallation = (): JSX.Element => {
                             language: 'ts',
                             file: 'Node',
                             code: dedent`
-                                import { PostHog } from 'posthog-node';
-                                import { LangChainCallbackHandler } from '@posthog/ai';
-                                import { ChatOpenAI } from '@langchain/openai';
-                                import { ChatPromptTemplate } from '@langchain/core/prompts';
+                                import { Anthropic } from '@posthog/ai'
+                                import { PostHog } from 'posthog-node'
 
                                 const phClient = new PostHog(
                                   '<ph_project_api_key>',
                                   { host: '<ph_client_api_host>' }
-                                );
+                                )
 
-                                const callbackHandler = new LangChainCallbackHandler({
-                                  client: phClient,
-                                  distinctId: 'user_123', // optional
-                                  traceId: 'trace_456', // optional
-                                  properties: { conversationId: 'abc123' }, // optional
-                                  groups: { company: 'company_id_in_your_db' }, // optional
-                                  privacyMode: false, // optional
-                                  debug: false // optional - when true, logs all events to console
-                                });
+                                const client = new Anthropic({
+                                  apiKey: 'sk-ant-api...', // Replace with your Anthropic API key
+                                  posthog: phClient
+                                })
                             `,
                         },
                     ]}
@@ -132,16 +117,17 @@ export const LangChainInstallation = (): JSX.Element => {
 
                 <Blockquote>
                     <Markdown>
-                        **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the
-                        `CallbackHandler`. See our docs on [anonymous vs identified
-                        events](/docs/data/anonymous-vs-identified-events) to learn more.
+                        **Note:** This also works with the `AsyncAnthropic` client as well as `AnthropicBedrock`,
+                        `AnthropicVertex`, and the async versions of those.
                     </Markdown>
                 </Blockquote>
             </Step>
 
-            <Step title="Call LangChain" badge="required">
+            <Step title="Call Anthropic LLMs" badge="required">
                 <Markdown>
-                    When you invoke your chain, pass the `callback_handler` in the `config` as part of your `callbacks`:
+                    Now, when you use the Anthropic SDK to call LLMs, PostHog automatically captures an `$ai_generation`
+                    event. You can enrich the event with additional data such as the trace ID, distinct ID, custom
+                    properties, groups, and privacy mode options.
                 </Markdown>
 
                 <CodeBlock
@@ -150,53 +136,66 @@ export const LangChainInstallation = (): JSX.Element => {
                             language: 'python',
                             file: 'Python',
                             code: dedent`
-                                prompt = ChatPromptTemplate.from_messages([
-                                    ("system", "You are a helpful assistant."),
-                                    ("user", "{input}")
-                                ])
-
-                                model = ChatOpenAI(openai_api_key="your_openai_api_key")
-                                chain = prompt | model
-
-                                # Execute the chain with the callback handler
-                                response = chain.invoke(
-                                    {"input": "Tell me a joke about programming"},
-                                    config={"callbacks": [callback_handler]}
+                                response = client.messages.create(
+                                    model="claude-3-opus-20240229",
+                                    messages=[
+                                        {
+                                            "role": "user",
+                                            "content": "Tell me a fun fact about hedgehogs"
+                                        }
+                                    ],
+                                    posthog_distinct_id="user_123", # optional
+                                    posthog_trace_id="trace_123", # optional
+                                    posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
+                                    posthog_groups={"company": "company_id_in_your_db"},  # optional
+                                    posthog_privacy_mode=False # optional
                                 )
 
-                                print(response.content)
+                                print(response.content[0].text)
                             `,
                         },
                         {
                             language: 'ts',
                             file: 'Node',
                             code: dedent`
-                                const prompt = ChatPromptTemplate.fromMessages([
-                                  ["system", "You are a helpful assistant."],
-                                  ["user", "{input}"]
-                                ]);
+                                const response = await client.messages.create({
+                                  model: "claude-3-5-sonnet-latest",
+                                  messages: [
+                                    {
+                                      role: "user",
+                                      content: "Tell me a fun fact about hedgehogs"
+                                    }
+                                  ],
+                                  posthogDistinctId: "user_123", // optional
+                                  posthogTraceId: "trace_123", // optional
+                                  posthogProperties: { conversationId: "abc123", paid: true }, // optional
+                                  posthogGroups: { company: "company_id_in_your_db" }, // optional
+                                  posthogPrivacyMode: false // optional
+                                })
 
-                                const model = new ChatOpenAI({
-                                  apiKey: "your_openai_api_key"
-                                });
-
-                                const chain = prompt.pipe(model);
-
-                                // Execute the chain with the callback handler
-                                const response = await chain.invoke(
-                                  { input: "Tell me a joke about programming" },
-                                  { callbacks: [callbackHandler] }
-                                );
-
-                                console.log(response.content);
-                                phClient.shutdown();
+                                console.log(response.content[0].text)
+                                phClient.shutdown()
                             `,
                         },
                     ]}
                 />
 
+                <Blockquote>
+                    <Markdown>
+                        {dedent`
+                        **Notes:**
+                        - This also works when message streams are used (e.g. \`stream=True\` or \`client.messages.stream(...)\`).
+                        - If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request.
+
+                        See our docs on [anonymous vs identified events](/docs/data/anonymous-vs-identified-events) to learn more.
+                        `}
+                    </Markdown>
+                </Blockquote>
+
                 <Markdown>
-                    PostHog automatically captures an `$ai_generation` event along with these properties:
+                    {dedent`
+                        You can expect captured \`$ai_generation\` events to have the following properties:
+                    `}
                 </Markdown>
 
                 {NotableGenerationProperties ? (
@@ -218,10 +217,6 @@ export const LangChainInstallation = (): JSX.Element => {
                         `}
                     </Markdown>
                 )}
-
-                <Markdown>
-                    It also automatically creates a trace hierarchy based on how LangChain components are nested.
-                </Markdown>
             </Step>
 
             <Step

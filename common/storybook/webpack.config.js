@@ -58,6 +58,7 @@ function createEntry(entry) {
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
                 process: 'process/browser',
                 products: path.resolve(__dirname, '..', '..', 'products'),
+                'shared-docs': path.resolve(__dirname, '..', '..', 'docs'),
             },
             fallback: {
                 crypto: require.resolve('crypto-browserify'),
