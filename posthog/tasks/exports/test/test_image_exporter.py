@@ -197,7 +197,7 @@ class TestImageExporter(APIBaseTest):
             dashboard=dashboard,
         )
 
-        def mock_process(team, query, insight_id=None, **kwargs):
+        def mock_process(team: Any, query: Any, insight_id: Any = None, **kwargs: Any) -> dict:
             return {"cache_key": f"cache_key_for_insight_{insight_id}", "results": []}
 
         mock_process_query.side_effect = mock_process

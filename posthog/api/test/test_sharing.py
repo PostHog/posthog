@@ -1119,8 +1119,11 @@ class TestSharePasswordLogging(APIBaseTest):
 class TestExportCacheKeyFlow(APIBaseTest):
     """Test that cache_keys parameter is correctly parsed and passed to InsightSerializer."""
 
+    insight: Insight
+    sharing_config: SharingConfiguration
+
     @classmethod
-    def setUpTestData(cls):
+    def setUpTestData(cls) -> None:
         super().setUpTestData()
         cls.insight = Insight.objects.create(
             team=cls.team,

@@ -40,9 +40,13 @@ logger = structlog.get_logger(__name__)
 def _extract_cache_key(result: dict | BaseModel) -> str | None:
     if isinstance(result, BaseModel):
         return getattr(result, "cache_key", None)
-    elif isinstance(result, dict):
-        return result.get("cache_key")
-    return None
+    return result.get("cache_key")
+
+
+def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str:
+    if not insight_cache_keys:
+        return ""
+    return f"&cache_keys={quote(json.dumps(insight_cache_keys))}"
 
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
@@ -128,18 +132,12 @@ def _export_to_png(
         if exported_asset.insight is not None:
             show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
-            cache_keys_param = ""
-            if insight_cache_keys:
-                cache_keys_json = json.dumps(insight_cache_keys)
-                cache_keys_param = f"&cache_keys={quote(cache_keys_json)}"
+            cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
         elif exported_asset.dashboard is not None:
-            cache_keys_param = ""
-            if insight_cache_keys:
-                cache_keys_json = json.dumps(insight_cache_keys)
-                cache_keys_param = f"&cache_keys={quote(cache_keys_json)}"
+            cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
@@ -429,7 +427,7 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                     _export_to_png(
                         exported_asset,
                         max_height_pixels=max_height_pixels,
-                        insight_cache_keys=insight_cache_keys if insight_cache_keys else None,
+                        insight_cache_keys=insight_cache_keys or None,
                     )
                 EXPORT_SUCCEEDED_COUNTER.labels(type="image").inc()
             else:
