@@ -243,11 +243,22 @@ export function ExperimentMetricForm({
     const funnelSeries = isExperimentFunnelMetric(metric) ? metric.series : null
     const ratioNumerator = isExperimentRatioMetric(metric) ? metric.numerator : null
     const ratioDenominator = isExperimentRatioMetric(metric) ? metric.denominator : null
+    const retentionStartEvent = isExperimentRetentionMetric(metric) ? metric.start_event : null
+    const retentionCompletionEvent = isExperimentRetentionMetric(metric) ? metric.completion_event : null
 
     useEffect(() => {
         loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [metric.metric_type, meanSource, funnelSeries, ratioNumerator, ratioDenominator, filterTestAccounts])
+    }, [
+        metric.metric_type,
+        meanSource,
+        funnelSeries,
+        ratioNumerator,
+        ratioDenominator,
+        retentionStartEvent,
+        retentionCompletionEvent,
+        filterTestAccounts,
+    ])
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
