@@ -16,6 +16,31 @@ SQL_DIR = Path(__file__).parent / "sql"
 ENABLED_METRICS: list[str] | None = None  # or ["event_counts", "error_rates"]
 
 
+def get_llma_events_cte(date_start: str, date_end: str) -> str:
+    """
+    Generate CTE that pre-filters events to only LLMA teams and event types.
+
+    This two-step approach (first find teams, then filter events) allows ClickHouse
+    to use the sorting key (team_id, timestamp) more efficiently.
+    """
+    event_types_sql = ", ".join(f"'{et}'" for et in config.ai_event_types)
+    return f"""teams_with_ai_events AS (
+    SELECT DISTINCT team_id
+    FROM events
+    WHERE event IN ({event_types_sql})
+      AND timestamp >= toDateTime('{date_start}', 'UTC')
+      AND timestamp < toDateTime('{date_end}', 'UTC')
+),
+llma_events AS (
+    SELECT *
+    FROM events
+    WHERE team_id IN (SELECT team_id FROM teams_with_ai_events)
+      AND event IN ({event_types_sql})
+      AND timestamp >= toDateTime('{date_start}', 'UTC')
+      AND timestamp < toDateTime('{date_end}', 'UTC')
+)"""
+
+
 def get_insert_query(date_start: str, date_end: str) -> str:
     """
     Generate SQL to aggregate AI event counts by team and metric type.
@@ -56,8 +81,15 @@ def get_insert_query(date_start: str, date_end: str) -> str:
     # Combine all queries with UNION ALL
     combined_query = "\n\nUNION ALL\n\n".join(rendered_queries)
 
-    # Wrap in INSERT INTO statement
-    return f"INSERT INTO {config.table_name} (date, team_id, metric_name, metric_value)\n\n{combined_query}"
+    # Generate the llma_events CTE
+    llma_events_cte = get_llma_events_cte(date_start, date_end)
+
+    # Wrap in INSERT INTO statement with CTE
+    return f"""INSERT INTO {config.table_name} (date, team_id, metric_name, metric_value)
+
+WITH {llma_events_cte}
+
+{combined_query}"""
 
 
 def get_delete_query(date_start: str, date_end: str) -> str:
