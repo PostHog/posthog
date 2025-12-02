@@ -130,8 +130,12 @@ class UserProductListInline(admin.TabularInline):
     fields = ("user", "product_path", "reason", "reason_text", "enabled")
     readonly_fields = ("id",)
     verbose_name = "User Product Entry"
-    verbose_name_plural = "User Product entries"
+    verbose_name_plural = "User Product entries (sales led only)"
     classes = ("collapse",)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.filter(reason=UserProductList.Reason.SALES_LED)
 
     def get_formset(self, request, obj=None, **kwargs):
         formset = super().get_formset(request, obj, **kwargs)
