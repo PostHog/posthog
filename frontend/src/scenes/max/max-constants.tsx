@@ -1,6 +1,7 @@
 import { IconAtSign, IconBook, IconCreditCard, IconGlobe, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconQuestionAnswer } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -103,6 +104,17 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'we
             return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
         },
         flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
+    },
+    create_form: {
+        name: 'Create a form',
+        description: 'Create a form to collect information from the user',
+        icon: <IconQuestionAnswer />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created a form'
+            }
+            return 'Creating a form...'
+        },
     },
     session_summarization: {
         name: 'Summarize sessions',

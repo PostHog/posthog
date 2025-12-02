@@ -1883,7 +1883,8 @@
                 "switch_mode",
                 "summarize_sessions",
                 "filter_session_recordings",
-                "create_insight"
+                "create_insight",
+                "create_form"
             ],
             "type": "string"
         },
@@ -14205,6 +14206,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "Ashby",
                 "Supabase",
                 "CustomerIO",
                 "Github",
@@ -17830,6 +17832,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "integrationFilter": {
@@ -18123,6 +18126,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "integrationFilter": {
@@ -19541,6 +19545,12 @@
                     },
                     "type": "array"
                 },
+                "form_answers": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
                 "insights": {
                     "items": {
                         "$ref": "#/definitions/MaxInsightContext"
@@ -19618,6 +19628,57 @@
                 }
             },
             "required": ["use_as_profile", "color", "accessories"],
+            "type": "object"
+        },
+        "MultiQuestionForm": {
+            "additionalProperties": false,
+            "properties": {
+                "questions": {
+                    "description": "The questions to ask",
+                    "items": {
+                        "$ref": "#/definitions/MultiQuestionFormQuestion"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["questions"],
+            "type": "object"
+        },
+        "MultiQuestionFormQuestion": {
+            "additionalProperties": false,
+            "properties": {
+                "allow_custom_answer": {
+                    "description": "Whether to show a \"Type your answer\" option (default: true)",
+                    "type": "boolean"
+                },
+                "id": {
+                    "description": "Unique identifier for this question",
+                    "type": "string"
+                },
+                "options": {
+                    "description": "Available answer options",
+                    "items": {
+                        "$ref": "#/definitions/MultiQuestionFormQuestionOption"
+                    },
+                    "type": "array"
+                },
+                "question": {
+                    "description": "The question text to display",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "question", "options"],
+            "type": "object"
+        },
+        "MultiQuestionFormQuestionOption": {
+            "additionalProperties": false,
+            "properties": {
+                "value": {
+                    "description": "The value to use when this option is selected",
+                    "type": "string"
+                }
+            },
+            "required": ["value"],
             "type": "object"
         },
         "MultiVisualizationMessage": {
@@ -30325,6 +30386,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -30476,6 +30538,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -30652,6 +30715,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -30791,6 +30855,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -30968,6 +31033,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
@@ -31163,6 +31229,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -31389,6 +31456,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -31574,6 +31642,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {

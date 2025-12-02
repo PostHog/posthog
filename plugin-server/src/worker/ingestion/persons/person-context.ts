@@ -24,7 +24,8 @@ export class PersonContext {
         public readonly kafkaProducer: KafkaProducerWrapper,
         public readonly personStore: PersonsStoreForBatch,
         public readonly measurePersonJsonbSize: number = 0,
-        public readonly mergeMode: MergeMode
+        public readonly mergeMode: MergeMode,
+        public readonly updateAllProperties: boolean = false // When true, all property changes trigger person updates
     ) {
         this.eventProperties = event.properties!
     }

@@ -267,6 +267,7 @@ export const FEATURE_FLAGS = {
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     LOGS: 'logs', // owner: #team-logs
     LOGS_PRE_EARLY_ACCESS: 'logs-internal', // owner: #team-logs
+    LOGS_VIRTUALIZED_LIST: 'logs-virtualized-list', // owner: #team-logs
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics
@@ -300,7 +301,6 @@ export const FEATURE_FLAGS = {
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-workflows
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
-    PLATFORM_PAYGATE_CTA: 'platform-paygate-cta', // owner: @a-lider #team-platform-features
     SWITCH_SUBSCRIPTION_PLAN: 'switch-subscription-plan', // owner: @a-lider #team-platform-features
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-llm-analytics #team-posthog-ai
     LLM_ANALYTICS_SESSIONS_VIEW: 'llm-analytics-sessions-view', // owner: #team-llm-analytics
@@ -342,6 +342,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     AGENT_MODES: 'phai-agent-modes', // owner: @skoob13 #team-posthog-ai
     PHAI_WEB_SEARCH: 'phai-web-search', // owner: @Twixes #team-posthog-ai
+    CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     INCIDENT_IO_STATUS_PAGE: 'incident-io-status-page', // owner: @benjackwhite
     SURVEYS_FUNNELS_CROSS_SELL: 'survey-funnels-cross-sell', // owner: @adboio #team-surveys
     DATE_PICKER_EXPLICIT_DATE_TOGGLE: 'date-picker-explicit-date-toggle', // owner: @gesh #team-product-analytics

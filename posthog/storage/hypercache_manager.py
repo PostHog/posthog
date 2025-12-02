@@ -13,9 +13,10 @@ Operations include:
 
 import random
 import statistics
-from dataclasses import dataclass
 
 # Import TYPE_CHECKING to avoid circular import at runtime
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from django.conf import settings
@@ -94,6 +95,18 @@ HYPERCACHE_COVERAGE_GAUGE = Gauge(
 HYPERCACHE_SIZE_GAUGE = Gauge(
     "posthog_hypercache_size_bytes",
     "Estimated total cache size in bytes",
+    labelnames=["namespace"],
+)
+
+HYPERCACHE_ENTRIES_GAUGE = Gauge(
+    "posthog_hypercache_entries_total",
+    "Total number of entries in the HyperCache",
+    labelnames=["namespace"],
+)
+
+HYPERCACHE_EXPIRY_TRACKED_GAUGE = Gauge(
+    "posthog_hypercache_expiry_tracked_total",
+    "Number of entries tracked in the expiry sorted set",
     labelnames=["namespace"],
 )
 
@@ -220,12 +233,14 @@ def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
 
 def warm_caches(
     config: HyperCacheManagementConfig,
-    batch_size: int = 100,
+    batch_size: int = 1000,
     invalidate_first: bool = False,
     stagger_ttl: bool = True,
     min_ttl_days: int = 5,
     max_ttl_days: int = 7,
     team_ids: list[int] | None = None,
+    progress_callback: Callable[[int, int, int, int], None] | None = None,
+    batch_start_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[int, int]:
     """
     Warm cache for teams (all or specific subset).
@@ -246,6 +261,10 @@ def warm_caches(
         min_ttl_days: Minimum TTL in days (when staggering)
         max_ttl_days: Maximum TTL in days (when staggering)
         team_ids: Optional list of team IDs to warm (if None, warms all teams)
+        progress_callback: Optional callback for progress reporting.
+            Called with (processed, total, successful, failed) after each batch.
+        batch_start_callback: Optional callback called before each batch starts.
+            Called with (batch_number, batch_size) where batch_number is 1-indexed.
 
     Returns:
         Tuple of (successful_updates, failed_updates)
@@ -287,12 +306,19 @@ def warm_caches(
         successful = 0
         failed = 0
         processed = 0
+        batch_number = 0
 
         last_id = 0
         while True:
             batch = list(teams_queryset.filter(id__gt=last_id).order_by("id")[:batch_size])
             if not batch:
                 break
+
+            batch_number += 1
+
+            # Notify caller that batch is starting
+            if batch_start_callback:
+                batch_start_callback(batch_number, len(batch))
 
             # Pre-load data for all teams in batch if the hypercache has batch loading
             batch_data = None
@@ -345,6 +371,10 @@ def warm_caches(
                 processed += 1
 
             last_id = batch[-1].id
+
+            # Report progress via callback after each batch
+            if progress_callback:
+                progress_callback(processed, total_teams, successful, failed)
 
             if processed % (batch_size * 10) == 0:
                 logger.info(
@@ -492,10 +522,16 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
             HYPERCACHE_SIZE_GAUGE.labels(namespace=config.namespace).set(estimated_total_bytes)
 
         HYPERCACHE_COVERAGE_GAUGE.labels(namespace=config.namespace).set(coverage_percent)
+        HYPERCACHE_ENTRIES_GAUGE.labels(namespace=config.namespace).set(total_keys)
+
+        # Update expiry tracking gauge using ZCARD (O(1) operation)
+        expiry_tracked_count = redis_client.zcard(config.expiry_sorted_set_key)
+        HYPERCACHE_EXPIRY_TRACKED_GAUGE.labels(namespace=config.namespace).set(expiry_tracked_count)
 
         return {
             "total_cached": total_keys,
             "total_teams": total_teams,
+            "expiry_tracked": expiry_tracked_count,
             "cache_coverage": f"{coverage_percent:.1f}%",
             "cache_coverage_percent": coverage_percent,
             "ttl_distribution": ttl_buckets,
