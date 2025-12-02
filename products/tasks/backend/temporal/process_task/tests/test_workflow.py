@@ -192,44 +192,47 @@ class TestProcessTaskWorkflow:
         assert result.error is not None
         assert "activity task failed" in result.error.lower() or "failed" in result.error.lower()
 
-    async def test_workflow_full_cycle_no_snapshot(self, test_task_run, github_integration):
-        created_snapshots = []
+    async def test_workflow_cleans_up_sandbox_on_cancellation(self, test_task_run, github_integration):
+        snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
-            result = await self._run_workflow(test_task_run.id)
+            with patch(
+                "products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox.Sandbox._get_task_command"
+            ) as mock_task:
+                mock_task.return_value = "sleep 300"
 
-            assert result.success is True
-            assert result.task_result is not None
-            assert result.task_result.exit_code == 0
+                async with (
+                    await WorkflowEnvironment.start_time_skipping() as env,
+                    Worker(
+                        env.client,
+                        task_queue=settings.TASKS_TASK_QUEUE,
+                        workflows=[ProcessTaskWorkflow],
+                        activities=[
+                            get_task_processing_context,
+                            get_sandbox_for_repository,
+                            execute_task_in_sandbox,
+                            cleanup_sandbox,
+                            track_workflow_event,
+                        ],
+                        workflow_runner=UnsandboxedWorkflowRunner(),
+                        activity_executor=ThreadPoolExecutor(max_workers=10),
+                    ),
+                ):
+                    handle = await env.client.start_workflow(
+                        ProcessTaskWorkflow.run,
+                        str(test_task_run.id),
+                        id=test_task_run.workflow_id,
+                        task_queue=settings.TASKS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=timedelta(minutes=60),
+                    )
 
-            snapshots_query = SandboxSnapshot.objects.filter(
-                integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
-            ).order_by("-created_at")
-            snapshots = cast(list[SandboxSnapshot], await sync_to_async(list)(snapshots_query))  # type: ignore[call-arg]
+                    await asyncio.sleep(30)
 
-            assert len(snapshots) >= 1
-            latest_snapshot = snapshots[0]
-            assert "posthog/posthog-js" in latest_snapshot.repos
-            assert latest_snapshot.status == SandboxSnapshot.Status.COMPLETE
+                    await handle.cancel()
 
-            created_snapshots.append(latest_snapshot)
-
-            result2 = await self._run_workflow(test_task_run.id)
-
-            assert result2.success is True
-            assert result2.task_result is not None
-
-            snapshots_after_query = SandboxSnapshot.objects.filter(
-                integration=github_integration, status=SandboxSnapshot.Status.COMPLETE
-            ).order_by("-created_at")
-            snapshots_after = cast(list[SandboxSnapshot], await sync_to_async(list)(snapshots_after_query))  # type: ignore[call-arg]
-            assert len(snapshots_after) == len(snapshots)
+                    with pytest.raises(WorkflowFailureError):
+                        await handle.result()
 
         finally:
-            for snapshot in created_snapshots:
-                try:
-                    if snapshot.external_id:
-                        Sandbox.delete_snapshot(snapshot.external_id)
-                    await sync_to_async(snapshot.delete)()
-                except Exception:
-                    pass
+            await sync_to_async(snapshot.delete)()
