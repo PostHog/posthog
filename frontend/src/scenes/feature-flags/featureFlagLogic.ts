@@ -1159,6 +1159,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         submitFeatureFlagFailure: async () => {
             scrollToFormError()
         },
+        updateFeatureFlagActiveFailure: ({ error }) => {
+            lemonToast.error(`Failed to toggle flag: ${error}`)
+        },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             actions.updateFlag(featureFlag)
