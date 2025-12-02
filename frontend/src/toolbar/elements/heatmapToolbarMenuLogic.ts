@@ -523,6 +523,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         refreshClickmap: () => {
+            if (!values.clickmapsEnabled) {
+                return
+            }
             invalidatePageElementsCache(cache as ElementProcessingCache)
             actions.processElements()
         },
