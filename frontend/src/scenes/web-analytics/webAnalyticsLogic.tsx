@@ -2071,7 +2071,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FRUSTRATING_PAGES_TILE]
+                    !conversionGoal
                         ? {
                               kind: 'query',
                               title: 'Frustrating Pages',
