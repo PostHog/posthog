@@ -134,7 +134,15 @@ Output: {output_data}"""
         logger.exception("LLM judge returned empty structured response", evaluation_id=evaluation["id"])
         raise ValueError(f"LLM judge returned empty structured response for evaluation {evaluation['id']}")
 
-    return {"verdict": result.verdict, "reasoning": result.reasoning}
+    # Extract token usage from response
+    usage = response.usage
+    return {
+        "verdict": result.verdict,
+        "reasoning": result.reasoning,
+        "input_tokens": usage.prompt_tokens if usage else 0,
+        "output_tokens": usage.completion_tokens if usage else 0,
+        "total_tokens": usage.total_tokens if usage else 0,
+    }
 
 
 @temporalio.activity.defn
@@ -185,6 +193,39 @@ async def emit_evaluation_event_activity(
     await database_sync_to_async(_emit, thread_sensitive=False)()
 
 
+@temporalio.activity.defn
+async def emit_internal_telemetry_activity(
+    evaluation: dict[str, Any],
+    team_id: int,
+    result: dict[str, Any],
+) -> None:
+    """Emit telemetry event to PostHog org for internal tracking"""
+    from posthog.tasks.usage_report import get_ph_client
+
+    def _emit_telemetry():
+        team = Team.objects.get(id=team_id)
+        organization_id = str(team.organization_id)
+
+        ph_client = get_ph_client(sync_mode=True)
+        ph_client.capture(
+            distinct_id=f"org-{organization_id}",
+            event="llm analytics evaluation executed",
+            properties={
+                "evaluation_id": evaluation["id"],
+                "team_id": team_id,
+                "model": DEFAULT_JUDGE_MODEL,
+                "input_tokens": result.get("input_tokens", 0),
+                "output_tokens": result.get("output_tokens", 0),
+                "total_tokens": result.get("total_tokens", 0),
+                "verdict": result["verdict"],
+            },
+            groups={"organization": organization_id, "instance": settings.SITE_URL},
+        )
+        ph_client.flush()
+
+    await database_sync_to_async(_emit_telemetry, thread_sensitive=False)()
+
+
 @temporalio.workflow.defn(name="run-evaluation")
 class RunEvaluationWorkflow(PostHogWorkflow):
     @staticmethod
@@ -223,6 +264,13 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             args=[evaluation, event_data, result, start_time],
             schedule_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        # Activity 4: Emit internal telemetry (fire-and-forget)
+        await temporalio.workflow.execute_activity(
+            emit_internal_telemetry_activity,
+            args=[evaluation, event_data["team_id"], result],
+            schedule_to_close_timeout=timedelta(seconds=30),
         )
 
         return {"verdict": result["verdict"], "reasoning": result["reasoning"], "evaluation_id": evaluation["id"]}

@@ -24,6 +24,11 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         description: TOOL_DEFINITIONS['web_search'].description,
     },
     {
+        identifier: 'session_summarization' as const,
+        name: TOOL_DEFINITIONS['session_summarization'].name,
+        description: TOOL_DEFINITIONS['session_summarization'].description,
+    },
+    {
         identifier: 'create_dashboard' as const,
         name: TOOL_DEFINITIONS['create_dashboard'].name,
         description: TOOL_DEFINITIONS['create_dashboard'].description,
@@ -32,11 +37,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         identifier: 'search' as const,
         name: TOOL_DEFINITIONS['search'].name,
         description: TOOL_DEFINITIONS['search'].description,
-    },
-    {
-        identifier: 'session_summarization' as const,
-        name: TOOL_DEFINITIONS['session_summarization'].name,
-        description: TOOL_DEFINITIONS['session_summarization'].description,
     },
     {
         identifier: 'create_and_query_insight' as const,

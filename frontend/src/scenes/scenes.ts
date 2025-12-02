@@ -51,12 +51,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'annotation',
     },
     [Scene.BillingAuthorizationStatus]: {
-        hideProjectNotice: true,
         organizationBased: true,
         defaultDocsPath: '/pricing',
     },
     [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
-    [Scene.Billing]: { hideProjectNotice: true, organizationBased: true, defaultDocsPath: '/pricing' },
+    [Scene.Billing]: { organizationBased: true, defaultDocsPath: '/pricing' },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
@@ -426,14 +425,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/revenue-analytics',
     },
-    [Scene.SQLEditor]: {
-        projectBased: true,
-        name: 'SQL editor',
-        defaultDocsPath: '/docs/cdp/sources',
-        layout: 'app-raw-no-header',
-        hideProjectNotice: true,
-        description: 'Write and execute SQL queries against your data warehouse',
-    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
@@ -596,6 +587,10 @@ export const redirects: Record<
     '/saved_insights': urls.savedInsights(),
     '/settings': urls.settings(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
+
+    '/max': (_params, searchParams, hashParams) => combineUrl(urls.ai(), searchParams, hashParams).url,
+    '/max/history': (_params, searchParams, hashParams) => combineUrl(urls.aiHistory(), searchParams, hashParams).url,
+
     ...productRedirects,
 }
 
@@ -679,8 +674,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
-    [urls.maxHistory()]: [Scene.Max, 'maxHistory'],
-    [urls.max()]: [Scene.Max, 'max'],
+    [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
+    [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
     [urls.organizationBilling()]: [Scene.Billing, 'organizationBilling'],
     [urls.organizationBillingSection(':section' as BillingSectionId)]: [
