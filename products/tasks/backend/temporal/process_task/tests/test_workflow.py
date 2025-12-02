@@ -18,6 +18,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.temporal.process_task.activities import get_task_processing_context
 from products.tasks.backend.temporal.process_task.activities.check_snapshot_exists_for_repository import (
     check_snapshot_exists_for_repository,
 )
@@ -30,7 +31,6 @@ from products.tasks.backend.temporal.process_task.activities.create_sandbox_from
 from products.tasks.backend.temporal.process_task.activities.create_snapshot import create_snapshot
 from products.tasks.backend.temporal.process_task.activities.execute_task_in_sandbox import execute_task_in_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import get_sandbox_for_setup
-from products.tasks.backend.temporal.process_task.activities.get_task_details import get_task_details
 from products.tasks.backend.temporal.process_task.activities.setup_repository import setup_repository
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import track_workflow_event
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskOutput, ProcessTaskWorkflow
@@ -74,7 +74,7 @@ class TestProcessTaskWorkflow:
                     task_queue=settings.TASKS_TASK_QUEUE,
                     workflows=[ProcessTaskWorkflow],
                     activities=[
-                        get_task_details,
+                        get_task_processing_context,
                         check_snapshot_exists_for_repository,
                         get_sandbox_for_setup,
                         clone_repository,
