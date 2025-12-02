@@ -136,13 +136,13 @@ class FilterSessionRecordingsTool(MaxTool):
     args_schema: type[BaseModel] = FilterSessionRecordingsToolArgs
     description: str = dedent("""
         Filters session recordings by creating a recordings query, and then running it to list the recordings. The list is AUTOMATICALLY shown to the user as a widget.
-        - When to use the tool:
-        * When the user asks to update session recordings filters
-            - "update" synonyms: "change", "modify", "adjust", and similar
-            - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
-        * When the user asks to search for session recordings
-            - "search for" synonyms: "find", "look up", and similar
-        * When the user asks to summarize session recordings
+        # When to use the tool:
+        - The user asks to update session recordings filters
+          - "update" synonyms: "change", "modify", "adjust", and similar
+          - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+        - The user asks to search for session recordings
+          - "search for" synonyms: "find", "look up", and similar
+        - The user asks to summarize session recordings
 
         When on the replay page, the tool will update the filters in the page.
         """).strip()
