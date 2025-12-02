@@ -297,7 +297,6 @@
         "usage_limit.platform_and_support": 0,
         "projected_usage.data_warehouse": null,
         "$feature/query_running_time": true,
-        "$feature/recordings-blobby-v2-replay": true,
         "$feature/web-analytics-data-warehouse-revenue-settings": true,
         "$screen_width": 1728,
         "slack_service_available": false,
@@ -433,7 +432,6 @@
             "crm-blocking-queries",
             "crm-iteration-one",
             "recordings-similar-recordings",
-            "recordings-blobby-v2-replay",
             "settings-sessions-v2-join",
             "web-analytics-data-warehouse-revenue-settings",
             "tree-view"

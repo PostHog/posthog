@@ -285,7 +285,6 @@
             "crm-blocking-queries",
             "crm-iteration-one",
             "recordings-similar-recordings",
-            "recordings-blobby-v2-replay",
             "settings-sessions-v2-join",
             "web-analytics-data-warehouse-revenue-settings"
         ],
@@ -308,7 +307,6 @@
         "$feature/role-based-access-control": true,
         "$feature/site-app-functions": true,
         "$feature/onboarding-data-warehouse-for-product-analytics": true,
-        "$feature/recordings-blobby-v2-replay": true,
         "$feature/surveys-actions": true,
         "$browser_type": "browser",
         "$lib_rate_limit_remaining_tokens": 97.09,

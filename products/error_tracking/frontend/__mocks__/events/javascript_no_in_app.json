@@ -289,7 +289,6 @@
             "crm-blocking-queries",
             "crm-iteration-one",
             "recordings-similar-recordings",
-            "recordings-blobby-v2-replay",
             "settings-sessions-v2-join",
             "web-analytics-data-warehouse-revenue-settings",
             "tree-view"
@@ -391,7 +390,6 @@
         "$dead_clicks_enabled_server_side": false,
         "$feature/cdp-activity-log-notifications": true,
         "$configured_session_timeout_ms": 1800000,
-        "$feature/recordings-blobby-v2-replay": true,
         "$feature/ai-setup-wizard": true,
         "current_usage.product_analytics": 7948,
         "$feature/surveys-adaptive-limits": true,
