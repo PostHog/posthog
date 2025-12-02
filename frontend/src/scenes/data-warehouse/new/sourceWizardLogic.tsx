@@ -890,7 +890,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
-                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+                const errors = getErrorsForFields(
+                    values.selectedConnector?.fields ?? [],
+                    sourceValues as any,
+                    values.selectedConnector?.name
+                )
 
                 if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
                     actions.setSourceConnectionDetailsManualErrors({
@@ -965,7 +969,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
 export const getErrorsForFields = (
     fields: SourceFieldConfig[],
-    values: { prefix: string; payload: Record<string, any> } | undefined
+    values: { prefix: string; payload: Record<string, any> } | undefined,
+    sourceName?: ExternalDataSourceType
 ): Record<string, any> => {
     const errors: Record<string, any> = {
         payload: {},
@@ -992,7 +997,7 @@ export const getErrorsForFields = (
             return
         }
 
-        if (field.name === 'google_ads_customer_id') {
+        if (field.name === 'customer_id' && sourceName === 'GoogleAds') {
             if (!/^[0-9]{3}-[0-9]{3}-[0-9]{4}$/.test(valueObj[field.name])) {
                 errorsObj[field.name] =
                     'Please enter a valid Google Ads customer ID. This should be 10-digits and in XXX-XXX-XXXX format.'

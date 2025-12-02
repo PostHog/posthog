@@ -101,7 +101,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="google_ads_customer_id",
+                        name="customer_id",
                         label="Customer ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

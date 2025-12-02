@@ -402,5 +402,36 @@ describe('sourceWizardLogic', () => {
             )
             expect(res.payload.test_field.option_field).toBeTruthy()
         })
+
+        it.each([
+            ['123-456-7890', false],
+            ['000-000-0000', false],
+            ['999-999-9999', false],
+            ['1234567890', true],
+            ['123-456-789', true],
+            ['123-4567-890', true],
+            ['12-3456-7890', true],
+            ['abc-def-ghij', true],
+            ['', true],
+        ])('validates google_ads_customer_id format: %s expects error=%s', (customerId, expectError) => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'customer_id',
+                        label: 'Customer ID',
+                        type: 'text',
+                        required: true,
+                        placeholder: 'XXX-XXX-XXXX',
+                    },
+                ],
+                { prefix: '', payload: { customer_id: customerId } },
+                'GoogleAds'
+            )
+            if (expectError) {
+                expect(res.payload.customer_id).toBeTruthy()
+            } else {
+                expect(res.payload.customer_id).toBeUndefined()
+            }
+        })
     })
 })
