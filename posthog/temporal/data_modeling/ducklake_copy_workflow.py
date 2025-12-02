@@ -27,6 +27,7 @@ from posthog.ducklake.verification import (
 )
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.metrics import (
     get_ducklake_copy_data_modeling_finished_metric,
@@ -129,31 +130,37 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
 
-    config = get_config()
-    conn = duckdb.connect()
-    alias = "ducklake_dev"
-    try:
-        _configure_source_storage(conn, logger)
-        configure_connection(conn, config, install_extension=True)
-        _ensure_ducklake_bucket_exists(config)
-        _attach_ducklake_catalog(conn, config, alias=alias)
+    heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
+    with heartbeater:
+        config = get_config()
+        conn = duckdb.connect()
+        alias = "ducklake_dev"
+        try:
+            heartbeater.details = ("configure_source_storage", inputs.model.model_label)
+            _configure_source_storage(conn, logger)
+            heartbeater.details = ("attach_catalog", inputs.model.model_label)
+            configure_connection(conn, config, install_extension=True)
+            _ensure_ducklake_bucket_exists(config)
+            _attach_ducklake_catalog(conn, config, alias=alias)
 
-        qualified_schema = f"{alias}.{inputs.model.schema_name}"
-        qualified_table = f"{qualified_schema}.{inputs.model.table_name}"
+            qualified_schema = f"{alias}.{inputs.model.schema_name}"
+            qualified_table = f"{qualified_schema}.{inputs.model.table_name}"
 
-        logger.info(
-            "Creating DuckLake table from Delta snapshot",
-            ducklake_table=qualified_table,
-            source_table=inputs.model.source_table_uri,
-        )
-        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
-        conn.execute(
-            f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
-            [inputs.model.source_table_uri],
-        )
-        logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
-    finally:
-        conn.close()
+            logger.info(
+                "Creating DuckLake table from Delta snapshot",
+                ducklake_table=qualified_table,
+                source_table=inputs.model.source_table_uri,
+            )
+            heartbeater.details = ("create_schema", inputs.model.schema_name)
+            conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
+            heartbeater.details = ("materialize_table", inputs.model.model_label)
+            conn.execute(
+                f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
+                [inputs.model.source_table_uri],
+            )
+            logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
+        finally:
+            conn.close()
 
 
 @activity.defn
@@ -166,123 +173,131 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
         logger.info("No DuckLake verification queries configured - skipping")
         return []
 
-    config = get_config()
-    conn = duckdb.connect()
-    alias = "ducklake_dev"
-    results: list[DuckLakeCopyVerificationResult] = []
+    heartbeater = HeartbeaterSync(details=("ducklake_verify", inputs.model.model_label), logger=logger)
+    with heartbeater:
+        config = get_config()
+        conn = duckdb.connect()
+        alias = "ducklake_dev"
+        results: list[DuckLakeCopyVerificationResult] = []
 
-    try:
-        _configure_source_storage(conn, logger)
-        configure_connection(conn, config, install_extension=True)
-        _attach_ducklake_catalog(conn, config, alias=alias)
+        try:
+            heartbeater.details = ("verify_configure_source", inputs.model.model_label)
+            _configure_source_storage(conn, logger)
+            configure_connection(conn, config, install_extension=True)
+            _attach_ducklake_catalog(conn, config, alias=alias)
 
-        ducklake_table = f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}"
-        format_values = {
-            "ducklake_table": ducklake_table,
-            "ducklake_schema": f"{alias}.{inputs.model.schema_name}",
-            "ducklake_alias": alias,
-            "schema_name": inputs.model.schema_name,
-            "table_name": inputs.model.table_name,
-        }
+            ducklake_table = f"{alias}.{inputs.model.schema_name}.{inputs.model.table_name}"
+            format_values = {
+                "ducklake_table": ducklake_table,
+                "ducklake_schema": f"{alias}.{inputs.model.schema_name}",
+                "ducklake_alias": alias,
+                "schema_name": inputs.model.schema_name,
+                "table_name": inputs.model.table_name,
+            }
 
-        for query in inputs.model.verification_queries:
-            rendered_sql = query.sql.format(**format_values)
-            params = [_resolve_verification_parameter(param, inputs) for param in query.parameters]
+            for query in inputs.model.verification_queries:
+                rendered_sql = query.sql.format(**format_values)
+                params = [_resolve_verification_parameter(param, inputs) for param in query.parameters]
+                heartbeater.details = ("verify_query", inputs.model.model_label, query.name)
 
-            try:
-                row = conn.execute(rendered_sql, params).fetchone()
-            except Exception as exc:
-                logger.warning(
-                    "DuckLake verification query failed",
-                    check=query.name,
-                    error=str(exc),
-                )
-                results.append(
-                    DuckLakeCopyVerificationResult(
-                        name=query.name,
-                        passed=False,
-                        expected_value=query.expected_value,
-                        tolerance=query.tolerance,
-                        description=query.description,
-                        sql=rendered_sql,
+                try:
+                    row = conn.execute(rendered_sql, params).fetchone()
+                except Exception as exc:
+                    logger.warning(
+                        "DuckLake verification query failed",
+                        check=query.name,
                         error=str(exc),
                     )
-                )
-                continue
-
-            if not row:
-                logger.warning("DuckLake verification query returned no rows", check=query.name)
-                results.append(
-                    DuckLakeCopyVerificationResult(
-                        name=query.name,
-                        passed=False,
-                        expected_value=query.expected_value,
-                        tolerance=query.tolerance,
-                        description=query.description,
-                        sql=rendered_sql,
-                        error="Query returned no rows",
+                    results.append(
+                        DuckLakeCopyVerificationResult(
+                            name=query.name,
+                            passed=False,
+                            expected_value=query.expected_value,
+                            tolerance=query.tolerance,
+                            description=query.description,
+                            sql=rendered_sql,
+                            error=str(exc),
+                        )
                     )
-                )
-                continue
+                    continue
 
-            raw_value = row[0]
-            try:
-                observed = float(raw_value)
-            except (TypeError, ValueError):
-                logger.warning(
-                    "DuckLake verification query returned a non-numeric value",
+                if not row:
+                    logger.warning("DuckLake verification query returned no rows", check=query.name)
+                    results.append(
+                        DuckLakeCopyVerificationResult(
+                            name=query.name,
+                            passed=False,
+                            expected_value=query.expected_value,
+                            tolerance=query.tolerance,
+                            description=query.description,
+                            sql=rendered_sql,
+                            error="Query returned no rows",
+                        )
+                    )
+                    continue
+
+                raw_value = row[0]
+                try:
+                    observed = float(raw_value)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "DuckLake verification query returned a non-numeric value",
+                        check=query.name,
+                        value=raw_value,
+                    )
+                    results.append(
+                        DuckLakeCopyVerificationResult(
+                            name=query.name,
+                            passed=False,
+                            expected_value=query.expected_value,
+                            tolerance=query.tolerance,
+                            description=query.description,
+                            sql=rendered_sql,
+                            error="Query did not return a numeric value",
+                        )
+                    )
+                    continue
+
+                diff = abs(observed - (query.expected_value or 0.0))
+                tolerance = query.tolerance or 0.0
+                passed = diff <= tolerance
+                log_method = logger.info if passed else logger.warning
+                log_method(
+                    "DuckLake verification result",
                     check=query.name,
-                    value=raw_value,
-                )
-                results.append(
-                    DuckLakeCopyVerificationResult(
-                        name=query.name,
-                        passed=False,
-                        expected_value=query.expected_value,
-                        tolerance=query.tolerance,
-                        description=query.description,
-                        sql=rendered_sql,
-                        error="Query did not return a numeric value",
-                    )
-                )
-                continue
-
-            diff = abs(observed - (query.expected_value or 0.0))
-            tolerance = query.tolerance or 0.0
-            passed = diff <= tolerance
-            log_method = logger.info if passed else logger.warning
-            log_method(
-                "DuckLake verification result",
-                check=query.name,
-                observed_value=observed,
-                expected_value=query.expected_value,
-                tolerance=tolerance,
-            )
-
-            results.append(
-                DuckLakeCopyVerificationResult(
-                    name=query.name,
-                    passed=passed,
                     observed_value=observed,
                     expected_value=query.expected_value,
                     tolerance=tolerance,
-                    description=query.description,
-                    sql=rendered_sql,
                 )
-            )
 
-        schema_result = _run_schema_verification(conn, ducklake_table, inputs)
-        if schema_result:
-            results.append(schema_result)
+                results.append(
+                    DuckLakeCopyVerificationResult(
+                        name=query.name,
+                        passed=passed,
+                        observed_value=observed,
+                        expected_value=query.expected_value,
+                        tolerance=tolerance,
+                        description=query.description,
+                        sql=rendered_sql,
+                    )
+                )
 
-        partition_result = _run_partition_verification(conn, ducklake_table, inputs)
-        if partition_result:
-            results.append(partition_result)
+            heartbeater.details = ("verify_schema", inputs.model.model_label)
+            schema_result = _run_schema_verification(conn, ducklake_table, inputs)
+            if schema_result:
+                results.append(schema_result)
 
-        results.extend(_run_key_cardinality_verifications(conn, ducklake_table, inputs))
-        results.extend(_run_non_nullable_verifications(conn, ducklake_table, inputs))
-    finally:
-        conn.close()
+            heartbeater.details = ("verify_partition", inputs.model.model_label)
+            partition_result = _run_partition_verification(conn, ducklake_table, inputs)
+            if partition_result:
+                results.append(partition_result)
+
+            heartbeater.details = ("verify_keys", inputs.model.model_label)
+            results.extend(_run_key_cardinality_verifications(conn, ducklake_table, inputs))
+            heartbeater.details = ("verify_non_null_columns", inputs.model.model_label)
+            results.extend(_run_non_nullable_verifications(conn, ducklake_table, inputs))
+        finally:
+            conn.close()
 
     failed = [result for result in results if not result.passed]
     if failed:
@@ -332,6 +347,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                     copy_data_modeling_model_to_ducklake_activity,
                     activity_inputs,
                     start_to_close_timeout=dt.timedelta(minutes=30),
+                    heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(
                         maximum_attempts=2,
                     ),
@@ -341,6 +357,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                     verify_ducklake_copy_activity,
                     activity_inputs,
                     start_to_close_timeout=dt.timedelta(minutes=10),
+                    heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(
                         maximum_attempts=1,
                     ),
