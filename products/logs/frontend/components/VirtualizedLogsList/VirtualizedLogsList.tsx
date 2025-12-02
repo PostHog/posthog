@@ -126,7 +126,7 @@ export function VirtualizedLogsList({
                             >
                                 {index + 1}
                             </span>
-                            <span className="w-[240px] text-xs text-muted shrink-0 font-mono pt-0.5">
+                            <span className="w-[180px] text-xs text-muted shrink-0 font-mono pt-0.5">
                                 <TZLabel time={log.timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
                             </span>
                             <span className="shrink-0 pt-0.5">
