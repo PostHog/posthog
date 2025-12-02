@@ -98,6 +98,18 @@ HYPERCACHE_SIZE_GAUGE = Gauge(
     labelnames=["namespace"],
 )
 
+HYPERCACHE_ENTRIES_GAUGE = Gauge(
+    "posthog_hypercache_entries_total",
+    "Total number of entries in the HyperCache",
+    labelnames=["namespace"],
+)
+
+HYPERCACHE_EXPIRY_TRACKED_GAUGE = Gauge(
+    "posthog_hypercache_expiry_tracked_total",
+    "Number of entries tracked in the expiry sorted set",
+    labelnames=["namespace"],
+)
+
 
 class UpdateFn(Protocol):
     """Protocol for cache update functions that accept team and optional TTL."""
@@ -510,10 +522,16 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
             HYPERCACHE_SIZE_GAUGE.labels(namespace=config.namespace).set(estimated_total_bytes)
 
         HYPERCACHE_COVERAGE_GAUGE.labels(namespace=config.namespace).set(coverage_percent)
+        HYPERCACHE_ENTRIES_GAUGE.labels(namespace=config.namespace).set(total_keys)
+
+        # Update expiry tracking gauge using ZCARD (O(1) operation)
+        expiry_tracked_count = redis_client.zcard(config.expiry_sorted_set_key)
+        HYPERCACHE_EXPIRY_TRACKED_GAUGE.labels(namespace=config.namespace).set(expiry_tracked_count)
 
         return {
             "total_cached": total_keys,
             "total_teams": total_teams,
+            "expiry_tracked": expiry_tracked_count,
             "cache_coverage": f"{coverage_percent:.1f}%",
             "cache_coverage_percent": coverage_percent,
             "ttl_distribution": ttl_buckets,
