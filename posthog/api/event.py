@@ -1,10 +1,13 @@
 import json
+import time
 import uuid
+import random
 import urllib
 import dataclasses
 from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
 
+from django.conf import settings
 from django.db.models.query import Prefetch
 from django.utils import timezone
 
@@ -158,17 +161,26 @@ class EventViewSet(
             OpenApiParameter(
                 "before",
                 OpenApiTypes.DATETIME,
-                description="Only return events with a timestamp before this time.",
+                description="Only return events with a timestamp before this time. Default: now() + 5 seconds.",
             ),
             OpenApiParameter(
                 "after",
                 OpenApiTypes.DATETIME,
-                description="Only return events with a timestamp after this time.",
+                description="Only return events with a timestamp after this time. Default: now() - 24 hours.",
             ),
             OpenApiParameter(
                 "limit",
                 OpenApiTypes.INT,
                 description="The maximum number of results to return",
+            ),
+            OpenApiParameter(
+                "offset",
+                OpenApiTypes.INT,
+                description=(
+                    "Allows to skip first offset rows. Will fail for value larger than 100000. "
+                    "Read about proper way of paginating: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
+                ),
+                deprecated=True,
             ),
             PropertiesSerializer(required=False),
         ],
@@ -191,13 +203,21 @@ class EventViewSet(
             except ValueError:
                 offset = 0
 
+            if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
+                if offset > 0:
+                    time.sleep(1)
+                if offset > 50000 and (
+                    settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or random.random() < 0.01
+                ):  # 1% of queries fail
+                    raise serializers.ValidationError("Max supported offset value is 50000")
+
             team = self.team
             filter = Filter(request=request, team=self.team)
             order_by: list[str] = (
                 list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
 
-            query_result = query_events_list(
+            query_result, bound_to_same_day = query_events_list(
                 filter=filter,
                 team=team,
                 limit=limit,
@@ -208,8 +228,8 @@ class EventViewSet(
             )
 
             # Retry the query without the 1-day optimization
-            if len(query_result) < limit:
-                query_result = query_events_list(
+            if bound_to_same_day and len(query_result) < limit:
+                query_result, _ = query_events_list(
                     unbounded_date_from=True,  # only this changed from the query above
                     filter=filter,
                     team=team,
@@ -229,7 +249,10 @@ class EventViewSet(
             next_url: Optional[str] = None
             if not is_csv_request and len(query_result) > limit:
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
-            return response.Response({"next": next_url, "results": result})
+            headers = None
+            if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
+                headers = {"X-PostHog-Notif": "https://posthog.com/docs/events_list-upcoming-changes"}
+            return response.Response({"next": next_url, "results": result}, headers=headers)
 
         except Exception as ex:
             capture_exception(ex)
