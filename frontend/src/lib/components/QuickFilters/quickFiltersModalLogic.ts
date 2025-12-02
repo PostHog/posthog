@@ -1,7 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { QuickFilter } from '~/types'
 
+import { QuickFiltersEvents } from './consts'
 import { QuickFiltersLogicProps, quickFiltersLogic } from './quickFiltersLogic'
 import type { quickFiltersModalLogicType } from './quickFiltersModalLogicType'
 
@@ -65,7 +67,7 @@ export const quickFiltersModalLogic = kea<quickFiltersModalLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, props }) => ({
         startAddNew: () => {
             actions.setEditingFilter(null)
             actions.setView('form')
@@ -81,6 +83,11 @@ export const quickFiltersModalLogic = kea<quickFiltersModalLogicType>([
         },
         handleFormBack: () => {
             actions.setView('list')
+        },
+        openModal: () => {
+            posthog.capture(QuickFiltersEvents.QuickFiltersModalOpened, {
+                context: props.context,
+            })
         },
     })),
 ])
