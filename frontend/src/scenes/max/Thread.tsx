@@ -81,7 +81,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
-import { UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
 import { useFeedback } from './useFeedback'
 import {
@@ -909,7 +909,18 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                                     description = displayFormatterResult
                                 } else {
                                     description = displayFormatterResult[0]
-                                    widget = displayFormatterResult[1]
+                                    switch (displayFormatterResult[1]?.widget) {
+                                        case 'recordings':
+                                            widget = (
+                                                <RecordingsWidget
+                                                    toolCallId={toolCall.id}
+                                                    filters={displayFormatterResult[1].args}
+                                                />
+                                            )
+                                            break
+                                        default:
+                                            break
+                                    }
                                 }
                             }
                             if (commentary) {
