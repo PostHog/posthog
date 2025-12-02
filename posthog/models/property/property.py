@@ -42,6 +42,7 @@ PropertyType = Literal[
     "log",
     "revenue_analytics",
     "flag",
+    "workflow_variable",
 ]
 
 PropertyName = str
