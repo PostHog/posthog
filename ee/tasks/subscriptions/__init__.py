@@ -23,7 +23,7 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
-from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_assets_async
+from ee.tasks.subscriptions.subscription_utils import _has_asset_failed, generate_assets, generate_assets_async
 
 logger = structlog.get_logger(__name__)
 
@@ -140,6 +140,9 @@ async def deliver_subscription_report_async(
     logger.info(
         "deliver_subscription_report_async.assets_generated", subscription_id=subscription_id, asset_count=len(assets)
     )
+
+    if any(_has_asset_failed(asset) for asset in assets):
+        get_subscription_failure_metric(subscription.target_type, "temporal", failure_type="asset_generation").add(1)
 
     if not assets:
         logger.warning("deliver_subscription_report_async.no_assets", subscription_id=subscription_id)
