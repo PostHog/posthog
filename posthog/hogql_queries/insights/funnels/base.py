@@ -270,7 +270,7 @@ class FunnelBase(ABC):
         if isinstance(step, EventsNode):
             name = step.event
             action_id = step.event
-        if isinstance(step, DataWarehouseNode):
+        elif isinstance(step, DataWarehouseNode):
             name = ""
             action_id = ""
         else:

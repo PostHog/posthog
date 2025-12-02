@@ -1,11 +1,13 @@
+from datetime import datetime
 from pathlib import Path
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
 from posthog.schema import DataWarehouseNode, DateRange, EventsNode, FunnelsQuery
 
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.test.test_journeys import journeys_for
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
@@ -64,55 +66,52 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             response = runner.calculate()
 
         results = response.results
-        self.assertEqual(results[0]["count"], 5)
-        self.assertEqual(results[1]["count"], 1)
+        assert results[0]["count"] == 5
+        assert results[1]["count"] == 1
 
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_and_regular_nodes(self):
         table_name = self.setup_data_warehouse()
-        # events = [
-        #     {
-        #         "event": "step one",
-        #         "timestamp": datetime(2021, 5, 1, 0, 0, 0),
-        #     },
-        #     # Exclusion happens after time expires
-        #     {
-        #         "event": "exclusion",
-        #         "timestamp": datetime(2021, 5, 1, 0, 0, 11),
-        #     },
-        #     {
-        #         "event": "step two",
-        #         "timestamp": datetime(2021, 5, 1, 0, 0, 12),
-        #     },
-        # ]
-        # journeys_for(
-        #     {
-        #         "user_one": events,
-        #     },
-        #     self.team,
-        # )
-
-        funnels_query = FunnelsQuery(
-            kind="FunnelsQuery",
-            dateRange=DateRange(date_from="2025-11-01"),
-            series=[
-                EventsNode(event="$pageview"),
-                DataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
-                    id_field="id",
-                    distinct_id_field="user_id",
-                    timestamp_field="created",
-                ),
-            ],
-        )
-
         with freeze_time("2025-11-07"):
+            _create_person(distinct_ids=["person1"], team_id=self.team.pk, uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539")
+            _create_person(distinct_ids=["person2"], team_id=self.team.pk, uuid="8cadb28f-1825-f158-73fa-3f228865b540")
+            journeys_for(
+                {
+                    "person1": [
+                        {
+                            "event": "$pageview",
+                            "timestamp": datetime(2025, 11, 1, 0, 0, 0),
+                        },
+                    ],
+                    "person2": [
+                        {
+                            "event": "$pageview",
+                            "timestamp": datetime(2025, 11, 2, 0, 0, 0),
+                        },
+                    ],
+                },
+                self.team,
+                create_people=False,
+            )
+
+            funnels_query = FunnelsQuery(
+                kind="FunnelsQuery",
+                dateRange=DateRange(date_from="2025-11-01"),
+                series=[
+                    EventsNode(event="$pageview"),
+                    DataWarehouseNode(
+                        id=table_name,
+                        table_name=table_name,
+                        id_field="id",
+                        distinct_id_field="user_id",
+                        timestamp_field="created",
+                    ),
+                ],
+            )
+
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
-            result = runner.calculate()
+            response = runner.calculate()
 
-        # self.assertTrue(result.results.isUdf)
-
-        # assert response.columns is not None
-        # assert set(response.columns).issubset({"date", "total"})
-        # assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
+            results = response.results
+            assert results[0]["count"] == 2
+            assert results[1]["count"] == 2
