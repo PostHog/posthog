@@ -604,7 +604,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'activity-log-org-level-settings',
                 title: 'Settings',
                 component: <ActivityLogOrgLevelSettings />,
-                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
             },
             {
                 id: 'activity-log-notifications',
