@@ -78,7 +78,7 @@ export function LogsScene(): JSX.Element {
             },
             r: { action: () => !logsLoading && runQuery() },
         },
-        [sceneHighlightedLogId, runQuery]
+        [sceneHighlightedLogId, logsLoading, runQuery]
     )
 
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
