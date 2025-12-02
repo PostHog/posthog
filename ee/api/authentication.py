@@ -1,5 +1,5 @@
 import re
-from typing import Any, Literal, Union, cast
+from typing import Any, Literal, TypedDict, Union, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
@@ -260,6 +260,15 @@ class CustomGoogleOAuth2(GoogleOAuth2):
 logger = structlog.get_logger(__name__)
 
 
+def _get_bearer_token(request: Request) -> str | None:
+    """Extract bearer token from Authorization header."""
+    if auth_header := request.headers.get("authorization"):
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            return parts[1]
+    return None
+
+
 class VercelAuthentication(authentication.BaseAuthentication):
     """
     Implements Vercel Marketplace API authentication.
@@ -279,7 +288,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
     VERCEL_ISSUER = "https://marketplace.vercel.com"
 
     def authenticate(self, request: Request) -> tuple[VercelUser, None] | None:
-        token = self._get_bearer_token(request)
+        token = _get_bearer_token(request)
         if not token:
             raise AuthenticationFailed("Missing Token for Vercel request")
 
@@ -294,14 +303,6 @@ class VercelAuthentication(authentication.BaseAuthentication):
         except Exception as e:
             logger.exception("Vercel auth error", auth_type=auth_type, error=str(e), integration="vercel")
             raise AuthenticationFailed(f"{auth_type.title()} authentication failed")
-
-    def _get_bearer_token(self, request: Request) -> str | None:
-        if auth_header := request.headers.get("authorization"):
-            parts = auth_header.split()
-            if len(parts) == 2 and parts[0].lower() == "bearer":
-                return parts[1]
-
-        return None
 
     def _get_vercel_auth_type(self, request: Request) -> "VercelAuthentication.VercelAuthType":
         auth_type = request.headers.get("X-Vercel-Auth", "").lower()
@@ -402,6 +403,12 @@ class VercelAuthentication(authentication.BaseAuthentication):
         )
 
 
+class BillingServiceJWTPayload(TypedDict):
+    organization_id: str
+    aud: str
+    exp: int
+
+
 class BillingServiceUser:
     """
     Represents an authenticated billing service request.
@@ -422,26 +429,17 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
 
     The billing service signs JWTs using the shared license secret (same secret PostHog
     uses when calling the billing service, but in reverse direction).
-
-    Expected JWT payload:
-    - organization_id: The organization this request is for
-    - aud: "billing:posthog-proxy"
-    - exp: Expiration timestamp
     """
 
     EXPECTED_AUDIENCE = "billing:posthog-proxy"
 
     def authenticate(self, request: Request) -> tuple[BillingServiceUser, None] | None:
-        token = self._get_bearer_token(request)
+        token = _get_bearer_token(request)
         if not token:
             raise AuthenticationFailed("Missing authorization token")
 
         try:
             payload = self._validate_jwt_token(token)
-            organization_id = payload.get("organization_id")
-            if not organization_id:
-                raise AuthenticationFailed("Missing organization_id in token")
-            return BillingServiceUser(organization_id=organization_id), None
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed("Token has expired")
         except jwt.InvalidAudienceError:
@@ -450,20 +448,14 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
             capture_exception(e)
             logger.exception("Billing service auth failed", error=str(e))
             raise AuthenticationFailed("Invalid authentication token")
-        except AuthenticationFailed:
-            raise
-        except Exception as e:
-            logger.exception("Billing service auth error", error=str(e))
-            raise AuthenticationFailed("Authentication failed")
 
-    def _get_bearer_token(self, request: Request) -> str | None:
-        if auth_header := request.headers.get("authorization"):
-            parts = auth_header.split()
-            if len(parts) == 2 and parts[0].lower() == "bearer":
-                return parts[1]
-        return None
+        organization_id = payload.get("organization_id")
+        if not organization_id:
+            raise AuthenticationFailed("Missing organization_id in token")
 
-    def _validate_jwt_token(self, token: str) -> dict[str, Any]:
+        return BillingServiceUser(organization_id=organization_id), None
+
+    def _validate_jwt_token(self, token: str) -> BillingServiceJWTPayload:
         license = get_cached_instance_license()
         if not license or not license.key:
             raise AuthenticationFailed("No license configured")
