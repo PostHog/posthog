@@ -29,6 +29,7 @@ from social_django.utils import load_backend, load_strategy
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -446,7 +447,8 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
         except jwt.InvalidAudienceError:
             raise AuthenticationFailed("Invalid token audience")
         except jwt.InvalidTokenError as e:
-            logger.warning("Billing service auth failed", error=str(e))
+            capture_exception(e)
+            logger.exception("Billing service auth failed", error=str(e))
             raise AuthenticationFailed("Invalid authentication token")
         except AuthenticationFailed:
             raise
