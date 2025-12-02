@@ -14,8 +14,8 @@ def remove_legacy_notification_key(apps, schema_editor):
     - However, no backfill was done to remove the key from existing users
 
     Impact:
-    - ~91 users (in EU prod) who set this preference between Apr-Oct 2024 still have
-      the key in their partial_notification_settings
+    - ~91 users in US, ~33 users in EU who set this preference between Apr-Oct 2024
+      still have the key in their partial_notification_settings
     - When they try to update any notification setting, the frontend spreads their
       existing settings and the backend rejects the unknown key with:
       "Key batch_export_run_failure is not valid as a key for notification settings"
