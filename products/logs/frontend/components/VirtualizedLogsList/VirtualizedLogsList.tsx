@@ -12,11 +12,22 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
+import { LogMessage } from '~/queries/schema/schema-general'
+
 import { LogTag } from 'products/logs/frontend/components/LogTag'
 import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { logsLogic } from 'products/logs/frontend/logsLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
+
+const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
+    trace: 'bg-muted-alt',
+    debug: 'bg-muted',
+    info: 'bg-brand-blue',
+    warn: 'bg-warning',
+    error: 'bg-danger',
+    fatal: 'bg-danger-dark',
+}
 
 interface VirtualizedLogsListProps {
     dataSource: ParsedLogMessage[]
@@ -110,7 +121,7 @@ export function VirtualizedLogsList({
                         <div
                             key={isNew ? `new-${log.uuid}` : log.uuid}
                             className={cn(
-                                'flex items-center gap-3 px-3 py-1.5 border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
+                                'flex items-center gap-3 px-2 py-1.5 border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
                                 isHighlighted && 'bg-primary-highlight',
                                 pinned && 'bg-warning-highlight',
                                 pinned && showPinnedWithOpacity && 'opacity-50',
@@ -118,18 +129,24 @@ export function VirtualizedLogsList({
                             )}
                             onClick={() => setHighlightedLogId(isHighlighted ? null : log.uuid)}
                         >
+                            <div
+                                className={cn(
+                                    'w-1 self-stretch rounded-full shrink-0',
+                                    SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
+                                )}
+                            />
                             <span
                                 className={cn(
-                                    'w-8 text-xs shrink-0 font-mono pt-0.5 text-right tabular-nums',
+                                    'w-8 text-xs shrink-0 font-mono tabular-nums opacity-40',
                                     isHighlighted ? 'text-primary font-semibold' : 'text-muted'
                                 )}
                             >
                                 {index + 1}
                             </span>
-                            <span className="w-[180px] text-xs text-muted shrink-0 font-mono pt-0.5">
+                            <span className="w-[180px] text-xs text-muted shrink-0 font-mono">
                                 <TZLabel time={log.timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
                             </span>
-                            <span className="shrink-0 pt-0.5">
+                            <span className="shrink-0">
                                 <LogTag level={log.severity_text} />
                             </span>
                             <span
@@ -205,7 +222,7 @@ export function VirtualizedLogsList({
     }
 
     return (
-        <div className="h-screen">
+        <div className="h-full flex-1">
             <AutoSizer>
                 {({ width, height }) => (
                     <List

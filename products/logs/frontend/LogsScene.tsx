@@ -85,7 +85,7 @@ export function LogsScene(): JSX.Element {
     }
 
     return (
-        <SceneContent className="h-full">
+        <SceneContent>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 description={sceneConfigurations[Scene.Logs].description}
@@ -222,8 +222,10 @@ const VirtualizedLogsListLogs = (): JSX.Element => {
     }
 
     return (
-        <div className="h-full flex flex-col gap-2">
-            <VirtualizedLogsListDisplayOptions />
+        <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact)_-_var(--scene-title-section-height))]">
+            <div className="sticky top-0 z-20 pb-2">
+                <VirtualizedLogsListDisplayOptions />
+            </div>
             {pinnedParsedLogs.length > 0 && (
                 <div className="border rounded-t bg-bg-light shadow-sm">
                     <VirtualizedLogsList
@@ -239,7 +241,12 @@ const VirtualizedLogsListLogs = (): JSX.Element => {
                     />
                 </div>
             )}
-            <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
+            <div
+                className={cn(
+                    'border bg-bg-light flex-1 min-h-0',
+                    pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded'
+                )}
+            >
                 <VirtualizedLogsList
                     dataSource={parsedLogs}
                     loading={logsLoading}
