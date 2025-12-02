@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -113,6 +114,8 @@ export const surveysLogic = kea<surveysLogicType>([
             ['currentTeam', 'currentTeamLoading'],
             enabledFlagLogic,
             ['featureFlags as enabledFlags'],
+            sidePanelSdkDoctorLogic,
+            ['augmentedData as sdkDoctorData'],
         ],
         actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
@@ -403,6 +406,22 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.currentTeam],
             (currentTeam) => {
                 return !currentTeam?.surveys_opt_in
+            },
+        ],
+        teamSdkVersions: [
+            (s) => [s.sdkDoctorData],
+            (sdkDoctorData): Record<string, string | null> => {
+                const versions: Record<string, string | null> = {}
+
+                for (const [sdkType, sdkInfo] of Object.entries(sdkDoctorData ?? {})) {
+                    if (sdkInfo?.allReleases?.length) {
+                        // sdk doctor uses 'web' but we use 'posthog-js' in SURVEY_SDK_REQUIREMENTS...
+                        const key = sdkType === 'web' ? 'posthog-js' : sdkType
+                        versions[key] = sdkInfo.allReleases[0]?.version ?? null
+                    }
+                }
+
+                return versions
             },
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
