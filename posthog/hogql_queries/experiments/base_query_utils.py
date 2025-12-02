@@ -451,7 +451,7 @@ def get_source_events_query(
                 select=[
                     ast.Alias(
                         alias="timestamp",
-                        expr=ast.Field(chain=[source.table_name, source.timestamp_field]),
+                        expr=ast.Field(chain=[source.timestamp_field]),
                     ),
                     ast.Alias(
                         alias="entity_identifier",
