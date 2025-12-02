@@ -56,17 +56,15 @@ def llma_metrics_daily(
     if not context.partition_time_window:
         raise dagster.Failure("This asset should only be run with a partition_time_window")
 
-    start_datetime, end_datetime = context.partition_time_window
-    date_start = start_datetime.strftime("%Y-%m-%d")
-    date_end = end_datetime.strftime("%Y-%m-%d")
+    metric_date = context.partition_time_window[0].strftime("%Y-%m-%d")
 
-    context.log.info(f"Aggregating LLMA metrics for {date_start} to {date_end}")
+    context.log.info(f"Aggregating LLMA metrics for {metric_date}")
 
     try:
-        delete_query = get_delete_query(date_start, date_end)
+        delete_query = get_delete_query(metric_date)
         sync_execute(delete_query, settings=LLMA_CLICKHOUSE_SETTINGS)
 
-        insert_query = get_insert_query(date_start, date_end)
+        insert_query = get_insert_query(metric_date)
         context.log.info(f"Metrics query: \n{insert_query}")
         sync_execute(insert_query, settings=LLMA_CLICKHOUSE_SETTINGS)
 
@@ -77,7 +75,7 @@ def llma_metrics_daily(
                 count(DISTINCT team_id) as teams,
                 sum(metric_value) as total_value
             FROM {config.table_name}
-            WHERE date >= '{date_start}' AND date < '{date_end}'
+            WHERE date = '{metric_date}'
             GROUP BY metric_name
             ORDER BY metric_name
         """
@@ -85,11 +83,11 @@ def llma_metrics_daily(
 
         if metrics_results:
             df = pd.DataFrame(metrics_results, columns=["metric_name", "teams", "total_value"])
-            context.log.info(f"Aggregated {len(df)} metric types for {date_start}:\n{df.to_string(index=False)}")
+            context.log.info(f"Aggregated {len(df)} metric types for {metric_date}:\n{df.to_string(index=False)}")
         else:
-            context.log.info(f"No AI events found for {date_start}")
+            context.log.info(f"No AI events found for {metric_date}")
 
-        context.log.info(f"Successfully aggregated LLMA metrics for {date_start}")
+        context.log.info(f"Successfully aggregated LLMA metrics for {metric_date}")
 
     except Exception as e:
         raise dagster.Failure(f"Failed to aggregate LLMA metrics: {str(e)}") from e
