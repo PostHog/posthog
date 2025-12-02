@@ -1985,6 +1985,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     /** Sampling rate */
     samplingFactor?: number | null
     filterTestAccounts?: boolean
+    /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
     /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
     interval?: IntervalType
