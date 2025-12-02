@@ -252,6 +252,7 @@ export function PropertiesTable({
                     [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
                     [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.LogAttributes,
                     [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
+                    [PropertyDefinitionType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
