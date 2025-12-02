@@ -42,32 +42,16 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 constraint=ast.JoinConstraint(
                     expr=ast.And(
                         exprs=[
-                            # Join on campaign OR id to support both campaign_name and campaign_id matching
-                            # When campaign_name matching is used, campaign fields match
-                            # When campaign_id matching is used, id fields match
-                            ast.Or(
-                                exprs=[
-                                    ast.CompareOperation(
-                                        left=ast.Field(
-                                            chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)
-                                        ),
-                                        op=ast.CompareOperationOp.Eq,
-                                        right=ast.Field(
-                                            chain=self.config.get_unified_conversion_field_chain(
-                                                self.config.campaign_field
-                                            )
-                                        ),
-                                    ),
-                                    ast.CompareOperation(
-                                        left=ast.Field(
-                                            chain=self.config.get_campaign_cost_field_chain(self.config.id_field)
-                                        ),
-                                        op=ast.CompareOperationOp.Eq,
-                                        right=ast.Field(
-                                            chain=self.config.get_unified_conversion_field_chain(self.config.id_field)
-                                        ),
-                                    ),
-                                ]
+                            # Join on match_key - adapters output campaign_name or campaign_id based on team prefs
+                            # Conversion goals always use utm_campaign as match_key
+                            ast.CompareOperation(
+                                left=ast.Field(
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
+                                ),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(
+                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
+                                ),
                             ),
                             ast.CompareOperation(
                                 left=ast.Field(

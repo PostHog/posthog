@@ -54,11 +54,6 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
             actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
             propertiesTaxonomicGroupTypes={propertyTaxonomicGroupTypes}
             propertyFiltersPopover
-            addFilterDefaultOptions={{
-                id: '$pageview',
-                name: '$pageview',
-                type: 'events',
-            }}
             buttonProps={{
                 type: 'secondary',
             }}
@@ -83,6 +78,7 @@ export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlo
                 TaxonomicFilterGroupType.HogQLExpression,
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
+            hideBehavioralCohorts
             metadataSource={{ kind: NodeKind.ActorsQuery }}
         />
     )

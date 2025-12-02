@@ -59,6 +59,7 @@ import {
     AssistantToolCallMessage,
     TaskExecutionStatus as ExecutionStatus,
     FailureMessage,
+    MultiQuestionForm,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     PlanningStep,
@@ -71,14 +72,18 @@ import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, Region } from '~/types'
 
 import { ContextSummary } from './Context'
+import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
+import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
+import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
 import { UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
+import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
     isAssistantMessage,
@@ -86,6 +91,7 @@ import {
     isDeepResearchReportCompletion,
     isFailureMessage,
     isHumanMessage,
+    isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
     isVisualizationMessage,
@@ -95,6 +101,7 @@ import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
+    const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     return (
         <div
@@ -114,20 +121,40 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
             ) : threadGrouped.length > 0 ? (
-                threadGrouped.map((message, index) => {
-                    const nextMessage = threadGrouped[index + 1]
-                    const isLastInGroup = !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
+                <>
+                    {threadGrouped.map((message, index) => {
+                        const nextMessage = threadGrouped[index + 1]
+                        const isLastInGroup =
+                            !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
-                    return (
-                        <Message
-                            key={`${conversationId}-${index}`}
-                            message={message}
-                            isLastInGroup={isLastInGroup}
-                            isFinal={index === threadGrouped.length - 1}
-                            streamingActive={streamingActive}
-                        />
-                    )
-                })
+                        return (
+                            <Message
+                                key={`${conversationId}-${index}`}
+                                message={message}
+                                nextMessage={nextMessage}
+                                isLastInGroup={isLastInGroup}
+                                isFinal={index === threadGrouped.length - 1}
+                                streamingActive={streamingActive}
+                            />
+                        )
+                    })}
+                    {conversationId && isPromptVisible && !streamingActive && (
+                        <MessageTemplate type="ai">
+                            <div className="flex flex-col gap-2">
+                                <span className="text-xs text-muted">How is PostHog AI doing? (optional)</span>
+                                <FeedbackDisplay conversationId={conversationId} />
+                            </div>
+                        </MessageTemplate>
+                    )}
+                    {conversationId && isDetailedFeedbackVisible && !streamingActive && (
+                        <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
+                    )}
+                    {conversationId && isThankYouVisible && !streamingActive && (
+                        <MessageTemplate type="ai">
+                            <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
+                        </MessageTemplate>
+                    )}
+                </>
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">
@@ -170,12 +197,13 @@ export interface EnhancedToolCall extends AssistantToolCall {
 
 interface MessageProps {
     message: ThreadMessage
+    nextMessage?: ThreadMessage
     isLastInGroup: boolean
     isFinal: boolean
     streamingActive: boolean
 }
 
-function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
+function Message({ message, nextMessage, isLastInGroup, isFinal }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
@@ -282,6 +310,38 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
 
                         // Compute actions separately to render after tool calls
                         const retriable = !!(isLastInGroup && isFinal)
+                        // Check if message has a multi-question form
+                        const multiQuestionFormElement = isMultiQuestionFormMessage(message)
+                            ? (() => {
+                                  if (message.status !== 'completed') {
+                                      // Don't show streaming forms
+                                      return null
+                                  }
+                                  const formArgs = message.tool_calls?.find(
+                                      (toolCall) => toolCall.name === 'create_form'
+                                  )?.args
+                                  // Validate the form args have the expected structure
+                                  if (!formArgs || !Array.isArray(formArgs.questions)) {
+                                      return null
+                                  }
+                                  const form = formArgs as unknown as MultiQuestionForm
+                                  // Extract saved answers from the next message's ui_payload if available
+                                  const savedAnswers =
+                                      isAssistantToolCallMessage(nextMessage) &&
+                                      nextMessage.ui_payload?.create_form?.answers
+                                          ? (nextMessage.ui_payload.create_form.answers as Record<string, string>)
+                                          : undefined
+                                  return (
+                                      <MultiQuestionFormComponent
+                                          key={`${key}-multi-form`}
+                                          form={form}
+                                          isFinal={isFinal}
+                                          savedAnswers={savedAnswers}
+                                      />
+                                  )
+                              })()
+                            : null
+
                         const actionsElement = (() => {
                             if (threadLoading) {
                                 return null
@@ -294,7 +354,10 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             }
 
                             if (isLastInGroup) {
-                                // Message has been interrupted with a form
+                                if (isMultiQuestionFormMessage(message)) {
+                                    return null
+                                }
+                                // Message has been interrupted with quick replies
                                 if (message.meta?.form?.options && isFinal) {
                                     return <AssistantMessageForm key={`${key}-form`} form={message.meta.form} />
                                 }
@@ -311,6 +374,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 {thinkingElement}
                                 {textElement}
                                 {toolCallElements}
+                                {multiQuestionFormElement}
                                 {actionsElement}
                             </div>
                         )

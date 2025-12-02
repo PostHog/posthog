@@ -299,6 +299,7 @@ class AssistantTool(StrEnum):
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
     CREATE_INSIGHT = "create_insight"
+    CREATE_FORM = "create_form"
 
 
 class AssistantToolCall(BaseModel):
@@ -1444,6 +1445,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
 
 
 class ExternalDataSourceType(StrEnum):
+    ASHBY = "Ashby"
     SUPABASE = "Supabase"
     CUSTOMER_IO = "CustomerIO"
     GITHUB = "Github"
@@ -2310,6 +2312,13 @@ class MinimalHedgehogConfig(BaseModel):
     use_as_profile: bool
 
 
+class MultiQuestionFormQuestionOption(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    value: str = Field(..., description="The value to use when this option is selected")
+
+
 class MultipleBreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
@@ -3012,11 +3021,6 @@ class SnapshotSource(StrEnum):
     WEB = "web"
     MOBILE = "mobile"
     UNKNOWN = "unknown"
-
-
-class Storage(StrEnum):
-    OBJECT_STORAGE_LTS = "object_storage_lts"
-    OBJECT_STORAGE = "object_storage"
 
 
 class SessionReplayBlock(BaseModel):
@@ -4617,6 +4621,12 @@ class FileSystemImport(BaseModel):
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
+    reason: UserProductListReason | None = Field(
+        default=None, description="Reason for custom product suggestion (from UserProductList)"
+    )
+    reasonText: str | None = Field(
+        default=None, description="Custom reason text for custom product suggestion (from UserProductList)"
+    )
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
     sceneKey: str | None = Field(default=None, description="Match this with the a base scene key or a specific one")
     sceneKeys: list[str] | None = Field(default=None, description="List of all scenes exported by the app")
@@ -4922,6 +4932,18 @@ class MaxExperimentSummaryContext(BaseModel):
     secondary_metrics_results: list[MaxExperimentMetricResult]
     stats_method: ExperimentStatsMethod
     variants: list[str]
+
+
+class MultiQuestionFormQuestion(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allow_custom_answer: bool | None = Field(
+        default=None, description='Whether to show a "Type your answer" option (default: true)'
+    )
+    id: str = Field(..., description="Unique identifier for this question")
+    options: list[MultiQuestionFormQuestionOption] = Field(..., description="Available answer options")
+    question: str = Field(..., description="The question text to display")
 
 
 class NotebookInfo(RootModel[DeepResearchNotebook]):
@@ -5517,7 +5539,6 @@ class SessionRecordingType(BaseModel):
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
-    storage: Storage | None = Field(default=None, description="Where this recording information was loaded from")
     summary: str | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
@@ -10098,6 +10119,13 @@ class MaxBillingContext(BaseModel):
     total_current_amount_usd: str | None = None
     trial: MaxBillingContextTrial | None = None
     usage_history: list[UsageHistoryItem] | None = None
+
+
+class MultiQuestionForm(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questions: list[MultiQuestionFormQuestion] = Field(..., description="The questions to ask")
 
 
 class MultipleBreakdownOptions(BaseModel):
@@ -16115,6 +16143,7 @@ class MaxUIContext(BaseModel):
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
     events: list[MaxEventContext] | None = None
+    form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
 
 

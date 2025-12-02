@@ -24,9 +24,6 @@ SELECT
         ) / count(DISTINCT JSONExtractString(properties, '$ai_trace_id')),
         4
     ) as metric_value
-FROM events
-WHERE event IN ({% for event_type in event_types %}'{{ event_type }}'{% if not loop.last %}, {% endif %}{% endfor %})
-  AND timestamp >= toDateTime('{{ date_start }}', 'UTC')
-  AND timestamp < toDateTime('{{ date_end }}', 'UTC')
-  AND JSONExtractString(properties, '$ai_trace_id') != ''
+FROM llma_events
+WHERE JSONExtractString(properties, '$ai_trace_id') != ''
 GROUP BY date, team_id
