@@ -32,6 +32,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
+    schema_validation_failed: 'Event rejected due to schema validation failure',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -243,6 +244,43 @@ const WARNING_TYPE_RENDERER = {
                 {' '}
                 Exception {details.event_uuid} contained $set or $set_once properties, which are ignored on exception
                 events
+            </>
+        )
+    },
+    schema_validation_failed: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            eventName: string
+            distinctId: string
+            errors: Array<{
+                property: string
+                reason: 'missing_required' | 'type_mismatch'
+                expectedTypes?: string[]
+                actualValue?: string
+            }>
+        }
+        return (
+            <>
+                Event <strong>{details.eventName}</strong> was rejected because it failed schema validation for
+                distinct_id <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> (event
+                uuid: <code>{details.eventUuid}</code>):
+                <ul>
+                    {details.errors.map((error, index) => (
+                        <li key={index}>
+                            {error.reason === 'missing_required' ? (
+                                <>
+                                    Required property <code>{error.property}</code> is missing
+                                </>
+                            ) : (
+                                <>
+                                    Property <code>{error.property}</code> has invalid type (expected{' '}
+                                    {error.expectedTypes?.join(' or ')}, got{' '}
+                                    <code>{error.actualValue ?? 'unknown'}</code>)
+                                </>
+                            )}
+                        </li>
+                    ))}
+                </ul>
             </>
         )
     },
