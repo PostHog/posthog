@@ -199,13 +199,13 @@ describe('person-update', () => {
             })
 
             it('should accept multiple eventToPersonProperties at event level', () => {
+                // Note: Campaign properties (utm_source, utm_campaign) are no longer in eventToPersonProperties
+                // and will trigger updates like custom properties
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
                         $set: {
                             $browser: 'Chrome',
-                            utm_source: 'google',
-                            utm_campaign: 'spring_sale',
                             $os: 'macOS',
                         },
                     },
@@ -213,8 +213,6 @@ describe('person-update', () => {
 
                 const personProperties = {
                     $browser: 'Firefox',
-                    utm_source: 'twitter',
-                    utm_campaign: 'winter_sale',
                     $os: 'Windows',
                 }
 
@@ -222,15 +220,9 @@ describe('person-update', () => {
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.shouldForceUpdate).toBe(false)
-                // At event level, all these properties would be marked as ignored
+                // At event level, eventToPersonProperties would be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$browser' })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                    property: 'utm_source',
-                })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                    property: 'utm_campaign',
-                })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$os' })
             })
         })
