@@ -159,9 +159,10 @@ export const FEATURE_FLAGS = {
     HOG: 'hog', // owner: #team-data-stack, see `DebugScene.tsx` and also insights
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
-    HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: #team-batch-exports
-    WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion
-    AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features
+    HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: #team-batch-exports, allow batch exports to be run every 5min
+    WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion, used to disable webhooks for certain companies
+    AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
+    HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: #team-web-analytics, used to reward beta users for web analytics
 
     // Legacy flags, TBD if they need to be removed
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: #team-feature-flags
@@ -176,6 +177,9 @@ export const FEATURE_FLAGS = {
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: #team-analytics-platform
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: #team-analytics-platform
+    BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports', // owner: #team-batch-exports
+    WEB_EXPERIMENTS: 'web-experiments', // owner: #team-experiments
+    ENVIRONMENTS: 'environments', // owner: #team-platform-features
 
     // Temporary feature flags, should be removed when the feature is no longer needed
     WEB_ANALYTICS_HIGHER_CONCURRENCY: 'web-analytics-higher-concurrency', // owner: @lricoy #team-web-analytics
@@ -184,17 +188,10 @@ export const FEATURE_FLAGS = {
     EXTERNAL_SURVEYS: 'external-surveys', // owner: #team-surveys
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
-    QUERY_CACHE_USE_S3: 'query-cache-use-s3', // owner: @aspicer #team-product-analytics
-    DASHBOARD_THREADS: 'dashboard-threads', // owner: @aspicer #team-product-analytics
-    BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-llm-analytics
     LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD: 'llm-analytics-customizable-dashboard', // owner: #team-llm-analytics
     LLM_ANALYTICS_DISCUSSIONS: 'llm-analytics-discussions', // owner: #team-llm-analytics
     BATCH_EXPORTS_DATABRICKS: 'databricks-batch-exports', // owner: @rossgray #team-batch-exports
-    HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
-    WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
-    ENVIRONMENTS: 'environments', // owner: #team-platform-features
-    REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     WORKFLOWS: 'messaging', // owner @haven #team-workflows
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     WORKFLOWS_SCHEDULED_TRIGGERS: 'workflows-scheduled-triggers', // owner: #team-workflows
