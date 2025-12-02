@@ -4498,6 +4498,7 @@ export interface SourceConfig {
 }
 
 export const externalDataSources = [
+    'Ashby',
     'Supabase',
     'CustomerIO',
     'Github',

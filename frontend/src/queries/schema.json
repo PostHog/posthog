@@ -14203,6 +14203,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "Ashby",
                 "Supabase",
                 "CustomerIO",
                 "Github",
