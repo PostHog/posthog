@@ -534,7 +534,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-max',
         title: 'AI',
-        flag: 'ARTIFICIAL_HOG',
         settings: [
             {
                 id: 'core-memory',

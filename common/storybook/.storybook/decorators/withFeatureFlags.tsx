@@ -15,7 +15,6 @@ const PERSISTED_FEATURE_FLAGS = [
     'datanode-concurrency-limit',
     'session-table-property-filters',
     'query-async',
-    'artificial-hog',
 ]
 
 /** Global story decorator that allows setting feature flags.
