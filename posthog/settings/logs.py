@@ -92,8 +92,11 @@ LOGGING = {
         },  # blackhole Django autoreload logs (this is only needed in DEV)
         "kafka.conn": {"level": "WARN"},  # kafka-python logs are noisy
         "posthog.caching.warming": {"level": "INFO", "handlers": ["console"], "propagate": False},
-        "posthog.tasks.alerts": {"level": "INFO", "handlers": ["console"], "propagate": False},
-        "posthog.tasks.exports": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.tasks": {
+            "level": DEFAULT_LOG_LEVEL,
+            "handlers": ["console"],
+            "propagate": False,
+        },  # enable logging for tasks
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
     },
