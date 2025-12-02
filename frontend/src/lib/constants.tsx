@@ -192,6 +192,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: #team-web-analytics
     ONBOARDING_SESSION_REPLAY_SEPARATE_STEP: 'onboarding-session-replay-separate-step', // owner: #team-growth
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
+    ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: #team-growth
 
     // Temporary feature flags, still WIP, should be removed eventually
     WEB_ANALYTICS_HIGHER_CONCURRENCY: 'web-analytics-higher-concurrency', // owner: @lricoy #team-web-analytics
@@ -213,11 +214,9 @@ export const FEATURE_FLAGS = {
     BATCH_EXPORT_NEW_LOGS: 'batch-export-new-logs', // owner: #team-batch-exports
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer
-    ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny
-    ONBOARDING_USE_CASE_SELECTION: 'onboarding-use-case-selection', // owner: @mattbro
-    ONBOARDING_AI_CONSENT_STEP: 'onboarding-ai-consent-step', // owner: @mattbro
+    ONBOARDING_USE_CASE_SELECTION: 'onboarding-use-case-selection', // owner: @mattbro #team-growth
+    ONBOARDING_AI_CONSENT_STEP: 'onboarding-ai-consent-step', // owner: @mattbro #team-growth
     ONBOARDING_TELL_US_MORE_STEP: 'onboarding-tell-us-more-step', // owner: @rafaeelaudibert #team-growth
-    DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny
