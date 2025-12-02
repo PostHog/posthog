@@ -409,6 +409,8 @@ class SandboxSnapshot(UUIDModel):
 class SandboxEnvironment(UUIDModel):
     """Configuration for sandbox execution environments including network access and secrets."""
 
+    HOSTNAME_PATTERN = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,}$")
+
     class NetworkAccessLevel(models.TextChoices):
         TRUSTED = "trusted", "Trusted"
         FULL = "full", "Full"
@@ -474,6 +476,32 @@ class SandboxEnvironment(UUIDModel):
             return False
         pattern = r"^[A-Za-z_][A-Za-z0-9_]*$"
         return bool(re.match(pattern, key))
+
+    @classmethod
+    def is_valid_hostname(cls, hostname: str) -> bool:
+        if not hostname or not isinstance(hostname, str):
+            return False
+        hostname = hostname.strip().lower()
+        if not hostname:
+            return False
+        return bool(cls.HOSTNAME_PATTERN.match(hostname))
+
+    def clean(self):
+        super().clean()
+        if self.allowed_domains:
+            invalid_domains = [d for d in self.allowed_domains if not self.is_valid_hostname(d)]
+            if invalid_domains:
+                raise ValidationError(
+                    {
+                        "allowed_domains": f"Invalid hostname(s): {', '.join(invalid_domains)}. Must be valid domain names (e.g., api.example.com)."
+                    }
+                )
+
+    def save(self, *args, **kwargs):
+        if self.allowed_domains:
+            self.allowed_domains = [d.strip().lower() for d in self.allowed_domains]
+        self.full_clean()
+        super().save(*args, **kwargs)
 
     def get_effective_domains(self) -> list[str]:
         if self.network_access_level == self.NetworkAccessLevel.FULL:

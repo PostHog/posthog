@@ -295,16 +295,11 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
         if not value:
             return value
 
-        for domain in value:
-            if not domain or not isinstance(domain, str):
-                raise serializers.ValidationError(f"Invalid domain: {domain}")
-            domain = domain.strip()
-            if not domain:
-                raise serializers.ValidationError("Empty domain is not allowed")
-            if "://" in domain:
-                raise serializers.ValidationError(f"Domain must not include protocol: {domain}")
-            if "/" in domain or "?" in domain or "#" in domain:
-                raise serializers.ValidationError(f"Domain must not include path, query, or fragment: {domain}")
+        invalid_domains = [d for d in value if not SandboxEnvironment.is_valid_hostname(d)]
+        if invalid_domains:
+            raise serializers.ValidationError(
+                f"Invalid hostname(s): {', '.join(invalid_domains)}. Must be valid domain names (e.g., api.example.com)."
+            )
 
         return [d.strip().lower() for d in value]
 

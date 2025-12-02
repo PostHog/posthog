@@ -768,9 +768,7 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
             ("simple", "example.com"),
             ("subdomain", "api.stripe.com"),
             ("deep_subdomain", "api.v2.example.com"),
-            ("with_port", "localhost:8080"),
-            ("ip_address", "192.168.1.1"),
-            ("ip_with_port", "192.168.1.1:3000"),
+            ("hyphenated", "my-api.example.com"),
         ]
     )
     def test_valid_domain_formats(self, _name, domain):
@@ -790,10 +788,12 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
             ("https_protocol", "https://example.com"),
             ("http_protocol", "http://example.com"),
             ("file_protocol", "file://etc/passwd"),
-            ("ftp_protocol", "ftp://files.example.com"),
             ("with_path", "example.com/api/v1"),
-            ("with_query", "example.com?key=value"),
-            ("with_fragment", "example.com#section"),
+            ("with_port", "example.com:8080"),
+            ("ip_address", "192.168.1.1"),
+            ("ip_with_port", "192.168.1.1:3000"),
+            ("localhost", "localhost"),
+            ("single_label", "intranet"),
         ]
     )
     def test_invalid_domain_formats(self, _name, domain):
