@@ -9,6 +9,7 @@ import {
     LemonCollapse,
     LemonInput,
     LemonSkeleton,
+    LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -351,6 +352,7 @@ export function SessionGroupSummary(): JSX.Element {
                 }
             })
             .filter((pattern): pattern is EnrichedSessionGroupSummaryPattern => pattern !== null)
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- matchesIssueTypeFilter only depends on issueTypeFilters which is already in deps
     }, [summary.patterns, debouncedSearchValue, issueTypeFilters])
 
     const sortedPatterns = useMemo(() => {
@@ -465,6 +467,7 @@ export function SessionGroupSummary(): JSX.Element {
             />
             <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
                 <div className="flex items-center gap-3">
+                    <LemonTag type="warning">BETA</LemonTag>
                     <span>{totalSessions} sessions analyzed</span>
                     <span className="hidden sm:inline">·</span>
                     <span>{new Date(sessionGroupSummary.created_at).toLocaleString()}</span>

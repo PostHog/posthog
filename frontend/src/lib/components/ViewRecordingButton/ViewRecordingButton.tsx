@@ -158,6 +158,7 @@ export function useRecordingButton({
         userClickedThrough()
         if (inModal) {
             const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
+
             openSessionPlayer(
                 { id: sessionId ?? '', matching_events: matchingEvents ?? undefined },
                 Math.max(fiveSecondsBeforeEvent, 0)

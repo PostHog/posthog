@@ -46,23 +46,32 @@ pub fn session_recording_config_response(
             .map(|mut v| v.take()),
     );
 
-    let rrweb_script_config = if !config.session_replay_rrweb_script.is_empty() {
-        let is_team_allowed = match &config.session_replay_rrweb_script_allowed_teams {
-            TeamIdCollection::All => true,
-            TeamIdCollection::None => false,
-            TeamIdCollection::TeamIds(ids) => ids.contains(&team.id),
-        };
+    let rrweb_script_config = team
+        .extra_settings
+        .as_ref()
+        .and_then(|cfg| cfg.get("recorder_script"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|script| serde_json::json!({"script": script}))
+        .or_else(|| {
+            if config.session_replay_rrweb_script.is_empty() {
+                return None;
+            }
 
-        if is_team_allowed {
-            Some(serde_json::json!({
-                "script": config.session_replay_rrweb_script
-            }))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+            let is_team_allowed = match &config.session_replay_rrweb_script_allowed_teams {
+                TeamIdCollection::All => true,
+                TeamIdCollection::None => false,
+                TeamIdCollection::TeamIds(ids) => ids.contains(&team.id),
+            };
+
+            if is_team_allowed {
+                Some(serde_json::json!({
+                    "script": config.session_replay_rrweb_script
+                }))
+            } else {
+                None
+            }
+        });
 
     // session_replay_config logic - only include canvas fields if record_canvas is configured
     let (record_canvas, canvas_fps, canvas_quality) = if let Some(cfg) = &team.session_replay_config

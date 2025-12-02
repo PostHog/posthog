@@ -392,7 +392,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                         "retry_strategy": e.retry_strategy,
                         "error_message": str(e),
                     },
-                    groups=groups(self._user.current_organization, self._team),
+                    groups=groups(None, self._team),
                 )
 
             content = f"Tool failed: {e.to_summary()}.{e.retry_hint}"

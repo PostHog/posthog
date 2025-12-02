@@ -43,7 +43,9 @@ class MarketingAnalyticsConfig:
 
     # Field names for grouping
     campaign_field: str = MarketingSourceAdapter.campaign_name_field
+    id_field: str = MarketingSourceAdapter.campaign_id_field
     source_field: str = MarketingSourceAdapter.source_name_field
+    match_key_field: str = MarketingSourceAdapter.match_key_field
 
     # Column aliases for output
     campaign_column_alias: str = MarketingAnalyticsBaseColumns.CAMPAIGN
@@ -97,7 +99,7 @@ class MarketingAnalyticsConfig:
     @property
     def group_by_fields(self) -> list[str]:
         """Get the list of fields to group by"""
-        return [self.campaign_field, self.source_field]
+        return [self.campaign_field, self.id_field, self.source_field]
 
     def get_campaign_cost_field_chain(self, field_name: str) -> list[str | int]:
         """Get field chain for campaign cost CTE fields"""
