@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, MaxRecordingUniversalFilters, RecordingsQuery
 
+from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import (
@@ -78,7 +79,9 @@ class SummarizeSessionsTool(MaxTool):
     ) -> tuple[str, ToolMessagesArtifact | None]:
         # Convert filters to recordings query
         if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters):
-            recordings_query = self._convert_max_filters_to_recordings_query(recordings_filters_or_explicit_session_ids)
+            recordings_query = convert_filters_to_recordings_query(
+                recordings_filters_or_explicit_session_ids.model_dump(exclude_none=True)
+            )
             # Determine query limit
             if (
                 not recordings_query.limit
@@ -199,33 +202,6 @@ class SummarizeSessionsTool(MaxTool):
         content = prepare_reasoning_progress_message(progress_message)
         if content:
             self.dispatcher.update(content)
-
-    @staticmethod
-    def _convert_max_filters_to_recordings_query(replay_filters: MaxRecordingUniversalFilters) -> RecordingsQuery:
-        """Convert Max-generated filters into recordings query format"""
-        properties = []
-        if replay_filters.filter_group and replay_filters.filter_group.values:
-            for inner_group in replay_filters.filter_group.values:
-                if hasattr(inner_group, "values"):
-                    properties.extend(inner_group.values)
-        recordings_query = RecordingsQuery(
-            date_from=replay_filters.date_from,
-            date_to=replay_filters.date_to,
-            properties=properties,
-            filter_test_accounts=replay_filters.filter_test_accounts,
-            limit=replay_filters.limit,
-            order=replay_filters.order,
-            # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
-            having_predicates=(
-                [
-                    {"key": dur.key, "type": "recording", "operator": dur.operator, "value": dur.value}
-                    for dur in (replay_filters.duration or [])
-                ]
-                if replay_filters.duration
-                else None
-            ),
-        )
-        return recordings_query
 
     def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""

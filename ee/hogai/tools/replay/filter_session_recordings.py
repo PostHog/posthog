@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
+from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.sync import database_sync_to_async
 
 from products.replay.backend.prompts import (
@@ -17,7 +18,6 @@ from products.replay.backend.prompts import (
 )
 
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
 
 logger = structlog.get_logger(__name__)
 
@@ -62,9 +62,9 @@ class FilterSessionRecordingsToolArgs(BaseModel):
 
         # Common Properties
 
-        **Session**: `$device_type` (Mobile/Desktop/Tablet), `$browser`, `$os`, `$screen_width`, `$screen_height`
+        **Event**: `$device_type` (Mobile/Desktop/Tablet), `$browser`, `$os`, `$screen_width`, `$screen_height`, `$current_url`, `$pathname`
+        **Session**: `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`
         **Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields
-        **Event**: `$current_url`, `$event_type` ($rageclick/$pageview), `$pathname`
         **Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
 
         # Filter Completion Strategy
@@ -152,7 +152,7 @@ class FilterSessionRecordingsTool(MaxTool):
         self, recordings_filters: MaxRecordingUniversalFilters
     ) -> tuple[str, ToolMessagesArtifact | None]:
         # Convert filters to recordings query and execute
-        recordings_query = SummarizeSessionsTool._convert_max_filters_to_recordings_query(recordings_filters)
+        recordings_query = convert_filters_to_recordings_query(recordings_filters.model_dump(exclude_none=True))
 
         try:
             query_results = await database_sync_to_async(self._get_recordings_with_filters, thread_sensitive=False)(
