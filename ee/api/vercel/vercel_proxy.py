@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Any, cast
+
+from django.conf import settings
 
 import requests
 import structlog
@@ -9,12 +11,15 @@ from rest_framework.response import Response
 
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.api.authentication import BillingServiceAuthentication
+from ee.api.authentication import BillingServiceAuthentication, BillingServiceUser
 
 logger = structlog.get_logger(__name__)
 
 VERCEL_API_BASE_URL = "https://api.vercel.com"
 REQUEST_TIMEOUT_SECONDS = 30
+REGION_PROXY_TIMEOUT_SECONDS = 10
+US_DOMAIN = getattr(settings, "REGION_US_DOMAIN", "us.posthog.com")
+EU_DOMAIN = getattr(settings, "REGION_EU_DOMAIN", "eu.posthog.com")
 
 
 class VercelProxyRequestSerializer(serializers.Serializer):
@@ -32,6 +37,62 @@ def _extract_access_token(integration: OrganizationIntegration) -> str:
     if not token:
         raise ValueError(f"No access token found for integration {integration.integration_id}")
     return token
+
+
+def _get_current_region() -> str | None:
+    """Determine which region this PostHog instance is running in."""
+    site_url = getattr(settings, "SITE_URL", "")
+    if site_url == f"https://{US_DOMAIN}":
+        return "us"
+    elif site_url == f"https://{EU_DOMAIN}":
+        return "eu"
+    return None
+
+
+def _is_dev_env() -> bool:
+    """Check if running in development environment."""
+    site_url = getattr(settings, "SITE_URL", "")
+    return site_url.startswith("http://localhost") or getattr(settings, "DEBUG", False)
+
+
+def _proxy_to_eu(request_data: dict, auth_header: str) -> Response:
+    """Proxy the request to EU PostHog instance."""
+    target_url = f"https://{EU_DOMAIN}/api/vercel/proxy"
+
+    try:
+        response = requests.post(
+            url=target_url,
+            headers={
+                "Authorization": auth_header,
+                "Content-Type": "application/json",
+            },
+            json=request_data,
+            timeout=REGION_PROXY_TIMEOUT_SECONDS,
+        )
+
+        logger.info(
+            "Proxied billing request to EU region",
+            target_url=target_url,
+            status_code=response.status_code,
+        )
+
+        try:
+            data = response.json() if response.content else {}
+        except ValueError:
+            data = {"error": "Invalid response from EU region"}
+
+        return Response(data=data, status=response.status_code)
+
+    except requests.exceptions.RequestException as e:
+        logger.exception(
+            "Failed to proxy billing request to EU region",
+            url=target_url,
+            error=str(e),
+        )
+        return Response(
+            {"error": "Unable to proxy request to EU region"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
 
 def forward_to_vercel(config_id: str, access_token: str, path: str, method: str, body: dict) -> requests.Response:
@@ -87,7 +148,8 @@ class VercelProxyViewSet(viewsets.ViewSet):
         method = serializer.validated_data["method"]
         body = serializer.validated_data.get("body", {})
 
-        organization_id = request.user.organization_id
+        user = cast(BillingServiceUser, request.user)
+        organization_id = user.organization_id
 
         try:
             integration = OrganizationIntegration.objects.get(
@@ -95,9 +157,22 @@ class VercelProxyViewSet(viewsets.ViewSet):
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             )
         except OrganizationIntegration.DoesNotExist:
+            current_region = _get_current_region()
+
+            # If we're in US and integration not found, proxy to EU
+            if current_region == "us" and not _is_dev_env():
+                logger.info(
+                    "Vercel integration not found in US, proxying to EU",
+                    organization_id=organization_id,
+                )
+                auth_header = request.headers.get("Authorization", "")
+                return _proxy_to_eu(request.data, auth_header)
+
+            # If we're in EU (or dev) and not found, return 404
             logger.warning(
                 "Vercel integration not found for organization",
                 organization_id=organization_id,
+                current_region=current_region,
             )
             return Response(
                 {"error": "No Vercel integration found for this organization"},
@@ -105,6 +180,15 @@ class VercelProxyViewSet(viewsets.ViewSet):
             )
 
         config_id = integration.integration_id
+        if not config_id:
+            logger.error(
+                "Vercel integration missing integration_id",
+                organization_id=organization_id,
+            )
+            return Response(
+                {"error": "Invalid Vercel integration configuration"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         try:
             access_token = _extract_access_token(integration)

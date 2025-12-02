@@ -320,9 +320,10 @@ class TestBillingServiceAuthentication(BaseTest):
         request = MagicMock()
         request.headers = {"authorization": f"Bearer {token}"}
 
-        user, _ = self.auth.authenticate(request)
+        result = self.auth.authenticate(request)
 
-        assert user is not None
+        assert result is not None
+        user, _ = result
         assert user.organization_id == "org_123"
         assert user.is_authenticated is True
 
