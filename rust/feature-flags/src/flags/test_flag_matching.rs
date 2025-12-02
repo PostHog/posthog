@@ -1039,7 +1039,6 @@ mod tests {
             "test_user".to_string(),
             None, // device_id
             1,
-            1,
             context.create_postgres_router(),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
@@ -1127,7 +1126,6 @@ mod tests {
             "test_user".to_string(),
             None, // device_id
             1,
-            1,
             context.create_postgres_router(),
             cohort_cache,
             None,
@@ -1186,7 +1184,6 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             None, // device_id
-            1,
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1507,7 +1504,6 @@ mod tests {
             "".to_string(),
             None, // device_id
             1,
-            1,
             context.create_postgres_router(),
             cohort_cache,
             None,
@@ -1554,7 +1550,6 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             None, // device_id
-            1,
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1609,7 +1604,6 @@ mod tests {
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             None, // device_id
-            1,
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -1798,7 +1792,6 @@ mod tests {
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             None, // device_id
-            1,
             1,
             context.create_postgres_router(),
             cohort_cache,
@@ -4851,7 +4844,6 @@ mod tests {
             "distinct-alpha".to_string(),
             Some("device-high".to_string()),
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4873,7 +4865,6 @@ mod tests {
             "distinct-beta".to_string(),
             Some("device-high".to_string()),
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4895,7 +4886,6 @@ mod tests {
             "distinct-gamma".to_string(),
             Some("device-low".to_string()),
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -4930,7 +4920,6 @@ mod tests {
             "distinct-foo".to_string(),
             None,
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -4952,7 +4941,6 @@ mod tests {
             "distinct-high".to_string(),
             None,
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -4988,7 +4976,6 @@ mod tests {
             "distinct-high".to_string(),
             Some("device-high".to_string()),
             team.id,
-            team.project_id(),
             router,
             cohort_cache.clone(),
             None,
@@ -5010,7 +4997,6 @@ mod tests {
             "distinct-foo".to_string(),
             Some("device-low".to_string()),
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -5738,7 +5724,6 @@ mod tests {
             distinct_id,
             None, // device_id
             team.id,
-            team.project_id(),
             router,
             cohort_cache,
             None,
@@ -5857,6 +5842,7 @@ mod tests {
         let router = context.create_postgres_router();
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None,
             team.id,
             router,
             cohort_cache,
@@ -5933,6 +5919,7 @@ mod tests {
         let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
+            None,
             team.id,
             router,
             cohort_cache,
