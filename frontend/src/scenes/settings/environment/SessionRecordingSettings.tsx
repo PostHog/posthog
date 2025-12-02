@@ -71,7 +71,7 @@ function LogCaptureSettings(): JSX.Element {
         <div>
             <div className="flex flex-row justify-between">
                 <h3>Log capture</h3>
-                <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayLogCapture }} />
+                <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayLogCapture} />
             </div>
             <p>Show browser or app logs in session recordings to spot issues faster.</p>
             <p>
@@ -110,7 +110,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
         <div>
             <div className="flex flex-row justify-between">
                 <h3>Canvas capture</h3>
-                <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayCanvasCapture }} />
+                <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayCanvasCapture} />
             </div>
             <p>
                 This setting controls if browser canvas elements will be captured as part of recordings.{' '}
@@ -175,7 +175,7 @@ export function NetworkCaptureSettings(): JSX.Element {
         <>
             <div className="flex flex-row justify-between">
                 <h3>Capture requests</h3>
-                <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayCaptureRequests }} />
+                <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayCaptureRequests} />
             </div>
             <p>
                 Capture performance and network data with your session recordings. You’ll see requests and timings right
@@ -207,7 +207,7 @@ export function NetworkCaptureSettings(): JSX.Element {
             <div className="mt-4">
                 <div className="flex flex-row justify-between">
                     <h3>Capture headers and payloads</h3>
-                    <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayCaptureHeadersAndPayloads }} />
+                    <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayCaptureHeadersAndPayloads} />
                 </div>
                 <p>
                     When network capture’s on, we’ll always record request timings. Use these options to also capture
@@ -329,7 +329,7 @@ export function NetworkCaptureSettings(): JSX.Element {
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
         <div className="gap-y-2">
-            <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayAuthorizedDomains }} />
+            <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayAuthorizedDomains} />
             <LemonBanner type="warning">
                 <strong>This setting is now deprecated and cannot be updated.</strong> Instead we recommend deleting the
                 domains below and using URL triggers in your recording conditions to control which domains you record.
@@ -363,7 +363,7 @@ export function ReplayMaskingSettings(): JSX.Element {
 
     return (
         <div>
-            <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayMasking }} />
+            <SupportedPlatforms config={FEATURE_SUPPORT.sessionReplayMasking} />
             <p>Choose what data gets masked in your session recordings.</p>
             <p>
                 For more control (or to adjust masking on other platforms), set it up directly in your code{' '}

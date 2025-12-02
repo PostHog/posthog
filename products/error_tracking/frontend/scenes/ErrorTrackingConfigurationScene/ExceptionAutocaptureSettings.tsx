@@ -29,7 +29,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             <div>
                 <div className="flex justify-between">
                     <h3>Exception autocapture</h3>
-                    <SupportedPlatforms config={{ ...FEATURE_SUPPORT.errorTrackingExceptionAutocapture }} />
+                    <SupportedPlatforms config={FEATURE_SUPPORT.errorTrackingExceptionAutocapture} />
                 </div>
                 <p>
                     Captures frontend exceptions thrown on a customers using `onError` and `onUnhandledRejection`
@@ -59,7 +59,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             <div>
                 <div className="flex justify-between">
                     <h3>Suppression rules</h3>
-                    <SupportedPlatforms config={{ ...FEATURE_SUPPORT.errorTrackingSuppressionRules }} />
+                    <SupportedPlatforms config={FEATURE_SUPPORT.errorTrackingSuppressionRules} />
                 </div>
                 <p>
                     Autocaptured exceptions can be filtered by type or message to skip capturing certain exceptions in
