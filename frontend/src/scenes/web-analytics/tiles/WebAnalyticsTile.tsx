@@ -82,8 +82,8 @@ const VariationCell = (
     const formatNumber = (value: number): string =>
         isPercentage ? `${(value * 100).toFixed(1)}%` : (value?.toLocaleString() ?? '(empty)')
 
-    return function Cell({ value }) {
-        const { compareFilter } = useValues(webAnalyticsLogic)
+    return function Cell({ value, context }) {
+        const compareFilter = context?.compareFilter
 
         if (!value) {
             return null
@@ -503,6 +503,7 @@ export const WebStatsTrendTile = ({
                 ...insightProps,
                 query,
             },
+            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -645,8 +646,9 @@ export const WebStatsTableTile = ({
             ...webAnalyticsDataTableQueryContext,
             insightProps,
             rowProps,
+            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
-    }, [onClick, insightProps, breakdownBy, key, type])
+    }, [onClick, insightProps, breakdownBy, key, type, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">

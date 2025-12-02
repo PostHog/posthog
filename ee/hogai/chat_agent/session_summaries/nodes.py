@@ -311,6 +311,7 @@ class _SessionSearch:
             date_to=replay_filters.date_to,
             properties=properties,
             filter_test_accounts=replay_filters.filter_test_accounts,
+            limit=replay_filters.limit,
             order=replay_filters.order,
             # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
             having_predicates=(
@@ -333,15 +334,14 @@ class _SessionSearch:
         recordings_query = convert_filters_to_recordings_query(temp_playlist)
         return recordings_query
 
-    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
-        replay_filters.limit = limit
         try:
             query_runner = SessionRecordingListFromQuery(
-                team=self._node._team, query=replay_filters, hogql_query_modifiers=None, limit=limit
+                team=self._node._team, query=replay_filters, hogql_query_modifiers=None
             )
             results = query_runner.run()
         except Exception as e:
@@ -354,6 +354,20 @@ class _SessionSearch:
         # Extract session IDs
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
+
+    def _validate_specific_session_ids(self, session_ids: list[str]) -> list[str] | None:
+        """Validate that specific session IDs exist in the database."""
+        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+        replay_events = SessionReplayEvents()
+        sessions_found, _, _ = replay_events.sessions_found_with_timestamps(
+            session_ids=session_ids,
+            team=self._node._team,
+        )
+        if not sessions_found:
+            return None
+        # Preserve the original order, filtering out invalid sessions
+        return [sid for sid in session_ids if sid in sessions_found]
 
     async def _generate_filter_query(self, plain_text_query: str, config: RunnableConfig) -> str:
         """Generate a filter query for the user's summarization query to keep the search context clear"""
@@ -408,8 +422,13 @@ class _SessionSearch:
                 return self._node._create_error_response(self._node._base_error_instructions, state)
             # Use specific session IDs, if provided
             if state.specific_session_ids_to_summarize:
-                # Return session ids right away to use in the next step
-                return state.specific_session_ids_to_summarize
+                # Validate that sessions exist before using them
+                valid_session_ids = await database_sync_to_async(
+                    self._validate_specific_session_ids, thread_sensitive=False
+                )(state.specific_session_ids_to_summarize)
+                if not valid_session_ids:
+                    return None
+                return valid_session_ids
             # Use current filters, if provided
             if state.should_use_current_filters:
                 if not current_filters:
@@ -455,12 +474,15 @@ class _SessionSearch:
                 replay_filters = self._convert_max_filters_to_recordings_query(filter_generation_result)
                 self._node._stream_filters(filter_generation_result)
             # Query the filters to get session ids
-            query_limit = state.session_summarization_limit
-            if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+            if (
+                not replay_filters.limit
+                or replay_filters.limit <= 0
+                or replay_filters.limit > MAX_SESSIONS_TO_SUMMARIZE
+            ):
                 # If no limit provided (none or negative) or too large - use the default limit
-                query_limit = MAX_SESSIONS_TO_SUMMARIZE
+                replay_filters.limit = MAX_SESSIONS_TO_SUMMARIZE
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-                replay_filters, query_limit
+                replay_filters
             )
             return session_ids
         except Exception as e:
@@ -488,7 +510,7 @@ class _SessionSummarizer:
             nonlocal completed
             result = await execute_summarize_session(
                 session_id=session_id,
-                user_id=self._node._user.id,
+                user=self._node._user,
                 team=self._node._team,
                 model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
                 video_validation_enabled=video_validation_enabled,
@@ -521,7 +543,7 @@ class _SessionSummarizer:
 
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
-            user_id=self._node._user.id,
+            user=self._node._user,
             team=self._node._team,
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,

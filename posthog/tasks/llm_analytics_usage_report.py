@@ -1052,12 +1052,14 @@ def send_llm_analytics_usage_reports(
 
     logger.info("Sending LLM Analytics usage reports")
 
+    at_date_str = at_date.isoformat() if at_date else None
+
     for org_id, report in org_reports.items():
         try:
             capture_llm_analytics_report.delay(
                 organization_id=org_id,
                 report_dict=report,
-                at_date=period_end.isoformat(),
+                at_date=at_date_str,
             )
             total_orgs_sent += 1
 
