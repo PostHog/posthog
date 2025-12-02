@@ -17,6 +17,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
+import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { isObject } from 'lib/utils'
@@ -70,16 +71,7 @@ function LogCaptureSettings(): JSX.Element {
         <div>
             <div className="flex flex-row justify-between">
                 <h3>Log capture</h3>
-                <SupportedPlatforms
-                    android={{ version: '1.0.0' }}
-                    ios={{ version: '3.26.0' }}
-                    flutter={false}
-                    web={{ version: '1.18.0' }}
-                    reactNative={{
-                        version: '3.9.0',
-                        note: <>Android only</>,
-                    }}
-                />
+                <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayLogCapture }} />
             </div>
             <p>Show browser or app logs in session recordings to spot issues faster.</p>
             <p>
@@ -118,21 +110,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
         <div>
             <div className="flex flex-row justify-between">
                 <h3>Canvas capture</h3>
-                <SupportedPlatforms
-                    android={false}
-                    ios={false}
-                    flutter={{
-                        version: '4.7.0',
-                        note: (
-                            <>
-                                If you're using the <code>canvaskit</code> renderer on Flutter Web, you must also enable
-                                canvas capture
-                            </>
-                        ),
-                    }}
-                    web={{ version: '1.101.0' }}
-                    reactNative={false}
-                />
+                <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayCanvasCapture }} />
             </div>
             <p>
                 This setting controls if browser canvas elements will be captured as part of recordings.{' '}
@@ -197,13 +175,7 @@ export function NetworkCaptureSettings(): JSX.Element {
         <>
             <div className="flex flex-row justify-between">
                 <h3>Capture requests</h3>
-                <SupportedPlatforms
-                    android={{ version: '3.1.0' }}
-                    ios={{ version: '3.12.6' }}
-                    flutter={false}
-                    web={{ version: '1.39.0' }}
-                    reactNative={{ note: <>RN network capture is only supported on iOS</> }}
-                />
+                <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayCaptureRequests }} />
             </div>
             <p>
                 Capture performance and network data with your session recordings. You’ll see requests and timings right
@@ -235,13 +207,7 @@ export function NetworkCaptureSettings(): JSX.Element {
             <div className="mt-4">
                 <div className="flex flex-row justify-between">
                     <h3>Capture headers and payloads</h3>
-                    <SupportedPlatforms
-                        android={false}
-                        ios={false}
-                        flutter={false}
-                        web={{ version: '1.104.4' }}
-                        reactNative={false}
-                    />
+                    <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayCaptureHeadersAndPayloads }} />
                 </div>
                 <p>
                     When network capture’s on, we’ll always record request timings. Use these options to also capture
@@ -363,13 +329,7 @@ export function NetworkCaptureSettings(): JSX.Element {
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
         <div className="gap-y-2">
-            <SupportedPlatforms
-                android={false}
-                ios={false}
-                flutter={false}
-                web={{ version: '1.5.0' }}
-                reactNative={false}
-            />
+            <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayAuthorizedDomains }} />
             <LemonBanner type="warning">
                 <strong>This setting is now deprecated and cannot be updated.</strong> Instead we recommend deleting the
                 domains below and using URL triggers in your recording conditions to control which domains you record.
@@ -403,7 +363,7 @@ export function ReplayMaskingSettings(): JSX.Element {
 
     return (
         <div>
-            <SupportedPlatforms web={{ version: '1.227.0' }} />
+            <SupportedPlatforms config={{ ...FEATURE_SUPPORT.sessionReplayMasking }} />
             <p>Choose what data gets masked in your session recordings.</p>
             <p>
                 For more control (or to adjust masking on other platforms), set it up directly in your code{' '}
