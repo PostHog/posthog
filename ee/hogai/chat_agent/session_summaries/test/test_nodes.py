@@ -595,11 +595,16 @@ class TestSessionSummarizationNode(BaseTest):
         self.assertIn("encountered an issue", message.content)
 
     @patch("ee.hogai.chat_agent.session_summaries.nodes.execute_summarize_session")
+    @patch("ee.hogai.chat_agent.session_summaries.nodes._SessionSearch._validate_specific_session_ids")
     @patch("ee.hogai.chat_agent.session_summaries.nodes.GROUP_SUMMARIES_MIN_SESSIONS", 5)
-    def test_arun_use_current_session_with_session_id(self, mock_execute_summarize: MagicMock) -> None:
+    def test_arun_use_current_session_with_session_id(
+        self, mock_validate_session_ids: MagicMock, mock_execute_summarize: MagicMock
+    ) -> None:
         """Test arun uses current session ID when specific_session_ids_to_summarize are provided."""
         conversation = Conversation.objects.create(team=self.team, user=self.user)
         session_id = "00000000-0000-0000-0000-000000000001"
+
+        mock_validate_session_ids.return_value = [session_id]
 
         async def mock_summarize_side_effect(*args: Any, **kwargs: Any) -> dict[str, Any]:
             return self._session_template(session_id)
