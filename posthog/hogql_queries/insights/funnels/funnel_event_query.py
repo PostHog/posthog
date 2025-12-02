@@ -1,7 +1,7 @@
 from collections import defaultdict
 from collections.abc import Sequence
 from enum import Enum, auto
-from typing import Optional, TypeGuard, Union
+from typing import Optional, TypeGuard, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -235,9 +235,11 @@ class FunnelEventQuery:
 
         for table_name, steps in tables_to_steps.items():
             if table_name == "events":
-                queries.append(_build_events_table_query(table_name, steps))
+                event_steps = cast(Sequence[tuple[int, EventsNode | ActionsNode]], steps)
+                queries.append(_build_events_table_query(table_name, event_steps))
             else:
-                queries.append(_build_data_warehouse_table_query(table_name, steps))
+                dwh_steps = cast(Sequence[tuple[int, EventsNode | ActionsNode]], steps)
+                queries.append(_build_data_warehouse_table_query(table_name, dwh_steps))
 
         if len(queries) == 1:
             return queries[0]
