@@ -8,6 +8,8 @@ import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic
 import posthog from 'lib/posthog-typed'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
+import { useCallbackOnce } from 'products/error_tracking/frontend/hooks/use-callback-once'
+
 import { ExceptionAttributesPreview } from '../../../ExceptionAttributesPreview'
 import { ReleasePreviewPill } from '../../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
@@ -41,16 +43,16 @@ function StacktraceIssueDisplay({ className }: { className?: string }): JSX.Elem
     const { showAsText, loading, showAllFrames, issueId } = useValues(exceptionCardLogic)
     const { setShowAllFrames } = useActions(exceptionCardLogic)
     const commonProps = { showAllFrames, setShowAllFrames, className }
+
+    const handleFirstFrameOpen = useCallbackOnce(() => {
+        posthog.capture('error_tracking_stacktrace_explored', { issue_id: issueId })
+    }, [issueId])
+
     return match([loading, showAsText])
         .with([true, P.any], () => <LoadingExceptionList {...commonProps} />)
         .with([false, true], () => <RawExceptionList {...commonProps} />)
         .with([false, false], () => (
-            <CollapsibleExceptionList
-                {...commonProps}
-                onFirstFrameExpanded={() => {
-                    posthog.capture('error_tracking_stacktrace_explored', { issue_id: issueId })
-                }}
-            />
+            <CollapsibleExceptionList {...commonProps} onFrameOpenChange={handleFirstFrameOpen} />
         ))
         .otherwise(() => null)
 }

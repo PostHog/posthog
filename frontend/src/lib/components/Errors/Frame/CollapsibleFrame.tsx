@@ -12,10 +12,14 @@ export interface CollapsibleFrameProps {
     onOpenChange?: (open: boolean) => void
 }
 
-export function CollapsibleFrame({ frame, record }: CollapsibleFrameProps): JSX.Element {
+export function CollapsibleFrame({ frame, record, onOpenChange }: CollapsibleFrameProps): JSX.Element {
     let [expanded, setExpanded] = useState(false)
+    const handleOpenChange = (open: boolean): void => {
+        setExpanded(open)
+        onOpenChange?.(open)
+    }
     return (
-        <CollapsiblePrimitive open={expanded} onOpenChange={setExpanded}>
+        <CollapsiblePrimitive open={expanded} onOpenChange={handleOpenChange}>
             <CollapsibleFrameHeader frame={frame} expanded={expanded} record={record} />
             <CollapsibleFrameContent frame={frame} record={record} />
         </CollapsiblePrimitive>

@@ -16,25 +16,15 @@ export function CollapsibleExceptionList({
     showAllFrames,
     setShowAllFrames,
     className,
-    onFirstFrameExpanded,
+    onFrameOpenChange,
 }: {
     showAllFrames: boolean
     setShowAllFrames: (value: boolean) => void
-    onFirstFrameExpanded?: () => void
+    onFrameOpenChange?: (open: boolean) => void
     className?: string
 }): JSX.Element {
     const { exceptionList, getExceptionFingerprint, exceptionAttributes, stackFrameRecords } =
         useValues(errorPropertiesLogic)
-    // const firstFrameExpansion
-    // const { stackFrameRecords } = useValues(stackFrameLogic)
-    // const [hasCalledOnFirstExpanded, setHasCalledOnFirstExpanded] = useState<boolean>(false)
-
-    // const handleFrameExpanded = (): void => {
-    //     if (onFirstFrameExpanded && !hasCalledOnFirstExpanded) {
-    //         setHasCalledOnFirstExpanded(true)
-    //         onFirstFrameExpanded()
-    //     }
-    // }
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>
@@ -70,7 +60,7 @@ export function CollapsibleExceptionList({
                                         <CollapsibleFrame
                                             frame={frame}
                                             record={record}
-                                            onOpenChange={onFirstFrameExpanded}
+                                            onOpenChange={onFrameOpenChange}
                                         />
                                     )}
                                 />
