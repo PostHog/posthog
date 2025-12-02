@@ -138,7 +138,7 @@ export function WorkflowsScene(): JSX.Element {
 
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
         {
-            label: <>Workflows</>,
+            label: 'Workflows',
             key: 'workflows',
             content: (
                 <>
