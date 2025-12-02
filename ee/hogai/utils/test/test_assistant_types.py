@@ -78,6 +78,40 @@ class TestAssistantTypes(BaseTest):
         self.assertEqual(cast(AssistantMessage, result[0]).content, "Different content")
         self.assertIsNotNone(result[0].id)
 
+    async def test_replace_messages_in_graph(self):
+        """Test that ReplaceMessages type is preserved through graph execution, so the reducer merges the state correctly."""
+        graph = StateGraph(AssistantState)
+        graph.add_node(
+            "node",
+            lambda _: PartialAssistantState(
+                messages=ReplaceMessages(
+                    [
+                        AssistantMessage(content="Replaced message 2", id="2"),
+                        AssistantMessage(content="Replaced message 1", id="1"),
+                    ]
+                )
+            ),
+        )
+        graph.add_edge(START, "node")
+        graph.add_edge("node", END)
+        compiled_graph = graph.compile()
+
+        res = await compiled_graph.ainvoke(
+            {
+                "messages": [
+                    AssistantMessage(content="Original message 1", id="1"),
+                    AssistantMessage(content="Original message 2", id="2"),
+                ]
+            }
+        )
+
+        # Should be replaced, not merged
+        self.assertEqual(len(res["messages"]), 2)
+        self.assertEqual(cast(AssistantMessage, res["messages"][0]).content, "Replaced message 2")
+        self.assertEqual(cast(AssistantMessage, res["messages"][0]).id, "2")
+        self.assertEqual(cast(AssistantMessage, res["messages"][1]).content, "Replaced message 1")
+        self.assertEqual(cast(AssistantMessage, res["messages"][1]).id, "1")
+
     async def test_memory_collection_messages_is_not_reset_by_unset_values(self):
         """Test that memory_collection_messages is not reset by unset values"""
         graph = StateGraph(AssistantState)
@@ -195,6 +229,48 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
         self.assertEqual(state.messages[0], assistant_msg)
         self.assertIsInstance(state.messages[1], VisualizationMessage)
         self.assertIsInstance(state.messages[2], ArtifactRefMessage)
+
+    async def test_preserves_replace_messages_wrapper_in_graph(self):
+        """Test that ReplaceMessages wrapper is preserved when visualization messages are converted."""
+        graph = StateGraph(AssistantState)
+        graph.add_node(
+            "node",
+            lambda _: PartialAssistantState(
+                messages=ReplaceMessages(
+                    [
+                        VisualizationMessage(
+                            id="viz-replaced",
+                            query="replaced query",
+                            answer=TrendsQuery(series=[]),
+                            plan="replaced plan",
+                        ),
+                    ]
+                )
+            ),
+        )
+        graph.add_edge(START, "node")
+        graph.add_edge("node", END)
+        compiled_graph = graph.compile()
+
+        res = await compiled_graph.ainvoke(
+            {
+                "messages": [
+                    VisualizationMessage(
+                        id="viz-original",
+                        query="original query",
+                        answer=TrendsQuery(series=[]),
+                        plan="original plan",
+                    ),
+                ]
+            }
+        )
+
+        # Should replace messages (not merge), so only the new viz and its artifact ref
+        self.assertEqual(len(res["messages"]), 2)
+        self.assertIsInstance(res["messages"][0], VisualizationMessage)
+        self.assertEqual(cast(VisualizationMessage, res["messages"][0]).id, "viz-replaced")
+        self.assertIsInstance(res["messages"][1], ArtifactRefMessage)
+        self.assertEqual(cast(ArtifactRefMessage, res["messages"][1]).artifact_id, "viz-replaced")
 
 
 class TestUnwrapVisualizationArtifactContent(BaseTest):
