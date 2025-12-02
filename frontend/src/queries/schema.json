@@ -14203,6 +14203,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "Ashby",
                 "Supabase",
                 "CustomerIO",
                 "Github",
@@ -17828,6 +17829,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "integrationFilter": {
@@ -18121,6 +18123,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "integrationFilter": {
@@ -30298,6 +30301,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -30449,6 +30453,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -30625,6 +30630,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -30764,6 +30770,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -30944,6 +30951,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
@@ -31139,6 +31147,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -31365,6 +31374,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {
@@ -31550,6 +31560,7 @@
                     "type": "boolean"
                 },
                 "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
                 },
                 "interval": {

@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import uuid
@@ -12,11 +13,14 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
+
+from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 
 logger = structlog.get_logger(__name__)
 
@@ -245,19 +249,8 @@ class TaskRun(models.Model):
 
     def append_log(self, entries: list[dict]):
         """Append log entries to S3 storage."""
-
-        existing_content = ""
-        is_new_file = False
-        try:
-            existing_content = object_storage.read(self.log_url) or ""
-        except Exception as e:
-            is_new_file = True
-            logger.debug(
-                "task_run.no_existing_logs",
-                task_run_id=str(self.id),
-                log_url=self.log_url,
-                error=str(e),
-            )
+        existing_content = object_storage.read(self.log_url, missing_ok=True) or ""
+        is_new_file = not existing_content
 
         new_lines = "\n".join(json.dumps(entry) for entry in entries)
         content = existing_content + ("\n" if existing_content else "") + new_lines
@@ -411,3 +404,90 @@ class SandboxSnapshot(UUIDModel):
                     ) from e
 
         super().delete(*args, **kwargs)
+
+
+class SandboxEnvironment(UUIDModel):
+    """Configuration for sandbox execution environments including network access and secrets."""
+
+    class NetworkAccessLevel(models.TextChoices):
+        TRUSTED = "trusted", "Trusted"
+        FULL = "full", "Full"
+        CUSTOM = "custom", "Custom"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    name = models.CharField(max_length=255)
+
+    network_access_level = models.CharField(
+        max_length=20,
+        choices=NetworkAccessLevel.choices,
+        default=NetworkAccessLevel.FULL,  # NOTE: Default should be TRUSTED once we have an egress proxy in place
+    )
+
+    allowed_domains = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        blank=True,
+        help_text="List of allowed domains for custom network access",
+    )
+
+    include_default_domains = models.BooleanField(
+        default=False,
+        help_text="Whether to include default trusted domains (GitHub, npm, PyPI)",
+    )
+
+    repositories = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        blank=True,
+        help_text="List of repositories this environment applies to (format: org/repo)",
+    )
+
+    environment_variables = EncryptedJSONStringField(
+        default=dict,
+        blank=True,
+        null=True,
+        help_text="Encrypted environment variables for sandbox execution",
+    )
+
+    private = models.BooleanField(
+        default=True,
+        help_text="If true, only the creator can see this environment. Otherwise visible to whole team.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_sandbox_environment"
+        indexes = [
+            models.Index(fields=["team", "created_by"]),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    @staticmethod
+    def is_valid_env_var_key(key: str) -> bool:
+        if not key:
+            return False
+        pattern = r"^[A-Za-z_][A-Za-z0-9_]*$"
+        return bool(re.match(pattern, key))
+
+    def get_effective_domains(self) -> list[str]:
+        if self.network_access_level == self.NetworkAccessLevel.FULL:
+            return []
+
+        if self.network_access_level == self.NetworkAccessLevel.TRUSTED:
+            return DEFAULT_TRUSTED_DOMAINS.copy()
+
+        if self.network_access_level == self.NetworkAccessLevel.CUSTOM:
+            domains = list(self.allowed_domains)
+            if self.include_default_domains:
+                for domain in DEFAULT_TRUSTED_DOMAINS:
+                    if domain not in domains:
+                        domains.append(domain)
+            return domains
+
+        return []
