@@ -332,7 +332,6 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                     copy_data_modeling_model_to_ducklake_activity,
                     activity_inputs,
                     start_to_close_timeout=dt.timedelta(minutes=30),
-                    heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(
                         maximum_attempts=2,
                     ),
@@ -342,7 +341,6 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                     verify_ducklake_copy_activity,
                     activity_inputs,
                     start_to_close_timeout=dt.timedelta(minutes=10),
-                    heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(
                         maximum_attempts=1,
                     ),
