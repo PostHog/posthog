@@ -490,6 +490,35 @@ class SessionReplayEvents:
         return query
 
     @staticmethod
+    def get_sessions_from_team_id_query(
+        format: Optional[str] = None,
+    ):
+        """
+        Helper function to build a query for listing all session IDs for a given team ID
+        """
+        query = """
+                SELECT
+                    session_id,
+                    min(min_first_timestamp) as start_time,
+                    max(retention_period_days) as retention_period_days,
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                FROM
+                    session_replay_events
+                PREWHERE
+                    team_id = %(team_id)s
+                    AND min_first_timestamp <= %(python_now)s
+                GROUP BY
+                    session_id
+                HAVING
+                    expiry_time >= %(python_now)s
+                {optional_format_clause}
+                """
+        query = query.format(
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
+        )
+        return query
+
+    @staticmethod
     def count_soon_to_expire_sessions_query(
         format: Optional[str] = None,
     ):
