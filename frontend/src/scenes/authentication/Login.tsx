@@ -103,7 +103,8 @@ export function Login(): JSX.Element {
 
     // Trigger precheck for password manager autofill/paste (detected by large character delta)
     useEffect(() => {
-        const charDelta = Math.abs(login.email.length - (prevEmail?.length ?? 0))
+        const charDelta = login.email.length - (prevEmail?.length ?? 0)
+        const isAutofill = charDelta > 1
         const isAutofill = charDelta > 1
 
         if (isAutofill && isEmail(login.email, { requireTLD: true }) && precheckResponse.status === 'pending') {
