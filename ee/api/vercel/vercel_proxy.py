@@ -12,7 +12,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import BillingServiceAuthentication, BillingServiceUser
-from ee.api.vercel.billing_proxy_region_mixin import BillingProxyRegionMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -76,7 +75,7 @@ def forward_to_vercel(config_id: str, access_token: str, path: str, method: str,
     )
 
 
-class VercelProxyViewSet(BillingProxyRegionMixin, viewsets.ViewSet):
+class VercelProxyViewSet(viewsets.ViewSet):
     """
     Proxy endpoint for the billing service to call Vercel APIs.
 
@@ -84,8 +83,6 @@ class VercelProxyViewSet(BillingProxyRegionMixin, viewsets.ViewSet):
     PostHog validates the JWT, looks up the Vercel token from OrganizationIntegration,
     and forwards the request to Vercel.
 
-    Region routing is handled by BillingProxyRegionMixin - if the integration
-    isn't found in US, the request is automatically proxied to EU.
     """
 
     authentication_classes = [BillingServiceAuthentication]
