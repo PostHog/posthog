@@ -18,12 +18,20 @@ ENABLED_METRICS: list[str] | None = None  # or ["event_counts", "error_rates"]
 
 def get_llma_events_cte(date_start: str, date_end: str) -> str:
     """
-    Generate CTE that pre-filters events to only LLMA teams and event types.
+    Generate CTEs that pre-filter events to only relevant teams.
 
     This two-step approach (first find teams, then filter events) allows ClickHouse
     to use the sorting key (team_id, timestamp) more efficiently.
+
+    Provides:
+    - llma_events: AI events filtered to teams with AI activity
+    - llma_pageview_events: Pageview events filtered to teams viewing LLM analytics pages
     """
     event_types_sql = ", ".join(f"'{et}'" for et in config.ai_event_types)
+    url_patterns_sql = " OR ".join(
+        f"JSONExtractString(properties, '$current_url') LIKE '%{url_path}%'" for url_path, _ in config.pageview_mappings
+    )
+
     return f"""teams_with_ai_events AS (
     SELECT DISTINCT team_id
     FROM events
@@ -38,6 +46,23 @@ llma_events AS (
       AND event IN ({event_types_sql})
       AND timestamp >= toDateTime('{date_start}', 'UTC')
       AND timestamp < toDateTime('{date_end}', 'UTC')
+),
+teams_with_llma_pageviews AS (
+    SELECT DISTINCT team_id
+    FROM events
+    WHERE event = '$pageview'
+      AND timestamp >= toDateTime('{date_start}', 'UTC')
+      AND timestamp < toDateTime('{date_end}', 'UTC')
+      AND ({url_patterns_sql})
+),
+llma_pageview_events AS (
+    SELECT *
+    FROM events
+    WHERE team_id IN (SELECT team_id FROM teams_with_llma_pageviews)
+      AND event = '$pageview'
+      AND timestamp >= toDateTime('{date_start}', 'UTC')
+      AND timestamp < toDateTime('{date_end}', 'UTC')
+      AND ({url_patterns_sql})
 )"""
 
 

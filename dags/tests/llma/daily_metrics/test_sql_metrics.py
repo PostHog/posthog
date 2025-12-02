@@ -350,8 +350,8 @@ def test_pageview_counts_logic(template_context: dict, mock_events_data: list, e
         template = Template(f.read())
         rendered = template.render(**template_context)
 
-    # Verify SQL filters $pageview events
-    assert "event = '$pageview'" in rendered, "Should filter for $pageview events"
+    # Verify SQL uses the llma_pageview_events CTE (which filters $pageview events)
+    assert "llma_pageview_events" in rendered, "Should use llma_pageview_events CTE"
     assert "$current_url" in rendered, "Should use $current_url property"
     assert "LIKE" in rendered, "Should use LIKE for URL matching"
 

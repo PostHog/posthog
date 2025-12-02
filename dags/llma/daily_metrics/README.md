@@ -31,8 +31,12 @@ FROM llma_events
 GROUP BY ...
 ```
 
-The `llma_events` CTE is automatically provided and contains AI events pre-filtered
-to only teams that have AI activity. This two-step filtering allows ClickHouse to
+The following CTEs are automatically provided:
+
+- `llma_events`: AI events pre-filtered to teams with AI activity
+- `llma_pageview_events`: Pageview events pre-filtered to teams viewing LLM analytics pages
+
+This two-step filtering (first find teams, then filter events) allows ClickHouse to
 use the sorting key (team_id, timestamp) efficiently.
 
 Templates have access to these Jinja2 variables:
@@ -42,8 +46,6 @@ Templates have access to these Jinja2 variables:
 - `date_end`: End date for aggregation (YYYY-MM-DD)
 - `pageview_mappings`: List of (url_path, metric_suffix) tuples for pageview categorization
 - `include_error_rates`: Boolean flag for error rate calculation (default: true)
-
-Note: For non-AI event queries (like pageviews), use `FROM events` directly.
 
 ## Output Schema
 
